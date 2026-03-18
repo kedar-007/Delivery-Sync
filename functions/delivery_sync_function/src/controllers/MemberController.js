@@ -29,7 +29,7 @@ class MemberController {
       // Enrich with user details
       const userIds = [...new Set(members.map((m) => `'${m.user_id}'`))].join(',');
       const users = await this.db.query(
-        `SELECT ROWID, name, email, role FROM ${TABLES.USERS} ` +
+        `SELECT * FROM ${TABLES.USERS} ` +
         `WHERE tenant_id = '${tenantId}' AND ROWID IN (${userIds}) LIMIT 100`
       );
       const userMap = {};
@@ -45,6 +45,7 @@ class MemberController {
             email: u.email || '',
             userRole: u.role || '',
             projectRole: m.role,
+            avatarUrl: u.avatar_url || u.avtar_url || '',
             addedBy: m.added_by,
           };
         }),
@@ -83,7 +84,6 @@ class MemberController {
         project_id: projectId,
         user_id: data.user_id,
         role: data.role,
-        joined_date: DataStoreService.today(),
       });
 
       return ResponseHelper.created(res, {

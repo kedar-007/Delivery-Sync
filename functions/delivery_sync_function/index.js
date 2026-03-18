@@ -1,5 +1,9 @@
 'use strict';
 
+// Load .env for local development — in production set vars via
+// Catalyst Console → Functions → delivery_sync_function → Environment Variables
+require('dotenv').config();
+
 const catalyst = require('zcatalyst-sdk-node');
 const app = require('./src/app');
 

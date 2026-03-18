@@ -56,7 +56,7 @@ class AuthMiddleware {
       }
 
       const user = rows[0];
-      console.log('[AuthMiddleware] raw user row keys:', Object.keys(user));
+      // console.log('[AuthMiddleware] raw user row keys:', Object.keys(user));
       console.log('[AuthMiddleware] raw user row:', JSON.stringify(user));
 
       if (user.status === USER_STATUS.INACTIVE) {

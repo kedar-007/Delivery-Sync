@@ -8,7 +8,11 @@
       "Read(//usr/local/lib/node_modules/.bin/**)",
       "Read(//usr/local/**)",
       "Bash(/usr/local/bin/node /usr/local/bin/npm run build)",
-      "Bash(/usr/local/bin/node node_modules/.bin/tsc --noEmit)"
+      "Bash(/usr/local/bin/node node_modules/.bin/tsc --noEmit)",
+      "Bash(grep -o \"\"text\"\":\"\"[^\"\"]*registerUser[^\"\"]*\"\" /Users/kedar/.claude/projects/-Users-kedar-Documents-C-DS/09d69ed8-4af2-4b35-8e3c-47aa78a6248d.jsonl)",
+      "Bash(npm install:*)",
+      "Bash(ls /usr/local/bin/node /opt/homebrew/bin/node ~/.nvm/versions/node/*/bin/node)",
+      "Bash(/Users/kedar/.nvm/versions/node/v20.18.1/bin/npm install:*)"
     ]
   }
 }

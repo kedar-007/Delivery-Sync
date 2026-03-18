@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
-import { Plus } from 'lucide-react';
+import { useForm, Controller } from 'react-hook-form';
+import { Plus, Lock } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
@@ -11,10 +11,12 @@ import Modal, { ModalActions } from '../components/ui/Modal';
 import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
 import { PageLoader } from '../components/ui/Spinner';
+import UserPicker from '../components/ui/UserPicker';
 import { useRisks, useCreateRisk, useIssues, useCreateIssue, useDependencies, useCreateDependency, useAssumptions, useCreateAssumption } from '../hooks/useRaid';
 import { useProjects } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
+import { canDo, PERMISSIONS } from '../utils/permissions';
 
 type Tab = 'risks' | 'issues' | 'dependencies' | 'assumptions';
 
@@ -28,6 +30,7 @@ const RaidPage = () => {
   const [createError, setCreateError] = useState('');
 
   const { user: currentUser } = useAuth();
+  const canWrite = canDo(currentUser?.role, PERMISSIONS.RAID_WRITE);
   const { data: projects = [] } = useProjects();
   const { data: users = [] } = useUsers();
   const params: Record<string, string> = {};
@@ -43,7 +46,7 @@ const RaidPage = () => {
   const createDep = useCreateDependency();
   const createAssumption = useCreateAssumption();
 
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<Record<string, string>>({
+  const { register, handleSubmit, reset, control, formState: { errors, isSubmitting } } = useForm<Record<string, string>>({
     defaultValues: { project_id: preselectedProject, owner_user_id: '' },
     shouldUnregister: true,
   });
@@ -91,7 +94,9 @@ const RaidPage = () => {
     <Layout>
       <Header title="RAID Register"
         subtitle="Risks, Issues, Dependencies, Assumptions"
-        actions={<Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>New {tab.slice(0, -1)}</Button>}
+        actions={canWrite
+          ? <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>New {tab.slice(0, -1)}</Button>
+          : <span className="flex items-center gap-1.5 text-sm text-gray-400"><Lock size={14} />No permission to add items</span>}
       />
       <div className="p-6 space-y-5">
 
@@ -118,7 +123,7 @@ const RaidPage = () => {
 
         {currentData.length === 0 ? (
           <EmptyState title={`No ${tab}`} description={`No ${tab} recorded yet.`}
-            action={<Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>Add {tab.slice(0, -1)}</Button>} />
+            action={canWrite ? <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>Add {tab.slice(0, -1)}</Button> : undefined} />
         ) : (
           <div className="space-y-3">
             {currentData.map((item: any) => (
@@ -222,11 +227,20 @@ const RaidPage = () => {
           </div>
           <div>
             <label className="form-label">Owner *</label>
-            <select className="form-select" {...register('owner_user_id', { required: 'Please assign an owner' })}>
-              <option value="">Assign to…</option>
-              {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
-            </select>
-            {errors.owner_user_id && <p className="form-error">{errors.owner_user_id.message}</p>}
+            <Controller
+              name="owner_user_id"
+              control={control}
+              rules={{ required: 'Please assign an owner' }}
+              render={({ field }) => (
+                <UserPicker
+                  users={users}
+                  value={field.value ?? ''}
+                  onChange={field.onChange}
+                  placeholder="Assign to…"
+                />
+              )}
+            />
+            {errors.owner_user_id && <p className="form-error">{errors.owner_user_id.message as string}</p>}
           </div>
           {tab === 'risks' && (
             <>

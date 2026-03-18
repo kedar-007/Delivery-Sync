@@ -2,7 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import {
   Plus, UserCheck, UserX, Shield, Search, Filter, RefreshCw,
-  ChevronDown, ChevronUp, Clock, User, Tag, Layers, Calendar,
+  ChevronDown, ChevronUp, Clock, User, Tag, Layers, Calendar, Lock,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
@@ -14,7 +15,11 @@ import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
 import { PageLoader } from '../components/ui/Spinner';
 import { useAdminUsers, useInviteUser, useDeactivateUser, useAuditLogs } from '../hooks/useAdmin';
+import { useAuth } from '../contexts/AuthContext';
+import { canDo, PERMISSIONS, INVITE_ALLOWED_ROLES } from '../utils/permissions';
 import { User as UserType } from '../types';
+
+const PAGE_SIZE = 20;
 
 type Tab = 'users' | 'audit';
 interface InviteForm { email: string; name: string; role: string; }
@@ -89,11 +94,9 @@ interface AuditLog {
   oldValue?: string; newValue?: string; createdAt?: string;
 }
 
-const LogRow = ({ log }: { log: AuditLog }) => {
+const LogRow = ({ log, avatarUrl }: { log: AuditLog; avatarUrl?: string }) => {
   const [expanded, setExpanded] = useState(false);
   const hasDetail = !!(log.oldValue || log.newValue);
-  const initials = (log.performedByName || log.performedByEmail || '?')
-    .split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase();
 
   return (
     <div className="border-b border-gray-100 last:border-0">
@@ -102,8 +105,12 @@ const LogRow = ({ log }: { log: AuditLog }) => {
         onClick={() => hasDetail && setExpanded(e => !e)}
       >
         {/* Avatar */}
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5">
-          {initials}
+        <div className="shrink-0 mt-0.5">
+          <UserAvatar
+            name={log.performedByName || log.performedByEmail || '?'}
+            avatarUrl={avatarUrl}
+            size="sm"
+          />
         </div>
 
         {/* Main content */}
@@ -182,6 +189,9 @@ const LogRow = ({ log }: { log: AuditLog }) => {
 
 // ─── AdminPage ────────────────────────────────────────────────────────────────
 const AdminPage = () => {
+  const { user: currentUser } = useAuth();
+  const canInvite = canDo(currentUser?.role, PERMISSIONS.INVITE_USER);
+  const allowedInviteRoles = INVITE_ALLOWED_ROLES[currentUser?.role ?? ''] ?? [];
   const [tab, setTab] = useState<Tab>('users');
   const [showInvite, setShowInvite] = useState(false);
   const [inviteError, setInviteError] = useState('');
@@ -194,6 +204,7 @@ const AdminPage = () => {
   const [filterSearch, setFilterSearch] = useState('');
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
+  const [auditPage, setAuditPage] = useState(1);
 
   const auditParams = useMemo(() => {
     const p: Record<string, string> = {};
@@ -215,18 +226,28 @@ const AdminPage = () => {
     defaultValues: { role: 'TEAM_MEMBER' },
   });
 
+  // Build userId → avatarUrl map from admin users list
+  const userAvatarMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    (users as UserType[]).forEach(u => { if (u.avatarUrl) map[u.id] = u.avatarUrl; });
+    return map;
+  }, [users]);
+
   // Client-side search filter
   const auditLogs = useMemo(() => {
-    if (!filterSearch) return rawLogs as AuditLog[];
-    const q = filterSearch.toLowerCase();
-    return (rawLogs as AuditLog[]).filter(l =>
-      (l.performedByName || '').toLowerCase().includes(q) ||
-      (l.performedByEmail || '').toLowerCase().includes(q) ||
-      (l.action || '').toLowerCase().includes(q) ||
-      (l.entityType || '').toLowerCase().includes(q) ||
-      (l.newValue || '').toLowerCase().includes(q)
-    );
+    const filtered = !filterSearch ? (rawLogs as AuditLog[]) : (rawLogs as AuditLog[]).filter(l => {
+      const q = filterSearch.toLowerCase();
+      return (l.performedByName || '').toLowerCase().includes(q) ||
+        (l.performedByEmail || '').toLowerCase().includes(q) ||
+        (l.action || '').toLowerCase().includes(q) ||
+        (l.entityType || '').toLowerCase().includes(q) ||
+        (l.newValue || '').toLowerCase().includes(q);
+    });
+    return filtered;
   }, [rawLogs, filterSearch]);
+
+  const totalPages = Math.max(1, Math.ceil(auditLogs.length / PAGE_SIZE));
+  const pagedLogs = auditLogs.slice((auditPage - 1) * PAGE_SIZE, auditPage * PAGE_SIZE);
 
   const onInvite = async (data: InviteForm) => {
     try {
@@ -246,6 +267,7 @@ const AdminPage = () => {
   const clearFilters = () => {
     setFilterAction(''); setFilterEntity(''); setFilterUser('');
     setFilterDateFrom(''); setFilterDateTo(''); setFilterSearch('');
+    setAuditPage(1);
   };
   const hasFilters = !!(filterAction || filterEntity || filterUser || filterDateFrom || filterDateTo || filterSearch);
 
@@ -270,7 +292,9 @@ const AdminPage = () => {
   return (
     <Layout>
       <Header title="Admin" subtitle="User management and audit trail"
-        actions={tab === 'users' && <Button onClick={() => setShowInvite(true)} icon={<Plus size={16} />}>Invite User</Button>}
+        actions={tab === 'users' && (canInvite
+          ? <Button onClick={() => setShowInvite(true)} icon={<Plus size={16} />}>Invite User</Button>
+          : <span className="flex items-center gap-1.5 text-sm text-gray-400"><Lock size={14} />No permission to invite users</span>)}
       />
       <div className="p-6 space-y-5">
 
@@ -290,7 +314,7 @@ const AdminPage = () => {
         {tab === 'users' && (
           users.length === 0 ? (
             <EmptyState title="No users" description="Invite your first team member."
-              action={<Button onClick={() => setShowInvite(true)} icon={<Plus size={16} />}>Invite User</Button>} />
+              action={canInvite ? <Button onClick={() => setShowInvite(true)} icon={<Plus size={16} />}>Invite User</Button> : undefined} />
           ) : (
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
               <table className="w-full">
@@ -358,14 +382,14 @@ const AdminPage = () => {
                     className="form-input pl-8 text-xs w-full"
                     placeholder="Search name, action, resource…"
                     value={filterSearch}
-                    onChange={e => setFilterSearch(e.target.value)}
+                    onChange={e => { setFilterSearch(e.target.value); setAuditPage(1); }}
                   />
                 </div>
 
                 {/* Who (user) */}
                 <div className="relative">
                   <User size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                  <select className="form-select pl-8 text-xs w-full" value={filterUser} onChange={e => setFilterUser(e.target.value)}>
+                  <select className="form-select pl-8 text-xs w-full" value={filterUser} onChange={e => { setFilterUser(e.target.value); setAuditPage(1); }}>
                     <option value="">All users</option>
                     {userOptions.map(([id, name]) => (
                       <option key={id} value={id}>{name}</option>
@@ -376,7 +400,7 @@ const AdminPage = () => {
                 {/* Action */}
                 <div className="relative">
                   <Tag size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                  <select className="form-select pl-8 text-xs w-full" value={filterAction} onChange={e => setFilterAction(e.target.value)}>
+                  <select className="form-select pl-8 text-xs w-full" value={filterAction} onChange={e => { setFilterAction(e.target.value); setAuditPage(1); }}>
                     <option value="">All actions</option>
                     {actionOptions.map(a => <option key={a} value={a}>{a.replace(/_/g, ' ')}</option>)}
                   </select>
@@ -385,7 +409,7 @@ const AdminPage = () => {
                 {/* Entity type */}
                 <div className="relative">
                   <Layers size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                  <select className="form-select pl-8 text-xs w-full" value={filterEntity} onChange={e => setFilterEntity(e.target.value)}>
+                  <select className="form-select pl-8 text-xs w-full" value={filterEntity} onChange={e => { setFilterEntity(e.target.value); setAuditPage(1); }}>
                     <option value="">All resources</option>
                     {entityOptions.map(e => <option key={e} value={e}>{e}</option>)}
                   </select>
@@ -394,13 +418,13 @@ const AdminPage = () => {
                 {/* Date from */}
                 <div className="relative">
                   <Calendar size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                  <input type="date" className="form-input pl-8 text-xs w-full" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} />
+                  <input type="date" className="form-input pl-8 text-xs w-full" value={filterDateFrom} onChange={e => { setFilterDateFrom(e.target.value); setAuditPage(1); }} />
                 </div>
 
                 {/* Date to */}
                 <div className="relative">
                   <Calendar size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                  <input type="date" className="form-input pl-8 text-xs w-full" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} />
+                  <input type="date" className="form-input pl-8 text-xs w-full" value={filterDateTo} onChange={e => { setFilterDateTo(e.target.value); setAuditPage(1); }} />
                 </div>
               </div>
             </div>
@@ -437,9 +461,60 @@ const AdminPage = () => {
                 action={hasFilters ? <Button variant="outline" onClick={clearFilters}>Clear filters</Button> : undefined}
               />
             ) : (
-              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                {auditLogs.map((log) => <LogRow key={log.id} log={log} />)}
-              </div>
+              <>
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                  {pagedLogs.map((log) => (
+                    <LogRow key={log.id} log={log} avatarUrl={log.performedById ? userAvatarMap[log.performedById] : undefined} />
+                  ))}
+                </div>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between px-1">
+                    <p className="text-xs text-gray-500">
+                      Showing {(auditPage - 1) * PAGE_SIZE + 1}–{Math.min(auditPage * PAGE_SIZE, auditLogs.length)} of {auditLogs.length} events
+                    </p>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setAuditPage(p => Math.max(1, p - 1))}
+                        disabled={auditPage === 1}
+                        className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <ChevronLeft size={14} />
+                      </button>
+                      {Array.from({ length: totalPages }, (_, i) => i + 1)
+                        .filter(p => p === 1 || p === totalPages || Math.abs(p - auditPage) <= 1)
+                        .reduce<(number | '…')[]>((acc, p, i, arr) => {
+                          if (i > 0 && p - (arr[i - 1] as number) > 1) acc.push('…');
+                          acc.push(p);
+                          return acc;
+                        }, [])
+                        .map((p, i) => p === '…' ? (
+                          <span key={`ellipsis-${i}`} className="px-1 text-xs text-gray-400">…</span>
+                        ) : (
+                          <button
+                            key={p}
+                            onClick={() => setAuditPage(p as number)}
+                            className={`min-w-[28px] h-7 rounded-lg text-xs font-medium border transition-colors ${
+                              auditPage === p
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        ))}
+                      <button
+                        onClick={() => setAuditPage(p => Math.min(totalPages, p + 1))}
+                        disabled={auditPage === totalPages}
+                        className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -463,7 +538,7 @@ const AdminPage = () => {
           <div>
             <label className="form-label">Role *</label>
             <select className="form-select" {...register('role', { required: 'Required' })}>
-              {['TENANT_ADMIN', 'DELIVERY_LEAD', 'TEAM_MEMBER', 'PMO', 'EXEC', 'CLIENT'].map((r) => (
+              {allowedInviteRoles.map((r) => (
                 <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>
               ))}
             </select>

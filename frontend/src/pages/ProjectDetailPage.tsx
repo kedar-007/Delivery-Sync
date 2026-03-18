@@ -13,7 +13,8 @@ import Alert from '../components/ui/Alert';
 import { useProjectDashboard } from '../hooks/useDashboard';
 import { useUpdateRAG, useProjectMembers, useAddMember, useRemoveMember } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
+import UserPicker from '../components/ui/UserPicker';
 
 const ProjectDetailPage = () => {
   const { projectId, tenantSlug } = useParams<{ projectId: string; tenantSlug: string }>();
@@ -31,7 +32,7 @@ const ProjectDetailPage = () => {
   const removeMember = useRemoveMember(projectId!);
 
   const { register, handleSubmit, formState: { isSubmitting } } = useForm<{ rag_status: string; reason: string }>();
-  const addMemberForm = useForm<{ user_id: string; role: string }>({ defaultValues: { role: 'TEAM_MEMBER' } });
+  const addMemberForm = useForm<{ user_id: string; role: string }>({ defaultValues: { role: 'MEMBER' } });
 
   const onRAGSubmit = async (formData: { rag_status: string; reason: string }) => {
     try {
@@ -47,7 +48,7 @@ const ProjectDetailPage = () => {
     try {
       setMemberError('');
       await addMember.mutateAsync(formData);
-      addMemberForm.reset({ role: 'TEAM_MEMBER' });
+      addMemberForm.reset({ role: 'MEMBER' });
       setShowAddMember(false);
     } catch (err: unknown) {
       setMemberError((err as Error).message);
@@ -134,10 +135,13 @@ const ProjectDetailPage = () => {
             <p className="text-sm text-gray-400">No members assigned yet.</p>
           ) : (
             <div className="divide-y divide-gray-100">
-              {members.map((m: { id: string; userId: string; name?: string; email?: string; avatarUrl?: string; userRole?: string; projectRole?: string }) => (
+              {members.map((m: { id: string; userId: string; name?: string; email?: string; avatarUrl?: string; userRole?: string; projectRole?: string }) => {
+                const enriched = allUsers.find((u) => String(u.id) === String(m.userId));
+                const avatarUrl = m.avatarUrl || enriched?.avatarUrl || '';
+                return (
                 <div key={m.id} className="flex items-center justify-between py-2">
                   <div className="flex items-center gap-3">
-                    <UserAvatar name={m.name || m.email || ''} avatarUrl={m.avatarUrl} size="sm" />
+                    <UserAvatar name={m.name || enriched?.name || m.email || ''} avatarUrl={avatarUrl} size="sm" />
                     <div>
                       <p className="text-sm font-medium text-gray-900">{m.name || m.email || m.userId}</p>
                       <p className="text-xs text-gray-400">{m.projectRole || m.userRole}</p>
@@ -147,7 +151,8 @@ const ProjectDetailPage = () => {
                     <Trash2 size={14} />
                   </button>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </Card>
@@ -214,23 +219,31 @@ const ProjectDetailPage = () => {
       </div>
 
       {/* Add Member Modal */}
-      <Modal open={showAddMember} onClose={() => { setShowAddMember(false); addMemberForm.reset({ role: 'TEAM_MEMBER' }); setMemberError(''); }} title="Add Team Member">
+      <Modal open={showAddMember} onClose={() => { setShowAddMember(false); addMemberForm.reset({ role: 'MEMBER' }); setMemberError(''); }} title="Add Team Member">
         <form onSubmit={addMemberForm.handleSubmit(onAddMember)} className="space-y-4">
           {memberError && <Alert type="error" message={memberError} />}
           <div>
             <label className="form-label">User *</label>
-            <select className="form-select" {...addMemberForm.register('user_id', { required: 'Required' })}>
-              <option value="">Select user…</option>
-              {allUsers.filter((u) => !members.some((m: { userId: string }) => String(m.userId) === String(u.id))).map((u) => (
-                <option key={u.id} value={u.id}>{u.name} — {u.email} ({u.role.replace(/_/g, ' ')})</option>
-              ))}
-            </select>
+            <Controller
+              name="user_id"
+              control={addMemberForm.control}
+              rules={{ required: 'Required' }}
+              render={({ field }) => (
+                <UserPicker
+                  users={allUsers}
+                  value={field.value}
+                  onChange={field.onChange}
+                  placeholder="Select user…"
+                  excludeIds={members.map((m: { userId: string }) => String(m.userId))}
+                />
+              )}
+            />
           </div>
           <div>
             <label className="form-label">Project Role</label>
             <select className="form-select" {...addMemberForm.register('role')}>
-              {['DELIVERY_LEAD', 'TEAM_MEMBER', 'STAKEHOLDER', 'OBSERVER'].map((r) => (
-                <option key={r} value={r}>{r.replace('_', ' ')}</option>
+              {['LEAD', 'MEMBER', 'OBSERVER'].map((r) => (
+                <option key={r} value={r}>{r}</option>
               ))}
             </select>
           </div>

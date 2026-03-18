@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
-import { Plus, CheckCircle } from 'lucide-react';
+import { useForm, Controller } from 'react-hook-form';
+import { Plus, CheckCircle, Lock } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
@@ -11,12 +11,14 @@ import { StatusBadge } from '../components/ui/Badge';
 import Modal, { ModalActions } from '../components/ui/Modal';
 import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
+import UserPicker from '../components/ui/UserPicker';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import { useBlockers, useCreateBlocker, useResolveBlocker } from '../hooks/useBlockers';
 import { useProjects } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
 import { Blocker } from '../types';
+import { canDo, PERMISSIONS } from '../utils/permissions';
 
 interface BlockerForm {
   project_id: string; title: string; description: string; severity: string; owner_user_id: string;
@@ -39,6 +41,7 @@ const BlockersPage = () => {
   if (filterStatus) params.status = filterStatus;
 
   const { user: currentUser } = useAuth();
+  const canWrite = canDo(currentUser?.role, PERMISSIONS.BLOCKER_WRITE);
   const { data: blockers = [], isLoading } = useBlockers(params);
   const { data: projects = [] } = useProjects();
   const { data: users = [] } = useUsers();
@@ -75,7 +78,9 @@ const BlockersPage = () => {
     <Layout>
       <Header title="Blockers"
         subtitle={`${openBlockers.length} open · ${resolvedBlockers.length} resolved`}
-        actions={<Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>New Blocker</Button>}
+        actions={canWrite
+          ? <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>New Blocker</Button>
+          : <span className="flex items-center gap-1.5 text-sm text-gray-400"><Lock size={14} />No permission to raise blockers</span>}
       />
       <div className="p-6 space-y-5">
 
@@ -92,7 +97,7 @@ const BlockersPage = () => {
 
         {blockers.length === 0 ? (
           <EmptyState title="No blockers" description="No blockers at the moment."
-            action={<Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>Raise Blocker</Button>} />
+            action={canWrite ? <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>Raise Blocker</Button> : undefined} />
         ) : (
           <div className="space-y-3">
             {blockers.map((b: Blocker) => (
@@ -205,10 +210,19 @@ const BlockersPage = () => {
           </div>
           <div>
             <label className="form-label">Owner *</label>
-            <select className="form-select" {...createForm.register('owner_user_id', { required: 'Required' })}>
-              <option value="">Assign to…</option>
-              {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
-            </select>
+            <Controller
+              name="owner_user_id"
+              control={createForm.control}
+              rules={{ required: 'Required' }}
+              render={({ field }) => (
+                <UserPicker
+                  users={users}
+                  value={field.value}
+                  onChange={field.onChange}
+                  placeholder="Assign to…"
+                />
+              )}
+            />
           </div>
           <ModalActions>
             <Button variant="outline" type="button" onClick={() => setShowCreate(false)}>Cancel</Button>

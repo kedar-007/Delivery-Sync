@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useForm } from 'react-hook-form';
-import { Camera, Save, User, Mail, Shield, Check, AlertCircle } from 'lucide-react';
+import { Camera, Save, User, Mail, Shield, Check, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import { canDo, PERMISSIONS } from '../utils/permissions';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
@@ -252,6 +253,40 @@ const ProfilePage = () => {
               <span className="text-sm text-gray-500">User ID</span>
               <span className="text-xs text-gray-400 font-mono">{authUser?.id}</span>
             </div>
+          </div>
+        </div>
+
+        {/* Permissions */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+          <h3 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <Shield size={15} className="text-gray-400" /> My Permissions
+          </h3>
+          <p className="text-xs text-gray-500 mb-4">Based on your <span className="font-medium text-gray-700">{(profile?.role ?? authUser?.role ?? '').replace(/_/g, ' ')}</span> role</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {[
+              { label: 'View Projects', perm: PERMISSIONS.PROJECT_READ },
+              { label: 'Manage Projects', perm: PERMISSIONS.PROJECT_WRITE },
+              { label: 'Submit Standups', perm: PERMISSIONS.STANDUP_SUBMIT },
+              { label: 'Submit EOD', perm: PERMISSIONS.EOD_SUBMIT },
+              { label: 'Manage Actions', perm: PERMISSIONS.ACTION_WRITE },
+              { label: 'Manage Blockers', perm: PERMISSIONS.BLOCKER_WRITE },
+              { label: 'Manage RAID', perm: PERMISSIONS.RAID_WRITE },
+              { label: 'Manage Decisions', perm: PERMISSIONS.DECISION_WRITE },
+              { label: 'Manage Milestones', perm: PERMISSIONS.MILESTONE_WRITE },
+              { label: 'Generate Reports', perm: PERMISSIONS.REPORT_WRITE },
+              { label: 'Invite Users', perm: PERMISSIONS.INVITE_USER },
+              { label: 'Admin Panel', perm: PERMISSIONS.ADMIN_USERS },
+            ].map(({ label, perm }) => {
+              const allowed = canDo(profile?.role ?? authUser?.role, perm);
+              return (
+                <div key={perm} className={`flex items-center gap-2 px-3 py-2 rounded-lg ${allowed ? 'bg-green-50' : 'bg-gray-50'}`}>
+                  {allowed
+                    ? <CheckCircle size={14} className="text-green-500 shrink-0" />
+                    : <XCircle size={14} className="text-gray-300 shrink-0" />}
+                  <span className={`text-xs ${allowed ? 'text-green-800 font-medium' : 'text-gray-400'}`}>{label}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
 

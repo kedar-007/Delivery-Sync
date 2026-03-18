@@ -71,15 +71,18 @@ class StandupController {
    */
   async getStandups(req, res) {
     try {
-      const { tenantId, id: currentUserId } = req.currentUser;
+      const { tenantId, id: currentUserId, role } = req.currentUser;
       const { projectId, date, userId, startDate, endDate } = req.query;
+
+      // TEAM_MEMBER can only see their own entries
+      const effectiveUserId = role === 'TEAM_MEMBER' ? currentUserId : userId;
 
       let whereExtra = `project_id = '${DataStoreService.escape(projectId || '')}'`;
       if (!projectId) whereExtra = '1=1'; // allow fetching across projects
 
       if (projectId) whereExtra = `project_id = '${DataStoreService.escape(projectId)}'`;
       if (date) whereExtra += ` AND entry_date = '${DataStoreService.escape(date)}'`;
-      if (userId) whereExtra += ` AND user_id = '${DataStoreService.escape(userId)}'`;
+      if (effectiveUserId) whereExtra += ` AND user_id = '${DataStoreService.escape(effectiveUserId)}'`;
       if (startDate && endDate) {
         whereExtra += ` AND entry_date >= '${DataStoreService.escape(startDate)}' AND entry_date <= '${DataStoreService.escape(endDate)}'`;
       }
@@ -114,7 +117,7 @@ class StandupController {
    */
   async getStandupRollup(req, res) {
     try {
-      const { tenantId } = req.currentUser;
+      const { tenantId, id: currentUserId, role } = req.currentUser;
       const { projectId, startDate, endDate } = req.query;
 
       if (!projectId) return ResponseHelper.validationError(res, 'projectId is required');
@@ -123,9 +126,12 @@ class StandupController {
       const from = startDate || DataStoreService.daysAgo(7);
       const to = endDate || today;
 
+      // TEAM_MEMBER only sees their own entries in rollup
+      const userFilter = role === 'TEAM_MEMBER' ? ` AND user_id = '${currentUserId}'` : '';
+
       const standups = await this.db.findWhere(
         TABLES.STANDUP_ENTRIES, tenantId,
-        `project_id = '${DataStoreService.escape(projectId)}' AND entry_date >= '${from}' AND entry_date <= '${to}'`,
+        `project_id = '${DataStoreService.escape(projectId)}' AND entry_date >= '${from}' AND entry_date <= '${to}'${userFilter}`,
         { orderBy: 'entry_date DESC, CREATEDTIME ASC', limit: 200 }
       );
 
