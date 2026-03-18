@@ -319,7 +319,7 @@ const AiInsightsPage = () => {
     <Layout>
       <Header
         title="AI Insights"
-        subtitle="Powered by Qwen 30B — intelligent analysis of your team's activity"
+        subtitle="Powered by DSV AI — intelligent analysis of your team's activity"
         actions={
           <button
             onClick={runAll}

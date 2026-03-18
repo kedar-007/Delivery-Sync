@@ -41,6 +41,13 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Teams',         to: '/teams',       icon: <Users size={18} />,    roles: ['TENANT_ADMIN', 'DELIVERY_LEAD', 'PMO', 'EXEC', 'TEAM_MEMBER'] },
   { label: 'Reports',       to: '/reports',    icon: <FileText size={18} /> },
   { label: 'AI Insights',   to: '/ai-insights', icon: <Sparkles size={18} />, roles: ['TENANT_ADMIN', 'DELIVERY_LEAD', 'PMO', 'EXEC', 'TEAM_MEMBER', 'CLIENT'] },
+  {
+    label: 'Executive', icon: <Briefcase size={18} />, roles: ['TENANT_ADMIN', 'PMO', 'EXEC'],
+    children: [
+      { label: 'CEO Dashboard', to: '/ceo-dashboard', icon: <Briefcase size={16} /> },
+      { label: 'CTO Dashboard', to: '/cto-dashboard', icon: <LayoutDashboard size={16} /> },
+    ],
+  },
   { label: 'Admin',         to: '/admin',      icon: <Settings size={18} />, roles: ['TENANT_ADMIN'] },
 ];
 

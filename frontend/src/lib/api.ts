@@ -44,6 +44,7 @@ export const dashboardApi = {
   getPortfolio: () => api.get('/dashboard/portfolio').then((r) => r.data.data),
   getProjectDashboard: (projectId: string) =>
     api.get(`/dashboard/project/${projectId}`).then((r) => r.data.data),
+  getExecSummary: () => api.get('/dashboard/exec-summary').then((r) => r.data.data),
 };
 
 // ─── Projects ─────────────────────────────────────────────────────────────────
