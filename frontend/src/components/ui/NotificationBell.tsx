@@ -1,7 +1,67 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Bell, CheckCheck, Trash2, X } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Bell, BellOff, CheckCheck, Trash2, X } from 'lucide-react';
 import { useNotifications, useMarkRead, useMarkAllRead, useDeleteNotification } from '../../hooks/useNotifications';
 import type { Notification } from '../../hooks/useNotifications';
+
+// ─── Notification chime (Web Audio API) ──────────────────────────────────────
+// Keep a single AudioContext alive for the lifetime of the page.
+// Browsers suspend it until a user gesture — we resume it on first bell click.
+let _audioCtx: AudioContext | null = null;
+
+function getAudioCtx(): AudioContext | null {
+  try {
+    if (!_audioCtx) {
+      _audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    return _audioCtx;
+  } catch {
+    return null;
+  }
+}
+
+// Call this inside any click handler to satisfy the browser gesture requirement
+function ensureAudioUnlocked() {
+  const ctx = getAudioCtx();
+  if (ctx && ctx.state === 'suspended') {
+    ctx.resume();
+  }
+}
+
+function playChime() {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+
+  const doPlay = () => {
+    try {
+      // Two-tone ding: 880 Hz then a fifth (1320 Hz), staggered
+      const notes = [880, 1320];
+      notes.forEach((freq, i) => {
+        const osc  = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.13);
+
+        gain.gain.setValueAtTime(0,    ctx.currentTime + i * 0.13);
+        gain.gain.linearRampToValueAtTime(0.22, ctx.currentTime + i * 0.13 + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + i * 0.13 + 0.55);
+
+        osc.start(ctx.currentTime + i * 0.13);
+        osc.stop(ctx.currentTime  + i * 0.13 + 0.6);
+      });
+    } catch {
+      // fail silently
+    }
+  };
+
+  if (ctx.state === 'suspended') {
+    ctx.resume().then(doPlay);
+  } else {
+    doPlay();
+  }
+}
 
 // ─── Notification type → colour ───────────────────────────────────────────────
 const typeColor: Record<string, string> = {
@@ -85,9 +145,13 @@ const NotifRow = ({ n, onRead, onDelete }: {
 
 // ─── Bell ─────────────────────────────────────────────────────────────────────
 
+const MUTE_KEY = 'ds_notif_muted';
+
 const NotificationBell = () => {
   const [open, setOpen] = useState(false);
+  const [muted, setMuted] = useState(() => localStorage.getItem(MUTE_KEY) === 'true');
   const ref = useRef<HTMLDivElement>(null);
+  const prevUnread = useRef<number | null>(null);
 
   const { data } = useNotifications();
   const markRead = useMarkRead();
@@ -96,6 +160,27 @@ const NotificationBell = () => {
 
   const notifications = data?.notifications ?? [];
   const unread = data?.unreadCount ?? 0;
+
+  // Play chime when unread count increases (new notification arrived)
+  useEffect(() => {
+    if (prevUnread.current === null) {
+      // First load — just record baseline, don't play
+      prevUnread.current = unread;
+      return;
+    }
+    if (unread > prevUnread.current && !muted) {
+      playChime();
+    }
+    prevUnread.current = unread;
+  }, [unread, muted]);
+
+  const toggleMute = useCallback(() => {
+    setMuted((m) => {
+      const next = !m;
+      localStorage.setItem(MUTE_KEY, String(next));
+      return next;
+    });
+  }, []);
 
   // Close on outside click
   useEffect(() => {
@@ -110,7 +195,14 @@ const NotificationBell = () => {
     <div ref={ref} className="relative">
       {/* Bell button */}
       <button
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          ensureAudioUnlocked();
+          setOpen((o) => {
+            // Play chime when opening if there are unread notifications
+            if (!o && unread > 0 && !muted) playChime();
+            return !o;
+          });
+        }}
         aria-label={`Notifications${unread > 0 ? ` (${unread} unread)` : ''}`}
         className="relative p-2 rounded-lg transition-colors"
         style={{ color: `rgb(var(--ds-text-muted))` }}
@@ -141,6 +233,13 @@ const NotificationBell = () => {
                   Mark all read
                 </button>
               )}
+              <button
+                onClick={toggleMute}
+                title={muted ? 'Unmute notification sound' : 'Mute notification sound'}
+                className="p-1 rounded text-gray-400 hover:text-gray-700 transition-colors"
+              >
+                {muted ? <BellOff size={13} /> : <Bell size={13} />}
+              </button>
               <button onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-600">
                 <X size={14} />
               </button>

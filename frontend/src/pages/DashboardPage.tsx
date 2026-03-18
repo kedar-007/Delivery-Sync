@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { AlertTriangle, CheckSquare, Clock, TrendingDown, FolderKanban } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
@@ -13,6 +13,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { format } from 'date-fns';
 
 const DashboardPage = () => {
+  const { tenantSlug } = useParams<{ tenantSlug: string }>();
+  const slug = tenantSlug ?? '';
   const { user } = useAuth();
   const { data, isLoading, error } = useDashboardSummary();
 
@@ -70,7 +72,7 @@ const DashboardPage = () => {
               {summary?.projects?.length === 0
                 ? <EmptyState title="No projects" description="You're not a member of any active project." />
                 : summary?.projects?.slice(0, 8).map((p: {id: string; name: string; ragStatus: string; endDate: string}) => (
-                  <Link key={p.id} to={`/projects/${p.id}`}
+                  <Link key={p.id} to={`/${slug}/projects/${p.id}`}
                     className="flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition-colors">
                     <span className="text-sm text-gray-800 font-medium truncate pr-2">{p.name}</span>
                     <RAGBadge status={p.ragStatus} />
@@ -84,7 +86,7 @@ const DashboardPage = () => {
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
             <div className="p-5 border-b border-gray-100 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-gray-900">Overdue Actions</h3>
-              <Link to="/actions" className="text-xs text-blue-600 hover:underline">View all</Link>
+              <Link to={`/${slug}/actions`} className="text-xs text-blue-600 hover:underline">View all</Link>
             </div>
             <div className="divide-y divide-gray-50">
               {summary?.overdueActions?.length === 0
@@ -106,7 +108,7 @@ const DashboardPage = () => {
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
             <div className="p-5 border-b border-gray-100 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-gray-900">Critical Blockers</h3>
-              <Link to="/blockers" className="text-xs text-blue-600 hover:underline">View all</Link>
+              <Link to={`/${slug}/blockers`} className="text-xs text-blue-600 hover:underline">View all</Link>
             </div>
             <div className="divide-y divide-gray-50">
               {summary?.criticalBlockers?.length === 0
@@ -129,16 +131,16 @@ const DashboardPage = () => {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
           <h3 className="text-sm font-semibold text-gray-900 mb-4">Quick Actions</h3>
           <div className="flex flex-wrap gap-3">
-            <Link to="/standup" className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors">
+            <Link to={`/${slug}/standup`} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors">
               <Clock size={16} /> Submit Standup
             </Link>
-            <Link to="/eod" className="inline-flex items-center gap-2 px-4 py-2 bg-green-50 text-green-700 rounded-lg text-sm font-medium hover:bg-green-100 transition-colors">
+            <Link to={`/${slug}/eod`} className="inline-flex items-center gap-2 px-4 py-2 bg-green-50 text-green-700 rounded-lg text-sm font-medium hover:bg-green-100 transition-colors">
               <CheckSquare size={16} /> Submit EOD
             </Link>
-            <Link to="/actions" className="inline-flex items-center gap-2 px-4 py-2 bg-orange-50 text-orange-700 rounded-lg text-sm font-medium hover:bg-orange-100 transition-colors">
+            <Link to={`/${slug}/actions`} className="inline-flex items-center gap-2 px-4 py-2 bg-orange-50 text-orange-700 rounded-lg text-sm font-medium hover:bg-orange-100 transition-colors">
               <CheckSquare size={16} /> My Actions
             </Link>
-            <Link to="/blockers" className="inline-flex items-center gap-2 px-4 py-2 bg-red-50 text-red-700 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors">
+            <Link to={`/${slug}/blockers`} className="inline-flex items-center gap-2 px-4 py-2 bg-red-50 text-red-700 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors">
               <AlertTriangle size={16} /> Raise Blocker
             </Link>
           </div>
