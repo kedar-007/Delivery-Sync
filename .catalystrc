@@ -1,0 +1,30 @@
+{
+  "defaults": {
+    "project": 1,
+    "env": 1
+  },
+  "actives": {
+    "project": 1,
+    "env": 1
+  },
+  "projects": [
+    {
+      "idx": 1,
+      "id": "17682000000819069",
+      "name": "Delivery-Sync",
+      "domain": {
+        "id": "50039299089",
+        "name": "delivery-sync-60040289923.development"
+      },
+      "timezone": "Asia/Kolkata",
+      "env": [
+        {
+          "idx": 1,
+          "id": "60040289923",
+          "name": "Development",
+          "type": 3
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,254 @@
+'use strict';
+
+// ─── User Roles ───────────────────────────────────────────────────────────────
+const ROLES = Object.freeze({
+  TENANT_ADMIN: 'TENANT_ADMIN',
+  DELIVERY_LEAD: 'DELIVERY_LEAD',
+  TEAM_MEMBER: 'TEAM_MEMBER',
+  PMO: 'PMO',
+  EXEC: 'EXEC',
+  CLIENT: 'CLIENT',
+});
+
+// ─── Permissions ──────────────────────────────────────────────────────────────
+const PERMISSIONS = Object.freeze({
+  PROJECT_READ: 'PROJECT_READ',
+  PROJECT_WRITE: 'PROJECT_WRITE',
+  STANDUP_SUBMIT: 'STANDUP_SUBMIT',
+  STANDUP_READ: 'STANDUP_READ',
+  EOD_SUBMIT: 'EOD_SUBMIT',
+  EOD_READ: 'EOD_READ',
+  ACTION_READ: 'ACTION_READ',
+  ACTION_WRITE: 'ACTION_WRITE',
+  BLOCKER_READ: 'BLOCKER_READ',
+  BLOCKER_WRITE: 'BLOCKER_WRITE',
+  RAID_READ: 'RAID_READ',
+  RAID_WRITE: 'RAID_WRITE',
+  DECISION_READ: 'DECISION_READ',
+  DECISION_WRITE: 'DECISION_WRITE',
+  MILESTONE_READ: 'MILESTONE_READ',
+  MILESTONE_WRITE: 'MILESTONE_WRITE',
+  REPORT_READ: 'REPORT_READ',
+  REPORT_WRITE: 'REPORT_WRITE',
+  DASHBOARD_READ: 'DASHBOARD_READ',
+  ADMIN_USERS: 'ADMIN_USERS',
+  ADMIN_SETTINGS: 'ADMIN_SETTINGS',
+});
+
+// ─── Role → Permission Matrix ─────────────────────────────────────────────────
+const ROLE_PERMISSIONS = Object.freeze({
+  [ROLES.TENANT_ADMIN]: Object.values(PERMISSIONS),
+  [ROLES.DELIVERY_LEAD]: [
+    PERMISSIONS.PROJECT_READ, PERMISSIONS.PROJECT_WRITE,
+    PERMISSIONS.STANDUP_SUBMIT, PERMISSIONS.STANDUP_READ,
+    PERMISSIONS.EOD_SUBMIT, PERMISSIONS.EOD_READ,
+    PERMISSIONS.ACTION_READ, PERMISSIONS.ACTION_WRITE,
+    PERMISSIONS.BLOCKER_READ, PERMISSIONS.BLOCKER_WRITE,
+    PERMISSIONS.RAID_READ, PERMISSIONS.RAID_WRITE,
+    PERMISSIONS.DECISION_READ, PERMISSIONS.DECISION_WRITE,
+    PERMISSIONS.MILESTONE_READ, PERMISSIONS.MILESTONE_WRITE,
+    PERMISSIONS.REPORT_READ, PERMISSIONS.REPORT_WRITE,
+    PERMISSIONS.DASHBOARD_READ,
+  ],
+  [ROLES.TEAM_MEMBER]: [
+    PERMISSIONS.PROJECT_READ,
+    PERMISSIONS.STANDUP_SUBMIT, PERMISSIONS.STANDUP_READ,
+    PERMISSIONS.EOD_SUBMIT, PERMISSIONS.EOD_READ,
+    PERMISSIONS.ACTION_READ, PERMISSIONS.ACTION_WRITE,
+    PERMISSIONS.BLOCKER_READ, PERMISSIONS.BLOCKER_WRITE,
+    PERMISSIONS.RAID_READ,
+    PERMISSIONS.DECISION_READ,
+    PERMISSIONS.MILESTONE_READ,
+    PERMISSIONS.DASHBOARD_READ,
+  ],
+  [ROLES.PMO]: [
+    PERMISSIONS.PROJECT_READ, PERMISSIONS.PROJECT_WRITE,
+    PERMISSIONS.STANDUP_READ,
+    PERMISSIONS.EOD_READ,
+    PERMISSIONS.ACTION_READ, PERMISSIONS.ACTION_WRITE,
+    PERMISSIONS.BLOCKER_READ, PERMISSIONS.BLOCKER_WRITE,
+    PERMISSIONS.RAID_READ, PERMISSIONS.RAID_WRITE,
+    PERMISSIONS.DECISION_READ, PERMISSIONS.DECISION_WRITE,
+    PERMISSIONS.MILESTONE_READ, PERMISSIONS.MILESTONE_WRITE,
+    PERMISSIONS.REPORT_READ, PERMISSIONS.REPORT_WRITE,
+    PERMISSIONS.DASHBOARD_READ,
+  ],
+  [ROLES.EXEC]: [
+    PERMISSIONS.PROJECT_READ,
+    PERMISSIONS.STANDUP_READ,
+    PERMISSIONS.EOD_READ,
+    PERMISSIONS.ACTION_READ,
+    PERMISSIONS.BLOCKER_READ,
+    PERMISSIONS.RAID_READ,
+    PERMISSIONS.DECISION_READ,
+    PERMISSIONS.MILESTONE_READ,
+    PERMISSIONS.REPORT_READ,
+    PERMISSIONS.DASHBOARD_READ,
+  ],
+  [ROLES.CLIENT]: [
+    PERMISSIONS.PROJECT_READ,
+    PERMISSIONS.MILESTONE_READ,
+    PERMISSIONS.REPORT_READ,
+    PERMISSIONS.DASHBOARD_READ,
+  ],
+});
+
+// ─── RAG Status ───────────────────────────────────────────────────────────────
+const RAG_STATUS = Object.freeze({
+  RED: 'RED',
+  AMBER: 'AMBER',
+  GREEN: 'GREEN',
+});
+
+// ─── Project Status ───────────────────────────────────────────────────────────
+const PROJECT_STATUS = Object.freeze({
+  ACTIVE: 'ACTIVE',
+  COMPLETED: 'COMPLETED',
+  ON_HOLD: 'ON_HOLD',
+  CANCELLED: 'CANCELLED',
+});
+
+// ─── Action Status ────────────────────────────────────────────────────────────
+const ACTION_STATUS = Object.freeze({
+  OPEN: 'OPEN',
+  IN_PROGRESS: 'IN_PROGRESS',
+  DONE: 'DONE',
+  CANCELLED: 'CANCELLED',
+});
+
+// ─── Blocker Status ───────────────────────────────────────────────────────────
+const BLOCKER_STATUS = Object.freeze({
+  OPEN: 'OPEN',
+  IN_PROGRESS: 'IN_PROGRESS',
+  RESOLVED: 'RESOLVED',
+  ESCALATED: 'ESCALATED',
+});
+
+// ─── Severity/Priority ────────────────────────────────────────────────────────
+const SEVERITY = Object.freeze({
+  CRITICAL: 'CRITICAL',
+  HIGH: 'HIGH',
+  MEDIUM: 'MEDIUM',
+  LOW: 'LOW',
+});
+
+// ─── Milestone Status ─────────────────────────────────────────────────────────
+const MILESTONE_STATUS = Object.freeze({
+  PENDING: 'PENDING',
+  IN_PROGRESS: 'IN_PROGRESS',
+  COMPLETED: 'COMPLETED',
+  DELAYED: 'DELAYED',
+});
+
+// ─── RAID Statuses ────────────────────────────────────────────────────────────
+const RISK_STATUS = Object.freeze({
+  OPEN: 'OPEN',
+  MITIGATED: 'MITIGATED',
+  CLOSED: 'CLOSED',
+});
+
+const ISSUE_STATUS = Object.freeze({
+  OPEN: 'OPEN',
+  IN_PROGRESS: 'IN_PROGRESS',
+  RESOLVED: 'RESOLVED',
+  CLOSED: 'CLOSED',
+});
+
+const DEPENDENCY_STATUS = Object.freeze({
+  PENDING: 'PENDING',
+  RESOLVED: 'RESOLVED',
+  AT_RISK: 'AT_RISK',
+});
+
+const ASSUMPTION_STATUS = Object.freeze({
+  VALID: 'VALID',
+  INVALID: 'INVALID',
+  UNDER_REVIEW: 'UNDER_REVIEW',
+});
+
+const DECISION_STATUS = Object.freeze({
+  OPEN: 'OPEN',
+  IMPLEMENTED: 'IMPLEMENTED',
+  REVERSED: 'REVERSED',
+});
+
+// ─── User Status ──────────────────────────────────────────────────────────────
+const USER_STATUS = Object.freeze({
+  ACTIVE: 'ACTIVE',
+  INACTIVE: 'INACTIVE',
+  INVITED: 'INVITED',
+});
+
+// ─── Notification Types ───────────────────────────────────────────────────────
+const NOTIFICATION_TYPE = Object.freeze({
+  STANDUP_REMINDER: 'STANDUP_REMINDER',
+  EOD_REMINDER: 'EOD_REMINDER',
+  ACTION_OVERDUE: 'ACTION_OVERDUE',
+  BLOCKER_ESCALATION: 'BLOCKER_ESCALATION',
+  GENERAL: 'GENERAL',
+});
+
+// ─── Audit Actions ────────────────────────────────────────────────────────────
+const AUDIT_ACTION = Object.freeze({
+  CREATE: 'CREATE',
+  UPDATE: 'UPDATE',
+  DELETE: 'DELETE',
+  STATUS_CHANGE: 'STATUS_CHANGE',
+  RAG_CHANGE: 'RAG_CHANGE',
+  ROLE_CHANGE: 'ROLE_CHANGE',
+  ESCALATE: 'ESCALATE',
+});
+
+// ─── Report Types ─────────────────────────────────────────────────────────────
+const REPORT_TYPE = Object.freeze({
+  WEEKLY: 'WEEKLY',
+  MONTHLY: 'MONTHLY',
+  CUSTOM: 'CUSTOM',
+});
+
+// ─── Table Names ──────────────────────────────────────────────────────────────
+const TABLES = Object.freeze({
+  TENANTS: 'tenants',
+  USERS: 'users',
+  PROJECTS: 'projects',
+  PROJECT_MEMBERS: 'project_members',
+  MILESTONES: 'milestones',
+  STANDUP_ENTRIES: 'standup_entries',
+  EOD_ENTRIES: 'eod_entries',
+  ACTIONS: 'actions',
+  BLOCKERS: 'blockers',
+  RISKS: 'risks',
+  ISSUES: 'issues',
+  DEPENDENCIES: 'dependencies',
+  ASSUMPTIONS: 'assumptions',
+  DECISIONS: 'decisions',
+  REPORTS: 'reports',
+  AUDIT_LOGS: 'audit_logs',
+  NOTIFICATION_EVENTS: 'notification_events',
+});
+
+// ─── Cron Blocker Escalation Threshold (days) ────────────────────────────────
+const BLOCKER_ESCALATION_THRESHOLD_DAYS = 3;
+
+module.exports = {
+  ROLES,
+  PERMISSIONS,
+  ROLE_PERMISSIONS,
+  RAG_STATUS,
+  PROJECT_STATUS,
+  ACTION_STATUS,
+  BLOCKER_STATUS,
+  SEVERITY,
+  MILESTONE_STATUS,
+  RISK_STATUS,
+  ISSUE_STATUS,
+  DEPENDENCY_STATUS,
+  ASSUMPTION_STATUS,
+  DECISION_STATUS,
+  USER_STATUS,
+  NOTIFICATION_TYPE,
+  AUDIT_ACTION,
+  REPORT_TYPE,
+  TABLES,
+  BLOCKER_ESCALATION_THRESHOLD_DAYS,
+};

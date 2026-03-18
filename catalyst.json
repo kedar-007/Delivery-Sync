@@ -1,0 +1,13 @@
+{
+  "functions": {
+    "targets": [
+      "delivery_sync_function"
+    ],
+    "ignore": [],
+    "source": "functions"
+  },
+  "client": {
+    "source": "frontend",
+    "plugin": "zcatalyst-cli-plugin-react"
+  }
+}

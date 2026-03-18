@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "Bash(/usr/local/bin/node --version)",
+      "Bash(/usr/local/bin/npm --version)",
+      "Bash(ls /usr/local/bin/npm*)",
+      "Read(//usr/local/lib/node_modules/.bin/**)",
+      "Read(//usr/local/**)",
+      "Bash(/usr/local/bin/node /usr/local/bin/npm run build)",
+      "Bash(/usr/local/bin/node node_modules/.bin/tsc --noEmit)"
+    ]
+  }
+}
