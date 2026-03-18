@@ -1,6 +1,6 @@
 // ─── Auth / User ─────────────────────────────────────────────────────────────
 
-export type UserRole = 'TENANT_ADMIN' | 'DELIVERY_LEAD' | 'TEAM_MEMBER' | 'PMO' | 'EXEC' | 'CLIENT';
+export type UserRole = 'SUPER_ADMIN' | 'TENANT_ADMIN' | 'DELIVERY_LEAD' | 'TEAM_MEMBER' | 'PMO' | 'EXEC' | 'CLIENT';
 export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'INVITED';
 
 export interface CurrentUser {

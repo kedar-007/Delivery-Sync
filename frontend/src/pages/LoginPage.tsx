@@ -148,7 +148,7 @@ const RightPanel = ({ children }: { children: React.ReactNode }) => (
 );
 
 // ─── Sign-in panel ──────────────────────────────────────────────────────────────
-const SignInPanel = ({ error }: { error?: string | null }) => {
+const SignInPanel = ({ error, forcePromptLogin }: { error?: string | null; forcePromptLogin?: boolean }) => {
   const [email, setEmail] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -156,15 +156,25 @@ const SignInPanel = ({ error }: { error?: string | null }) => {
     e.preventDefault();
     setSubmitting(true);
     sessionStorage.removeItem('ds_auth_redirect');
-    // Catalyst auth handles the actual credential verification via Zoho SSO.
-    // Passing the email as a hint so Zoho can pre-fill it on their login page.
-    const hint = email ? `?login_hint=${encodeURIComponent(email)}` : '';
-    window.location.href = `/__catalyst/auth/login${hint}`;
+    sessionStorage.removeItem('ds_logged_out');
+    const params = new URLSearchParams();
+    if (email) params.set('login_hint', email);
+    if (forcePromptLogin) params.set('prompt', 'login');
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    window.location.href = `/__catalyst/auth/login${qs}`;
   };
 
   return (
     <RightPanel>
       <div className="max-w-sm w-full mx-auto">
+        {forcePromptLogin && (
+          <div className="mb-6 flex items-center gap-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+            You've been signed out. Please sign in again.
+          </div>
+        )}
         <div className="mb-8">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Sign in</h2>
           <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">Enter your credentials to access your workspace.</p>
@@ -251,31 +261,6 @@ const SignInPanel = ({ error }: { error?: string | null }) => {
     </RightPanel>
   );
 };
-
-// ─── Signed-out panel ───────────────────────────────────────────────────────────
-const SignedOutPanel = () => (
-  <RightPanel>
-    <div className="max-w-sm w-full mx-auto text-center">
-      <div className="w-14 h-14 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mx-auto mb-4">
-        <svg className="w-7 h-7 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-        </svg>
-      </div>
-      <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">You've been signed out</h2>
-      <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Sign in again to access your workspace.</p>
-      <button
-        onClick={() => {
-          sessionStorage.removeItem('ds_logged_out');
-          // prompt=login forces Zoho to show the credential form even if SSO session is active
-          window.location.href = '/__catalyst/auth/login?prompt=login';
-        }}
-        className="w-full flex items-center justify-center gap-3 py-3 px-6 bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white font-medium rounded-xl transition-all shadow-lg shadow-blue-500/25 text-sm"
-      >
-        Sign in to continue
-      </button>
-    </div>
-  </RightPanel>
-);
 
 // ─── Loading panel ──────────────────────────────────────────────────────────────
 const LoadingPanel = ({ message = 'Verifying your session…' }: { message?: string }) => (
@@ -402,14 +387,18 @@ const LoginPage = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!loading && !isLoggedOut && user?.tenantSlug) {
-      navigate(`/${user.tenantSlug}/dashboard`, { replace: true });
+    if (!loading && !isLoggedOut && user) {
+      if (user.role === 'SUPER_ADMIN') {
+        navigate('/super-admin', { replace: true });
+      } else if (user.tenantSlug) {
+        navigate(`/${user.tenantSlug}/dashboard`, { replace: true });
+      }
     }
   }, [user, loading, navigate, isLoggedOut]);
 
   if (loading) return <SplitLayout right={<LoadingPanel />} />;
 
-  if (isLoggedOut) return <SplitLayout right={<SignedOutPanel />} />;
+  if (isLoggedOut) return <SplitLayout right={<SignInPanel error={authError} forcePromptLogin />} />;
 
   if (user?.tenantSlug) return <SplitLayout right={<LoadingPanel message="Redirecting to your workspace…" />} />;
 

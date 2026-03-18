@@ -122,8 +122,7 @@ class AdminController {
       if (role) conditions.push(`role = '${DataStoreService.escape(role)}'`);
 
       const users = await this.db.query(
-        `SELECT ROWID, name, email, role, status, avatar_url, invited_by, CREATEDTIME ` +
-        `FROM ${TABLES.USERS} WHERE ${conditions.join(' AND ')} ORDER BY CREATEDTIME DESC LIMIT 200`
+        `SELECT * FROM ${TABLES.USERS} WHERE ${conditions.join(' AND ')} ORDER BY CREATEDTIME DESC LIMIT 200`
       );
 
       return ResponseHelper.success(res, {

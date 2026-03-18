@@ -26,19 +26,20 @@ class BlockerController {
       const project = await this.db.findById(TABLES.PROJECTS, data.project_id, tenantId);
       if (!project) return ResponseHelper.notFound(res, 'Project not found');
 
-      const blocker = await this.db.insert(TABLES.BLOCKERS, {
+      const insertPayload = {
         tenant_id: tenantId,
         project_id: data.project_id,
         title: data.title,
-        description: data.description,
+        description: data.description || '',
         severity: data.severity,
         status: BLOCKER_STATUS.OPEN,
-        owner_user_id: data.owner_user_id,
         raised_by: userId,
-        resolution: '',
-        resolved_date: '',
-        escalated_to: '',
-      });
+      };
+      // Only include BIGINT/DATE columns when they have a real value
+      // to avoid "Invalid input value for column" errors from Catalyst
+      if (data.owner_user_id) insertPayload.owner_user_id = data.owner_user_id;
+
+      const blocker = await this.db.insert(TABLES.BLOCKERS, insertPayload);
 
       await this.audit.log({
         tenantId, entityType: 'blocker', entityId: String(blocker.ROWID),

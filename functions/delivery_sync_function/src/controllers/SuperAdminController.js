@@ -16,14 +16,15 @@ class SuperAdminController {
   /** GET /api/super-admin/tenants */
   async listTenants(req, res) {
     try {
-      const tenants = await this.db.findWhere(TABLES.TENANTS, null,
-        null, { orderBy: 'CREATEDTIME DESC', limit: 200 });
+      const tenants = await this.db.query(
+        `SELECT * FROM ${TABLES.TENANTS} ORDER BY CREATEDTIME DESC LIMIT 200`
+      );
       // Count users per tenant
       const tenantIds = tenants.map(t => `'${t.ROWID}'`).join(',');
       let userCounts = {};
       if (tenantIds) {
         const users = await this.db.query(
-          `SELECT tenant_id, COUNT(*) as cnt FROM ${TABLES.USERS} WHERE tenant_id IN (${tenantIds}) GROUP BY tenant_id`
+          `SELECT tenant_id, COUNT(ROWID) as cnt FROM ${TABLES.USERS} WHERE tenant_id IN (${tenantIds}) GROUP BY tenant_id`
         );
         users.forEach(r => { userCounts[String(r.tenant_id)] = Number(r.cnt || 0); });
       }
@@ -62,9 +63,9 @@ class SuperAdminController {
   async getStats(req, res) {
     try {
       const [tenants, users, projects] = await Promise.all([
-        this.db.findWhere(TABLES.TENANTS, null, null, { limit: 500 }),
-        this.db.findWhere(TABLES.USERS, null, null, { limit: 2000 }),
-        this.db.findWhere(TABLES.PROJECTS, null, null, { limit: 2000 }),
+        this.db.query(`SELECT ROWID, status FROM ${TABLES.TENANTS} ORDER BY CREATEDTIME DESC LIMIT 300`),
+        this.db.query(`SELECT ROWID, status FROM ${TABLES.USERS} ORDER BY CREATEDTIME DESC LIMIT 300`),
+        this.db.query(`SELECT ROWID, status FROM ${TABLES.PROJECTS} ORDER BY CREATEDTIME DESC LIMIT 300`),
       ]);
       return ResponseHelper.success(res, {
         stats: {

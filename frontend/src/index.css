@@ -2,41 +2,128 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── CSS Custom Properties (set by ThemeContext, defaults = "default" theme) ─ */
+:root {
+  --ds-primary:          59 130 246;
+  --ds-primary-hover:    37 99 235;
+  --ds-bg:               249 250 251;
+  --ds-surface:          255 255 255;
+  --ds-surface-hover:    243 244 246;
+  --ds-border:           229 231 235;
+  --ds-text:             17 24 39;
+  --ds-text-muted:       107 114 128;
+  --ds-text-inverse:     255 255 255;
+  --ds-sidebar-bg:       30 58 138;
+  --ds-sidebar-hover:    30 64 175;
+  --ds-sidebar-active:   29 78 216;
+  --ds-sidebar-border:   30 64 175;
+  --ds-sidebar-text:     219 234 254;
+  --ds-accent:           139 92 246;
+  --ds-density:          1;
+  --ds-font-base:        15px;
+}
+
+/* ─── Smooth theme transitions ────────────────────────────────────────────── */
+*, *::before, *::after {
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-duration: 200ms;
+  transition-timing-function: ease;
+}
+/* Exclude elements where transitions cause jank */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+html, body, #root {
+  height: 100%;
+}
+body {
+  font-size: var(--ds-font-base);
+  background-color: rgb(var(--ds-bg));
+  color: rgb(var(--ds-text));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ─── Dark-mode global overrides for pre-existing hardcoded Tailwind classes ─
+   These allow dark mode to work across ALL existing components without
+   rewriting every class. Theme-aware components use bg-ds-surface etc.
+   directly; legacy components pick up these overrides. ─────────────────────── */
+html.dark .bg-white            { background-color: rgb(var(--ds-surface)) !important; }
+html.dark .bg-gray-50          { background-color: rgb(var(--ds-bg)) !important; }
+html.dark .bg-gray-100         { background-color: rgb(var(--ds-surface-hover)) !important; }
+html.dark .bg-gray-200         { background-color: rgb(var(--ds-border)) !important; }
+html.dark .text-gray-900       { color: rgb(var(--ds-text)) !important; }
+html.dark .text-gray-800       { color: rgb(var(--ds-text)) !important; }
+html.dark .text-gray-700       { color: rgb(var(--ds-text)) !important; }
+html.dark .text-gray-600       { color: rgb(var(--ds-text-muted)) !important; }
+html.dark .text-gray-500       { color: rgb(var(--ds-text-muted)) !important; }
+html.dark .text-gray-400       { color: rgb(var(--ds-text-muted)) !important; }
+html.dark .border-gray-200     { border-color: rgb(var(--ds-border)) !important; }
+html.dark .border-gray-100     { border-color: rgb(var(--ds-border)) !important; }
+html.dark .border-gray-300     { border-color: rgb(var(--ds-border)) !important; }
+html.dark .divide-gray-100 > * { border-color: rgb(var(--ds-border)) !important; }
+html.dark .divide-gray-200 > * { border-color: rgb(var(--ds-border)) !important; }
+html.dark .ring-gray-200       { --tw-ring-color: rgb(var(--ds-border)) !important; }
+html.dark .shadow-sm           { --tw-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.3) !important; }
+html.dark input,
+html.dark textarea,
+html.dark select                {
+  background-color: rgb(var(--ds-surface-hover)) !important;
+  color: rgb(var(--ds-text)) !important;
+  border-color: rgb(var(--ds-border)) !important;
+}
+html.dark input::placeholder,
+html.dark textarea::placeholder { color: rgb(var(--ds-text-muted)) !important; }
+html.dark .hover\:bg-gray-50:hover  { background-color: rgb(var(--ds-surface-hover)) !important; }
+html.dark .hover\:bg-gray-100:hover { background-color: rgb(var(--ds-surface-hover)) !important; }
+
+/* ─── Tailwind @layer base ────────────────────────────────────────────────── */
 @layer base {
-  * {
-    box-sizing: border-box;
-  }
-  html, body, #root {
-    height: 100%;
-  }
-  body {
-    @apply bg-gray-50 text-gray-900 antialiased;
+  :focus-visible {
+    outline: 2px solid rgb(var(--ds-primary));
+    outline-offset: 2px;
   }
 }
 
+/* ─── Reusable component classes (theme-aware) ────────────────────────────── */
 @layer components {
+
+  /* Sidebar */
   .sidebar-item {
-    @apply flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer;
+    @apply flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium cursor-pointer;
+    transition: background-color 150ms ease, color 150ms ease;
   }
-  .sidebar-item-active {
-    @apply bg-blue-700 text-white;
+  .sidebar-item-active  { background-color: rgb(var(--ds-sidebar-active)); color: rgb(var(--ds-text-inverse)); }
+  .sidebar-item-inactive{ color: rgb(var(--ds-sidebar-text) / 0.8); }
+  .sidebar-item-inactive:hover {
+    background-color: rgb(var(--ds-sidebar-hover));
+    color: rgb(var(--ds-sidebar-text));
   }
-  .sidebar-item-inactive {
-    @apply text-gray-300 hover:bg-blue-800 hover:text-white;
+
+  /* Forms */
+  .form-label   { @apply block text-sm font-medium mb-1; color: rgb(var(--ds-text)); }
+  .form-input   {
+    @apply w-full px-3 py-2 rounded-lg text-sm focus:outline-none;
+    background-color: rgb(var(--ds-surface));
+    color: rgb(var(--ds-text));
+    border: 1px solid rgb(var(--ds-border));
   }
-  .form-label {
-    @apply block text-sm font-medium text-gray-700 mb-1;
+  .form-input:focus {
+    border-color: rgb(var(--ds-primary));
+    box-shadow: 0 0 0 3px rgb(var(--ds-primary) / 0.15);
   }
-  .form-input {
-    @apply w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent;
+  .form-textarea { @apply form-input resize-none; }
+  .form-select   { @apply form-input; }
+  .form-error    { @apply text-xs text-red-600 mt-1; }
+
+  /* Cards */
+  .ds-card {
+    background-color: rgb(var(--ds-surface));
+    border: 1px solid rgb(var(--ds-border));
+    @apply rounded-xl shadow-sm;
   }
-  .form-textarea {
-    @apply form-input resize-none;
-  }
-  .form-select {
-    @apply form-input;
-  }
-  .form-error {
-    @apply text-xs text-red-600 mt-1;
-  }
+
+  /* Density helper – wraps sections where padding should scale */
+  .ds-density-pad { padding: calc(1.5rem * var(--ds-density)); }
 }
