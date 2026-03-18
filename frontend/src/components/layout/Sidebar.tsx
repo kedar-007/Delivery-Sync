@@ -161,11 +161,11 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
           <div className="min-w-0">
             <h1 className="font-bold text-base leading-tight truncate"
               style={{ color: `rgb(var(--ds-sidebar-text))` }}>
-              Delivery Sync
+              {user?.tenantName || 'My Organisation'}
             </h1>
-            <p className="text-xs mt-0.5 truncate opacity-60"
+            <p className="text-[11px] mt-0.5 truncate font-medium tracking-wide uppercase opacity-50"
               style={{ color: `rgb(var(--ds-sidebar-text))` }}>
-              {user?.tenantName || 'Delivery Intelligence'}
+              Delivery Sync
             </p>
           </div>
         )}

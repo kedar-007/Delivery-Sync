@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import Sidebar from './Sidebar';
 import { Menu } from 'lucide-react';
 import { useSidebar } from '../../contexts/SidebarContext';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -10,6 +11,7 @@ interface LayoutProps {
 const Layout = ({ children }: LayoutProps) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { collapsed } = useSidebar();
+  const { user } = useAuth();
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ backgroundColor: `rgb(var(--ds-bg))` }}>
@@ -45,14 +47,21 @@ const Layout = ({ children }: LayoutProps) => {
           <button
             onClick={() => setSidebarOpen(true)}
             aria-label="Open navigation"
-            className="p-1.5 rounded-lg opacity-80 hover:opacity-100 transition-opacity"
+            className="p-1.5 rounded-lg opacity-80 hover:opacity-100 transition-opacity shrink-0"
             style={{ color: `rgb(var(--ds-sidebar-text))` }}
           >
             <Menu size={20} />
           </button>
-          <span className="font-semibold text-sm" style={{ color: `rgb(var(--ds-sidebar-text))` }}>
-            Delivery Sync
-          </span>
+          <div className="min-w-0">
+            <p className="font-bold text-sm leading-tight truncate"
+              style={{ color: `rgb(var(--ds-sidebar-text))` }}>
+              {user?.tenantName || 'My Organisation'}
+            </p>
+            <p className="text-[10px] font-medium uppercase tracking-wide opacity-50 leading-tight"
+              style={{ color: `rgb(var(--ds-sidebar-text))` }}>
+              Delivery Sync
+            </p>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">

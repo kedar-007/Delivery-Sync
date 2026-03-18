@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Users, Plus, Trash2, UserPlus, Edit2, Clock, Calendar,
@@ -87,100 +87,104 @@ const TeamCard = ({
   const { data: detail } = useTeam(team.id);
   const previewMembers = (detail?.members ?? []).slice(0, 5);
 
-  return (
-    <Card className="group hover:shadow-lg transition-all duration-200 cursor-pointer" onClick={() => onView(team)}>
-      {/* Top accent bar */}
-      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-t-xl opacity-0 group-hover:opacity-100 transition-opacity" />
+  const memberCount = detail?.members?.length ?? team.memberCount;
 
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
-              <Users size={15} className="text-blue-600" />
+  return (
+    <div
+      className="relative bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-blue-200 transition-all duration-200 cursor-pointer group overflow-hidden"
+      onClick={() => onView(team)}
+    >
+      {/* Left accent bar */}
+      <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-blue-500 to-indigo-600 rounded-l-xl" />
+
+      <div className="pl-4 pr-4 pt-4 pb-4">
+        {/* Header row */}
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-start gap-3 flex-1 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shrink-0 shadow-sm">
+              <Users size={16} className="text-white" />
             </div>
-            <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-gray-900 truncate">{team.name}</h3>
-              {team.description && (
-                <p className="text-xs text-gray-400 truncate">{team.description}</p>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-bold text-gray-900 truncate leading-snug">{team.name}</h3>
+              {team.description ? (
+                <p className="text-xs text-gray-400 truncate mt-0.5">{team.description}</p>
+              ) : (
+                <p className="text-xs text-gray-300 mt-0.5 italic">No description</p>
               )}
             </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-1 shrink-0 ml-2" onClick={(e) => e.stopPropagation()}>
-          {canWrite && (
-            <>
-              <button
-                onClick={() => onEdit(team)}
-                className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                title="Edit team"
-              >
-                <Edit2 size={13} />
-              </button>
-              <button
-                onClick={() => onDelete(team)}
-                className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                title="Delete team"
-              >
-                <Trash2 size={13} />
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Lead */}
-      {team.leadName && (
-        <div className="flex items-center gap-1.5 mb-3">
-          <Crown size={11} className="text-amber-500 shrink-0" />
-          <span className="text-xs text-gray-500">{team.leadName}</span>
-        </div>
-      )}
-
-      {/* Schedule */}
-      {(team.standupTime || team.eodTime) && (
-        <div className="flex items-center gap-3 mb-3 text-xs text-gray-400">
-          {team.standupTime && (
-            <div className="flex items-center gap-1">
-              <Clock size={10} className="text-blue-400" />
-              <span>Standup {team.standupTime}</span>
-            </div>
-          )}
-          {team.eodTime && (
-            <div className="flex items-center gap-1">
-              <Calendar size={10} className="text-green-400" />
-              <span>EOD {team.eodTime}</span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Member avatars stack */}
-      <div className="flex items-center justify-between mt-auto pt-3 border-t border-gray-50">
-        <div className="flex items-center">
-          <div className="flex -space-x-2">
-            {previewMembers.map((m: any) => (
-              <div key={m.id} className="ring-2 ring-white rounded-full">
-                <UserAvatar name={m.name || m.email} avatarUrl={m.avatarUrl} size="xs" />
-              </div>
-            ))}
-            {(detail?.members?.length ?? team.memberCount) > 5 && (
-              <div className="w-5 h-5 rounded-full bg-gray-100 ring-2 ring-white flex items-center justify-center">
-                <span className="text-[8px] font-bold text-gray-500">
-                  +{(detail?.members?.length ?? team.memberCount) - 5}
-                </span>
-              </div>
+          <div className="flex items-center gap-0.5 shrink-0 ml-2" onClick={(e) => e.stopPropagation()}>
+            {canWrite && (
+              <>
+                <button
+                  onClick={() => onEdit(team)}
+                  className="p-1.5 text-gray-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                  title="Edit team"
+                >
+                  <Edit2 size={13} />
+                </button>
+                <button
+                  onClick={() => onDelete(team)}
+                  className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                  title="Delete team"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </>
             )}
           </div>
-          <span className="ml-2 text-xs text-gray-400">
-            {team.memberCount} member{team.memberCount !== 1 ? 's' : ''}
-          </span>
         </div>
-        <div className="flex items-center gap-1 text-xs text-blue-600 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-          View <ChevronRight size={12} />
+
+        {/* Lead */}
+        {team.leadName && (
+          <div className="flex items-center gap-1.5 mb-3 bg-amber-50 rounded-lg px-2.5 py-1.5 w-fit max-w-full">
+            <Crown size={11} className="text-amber-500 shrink-0" />
+            <span className="text-xs font-medium text-amber-700 truncate">{team.leadName}</span>
+          </div>
+        )}
+
+        {/* Schedule pills */}
+        {(team.standupTime || team.eodTime) && (
+          <div className="flex flex-wrap items-center gap-1.5 mb-3">
+            {team.standupTime && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
+                <Clock size={9} /> {team.standupTime}
+              </span>
+            )}
+            {team.eodTime && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-100">
+                <Calendar size={9} /> {team.eodTime}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Footer: member avatars + view hint */}
+        <div className="flex items-center justify-between pt-3 border-t border-gray-50">
+          <div className="flex items-center gap-2">
+            <div className="flex -space-x-1.5">
+              {previewMembers.map((m: any) => (
+                <div key={m.id} className="ring-2 ring-white rounded-full">
+                  <UserAvatar name={m.name || m.email} avatarUrl={m.avatarUrl} size="xs" />
+                </div>
+              ))}
+              {memberCount > 5 && (
+                <div className="w-5 h-5 rounded-full bg-gray-100 ring-2 ring-white flex items-center justify-center">
+                  <span className="text-[8px] font-bold text-gray-500">+{memberCount - 5}</span>
+                </div>
+              )}
+            </div>
+            <span className="text-xs text-gray-400">
+              {memberCount} {memberCount === 1 ? 'member' : 'members'}
+            </span>
+          </div>
+          <div className="flex items-center gap-0.5 text-xs text-blue-500 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+            View <ChevronRight size={12} />
+          </div>
         </div>
       </div>
-    </Card>
+    </div>
   );
 };
 
@@ -198,6 +202,11 @@ const TeamDetailModal = ({
 
   // Use authoritative lead from team's lead_user_id (detail.lead), fallback to team list data
   const leadInfo = detail?.lead ?? (team.leadName ? { name: team.leadName, email: '', avatarUrl: '' } : null);
+
+  // Prefer fresh detail data for schedule fields (detail has the actual DB values)
+  const standupTime = detail?.standupTime ?? team.standupTime;
+  const eodTime = detail?.eodTime ?? team.eodTime;
+  const timezone = detail?.timezone ?? team.timezone;
 
   const leads = members.filter((m: any) => m.role === 'LEAD');
   const others = members.filter((m: any) => m.role !== 'LEAD');
@@ -268,25 +277,25 @@ const TeamDetailModal = ({
             <p className="text-lg font-bold text-white leading-tight">{members.length}</p>
             <p className="text-[10px] text-blue-200 uppercase tracking-wide">Members</p>
           </div>
-          {team.standupTime && (
+          {standupTime && (
             <div className="bg-white/10 rounded-lg px-3 py-1.5">
               <p className="text-xs font-semibold text-white flex items-center gap-1">
-                <Clock size={10} /> {team.standupTime}
+                <Clock size={10} /> {standupTime}
               </p>
               <p className="text-[10px] text-blue-200 uppercase tracking-wide">Standup</p>
             </div>
           )}
-          {team.eodTime && (
+          {eodTime && (
             <div className="bg-white/10 rounded-lg px-3 py-1.5">
               <p className="text-xs font-semibold text-white flex items-center gap-1">
-                <Calendar size={10} /> {team.eodTime}
+                <Calendar size={10} /> {eodTime}
               </p>
               <p className="text-[10px] text-blue-200 uppercase tracking-wide">EOD</p>
             </div>
           )}
-          {team.timezone && (
+          {timezone && (
             <div className="bg-white/10 rounded-lg px-3 py-1.5">
-              <p className="text-xs font-semibold text-white">{team.timezone.split('/')[1] ?? team.timezone}</p>
+              <p className="text-xs font-semibold text-white">{timezone.split('/')[1] ?? timezone}</p>
               <p className="text-[10px] text-blue-200 uppercase tracking-wide">Timezone</p>
             </div>
           )}
@@ -381,6 +390,7 @@ const TeamsPage = () => {
   const [viewTeam, setViewTeam] = useState<any>(null);
   const [manageTeam, setManageTeam] = useState<any>(null);
   const [createError, setCreateError] = useState('');
+  const [editError, setEditError] = useState('');
   const [memberError, setMemberError] = useState('');
 
   const { data: projects = [] } = useProjects();
@@ -405,6 +415,26 @@ const TeamsPage = () => {
       standup_time: '09:00', eod_time: '17:00', timezone: 'Asia/Kolkata',
     },
   });
+
+  type EditForm = {
+    name: string; description: string;
+    standup_time: string; eod_time: string; timezone: string;
+  };
+  const editForm = useForm<EditForm>({ defaultValues: { name: '', description: '', standup_time: '', eod_time: '', timezone: '' } });
+
+  // Reset edit form whenever a different team is opened for editing
+  useEffect(() => {
+    if (editTeam) {
+      editForm.reset({
+        name: editTeam.name ?? '',
+        description: editTeam.description ?? '',
+        standup_time: editTeam.standupTime ?? '09:00',
+        eod_time: editTeam.eodTime ?? '17:00',
+        timezone: editTeam.timezone ?? 'Asia/Kolkata',
+      });
+    }
+  }, [editTeam?.id]);
+
   const memberForm = useForm<{ user_id: string; role: string }>({ defaultValues: { role: 'DEVELOPER' } });
 
   const handleCreate = async (data: any) => {
@@ -424,10 +454,10 @@ const TeamsPage = () => {
 
   const handleUpdate = async (data: any) => {
     try {
-      setCreateError('');
+      setEditError('');
       await updateTeam.mutateAsync(data);
       setEditTeam(null);
-    } catch (err: any) { setCreateError(err.message); }
+    } catch (err: any) { setEditError(err.message); }
   };
 
   const handleDelete = async (team: any) => {
@@ -586,16 +616,16 @@ const TeamsPage = () => {
       {/* Edit Team Modal */}
       {editTeam && (
         <Modal open={!!editTeam} onClose={() => setEditTeam(null)} title={`Edit – ${editTeam.name}`} size="lg">
-          <form onSubmit={createForm.handleSubmit(handleUpdate)} className="space-y-4">
-            {createError && <Alert type="error" message={createError} />}
+          <form onSubmit={editForm.handleSubmit(handleUpdate)} className="space-y-4">
+            {editError && <Alert type="error" message={editError} />}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2">
                 <label className="form-label">Team Name</label>
-                <input className="form-input" defaultValue={editTeam.name} {...createForm.register('name')} />
+                <input className="form-input" {...editForm.register('name', { required: true })} />
               </div>
               <div className="sm:col-span-2">
                 <label className="form-label">Description</label>
-                <input className="form-input" defaultValue={editTeam.description} {...createForm.register('description')} />
+                <input className="form-input" {...editForm.register('description')} />
               </div>
             </div>
             <div className="border-t border-gray-100 pt-4">
@@ -605,15 +635,15 @@ const TeamsPage = () => {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="form-label">Standup Time</label>
-                  <input type="time" className="form-input" defaultValue={editTeam.standupTime ?? '09:00'} {...createForm.register('standup_time')} />
+                  <input type="time" className="form-input" {...editForm.register('standup_time')} />
                 </div>
                 <div>
                   <label className="form-label">EOD Time</label>
-                  <input type="time" className="form-input" defaultValue={editTeam.eodTime ?? '17:00'} {...createForm.register('eod_time')} />
+                  <input type="time" className="form-input" {...editForm.register('eod_time')} />
                 </div>
                 <div>
                   <label className="form-label">Timezone</label>
-                  <select className="form-select" defaultValue={editTeam.timezone ?? 'Asia/Kolkata'} {...createForm.register('timezone')}>
+                  <select className="form-select" {...editForm.register('timezone')}>
                     {TIMEZONES.map((tz) => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
                   </select>
                 </div>
@@ -621,7 +651,7 @@ const TeamsPage = () => {
             </div>
             <ModalActions>
               <Button variant="outline" type="button" onClick={() => setEditTeam(null)}>Cancel</Button>
-              <Button type="submit" loading={createForm.formState.isSubmitting}>Save Changes</Button>
+              <Button type="submit" loading={editForm.formState.isSubmitting}>Save Changes</Button>
             </ModalActions>
           </form>
         </Modal>

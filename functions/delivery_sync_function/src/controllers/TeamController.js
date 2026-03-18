@@ -35,27 +35,46 @@ class TeamController {
 
       const { standup_time, eod_time, timezone } = req.body;
 
-      const insertPayload = {
+      const basePayload = {
         tenant_id: tenantId,
         project_id,
         name: name.trim(),
         created_by: userId,
       };
-      if (description)   insertPayload.description = description;
-      if (lead_user_id)  insertPayload.lead_user_id = lead_user_id;
-      if (standup_time)  insertPayload.standup_time = standup_time;
-      if (eod_time)      insertPayload.eod_time = eod_time;
-      if (timezone)      insertPayload.timezone = timezone;
+      if (description)  basePayload.description = description;
+      if (lead_user_id) basePayload.lead_user_id = lead_user_id;
 
-      const team = await this.db.insert(TABLES.TEAMS, insertPayload);
+      // Schedule fields require standup_time, eod_time, timezone columns in the teams table.
+      // Try inserting with them first; if Catalyst rejects (columns not yet added), fall back
+      // to inserting without them so team creation never fails.
+      const schedulePayload = { ...basePayload };
+      if (standup_time) schedulePayload.standup_time = standup_time;
+      if (eod_time)     schedulePayload.eod_time = eod_time;
+      if (timezone)     schedulePayload.timezone = timezone;
+
+      let team;
+      try {
+        team = await this.db.insert(TABLES.TEAMS, schedulePayload);
+      } catch (scheduleErr) {
+        // Column doesn't exist yet — retry without schedule fields
+        console.warn(
+          '[TeamController] Schedule columns missing in teams table, retrying without them.',
+          'Add standup_time (TEXT), eod_time (TEXT), timezone (TEXT) columns to the teams table in Catalyst Console.',
+          'Error:', scheduleErr.message
+        );
+        team = await this.db.insert(TABLES.TEAMS, basePayload);
+      }
 
       return ResponseHelper.created(res, {
         team: {
           id: String(team.ROWID),
-          name: insertPayload.name,
+          name: basePayload.name,
           description: description || '',
           projectId: project_id,
           leadUserId: lead_user_id || null,
+          standupTime: standup_time || null,
+          eodTime: eod_time || null,
+          timezone: timezone || null,
           memberCount: 0,
         },
       }, 'Team created');
@@ -194,15 +213,23 @@ class TeamController {
 
       const { standup_time, eod_time, timezone } = req.body;
 
-      const updatePayload = { ROWID: teamId };
-      if (name)                        updatePayload.name = name.trim();
-      if (description !== undefined)   updatePayload.description = description;
-      if (lead_user_id !== undefined)  updatePayload.lead_user_id = lead_user_id;
-      if (standup_time !== undefined)  updatePayload.standup_time = standup_time;
-      if (eod_time !== undefined)      updatePayload.eod_time = eod_time;
-      if (timezone !== undefined)      updatePayload.timezone = timezone;
+      const baseUpdate = { ROWID: teamId };
+      if (name)                       baseUpdate.name = name.trim();
+      if (description !== undefined)  baseUpdate.description = description;
+      if (lead_user_id !== undefined) baseUpdate.lead_user_id = lead_user_id;
 
-      await this.db.update(TABLES.TEAMS, updatePayload);
+      const fullUpdate = { ...baseUpdate };
+      if (standup_time !== undefined) fullUpdate.standup_time = standup_time;
+      if (eod_time !== undefined)     fullUpdate.eod_time = eod_time;
+      if (timezone !== undefined)     fullUpdate.timezone = timezone;
+
+      try {
+        await this.db.update(TABLES.TEAMS, fullUpdate);
+      } catch (scheduleErr) {
+        console.warn('[TeamController] Schedule columns missing, updating without them. Add standup_time, eod_time, timezone columns to teams table.', scheduleErr.message);
+        await this.db.update(TABLES.TEAMS, baseUpdate);
+      }
+
       return ResponseHelper.success(res, { teamId }, 'Team updated');
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
