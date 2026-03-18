@@ -234,4 +234,75 @@ export const enhancedReportsApi = {
     api.get('/reports/daily-summary', { params }).then((r) => r.data.data),
 };
 
+// ─── AI Insights (ai_service function) ───────────────────────────────────────
+// The ai_service is a separate Catalyst Advanced IO function, so it lives at a
+// different URL prefix than the main delivery_sync_function.
+
+const aiClient = axios.create({
+  baseURL: '/server/ai_service/api/ai',
+  withCredentials: true,
+  headers: { 'Content-Type': 'application/json' },
+});
+
+aiClient.interceptors.response.use(
+  (response) => response,
+  (error: AxiosError<{ success: boolean; message: string }>) => {
+    const message = error.response?.data?.message || error.message || 'AI service error';
+    const enhanced = new Error(message) as Error & { status?: number };
+    enhanced.status = error.response?.status;
+    return Promise.reject(enhanced);
+  }
+);
+
+export interface AiRequestParams {
+  projectId?: string;
+  date?: string;
+  days?: number;
+  type?: 'daily' | 'weekly' | 'project';
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export const aiApi = {
+  /** Summarise standups + EODs for a given date */
+  dailySummary: (params: AiRequestParams = {}) =>
+    aiClient.post('/daily-summary', params).then((r) => r.data),
+
+  /** Analyse project health — On Track / At Risk / Delayed */
+  projectHealth: (params: AiRequestParams = {}) =>
+    aiClient.post('/project-health', params).then((r) => r.data),
+
+  /** Per-member performance insights over N days */
+  performance: (params: AiRequestParams = {}) =>
+    aiClient.post('/performance', params).then((r) => r.data),
+
+  /** Generate a daily / weekly / project AI report */
+  generateReport: (params: AiRequestParams & { type: string }) =>
+    aiClient.post('/report', params).then((r) => r.data),
+
+  /** Smart suggestions: productivity, risk mitigation, resource allocation */
+  suggestions: (params: AiRequestParams = {}) =>
+    aiClient.post('/suggestions', params).then((r) => r.data),
+
+  /** Detect explicit + implicit blockers from recent standup/EOD text */
+  detectBlockers: (params: AiRequestParams & { days?: number }) =>
+    aiClient.post('/detect-blockers', params).then((r) => r.data),
+
+  /** Analyse productivity, engagement, mood and blocker trends */
+  analyzeTrends: (params: AiRequestParams & { days?: number }) =>
+    aiClient.post('/trends', params).then((r) => r.data),
+
+  /** Sprint retrospective: went well, went wrong, action items */
+  generateRetrospective: (params: AiRequestParams & { sprintStart?: string; sprintEnd?: string }) =>
+    aiClient.post('/retrospective', params).then((r) => r.data),
+
+  /** Answer a free-text natural language query about the project */
+  naturalLanguageQuery: (params: { query: string; projectId?: string }) =>
+    aiClient.post('/query', params).then((r) => r.data),
+
+  /** Process a voice transcript → extract structured standup/EOD fields + insights */
+  processVoice: (params: { transcript: string; type: 'standup' | 'eod'; projectId?: string; date?: string }) =>
+    aiClient.post('/process-voice', params).then((r) => r.data),
+};
+
 export default api;

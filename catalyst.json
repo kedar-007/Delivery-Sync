@@ -1,7 +1,8 @@
 {
   "functions": {
     "targets": [
-      "delivery_sync_function"
+      "delivery_sync_function",
+      "ai_service"
     ],
     "ignore": [],
     "source": "functions"
