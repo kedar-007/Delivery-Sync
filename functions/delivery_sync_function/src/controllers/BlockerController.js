@@ -2,9 +2,10 @@
 
 const DataStoreService = require('../services/DataStoreService');
 const AuditService = require('../services/AuditService');
+const NotificationService = require('../services/NotificationService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const Validator = require('../utils/Validator');
-const { TABLES, BLOCKER_STATUS, AUDIT_ACTION } = require('../utils/Constants');
+const { TABLES, BLOCKER_STATUS, AUDIT_ACTION, NOTIFICATION_TYPE } = require('../utils/Constants');
 
 /**
  * BlockerController – manage blockers with escalation capability.
@@ -13,6 +14,7 @@ class BlockerController {
   constructor(catalystApp) {
     this.db = new DataStoreService(catalystApp);
     this.audit = new AuditService(this.db);
+    this.notifier = new NotificationService(catalystApp, this.db);
   }
 
   /**
@@ -47,6 +49,13 @@ class BlockerController {
         newValue: { title: data.title, severity: data.severity },
         performedBy: userId,
       });
+
+      // Notify project LEAD members about new blocker (fire-and-forget)
+      this._notifyLeadsOfNewBlocker({
+        tenantId, projectId: data.project_id, project,
+        blockerId: String(blocker.ROWID), title: data.title,
+        severity: data.severity, raisedByUserId: userId,
+      }).catch((e) => console.error('[BlockerController] notify leads failed:', e.message));
 
       return ResponseHelper.created(res, {
         blocker: {
@@ -140,6 +149,18 @@ class BlockerController {
           newValue: { status: data.status, resolution: data.resolution },
           performedBy: userId,
         });
+
+        // Notify owner when blocker is resolved via update
+        if (data.status === BLOCKER_STATUS.RESOLVED && existing.raised_by) {
+          this._notifyBlockerOwnerResolved({
+            tenantId, blockerId,
+            blockerTitle: data.title || existing.title,
+            resolution: data.resolution || '',
+            raisedByUserId: existing.raised_by,
+            resolvedByUserId: userId,
+            projectId: existing.project_id,
+          }).catch((e) => console.error('[BlockerController] resolve notify failed:', e.message));
+        }
       }
 
       return ResponseHelper.success(res, { blockerId, updated: data });
@@ -179,10 +200,174 @@ class BlockerController {
         performedBy: userId,
       });
 
+      // Notify the person who raised the blocker
+      if (existing.raised_by) {
+        this._notifyBlockerOwnerResolved({
+          tenantId, blockerId,
+          blockerTitle: existing.title,
+          resolution: resolution || '',
+          raisedByUserId: existing.raised_by,
+          resolvedByUserId: userId,
+          projectId: existing.project_id,
+        }).catch((e) => console.error('[BlockerController] resolve notify failed:', e.message));
+      }
+
       return ResponseHelper.success(res, null, 'Blocker resolved');
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }
+  }
+
+  // ─── Private Helpers ─────────────────────────────────────────────────────────
+
+  async _notifyLeadsOfNewBlocker({ tenantId, projectId, project, blockerId, title, severity, raisedByUserId }) {
+    console.log(`[BlockerNotify] projectId=${projectId} raisedByUserId=${raisedByUserId}`);
+
+    const leads = await this.db.findWhere(
+      TABLES.PROJECT_MEMBERS, tenantId,
+      `project_id = '${projectId}' AND role IN ('DELIVERY_LEAD','PROJECT_MANAGER','TECH_LEAD','SCRUM_MASTER','PRODUCT_OWNER','LEAD')`,
+      { limit: 20 }
+    );
+    console.log(`[BlockerNotify] project_members rows found: ${leads.length}`, leads.map((l) => ({ user_id: l.user_id, role: l.role })));
+
+    if (leads.length === 0) {
+      await this.audit.log({
+        tenantId,
+        entityType: 'notification',
+        entityId: blockerId,
+        action: AUDIT_ACTION.NOTIFY_SKIPPED,
+        newValue: { channel: 'email', event: 'BLOCKER_RAISED', reason: 'no_leads_found_in_project_members', projectId },
+        performedBy: raisedByUserId,
+      });
+      return;
+    }
+
+    const raiser = await this.db.findById(TABLES.USERS, raisedByUserId, tenantId);
+    const raisedByName = raiser?.name || 'A team member';
+
+    // Enrich leads with user details for email
+    const leadUserIds = leads
+      .filter((l) => String(l.user_id) !== String(raisedByUserId))
+      .map((l) => `'${l.user_id}'`);
+
+    console.log(`[BlockerNotify] leadUserIds to enrich (excluding raiser): ${leadUserIds.join(', ') || 'none'}`);
+
+    let leadUserMap = {};
+    if (leadUserIds.length > 0) {
+      const users = await this.db.query(
+        `SELECT * FROM ${TABLES.USERS} WHERE ROWID IN (${leadUserIds.join(',')}) LIMIT 20`
+      );
+      console.log(`[BlockerNotify] users fetched: ${users.length}`, users.map((u) => ({ id: u.ROWID, name: u.name, email: u.email })));
+      users.forEach((u) => { leadUserMap[String(u.ROWID)] = u; });
+    }
+
+    for (const lead of leads) {
+      if (String(lead.user_id) === String(raisedByUserId)) continue;
+
+      const leadUser = leadUserMap[String(lead.user_id)];
+      console.log(`[BlockerNotify] lead user_id=${lead.user_id} role=${lead.role} → name=${leadUser?.name} email=${leadUser?.email} hasEmail=${!!leadUser?.email}`);
+      await Promise.all([
+        this.notifier.sendInApp({
+          tenantId,
+          userId: lead.user_id,
+          title: `New ${severity} blocker on ${project.name}`,
+          message: `${raisedByName} raised a blocker: "${title}"`,
+          type: NOTIFICATION_TYPE.BLOCKER_ADDED,
+          entityType: 'blocker',
+          entityId: blockerId,
+          metadata: { projectId, severity, raisedBy: raisedByName },
+        }),
+        leadUser?.email
+          ? this.notifier.sendBlockerAdded({
+              tenantId,
+              userId: lead.user_id,
+              toEmail: leadUser.email,
+              toName: leadUser.name || leadUser.email,
+              blockerTitle: title,
+              severity,
+              projectName: project.name,
+              raisedBy: raisedByName,
+            })
+          : Promise.resolve(null),
+      ]).then(async ([, emailResult]) => {
+        const noEmail = !leadUser?.email;
+        console.log(`[BlockerNotify] lead ${lead.user_id} email=${leadUser?.email} result=${emailResult}`);
+        await this.audit.log({
+          tenantId,
+          entityType: 'notification',
+          entityId: blockerId,
+          action: noEmail
+            ? AUDIT_ACTION.NOTIFY_SKIPPED
+            : emailResult
+              ? AUDIT_ACTION.NOTIFY_SENT
+              : AUDIT_ACTION.NOTIFY_FAILED,
+          newValue: {
+            channel: 'email',
+            event: 'BLOCKER_RAISED',
+            toUserId: String(lead.user_id),
+            toEmail: leadUser?.email || null,
+            toName: leadUser?.name || null,
+            severity,
+            reason: noEmail ? 'no_email_on_user' : (emailResult ? 'ok' : 'send_failed'),
+          },
+          performedBy: raisedByUserId,
+        });
+      }).catch((e) => console.error(`[BlockerNotify] audit/email error for lead ${lead.user_id}:`, e.message));
+    }
+  }
+  async _notifyBlockerOwnerResolved({ tenantId, blockerId, blockerTitle, resolution, raisedByUserId, resolvedByUserId, projectId }) {
+    console.log(`[BlockerResolvedNotify] blockerId=${blockerId} raisedBy=${raisedByUserId} resolvedBy=${resolvedByUserId}`);
+
+    const [owner, resolver, project] = await Promise.all([
+      this.db.findById(TABLES.USERS, raisedByUserId, tenantId),
+      this.db.findById(TABLES.USERS, resolvedByUserId, tenantId),
+      this.db.findById(TABLES.PROJECTS, projectId, tenantId),
+    ]);
+
+    console.log(`[BlockerResolvedNotify] owner=${owner?.name} email=${owner?.email} | resolver=${resolver?.name}`);
+
+    if (!owner) return;
+
+    const resolverName = resolver?.name || 'A project lead';
+    const projectName = project?.name || '';
+
+    const [, emailResult] = await Promise.all([
+      this.notifier.sendInApp({
+        tenantId,
+        userId: raisedByUserId,
+        title: `Your blocker "${blockerTitle}" has been resolved`,
+        message: `${resolverName} resolved your blocker on "${projectName}".${resolution ? ' Resolution: ' + resolution : ''}`,
+        type: NOTIFICATION_TYPE.BLOCKER_ADDED,
+        entityType: 'blocker',
+        entityId: blockerId,
+        metadata: { projectId, resolution, resolvedBy: resolverName },
+      }),
+      owner.email
+        ? this.notifier.sendBlockerResolved({
+            toEmail: owner.email,
+            toName: owner.name || owner.email,
+            blockerTitle,
+            projectName,
+            resolvedBy: resolverName,
+            resolution,
+          })
+        : Promise.resolve(null),
+    ]);
+
+    await this.audit.log({
+      tenantId,
+      entityType: 'notification',
+      entityId: blockerId,
+      action: !owner.email
+        ? AUDIT_ACTION.NOTIFY_SKIPPED
+        : emailResult ? AUDIT_ACTION.NOTIFY_SENT : AUDIT_ACTION.NOTIFY_FAILED,
+      newValue: {
+        channel: 'email', event: 'BLOCKER_RESOLVED',
+        toUserId: String(raisedByUserId), toEmail: owner.email || null,
+        reason: !owner.email ? 'no_email_on_user' : (emailResult ? 'ok' : 'send_failed'),
+      },
+      performedBy: resolvedByUserId,
+    });
   }
 }
 

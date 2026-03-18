@@ -5,7 +5,7 @@ const NotificationService = require('../services/NotificationService');
 const AuditService = require('../services/AuditService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const {
-  TABLES, ACTION_STATUS, BLOCKER_STATUS, BLOCKER_ESCALATION_THRESHOLD_DAYS, AUDIT_ACTION,
+  TABLES, ACTION_STATUS, BLOCKER_STATUS, BLOCKER_ESCALATION_THRESHOLD_DAYS, AUDIT_ACTION, NOTIFICATION_TYPE,
 } = require('../utils/Constants');
 
 /**
@@ -91,6 +91,14 @@ class CronController {
               tenantId, userId, toEmail: user.email, toName: user.name,
               projectName: project.name, date: today,
             });
+            await this.notifier.sendInApp({
+              tenantId, userId,
+              title: `Standup reminder – ${project.name}`,
+              message: `You haven't submitted your standup for "${project.name}" today (${today}).`,
+              type: NOTIFICATION_TYPE.STANDUP_REMINDER,
+              entityType: 'project', entityId: String(project.ROWID),
+              metadata: { projectName: project.name, date: today },
+            });
             totalSent++;
           }
         }
@@ -143,6 +151,14 @@ class CronController {
               tenantId, userId, toEmail: user.email, toName: user.name,
               projectName: project.name, date: today,
             });
+            await this.notifier.sendInApp({
+              tenantId, userId,
+              title: `EOD reminder – ${project.name}`,
+              message: `Don't forget your end-of-day update for "${project.name}" today (${today}).`,
+              type: NOTIFICATION_TYPE.EOD_REMINDER,
+              entityType: 'project', entityId: String(project.ROWID),
+              metadata: { projectName: project.name, date: today },
+            });
             totalSent++;
           }
         }
@@ -194,6 +210,14 @@ class CronController {
           await this.notifier.sendActionOverdue({
             tenantId, userId, toEmail: user.email, toName: user.name,
             actionTitle: action.title, dueDate: action.due_date, projectName,
+          });
+          await this.notifier.sendInApp({
+            tenantId, userId,
+            title: `Overdue action: ${action.title}`,
+            message: `Your action "${action.title}" on "${projectName}" was due ${action.due_date}.`,
+            type: NOTIFICATION_TYPE.ACTION_OVERDUE,
+            entityType: 'action', entityId: String(action.ROWID),
+            metadata: { projectName, dueDate: action.due_date },
           });
 
           await this.audit.log({
@@ -286,6 +310,77 @@ class CronController {
       return ResponseHelper.success(res, { totalEscalated }, 'Blocker escalation job complete');
     } catch (err) {
       console.error('[CronJob:BlockerEscalation] Error:', err.message);
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  // ─── Daily Summary ────────────────────────────────────────────────────────────
+
+  /**
+   * POST /api/cron/daily-summary
+   * Called daily at 18:00 via Catalyst Cron.
+   * Sends delivery leads a summary of who submitted standup/EOD today.
+   */
+  async dailySummaryJob(req, res) {
+    try {
+      const today = DataStoreService.today();
+      const tenants = await this._getActiveTenants();
+      let totalSent = 0;
+
+      for (const tenant of tenants) {
+        const tenantId = String(tenant.ROWID);
+        const projects = await this._getProjectsForTenant(tenantId);
+
+        for (const project of projects) {
+          const projectId = String(project.ROWID);
+
+          const members = await this.db.findAll(TABLES.PROJECT_MEMBERS,
+            { tenant_id: tenantId, project_id: projectId }, { limit: 100 });
+          if (members.length === 0) continue;
+
+          // Who submitted standup today
+          const standups = await this.db.findAll(TABLES.STANDUP_ENTRIES,
+            { tenant_id: tenantId, project_id: projectId, entry_date: today }, { limit: 200 });
+          const standupUserIds = new Set(standups.map((s) => String(s.user_id)));
+
+          // Build submitted/missed lists
+          const allMemberUsers = await Promise.all(
+            members.map((m) => this._getUserById(tenantId, String(m.user_id)))
+          );
+          const submitted = allMemberUsers.filter((u) => u && standupUserIds.has(String(u.ROWID))).map((u) => u.name || u.email);
+          const missed = allMemberUsers.filter((u) => u && !standupUserIds.has(String(u.ROWID))).map((u) => u.name || u.email);
+
+          // Send summary only to LEAD members
+          const leads = members.filter((m) => m.role === 'LEAD');
+          for (const lead of leads) {
+            const leadUser = await this._getUserById(tenantId, String(lead.user_id));
+            if (!leadUser) continue;
+
+            await this.notifier.sendInApp({
+              tenantId, userId: String(lead.user_id),
+              title: `Daily summary – ${project.name} (${today})`,
+              message: `${submitted.length}/${members.length} members submitted standup. ${missed.length > 0 ? `Missed: ${missed.slice(0, 3).join(', ')}${missed.length > 3 ? ` +${missed.length - 3}` : ''}` : 'All submitted! 🎉'}`,
+              type: NOTIFICATION_TYPE.DAILY_SUMMARY,
+              entityType: 'project', entityId: projectId,
+              metadata: { date: today, submitted, missed, projectName: project.name },
+            });
+
+            if (leadUser.email) {
+              await this.notifier.sendDailySummary({
+                tenantId, userId: String(lead.user_id),
+                toEmail: leadUser.email, toName: leadUser.name,
+                date: today, submitted, missed, projectName: project.name,
+              });
+            }
+            totalSent++;
+          }
+        }
+      }
+
+      console.log(`[CronJob:DailySummary] Sent ${totalSent} summaries for ${today}`);
+      return ResponseHelper.success(res, { totalSent, date: today }, 'Daily summary job complete');
+    } catch (err) {
+      console.error('[CronJob:DailySummary] Error:', err.message);
       return ResponseHelper.serverError(res, err.message);
     }
   }

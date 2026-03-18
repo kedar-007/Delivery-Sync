@@ -5,7 +5,7 @@ import {
   LayoutDashboard, FolderKanban, CheckSquare, AlertTriangle,
   Shield, FileText, Settings, LogOut, ChevronDown, ChevronRight,
   Milestone, ClipboardList, Clock, BookOpen, Briefcase, X,
-  PanelLeftClose, PanelLeftOpen,
+  PanelLeftClose, PanelLeftOpen, Users,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useMyProfile } from '../../hooks/useUsers';
@@ -38,6 +38,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Blockers',      to: '/blockers',   icon: <AlertTriangle size={18} /> },
   { label: 'RAID Register', to: '/raid',       icon: <Shield size={18} /> },
   { label: 'Decisions',     to: '/decisions',  icon: <BookOpen size={18} /> },
+  { label: 'Teams',         to: '/teams',      icon: <Users size={18} />,    roles: ['TENANT_ADMIN', 'DELIVERY_LEAD', 'PMO', 'EXEC', 'TEAM_MEMBER'] },
   { label: 'Reports',       to: '/reports',    icon: <FileText size={18} /> },
   { label: 'Admin',         to: '/admin',      icon: <Settings size={18} />, roles: ['TENANT_ADMIN'] },
 ];

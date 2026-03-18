@@ -17,6 +17,8 @@ const adminRoutes = require('./adminRoutes');
 const cronRoutes = require('./cronRoutes');
 const superAdminRoutes = require('./superAdminRoutes');
 const userRoutes = require('./userRoutes');
+const notificationRoutes = require('./notificationRoutes');
+const teamRoutes = require('./teamRoutes');
 
 router.use('/auth', authRoutes);
 router.use('/dashboard', dashboardRoutes);
@@ -32,6 +34,8 @@ router.use('/admin', adminRoutes);
 router.use('/cron', cronRoutes);
 router.use('/super-admin', superAdminRoutes);
 router.use('/users', userRoutes);
+router.use('/notifications', notificationRoutes);
+router.use('/teams', teamRoutes);
 
 // Health check
 router.get('/health', (_req, res) => {

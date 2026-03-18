@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 const GRAD: Record<string, string> = {
   A: 'from-rose-400 to-pink-600', B: 'from-orange-400 to-red-500',
@@ -22,27 +22,31 @@ export const gradFor = (name: string) =>
 interface UserAvatarProps {
   name?: string;
   avatarUrl?: string;
-  size?: 'xs' | 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   className?: string;
 }
 
 const SIZES = {
-  xs: 'w-5 h-5 text-[9px]',
-  sm: 'w-7 h-7 text-xs',
-  md: 'w-9 h-9 text-sm',
-  lg: 'w-12 h-12 text-base',
+  xs:  'w-5 h-5 text-[9px]',
+  sm:  'w-7 h-7 text-xs',
+  md:  'w-9 h-9 text-sm',
+  lg:  'w-12 h-12 text-base',
+  xl:  'w-20 h-20 text-2xl',
+  '2xl': 'w-28 h-28 text-4xl',
 };
 
 const UserAvatar = ({ name = '', avatarUrl, size = 'sm', className = '' }: UserAvatarProps) => {
+  const [imgError, setImgError] = useState(false);
   const initials = name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase() || '?';
   const sz = SIZES[size];
 
-  if (avatarUrl) {
+  if (avatarUrl && !imgError) {
     return (
       <img
         src={avatarUrl}
         alt={name}
         className={`${sz} rounded-full object-cover shrink-0 ${className}`}
+        onError={() => setImgError(true)}
       />
     );
   }

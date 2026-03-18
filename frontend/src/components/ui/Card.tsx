@@ -5,10 +5,14 @@ interface CardProps {
   children: React.ReactNode;
   className?: string;
   padding?: boolean;
+  onClick?: () => void;
 }
 
-const Card = ({ children, className, padding = true }: CardProps) => (
-  <div className={clsx('bg-white rounded-xl border border-gray-200 shadow-sm', padding && 'p-5', className)}>
+const Card = ({ children, className, padding = true, onClick }: CardProps) => (
+  <div
+    className={clsx('bg-white rounded-xl border border-gray-200 shadow-sm', padding && 'p-5', className)}
+    onClick={onClick}
+  >
     {children}
   </div>
 );

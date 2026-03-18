@@ -3,7 +3,7 @@
 const Joi = require('joi');
 const { ROLES, RAG_STATUS, PROJECT_STATUS, ACTION_STATUS, BLOCKER_STATUS,
   SEVERITY, MILESTONE_STATUS, RISK_STATUS, ISSUE_STATUS, DEPENDENCY_STATUS,
-  ASSUMPTION_STATUS, DECISION_STATUS } = require('./Constants');
+  ASSUMPTION_STATUS, DECISION_STATUS, PROJECT_MEMBER_ROLES } = require('./Constants');
 
 /**
  * Centralised input validation using Joi.
@@ -85,7 +85,7 @@ class Validator {
   static validateAddMember(data) {
     const schema = Joi.object({
       user_id: Joi.string().required(),
-      role: Joi.string().valid('LEAD', 'MEMBER', 'OBSERVER').default('MEMBER'),
+      role: Joi.string().valid(...PROJECT_MEMBER_ROLES).default('DEVELOPER'),
     });
     return Validator._validate(schema, data);
   }
