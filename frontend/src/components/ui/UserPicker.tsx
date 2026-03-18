@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Search, ChevronDown, X } from 'lucide-react';
 import UserAvatar from './UserAvatar';
 
@@ -19,19 +19,25 @@ interface UserPickerProps {
 }
 
 const UserPicker = ({
-  users, value, onChange, placeholder = 'Assign to…', excludeIds = [], allowEmpty = false,
+  users,
+  value,
+  onChange,
+  placeholder = 'Assign to\u2026',
+  excludeIds = [],
+  allowEmpty = false,
 }: UserPickerProps) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const ref = useRef<HTMLDivElement>(null);
 
-  const available = users.filter(u => !excludeIds.includes(u.id));
-  const filtered = available.filter(u =>
-    !search ||
-    u.name.toLowerCase().includes(search.toLowerCase()) ||
-    (u.role || '').toLowerCase().includes(search.toLowerCase())
+  const available = users.filter((u) => !excludeIds.includes(u.id));
+  const filtered = available.filter(
+    (u) =>
+      !search ||
+      u.name.toLowerCase().includes(search.toLowerCase()) ||
+      (u.role || '').toLowerCase().includes(search.toLowerCase())
   );
-  const selected = users.find(u => u.id === value);
+  const selected = users.find((u) => u.id === value);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -44,14 +50,17 @@ const UserPicker = ({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const select = (id: string) => { onChange(id); setOpen(false); setSearch(''); };
+  const select = (id: string) => {
+    onChange(id);
+    setOpen(false);
+    setSearch('');
+  };
 
   return (
     <div className="relative" ref={ref}>
-      {/* Trigger */}
       <button
         type="button"
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setOpen((o) => !o)}
         className="form-select w-full flex items-center gap-2 text-left min-h-[38px]"
       >
         {selected ? (
@@ -67,8 +76,8 @@ const UserPicker = ({
               <span
                 role="button"
                 tabIndex={0}
-                onClick={e => { e.stopPropagation(); onChange(''); }}
-                onKeyDown={e => e.key === 'Enter' && onChange('')}
+                onClick={(e) => { e.stopPropagation(); onChange(''); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') onChange(''); }}
                 className="ml-1 text-gray-400 hover:text-gray-600"
               >
                 <X size={12} />
@@ -78,27 +87,30 @@ const UserPicker = ({
         ) : (
           <span className="flex-1 text-sm text-gray-400">{placeholder}</span>
         )}
-        <ChevronDown size={14} className={`text-gray-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown
+          size={14}
+          className={`text-gray-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
       </button>
 
-      {/* Dropdown */}
       {open && (
         <div className="absolute z-50 w-full mt-1 bg-white rounded-xl border border-gray-200 shadow-xl overflow-hidden">
-          {/* Search */}
           <div className="p-2 border-b border-gray-100">
             <div className="relative">
-              <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <Search
+                size={12}
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+              />
               <input
                 autoFocus
                 className="w-full pl-7 pr-3 py-1.5 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Search users…"
+                placeholder="Search users..."
                 value={search}
-                onChange={e => setSearch(e.target.value)}
+                onChange={(e) => setSearch(e.target.value)}
               />
             </div>
           </div>
 
-          {/* Options */}
           <div className="max-h-56 overflow-y-auto">
             {allowEmpty && (
               <button
@@ -107,12 +119,12 @@ const UserPicker = ({
                 className={`w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-gray-50 transition-colors ${!value ? 'bg-blue-50' : ''}`}
               >
                 <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
-                  <span className="text-gray-400 text-xs">–</span>
+                  <span className="text-gray-400 text-xs">-</span>
                 </div>
                 <span className="text-sm text-gray-400">Unassigned</span>
               </button>
             )}
-            {filtered.map(u => (
+            {filtered.map((u) => (
               <button
                 key={u.id}
                 type="button"

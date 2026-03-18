@@ -1,9 +1,10 @@
 'use strict';
 
 const DataStoreService = require('../services/DataStoreService');
+const NotificationService = require('../services/NotificationService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const Validator = require('../utils/Validator');
-const { TABLES } = require('../utils/Constants');
+const { TABLES, NOTIFICATION_TYPE } = require('../utils/Constants');
 
 /**
  * MemberController – manages project membership.
@@ -11,6 +12,7 @@ const { TABLES } = require('../utils/Constants');
 class MemberController {
   constructor(catalystApp) {
     this.db = new DataStoreService(catalystApp);
+    this.notifier = new NotificationService(catalystApp, this.db);
   }
 
   /**
@@ -85,6 +87,41 @@ class MemberController {
         user_id: data.user_id,
         role: data.role,
       });
+
+      // Notify the added user — in-app + email (fire-and-forget)
+      if (String(data.user_id) !== String(addedBy)) {
+        (async () => {
+          try {
+            const adder = await this.db.findById(TABLES.USERS, addedBy, tenantId);
+            const adderName = adder?.name || 'An admin';
+            await Promise.all([
+              this.notifier.sendInApp({
+                tenantId,
+                userId: data.user_id,
+                title: `Added to project "${project.name}"`,
+                message: `${adderName} added you to project "${project.name}" as ${data.role}.`,
+                type: NOTIFICATION_TYPE.MEMBER_ADDED,
+                entityType: 'project',
+                entityId: projectId,
+                metadata: { projectName: project.name, role: data.role },
+              }),
+              user.email
+                ? this.notifier.sendMemberAdded({
+                    tenantId,
+                    userId: data.user_id,
+                    toEmail: user.email,
+                    toName: user.name || user.email,
+                    projectName: project.name,
+                    addedBy: adderName,
+                    projectRole: data.role,
+                  })
+                : Promise.resolve(),
+            ]);
+          } catch (e) {
+            console.error('[MemberController] notify failed:', e.message);
+          }
+        })();
+      }
 
       return ResponseHelper.created(res, {
         member: {

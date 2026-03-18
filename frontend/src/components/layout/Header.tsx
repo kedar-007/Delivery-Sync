@@ -1,10 +1,11 @@
 import React from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Bell, Settings, Sun, Moon } from 'lucide-react';
+import { Settings, Sun, Moon } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useI18n, LOCALES, LocaleCode } from '../../contexts/I18nContext';
 import UserAvatar from '../ui/UserAvatar';
+import NotificationBell from '../ui/NotificationBell';
 import { useMyProfile } from '../../hooks/useUsers';
 
 interface HeaderProps {
@@ -87,13 +88,7 @@ const Header = ({ title, subtitle, actions }: HeaderProps) => {
           </div>
 
           {/* Notifications */}
-          <button
-            aria-label="Notifications"
-            className="relative p-2 rounded-lg transition-colors"
-            style={{ color: `rgb(var(--ds-text-muted))` }}
-          >
-            <Bell size={18} />
-          </button>
+          <NotificationBell />
 
           {/* Settings shortcut */}
           <Link

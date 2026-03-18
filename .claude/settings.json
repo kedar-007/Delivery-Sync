@@ -12,7 +12,9 @@
       "Bash(grep -o \"\"text\"\":\"\"[^\"\"]*registerUser[^\"\"]*\"\" /Users/kedar/.claude/projects/-Users-kedar-Documents-C-DS/09d69ed8-4af2-4b35-8e3c-47aa78a6248d.jsonl)",
       "Bash(npm install:*)",
       "Bash(ls /usr/local/bin/node /opt/homebrew/bin/node ~/.nvm/versions/node/*/bin/node)",
-      "Bash(/Users/kedar/.nvm/versions/node/v20.18.1/bin/npm install:*)"
+      "Bash(/Users/kedar/.nvm/versions/node/v20.18.1/bin/npm install:*)",
+      "Bash(grep -E \"\\\\.\\(js|ts|tsx\\)$\")",
+      "Bash(npx tsc:*)"
     ]
   }
 }

@@ -196,4 +196,42 @@ export const superAdminApi = {
     api.get(`/super-admin/tenants/${tenantId}/users`).then(r => r.data.data),
 };
 
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+export const notificationsApi = {
+  list: (params?: Record<string, string>) =>
+    api.get('/notifications', { params }).then((r) => r.data.data),
+  count: () => api.get('/notifications/count').then((r) => r.data.data),
+  markRead: (id: string) => api.patch(`/notifications/${id}/read`).then((r) => r.data.data),
+  markAllRead: () => api.patch('/notifications/read-all').then((r) => r.data.data),
+  delete: (id: string) => api.delete(`/notifications/${id}`).then((r) => r.data.data),
+};
+
+// ─── Teams ────────────────────────────────────────────────────────────────────
+
+export const teamsApi = {
+  list: (params?: Record<string, string>) =>
+    api.get('/teams', { params }).then((r) => r.data.data),
+  get: (teamId: string) => api.get(`/teams/${teamId}`).then((r) => r.data.data),
+  create: (data: unknown) => api.post('/teams', data).then((r) => r.data.data),
+  update: (teamId: string, data: unknown) =>
+    api.put(`/teams/${teamId}`, data).then((r) => r.data.data),
+  delete: (teamId: string) => api.delete(`/teams/${teamId}`).then((r) => r.data.data),
+  addMember: (teamId: string, data: unknown) =>
+    api.post(`/teams/${teamId}/members`, data).then((r) => r.data.data),
+  removeMember: (teamId: string, memberId: string) =>
+    api.delete(`/teams/${teamId}/members/${memberId}`).then((r) => r.data.data),
+};
+
+// ─── Enhanced Reports ─────────────────────────────────────────────────────────
+
+export const enhancedReportsApi = {
+  userPerformance: (params: Record<string, string>) =>
+    api.get('/reports/user-performance', { params }).then((r) => r.data.data),
+  teamPerformance: (params: Record<string, string>) =>
+    api.get('/reports/team-performance', { params }).then((r) => r.data.data),
+  dailySummary: (params: Record<string, string>) =>
+    api.get('/reports/daily-summary', { params }).then((r) => r.data.data),
+};
+
 export default api;

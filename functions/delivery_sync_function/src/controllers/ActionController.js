@@ -2,9 +2,10 @@
 
 const DataStoreService = require('../services/DataStoreService');
 const AuditService = require('../services/AuditService');
+const NotificationService = require('../services/NotificationService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const Validator = require('../utils/Validator');
-const { TABLES, ACTION_STATUS, AUDIT_ACTION } = require('../utils/Constants');
+const { TABLES, ACTION_STATUS, AUDIT_ACTION, NOTIFICATION_TYPE } = require('../utils/Constants');
 
 /**
  * ActionController – CRUD for action items with status tracking.
@@ -13,6 +14,7 @@ class ActionController {
   constructor(catalystApp) {
     this.db = new DataStoreService(catalystApp);
     this.audit = new AuditService(this.db);
+    this.notifier = new NotificationService(catalystApp, this.db);
   }
 
   /**
@@ -46,6 +48,94 @@ class ActionController {
         newValue: { title: data.title, due_date: data.due_date, owner: data.owner_user_id },
         performedBy: userId,
       });
+
+      // Notify the assignee (fire-and-forget, don't notify self)
+      console.log(`[ActionNotify] owner_user_id=${data.owner_user_id} creator=${userId} same=${String(data.owner_user_id) === String(userId)}`);
+      if (data.owner_user_id && String(data.owner_user_id) !== String(userId)) {
+        (async () => {
+          try {
+            console.log(`[ActionNotify] fetching creator=${userId} and assignee=${data.owner_user_id}`);
+            const [creator, assignee] = await Promise.all([
+              this.db.findById(TABLES.USERS, userId, tenantId),
+              this.db.findById(TABLES.USERS, data.owner_user_id, tenantId),
+            ]);
+            console.log(`[ActionNotify] creator found: ${!!creator} (${creator?.name}) | assignee found: ${!!assignee} (${assignee?.name}, email=${assignee?.email})`);
+
+            const projectName = project.name;
+            const creatorName = creator?.name || 'A lead';
+            const notifyMsg = `${creatorName} assigned you an action on "${projectName}"${data.due_date ? ` due ${data.due_date}` : ''}.`;
+
+            if (!assignee) {
+              console.warn(`[ActionNotify] assignee user not found in DB for id=${data.owner_user_id}, skipping email`);
+            } else if (!assignee.email) {
+              console.warn(`[ActionNotify] assignee ${assignee.name} has no email stored, skipping email`);
+            } else {
+              console.log(`[ActionNotify] sending email to ${assignee.email}`);
+            }
+
+            const [, emailResult] = await Promise.all([
+              this.notifier.sendInApp({
+                tenantId,
+                userId: data.owner_user_id,
+                title: `New action assigned: ${data.title}`,
+                message: notifyMsg,
+                type: NOTIFICATION_TYPE.TASK_ASSIGNMENT,
+                entityType: 'action',
+                entityId: String(action.ROWID),
+                metadata: { projectId: data.project_id, projectName, dueDate: data.due_date },
+              }),
+              assignee?.email
+                ? this.notifier.sendTaskAssignment({
+                    tenantId,
+                    userId: data.owner_user_id,
+                    toEmail: assignee.email,
+                    toName: assignee.name || assignee.email,
+                    actionTitle: data.title,
+                    dueDate: data.due_date || null,
+                    projectName,
+                    assignedBy: creatorName,
+                  })
+                : Promise.resolve(null),
+            ]);
+            console.log(`[ActionNotify] email result: ${emailResult}`);
+
+            // Audit log the notification outcome
+            const noEmail = !assignee?.email;
+            await this.audit.log({
+              tenantId,
+              entityType: 'notification',
+              entityId: String(action.ROWID),
+              action: noEmail
+                ? AUDIT_ACTION.NOTIFY_SKIPPED
+                : emailResult
+                  ? AUDIT_ACTION.NOTIFY_SENT
+                  : AUDIT_ACTION.NOTIFY_FAILED,
+              newValue: {
+                channel: 'email',
+                event: 'ACTION_ASSIGNED',
+                toUserId: data.owner_user_id,
+                toEmail: assignee?.email || null,
+                toName: assignee?.name || null,
+                reason: noEmail ? 'no_email_on_user' : (emailResult ? 'ok' : 'send_failed'),
+              },
+              performedBy: userId,
+            });
+          } catch (e) {
+            console.error('[ActionNotify] notify FAILED:', e.message, e.stack || '');
+          }
+        })();
+      } else {
+        const reason = !data.owner_user_id ? 'no_owner_user_id' : 'assigning_to_self';
+        console.log(`[ActionNotify] skipped — ${reason}`);
+        await this.audit.log({
+          tenantId,
+          entityType: 'notification',
+          entityId: String(action.ROWID),
+          action: AUDIT_ACTION.NOTIFY_SKIPPED,
+          newValue: { channel: 'email', event: 'ACTION_ASSIGNED', reason },
+          performedBy: userId,
+        });
+      }
 
       return ResponseHelper.created(res, {
         action: {
@@ -132,6 +222,54 @@ class ActionController {
 
       await this.db.update(TABLES.ACTIONS, updatePayload);
 
+      // Notify new assignee if ownership changed
+      if (
+        data.owner_user_id &&
+        String(data.owner_user_id) !== String(existing.assigned_to) &&
+        String(data.owner_user_id) !== String(userId)
+      ) {
+        (async () => {
+          try {
+            const [updater, assignee, project] = await Promise.all([
+              this.db.findById(TABLES.USERS, userId, tenantId),
+              this.db.findById(TABLES.USERS, data.owner_user_id, tenantId),
+              this.db.findById(TABLES.PROJECTS, existing.project_id, tenantId),
+            ]);
+            const projectName = project?.name || '';
+            const updaterName = updater?.name || 'A lead';
+            const actionTitle = data.title || existing.title;
+            const dueDate = data.due_date || existing.due_date || null;
+
+            await Promise.all([
+              this.notifier.sendInApp({
+                tenantId,
+                userId: data.owner_user_id,
+                title: `Action assigned to you: ${actionTitle}`,
+                message: `${updaterName} assigned you an action on "${projectName}"${dueDate ? ` due ${dueDate}` : ''}.`,
+                type: NOTIFICATION_TYPE.TASK_ASSIGNMENT,
+                entityType: 'action',
+                entityId: String(actionId),
+                metadata: { projectId: existing.project_id, projectName, dueDate },
+              }),
+              assignee?.email
+                ? this.notifier.sendTaskAssignment({
+                    tenantId,
+                    userId: data.owner_user_id,
+                    toEmail: assignee.email,
+                    toName: assignee.name || assignee.email,
+                    actionTitle,
+                    dueDate,
+                    projectName,
+                    assignedBy: updaterName,
+                  })
+                : Promise.resolve(),
+            ]);
+          } catch (e) {
+            console.error('[ActionController] reassign notify failed:', e.message);
+          }
+        })();
+      }
+
       if (data.status && data.status !== existing.status) {
         await this.audit.log({
           tenantId, entityType: 'action', entityId: actionId,
@@ -140,6 +278,68 @@ class ActionController {
           newValue: { status: data.status },
           performedBy: userId,
         });
+
+        // Notify the action owner about the status change (if changed by someone else)
+        const ownerId = data.owner_user_id || existing.assigned_to;
+        if (ownerId && String(ownerId) !== String(userId)) {
+          (async () => {
+            try {
+              const [owner, changer, project] = await Promise.all([
+                this.db.findById(TABLES.USERS, ownerId, tenantId),
+                this.db.findById(TABLES.USERS, userId, tenantId),
+                this.db.findById(TABLES.PROJECTS, existing.project_id, tenantId),
+              ]);
+              const changerName = changer?.name || 'A lead';
+              const projectName = project?.name || '';
+              const actionTitle = data.title || existing.title;
+              const dueDate = data.due_date || existing.due_date || null;
+
+              console.log(`[ActionStatusNotify] owner=${owner?.name} email=${owner?.email} newStatus=${data.status} changedBy=${changerName}`);
+
+              const [, emailResult] = await Promise.all([
+                this.notifier.sendInApp({
+                  tenantId,
+                  userId: ownerId,
+                  title: `Action "${actionTitle}" is now ${data.status}`,
+                  message: `${changerName} updated the status of your action on "${projectName}" to ${data.status}.`,
+                  type: NOTIFICATION_TYPE.TASK_ASSIGNMENT,
+                  entityType: 'action',
+                  entityId: String(actionId),
+                  metadata: { projectId: existing.project_id, projectName, newStatus: data.status },
+                }),
+                owner?.email
+                  ? this.notifier.sendActionStatusChanged({
+                      toEmail: owner.email,
+                      toName: owner.name || owner.email,
+                      actionTitle,
+                      projectName,
+                      newStatus: data.status,
+                      changedBy: changerName,
+                      dueDate,
+                    })
+                  : Promise.resolve(null),
+              ]);
+
+              await this.audit.log({
+                tenantId,
+                entityType: 'notification',
+                entityId: String(actionId),
+                action: !owner?.email
+                  ? AUDIT_ACTION.NOTIFY_SKIPPED
+                  : emailResult ? AUDIT_ACTION.NOTIFY_SENT : AUDIT_ACTION.NOTIFY_FAILED,
+                newValue: {
+                  channel: 'email', event: 'ACTION_STATUS_CHANGED',
+                  toUserId: String(ownerId), toEmail: owner?.email || null,
+                  newStatus: data.status,
+                  reason: !owner?.email ? 'no_email_on_user' : (emailResult ? 'ok' : 'send_failed'),
+                },
+                performedBy: userId,
+              });
+            } catch (e) {
+              console.error('[ActionStatusNotify] failed:', e.message);
+            }
+          })();
+        }
       }
 
       return ResponseHelper.success(res, { actionId, updated: data });

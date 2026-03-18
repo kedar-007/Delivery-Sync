@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Edit2, Users, CheckSquare, AlertTriangle, Milestone, BarChart2, UserPlus, Trash2 } from 'lucide-react';
 import UserAvatar from '../components/ui/UserAvatar';
+import UserHoverCard from '../components/ui/UserHoverCard';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
@@ -141,10 +142,17 @@ const ProjectDetailPage = () => {
                 return (
                 <div key={m.id} className="flex items-center justify-between py-2">
                   <div className="flex items-center gap-3">
-                    <UserAvatar name={m.name || enriched?.name || m.email || ''} avatarUrl={avatarUrl} size="sm" />
+                    <UserHoverCard
+                      name={m.name || enriched?.name || m.email || ''}
+                      role={m.userRole}
+                      projectRole={m.projectRole}
+                      email={m.email}
+                      avatarUrl={avatarUrl}
+                      size="sm"
+                    />
                     <div>
                       <p className="text-sm font-medium text-gray-900">{m.name || m.email || m.userId}</p>
-                      <p className="text-xs text-gray-400">{m.projectRole || m.userRole}</p>
+                      <p className="text-xs text-gray-400">{(m.projectRole || m.userRole || '').replace(/_/g, ' ')}</p>
                     </div>
                   </div>
                   <button onClick={() => handleRemoveMember(m.id)} className="p-1 text-gray-400 hover:text-red-500 transition-colors" title="Remove member">
@@ -242,9 +250,30 @@ const ProjectDetailPage = () => {
           <div>
             <label className="form-label">Project Role</label>
             <select className="form-select" {...addMemberForm.register('role')}>
-              {['LEAD', 'MEMBER', 'OBSERVER'].map((r) => (
-                <option key={r} value={r}>{r}</option>
-              ))}
+              <optgroup label="Leadership">
+                <option value="DELIVERY_LEAD">Delivery Lead</option>
+                <option value="PROJECT_MANAGER">Project Manager</option>
+                <option value="SCRUM_MASTER">Scrum Master</option>
+                <option value="PRODUCT_OWNER">Product Owner</option>
+              </optgroup>
+              <optgroup label="Engineering">
+                <option value="TECH_LEAD">Tech Lead</option>
+                <option value="SENIOR_DEVELOPER">Senior Developer</option>
+                <option value="DEVELOPER">Developer</option>
+                <option value="DEVOPS_ENGINEER">DevOps Engineer</option>
+              </optgroup>
+              <optgroup label="Quality & Design">
+                <option value="TESTER">QA / Tester</option>
+                <option value="DESIGNER">UI/UX Designer</option>
+              </optgroup>
+              <optgroup label="Analysis & Business">
+                <option value="BUSINESS_ANALYST">Business Analyst</option>
+                <option value="DATA_ANALYST">Data Analyst</option>
+              </optgroup>
+              <optgroup label="Stakeholders">
+                <option value="STAKEHOLDER">Stakeholder</option>
+                <option value="OBSERVER">Observer</option>
+              </optgroup>
             </select>
           </div>
           <ModalActions>

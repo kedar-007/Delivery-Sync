@@ -20,6 +20,7 @@ import SuperAdminPage from './pages/SuperAdminPage';
 import ReportDetailPage from './pages/ReportDetailPage';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
+import TeamsPage from './pages/TeamsPage';
 
 const App = () => (
   <HashRouter>
@@ -44,6 +45,7 @@ const App = () => (
         <Route path="blockers" element={<BlockersPage />} />
         <Route path="raid" element={<RaidPage />} />
         <Route path="decisions" element={<DecisionsPage />} />
+        <Route path="teams" element={<TeamsPage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="settings" element={<SettingsPage />} />
