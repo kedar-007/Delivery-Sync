@@ -21,6 +21,7 @@ import ReportDetailPage from './pages/ReportDetailPage';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
 import TeamsPage from './pages/TeamsPage';
+import AiInsightsPage from './pages/AiInsightsPage';
 
 const App = () => (
   <HashRouter>
@@ -49,6 +50,7 @@ const App = () => (
         <Route path="reports" element={<ReportsPage />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="ai-insights" element={<AiInsightsPage />} />
         <Route path="admin" element={<AdminPage />} />
       </Route>
 

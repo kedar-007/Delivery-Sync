@@ -14,7 +14,9 @@
       "Bash(ls /usr/local/bin/node /opt/homebrew/bin/node ~/.nvm/versions/node/*/bin/node)",
       "Bash(/Users/kedar/.nvm/versions/node/v20.18.1/bin/npm install:*)",
       "Bash(grep -E \"\\\\.\\(js|ts|tsx\\)$\")",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(find /Users/kedar/Documents/C-DS -type f -path */ai_service/src/*)",
+      "Bash(/usr/local/bin/node /usr/local/bin/npx tsc --noEmit -p /Users/kedar/Documents/C-DS/frontend/tsconfig.json)"
     ]
   }
 }
