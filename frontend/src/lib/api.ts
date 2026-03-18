@@ -155,6 +155,7 @@ export const reportsApi = {
   list: (params?: Record<string, string>) =>
     api.get('/reports', { params }).then((r) => r.data.data),
   get: (id: string) => api.get(`/reports/${id}`).then((r) => r.data.data),
+  getPublic: (id: string) => api.get(`/reports/public/${id}`).then((r) => r.data.data),
   generate: (data: unknown) => api.post('/reports/generate', data).then((r) => r.data.data),
 };
 

@@ -14,6 +14,14 @@ export const useReport = (id: string) =>
     enabled: !!id,
   });
 
+export const usePublicReport = (id: string) =>
+  useQuery({
+    queryKey: ['reports-public', id],
+    queryFn: () => reportsApi.getPublic(id).then((d) => d.report),
+    enabled: !!id,
+    retry: false,
+  });
+
 export const useGenerateReport = () => {
   const qc = useQueryClient();
   return useMutation({

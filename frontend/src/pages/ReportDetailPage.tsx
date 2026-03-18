@@ -5,7 +5,7 @@ import {
   TrendingUp, AlertTriangle, CheckSquare, Milestone,
   Users, BarChart2, FileText, Clock, Calendar,
 } from 'lucide-react';
-import { useReport } from '../hooks/useReports';
+import { usePublicReport } from '../hooks/useReports';
 import { RAGBadge, StatusBadge } from '../components/ui/Badge';
 import { PageLoader } from '../components/ui/Spinner';
 import { ReportSummary } from '../types';
@@ -56,7 +56,7 @@ const Ring = ({ pct, color }: { pct: number; color: string }) => {
 // ── Main page ─────────────────────────────────────────────────────────────────
 const ReportDetailPage = () => {
   const { reportId, tenantSlug } = useParams<{ reportId: string; tenantSlug: string }>();
-  const { data: report, isLoading } = useReport(reportId ?? '');
+  const { data: report, isLoading } = usePublicReport(reportId ?? '');
   const [copied, setCopied] = useState(false);
 
   const copyLink = useCallback(() => {

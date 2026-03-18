@@ -19,6 +19,11 @@ const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) => {
     return <Navigate to="/login" replace />;
   }
 
+  // Super admin belongs at /super-admin, not inside any tenant
+  if (user.role === 'SUPER_ADMIN') {
+    return <Navigate to="/super-admin" replace />;
+  }
+
   // If the URL tenantSlug doesn't match the user's tenant, redirect to correct slug
   if (tenantSlug && user.tenantSlug && tenantSlug !== user.tenantSlug) {
     return <Navigate to={`/${user.tenantSlug}/dashboard`} replace />;

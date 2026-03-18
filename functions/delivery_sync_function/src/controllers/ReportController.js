@@ -158,6 +158,34 @@ class ReportController {
   }
 
   /**
+   * GET /api/reports/public/:reportId  — no auth required, used for shareable links
+   */
+  async getReportPublic(req, res) {
+    try {
+      const { reportId } = req.params;
+      const rows = await this.db.query(
+        `SELECT * FROM ${TABLES.REPORTS} WHERE ROWID = '${DataStoreService.escape(reportId)}' LIMIT 1`
+      );
+      if (rows.length === 0) return ResponseHelper.notFound(res, 'Report not found');
+      const report = rows[0];
+      return ResponseHelper.success(res, {
+        report: {
+          id: String(report.ROWID),
+          projectId: report.project_id,
+          reportType: report.report_type,
+          periodStart: report.period_start,
+          periodEnd: report.period_end,
+          generatedBy: report.generated_by,
+          generatedAt: report.generated_at,
+          summary: (() => { try { return JSON.parse(report.summary); } catch { return {}; } })(),
+        },
+      });
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
    * GET /api/reports/:reportId
    */
   async getReportById(req, res) {

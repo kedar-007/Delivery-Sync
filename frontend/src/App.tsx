@@ -19,12 +19,16 @@ import AdminPage from './pages/AdminPage';
 import SuperAdminPage from './pages/SuperAdminPage';
 import ReportDetailPage from './pages/ReportDetailPage';
 import ProfilePage from './pages/ProfilePage';
+import SettingsPage from './pages/SettingsPage';
 
 const App = () => (
   <HashRouter>
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/super-admin" element={<SuperAdminPage />} />
+
+      {/* Public shareable report — no auth required */}
+      <Route path="/:tenantSlug/reports/:reportId" element={<ReportDetailPage />} />
 
       {/* All protected routes live under /:tenantSlug so the slug appears in the URL */}
       <Route path="/:tenantSlug" element={<ProtectedRoute />}>
@@ -41,8 +45,8 @@ const App = () => (
         <Route path="raid" element={<RaidPage />} />
         <Route path="decisions" element={<DecisionsPage />} />
         <Route path="reports" element={<ReportsPage />} />
-        <Route path="reports/:reportId" element={<ReportDetailPage />} />
         <Route path="profile" element={<ProfilePage />} />
+        <Route path="settings" element={<SettingsPage />} />
         <Route path="admin" element={<AdminPage />} />
       </Route>
 
