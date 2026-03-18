@@ -1,0 +1,318 @@
+# Delivery Sync — Product Overview
+
+> A complete project delivery intelligence platform that gives every stakeholder — from team members to the CEO — exactly the visibility they need to ship on time.
+
+---
+
+## What Is Delivery Sync?
+
+Delivery Sync is a web-based project delivery management platform built for modern software and service delivery teams. It centralises everything that typically lives across spreadsheets, chat messages, and status-update emails — standups, blockers, milestones, risks, decisions, and team activity — into one intelligent workspace.
+
+On top of that foundation, it layers a full AI insights engine that turns your delivery data into actionable intelligence: health scores, risk alerts, trend analysis, sprint retrospectives, and a conversational query interface that lets any stakeholder ask natural-language questions about their projects.
+
+**Built on:** Zoho Catalyst (serverless backend, datastore, cron jobs) · React + TypeScript (frontend) · Qwen 30B LLM (AI engine via Zoho QuickML)
+
+---
+
+## Who Is It For?
+
+Delivery Sync is designed for organisations running one or more delivery projects simultaneously — software product companies, IT service firms, consulting agencies, and enterprise PMO teams.
+
+| Role | What They Get |
+|---|---|
+| **CEO / Exec** | Portfolio health at a glance, risk intelligence, AI executive brief, strategic recommendations |
+| **CTO** | Technical delivery status, blocker breakdown by severity, milestone pipeline, AI analysis |
+| **PMO / Portfolio Manager** | Cross-project oversight, RAID register, decisions log, reports, standup compliance rates |
+| **Delivery Lead** | Full project control — milestones, actions, blockers, team standups, AI coaching |
+| **Team Member** | Submit standups & EODs, track own actions, raise blockers, personal AI performance view |
+| **Client** | Read-only window into their project — milestones, reports, shareable links |
+
+---
+
+## Core Modules
+
+### 1. Projects
+Create and manage multiple projects simultaneously. Each project has a RAG (Red / Amber / Green) health status that is updated by leads and surfaced automatically in all dashboards.
+
+- Track project start and end dates
+- Assign team members with specific project roles (Tech Lead, Developer, Scrum Master, Designer, QA, etc.)
+- Monitor overall progress through integrated milestones, actions, and blockers
+- RAG status changes are logged for audit purposes
+
+---
+
+### 2. Milestones
+Define the key delivery checkpoints for each project and track them through to completion.
+
+- Set milestones with due dates and descriptions
+- Statuses: Pending → In Progress → Completed / Delayed
+- Overdue milestones are automatically surfaced in dashboards and executive views
+- Milestone completion rates appear in AI health scoring
+
+---
+
+### 3. Daily Updates — Standup & EOD
+Replace scattered chat messages and email threads with structured daily updates.
+
+**Daily Standup:**
+- What did I work on yesterday?
+- What am I working on today?
+- Any blockers?
+
+**End-of-Day (EOD):**
+- What did I accomplish today?
+- What's planned for tomorrow?
+- Mood / energy level
+
+These entries feed directly into the AI engine, enabling blocker detection, trend analysis, and performance insights. Automated reminders are sent to ensure team compliance.
+
+---
+
+### 4. Actions
+A lightweight action-item tracker that keeps accountability clear across the entire project.
+
+- Create actions with due dates, assignees, and priority levels
+- Statuses: Open → In Progress → Done / Cancelled
+- Overdue actions are escalated in dashboards and AI analysis
+- Actions link to projects for portfolio-level visibility
+
+---
+
+### 5. Blockers
+A dedicated module to raise, track, and resolve anything that is stopping progress.
+
+- Four severity levels: Critical · High · Medium · Low
+- Statuses: Open → In Progress → Escalated → Resolved
+- Blockers that remain open beyond 3 days are automatically escalated
+- Critical and High blockers surface prominently in the CEO and CTO dashboards
+- AI Blocker Detection can identify implicit blockers from standup and EOD text — things teams mention in passing but have not formally raised
+
+---
+
+### 6. RAID Register
+A complete Risk, Assumption, Issue, and Dependency log for projects.
+
+| Type | What It Tracks |
+|---|---|
+| **Risks** | Potential threats with probability and impact ratings |
+| **Issues** | Problems that are actively happening |
+| **Dependencies** | Internal and external dependencies with status tracking |
+| **Assumptions** | Project assumptions that can be validated or invalidated |
+
+Each RAID item has its own status lifecycle. Unresolved items are visible in executive dashboards and AI risk analysis.
+
+---
+
+### 7. Decisions
+Never lose track of a key project decision again. The Decisions log captures what was decided, when, and by whom — making retrospectives and audits straightforward.
+
+- Log decisions with context and rationale
+- Statuses: Open → Implemented → Reversed
+- Decision counts appear in executive dashboards
+- Fully audited — every change is recorded
+
+---
+
+### 8. Teams
+Organise your people into named teams with clear roles and membership.
+
+- Create teams with leads and members
+- Assign team roles (Scrum Master, Product Owner, Tech Lead, Developer, Designer, QA, DevOps, Business Analyst, and more)
+- Team composition is visible in all reporting
+- Team size and structure feed into AI recommendations
+
+---
+
+### 9. Reports
+Generate, view, and share structured reports without manual effort.
+
+**Report types available:**
+- **Weekly Report** — Rolling seven-day delivery summary
+- **Monthly Report** — Monthly delivery performance
+- **Custom Range** — Any date range you need
+- **Daily Summary** — Single-day digest
+- **User Performance** — Individual contributor metrics
+- **Team Performance** — Aggregate team metrics
+- **Project Summary** — Full project health and delivery status
+
+**Public sharing:** Every report can be shared via a unique public link — no login required for the recipient. Perfect for sharing progress with clients or leadership without giving them system access.
+
+---
+
+## Dashboards
+
+### General Dashboard
+The first screen every user sees on login. Tailored to their role — team members see their own work, leads see their projects, executives see the portfolio.
+
+### Portfolio Dashboard
+A cross-project health matrix for PMO and executive roles. Aggregated view of all active projects, their RAG statuses, and key delivery metrics.
+
+### CEO Dashboard
+Business-focused executive intelligence. Built for a CEO who needs the full picture in one view.
+
+**What it shows:**
+- Portfolio health score (composite metric)
+- Active projects vs. completed vs. on hold
+- Open risks and critical blockers count
+- Overdue actions count
+- Team velocity (standup submission rate)
+- RAG breakdown donut chart
+- Team activity trend (last 7 days)
+- Milestone progress by project (bar chart)
+- Full project portfolio table with health scores
+- Critical and high blockers list
+- Delivery metrics grid
+
+**AI Executive Brief (4-source intelligence):**
+The CEO dashboard's AI brief aggregates output from four simultaneous AI analyses:
+1. Portfolio health status with reasons and risk flags
+2. Detected delivery blockers with severity and resolution suggestions
+3. Team pulse — productivity, engagement, and mood trends
+4. Risk mitigation and strategic recommendations, resource allocation suggestions, immediate actions required
+
+Everything a CEO needs to walk into a board meeting or a delivery review — generated in one click.
+
+### CTO Dashboard
+Technical and delivery-focused intelligence for engineering and delivery leadership.
+
+**What it shows:**
+- Active projects and critical blocker counts
+- Overdue actions and delayed milestones
+- Sprint health score
+- Open risks count
+- Project health bar chart (health score vs. milestone progress)
+- Blocker severity breakdown (pie chart)
+- Team velocity line chart (7-day trend)
+- Filterable project health table with RAG, health scores, milestone progress, overdue counts, and end-date countdown
+- Delivery pipeline — upcoming milestones (7 days) and overdue milestones
+- Active blockers list with severity and raised date
+- AI Delivery Analysis — detected blockers with root causes, trend insights, portfolio health summary
+
+---
+
+## AI Insights Engine
+
+Delivery Sync includes a dedicated AI service powered by a 30-billion-parameter language model. It reads your actual delivery data — standups, EODs, actions, blockers, milestones — and generates human-readable intelligence.
+
+### Available AI Analyses
+
+| Feature | What It Does |
+|---|---|
+| **Daily Summary** | Summarises what the team accomplished, highlights key activities, detects sentiment |
+| **Project Health** | Classifies each project as On Track / At Risk / Delayed with specific reasons and a health score |
+| **Performance Analysis** | Per-member performance insights, strengths, and improvement areas over a configurable window |
+| **AI Report Generation** | Fully written daily, weekly, or project reports with executive summaries |
+| **Smart Suggestions** | Prioritised suggestions across three dimensions: productivity, risk mitigation, and resource allocation |
+| **Blocker Detection** | Scans standup and EOD text to find both explicit and implicit blockers your team mentioned but did not formally raise |
+| **Trend Analysis** | Identifies productivity, engagement, and mood trends across 7 to 90 days with predictions |
+| **Sprint Retrospective** | Generates a structured retrospective: what went well, what went wrong, action items, velocity score, key learnings |
+| **Natural Language Query** | Ask any question in plain English — "Which projects are at risk this week?" — and get a direct answer |
+
+### Role-Scoped AI
+AI results are automatically scoped to what each user is allowed to see:
+- **Admin / PMO / Exec** — Full tenant-wide analysis
+- **Delivery Lead** — Their projects
+- **Team Member** — Their own activity and assigned work
+- **Client** — Their assigned project only
+
+---
+
+## Automation & Notifications
+
+Delivery Sync runs several automated background processes so nothing falls through the cracks.
+
+| Automation | What It Does |
+|---|---|
+| **Standup Reminder** | Daily reminder sent to all team members to submit their standup |
+| **EOD Reminder** | Evening reminder to submit end-of-day updates |
+| **Overdue Action Alert** | Notifies owners when their actions become overdue |
+| **Blocker Escalation** | Automatically escalates blockers that have been open for 3+ days |
+| **Daily Summary** | Generates and delivers an automated daily delivery digest |
+
+**11 notification types** are supported, covering task assignments, blocker additions, project assignments, team updates, report readiness, and more.
+
+---
+
+## Access Control & Security
+
+### Six User Roles
+Every user is assigned one of six tenant roles, each with precisely scoped permissions:
+
+| Role | Description |
+|---|---|
+| **Tenant Admin** | Full system access — all features, admin panel, user management, audit logs |
+| **PMO** | Portfolio and reporting focus — full read/write on projects, RAID, decisions, milestones |
+| **Delivery Lead** | Project execution focus — full access to own projects, can invite team members |
+| **Team Member** | Contributor access — standups, EODs, own actions, raise blockers |
+| **Exec** | Read-only view of everything — executive dashboards, reports, aggregate metrics |
+| **Client** | External access — project milestones, reports, public share links only |
+
+### 25 Granular Permissions
+Under the hood, access is enforced through 25 individual permission flags covering every API endpoint. This means you can be confident that a Client user will never see internal standup details, a Team Member can never modify project settings, and an Exec can view everything without accidentally editing anything.
+
+### Audit Trail
+Every create, update, delete, status change, role change, escalation, and notification is written to an immutable audit log. Full traceability for compliance and accountability.
+
+---
+
+## Multi-Tenant Architecture
+
+Delivery Sync is fully multi-tenant. Each organisation (tenant) operates in complete isolation:
+- Separate data namespaces
+- Unique URL slug per organisation (`/your-company/dashboard`)
+- Independent user bases and role assignments
+- Super Admin panel for platform-level tenant management
+
+---
+
+## Key Benefits for Your Organisation
+
+**Visibility** — Everyone from a junior developer to the CEO sees the information relevant to their role in real time. No more "can you send me a status update" messages.
+
+**Accountability** — Actions, blockers, and milestones have owners and due dates. Automated reminders and escalations mean nothing goes untracked.
+
+**Early Warning System** — The combination of RAG status tracking, blocker severity levels, overdue milestone alerts, and AI analysis means problems surface days earlier than in manual processes.
+
+**AI That Works With Your Data** — The AI engine does not generate generic advice. It reads your team's actual standups, EODs, and project data and returns insights specific to your delivery context.
+
+**Client Confidence** — Share polished, always-current project reports with clients via a simple link — no login required. Keep clients informed without giving them access to internal discussions.
+
+**Reduced Meetings** — Structured standups, EODs, automated summaries, and AI briefings dramatically reduce the need for status-check meetings. The data is already there.
+
+**Audit-Ready** — Every action in the system is logged. Whether for internal governance, client SLAs, or compliance requirements, you have a complete record.
+
+---
+
+## Feature Summary
+
+| Category | Features |
+|---|---|
+| Project Management | Projects, Milestones, RAG Status, Team Members, Project Roles |
+| Daily Operations | Standup Submission, EOD Submission, Automated Reminders |
+| Issue Tracking | Actions, Blockers, Escalation, Severity Levels |
+| Risk Management | RAID Register (Risks, Issues, Dependencies, Assumptions) |
+| Governance | Decisions Log, Audit Trail, Role-Based Access |
+| Dashboards | General, Portfolio, CEO, CTO |
+| Reports | Weekly, Monthly, Custom, User/Team Performance, AI-Generated, Public Sharing |
+| AI Engine | Health Analysis, Blocker Detection, Trend Analysis, Performance Review, Retrospective, NL Query, Smart Suggestions, Voice Processing |
+| Notifications | 11 notification types, in-app and automated |
+| Automation | 5 cron jobs for reminders, escalations, and summaries |
+| Administration | User Invite, Role Management, User Deactivation, Tenant Config |
+| Infrastructure | Multi-tenant, Serverless (Zoho Catalyst), Role-Scoped API |
+
+---
+
+## Technical Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 18, TypeScript, Tailwind CSS, Recharts, React Query |
+| Backend | Node.js, Express, Zoho Catalyst Serverless Functions |
+| Database | Zoho Catalyst DataStore (ZCQL) |
+| AI | Zoho QuickML — Qwen 30B Text MoE model |
+| Auth | Zoho Catalyst Authentication (session-based) |
+| Deployment | Zoho Catalyst Cloud (serverless, auto-scaling) |
+
+---
+
+*Delivery Sync — Built to give every team the clarity to deliver.*
