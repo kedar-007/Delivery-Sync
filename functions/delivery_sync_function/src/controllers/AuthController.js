@@ -141,10 +141,11 @@ class AuthController {
   async listTenantUsers(req, res) {
     try {
       const { tenantId } = req.currentUser;
-      const users = await this.db.findAll(
-        require('../utils/Constants').TABLES.USERS,
-        { tenant_id: tenantId, status: 'ACTIVE' },
-        { orderBy: 'name ASC', limit: 200 }
+      // Include ACTIVE and INVITED so newly invited users appear in assignment dropdowns
+      const users = await this.db.query(
+        `SELECT * FROM ${require('../utils/Constants').TABLES.USERS} ` +
+        `WHERE tenant_id = '${tenantId}' AND status IN ('ACTIVE','INVITED') ` +
+        `ORDER BY name ASC LIMIT 200`
       );
       return ResponseHelper.success(res, {
         users: users.map((u) => ({
@@ -152,7 +153,8 @@ class AuthController {
           name: u.name,
           email: u.email,
           role: u.role,
-          avatarUrl: u.avatar_url || '',
+          // Handle both correct spelling and historical typo in DB column name
+          avatarUrl: u.avatar_url || u.avtar_url || '',
         })),
       });
     } catch (err) {

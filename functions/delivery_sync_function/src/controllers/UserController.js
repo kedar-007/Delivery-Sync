@@ -4,26 +4,27 @@ const DataStoreService = require('../services/DataStoreService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const { TABLES } = require('../utils/Constants');
 
+const BUCKET_NAME = process.env.STRATUS_BUCKET_NAME || 'profiles-users';
+const BUCKET_BASE_URL = process.env.STRATUS_USER_AVATARS_URL || 'https://profiles-users-development.zohostratus.in';
+
 /**
  * UserController – self-service profile management (name, avatar).
  *
- * Avatar storage: images are stored as base64 data-URLs directly in the
- * users.avatar_url column (TEXT). For larger deployments, replace with
- * Catalyst File Store (Stratus) by uploading the buffer there and storing
- * the returned CDN URL instead.
+ * Avatar storage: images are uploaded to Catalyst Stratus bucket "user-avatars".
+ * Requires the bucket to exist: Catalyst Console → File Store → Buckets → Create "user-avatars".
+ * Set STRATUS_USER_AVATARS_URL env var to the bucket's base URL.
  *
- * NOTE: You must add an `avatar_url` TEXT column to the `users` table in
- * Catalyst Console → DataStore before these endpoints will work.
+ * NOTE: Add an `avatar_url` TEXT column to the `users` table in Catalyst Console → DataStore.
  */
 class UserController {
   constructor(catalystApp) {
     this.db = new DataStoreService(catalystApp);
     this.catalystApp = catalystApp;
+    this.stratus = catalystApp.stratus();
   }
 
   /**
    * GET /api/users/me
-   * Returns the current user's full profile row.
    */
   async getProfile(req, res) {
     try {
@@ -48,35 +49,19 @@ class UserController {
 
   /**
    * PATCH /api/users/me
-   * Update name and/or avatarUrl.
-   * Body: { name?: string, avatarUrl?: string }
+   * Update display name.
+   * Body: { name?: string }
    */
   async updateProfile(req, res) {
     try {
-      const { id: userId, tenantId } = req.currentUser;
-      const { name, avatarUrl } = req.body;
+      const { id: userId } = req.currentUser;
+      const { name } = req.body;
 
-      const payload = { ROWID: userId };
-      if (name && typeof name === 'string' && name.trim()) {
-        payload.name = name.trim().slice(0, 100);
-      }
-      if (avatarUrl !== undefined) {
-        // Accept a base64 data-URL or any HTTPS URL
-        const isDataUrl = typeof avatarUrl === 'string' && avatarUrl.startsWith('data:image/');
-        const isHttps = typeof avatarUrl === 'string' && avatarUrl.startsWith('https://');
-        const isEmpty = avatarUrl === '';
-        if (!isDataUrl && !isHttps && !isEmpty) {
-          return ResponseHelper.validationError(res, 'avatarUrl must be a base64 data-URL, an https URL, or empty string');
-        }
-        payload.avatar_url = avatarUrl;
+      if (!name || typeof name !== 'string' || !name.trim()) {
+        return ResponseHelper.validationError(res, 'name is required');
       }
 
-      if (Object.keys(payload).length === 1) {
-        return ResponseHelper.validationError(res, 'Nothing to update');
-      }
-
-      await this.db.update(TABLES.USERS, payload);
-
+      await this.db.update(TABLES.USERS, { ROWID: userId, name: name.trim().slice(0, 100) });
       return ResponseHelper.success(res, { updated: true }, 'Profile updated');
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
@@ -85,51 +70,64 @@ class UserController {
 
   /**
    * POST /api/users/me/avatar/upload
-   * Upload avatar to Catalyst File Store (Stratus) and store the file URL.
+   * Upload avatar image to Catalyst Stratus bucket and save the URL to the users table.
    * Body: { fileName: string, contentType: string, base64: string }
-   *
-   * Requires a folder named "user-avatars" in Catalyst Console → File Store.
    */
   async uploadAvatar(req, res) {
     try {
-      const { id: userId } = req.currentUser;
+      const { id: userId, tenantId } = req.currentUser;
       const { fileName, contentType, base64 } = req.body;
 
       if (!base64 || !fileName) {
         return ResponseHelper.validationError(res, 'fileName and base64 are required');
       }
 
-      // Decode base64 to buffer
+      const bucket = this.stratus.bucket(BUCKET_NAME);
+
+      // 1. Fetch existing user to get old avatar file name for deletion
+      const existingUser = await this.db.findById(TABLES.USERS, userId, tenantId);
+      if (existingUser && existingUser.avatar_url) {
+        try {
+          const oldFileName = existingUser.avatar_url.split('/').pop();
+          if (oldFileName) {
+            console.log('[UserController] Deleting old avatar:', oldFileName);
+            await bucket.deleteObject(oldFileName);
+          }
+        } catch (delErr) {
+          console.warn('[UserController] Failed to delete old avatar (non-fatal):', delErr.message);
+        }
+      }
+
+      // 2. Decode base64 → Buffer
       const base64Data = base64.replace(/^data:image\/\w+;base64,/, '');
       const buffer = Buffer.from(base64Data, 'base64');
 
-      // Upload to Catalyst File Store
-      const fileStore = this.catalystApp.filestore();
-      const folder = fileStore.folder('user-avatars');
+      // 3. Build unique file name: userId_timestamp.ext
+      const ext = fileName.split('.').pop() || 'jpg';
+      const uniqueFileName = `${userId}_${Date.now()}.${ext}`;
 
-      const { Readable } = require('stream');
-      const stream = Readable.from(buffer);
+      console.log('[UserController] Uploading avatar:', { uniqueFileName, contentType, size: buffer.length });
 
-      const fileDetails = await folder.uploadFile(
-        { fileName: `${userId}_${Date.now()}_${fileName}`, content: stream }
-      );
+      // 4. Upload to Stratus bucket — same pattern as reference project
+      const uploadResult = await bucket.putObject(uniqueFileName, buffer, {
+        contentType: contentType || 'image/jpeg',
+      });
 
-      const avatarUrl = fileDetails.file_location || fileDetails.download_url || '';
+      console.log('[UserController] Upload result:', uploadResult);
 
-      // Save URL to users table
+      if (uploadResult !== true) {
+        return ResponseHelper.serverError(res, 'Avatar upload to Stratus failed');
+      }
+
+      const avatarUrl = `${BUCKET_BASE_URL}/${uniqueFileName}`;
+      console.log('[UserController] Avatar URL:', avatarUrl);
+
+      // 5. Persist URL to users table
       await this.db.update(TABLES.USERS, { ROWID: userId, avatar_url: avatarUrl });
 
       return ResponseHelper.success(res, { avatarUrl }, 'Avatar uploaded');
     } catch (err) {
-      // Fallback: store base64 directly in DB if File Store fails
-      try {
-        const { id: userId } = req.currentUser;
-        const { base64 } = req.body;
-        if (base64) {
-          await this.db.update(TABLES.USERS, { ROWID: userId, avatar_url: base64 });
-          return ResponseHelper.success(res, { avatarUrl: base64, stored: 'inline' }, 'Avatar saved (inline)');
-        }
-      } catch { /* ignore fallback error */ }
+      console.error('[UserController] uploadAvatar error:', err.message);
       return ResponseHelper.serverError(res, err.message);
     }
   }

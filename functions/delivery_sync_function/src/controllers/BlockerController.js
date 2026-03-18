@@ -30,14 +30,14 @@ class BlockerController {
         tenant_id: tenantId,
         project_id: data.project_id,
         title: data.title,
-        description: data.description || '',
         severity: data.severity,
         status: BLOCKER_STATUS.OPEN,
-        raised_by: userId,
       };
-      // Only include BIGINT/DATE columns when they have a real value
-      // to avoid "Invalid input value for column" errors from Catalyst
+      // Only include optional columns when they have a real value to avoid
+      // "Invalid input value for column" errors if columns don't exist in table
+      if (data.description) insertPayload.description = data.description;
       if (data.owner_user_id) insertPayload.owner_user_id = data.owner_user_id;
+      if (userId) insertPayload.raised_by = userId;
 
       const blocker = await this.db.insert(TABLES.BLOCKERS, insertPayload);
 

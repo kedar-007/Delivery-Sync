@@ -23,21 +23,27 @@ class ReportController {
    */
   async generateReport(req, res) {
     try {
-      const { tenantId, id: userId } = req.currentUser;
+      const { tenantId, id: userId, role } = req.currentUser;
       const data = Validator.validateGenerateReport(req.body);
 
       const project = await this.db.findById(TABLES.PROJECTS, data.project_id, tenantId);
       if (!project) return ResponseHelper.notFound(res, 'Project not found');
 
-      // Gather all data for the period
+      // TEAM_MEMBER reports are scoped to their own standup/EOD activity only
+      const userFilter = role === 'TEAM_MEMBER' ? ` AND user_id = '${userId}'` : '';
+      const actionFilter = role === 'TEAM_MEMBER' ? ` AND assigned_to = '${userId}'` : '';
+
+      // Gather data for the period
       const [standups, eods, actions, blockers, milestones, decisions] = await Promise.all([
         this.db.findWhere(TABLES.STANDUP_ENTRIES, tenantId,
-          `project_id = '${data.project_id}' AND entry_date >= '${data.period_start}' AND entry_date <= '${data.period_end}'`,
+          `project_id = '${data.project_id}' AND entry_date >= '${data.period_start}' AND entry_date <= '${data.period_end}'${userFilter}`,
           { limit: 200 }),
         this.db.findWhere(TABLES.EOD_ENTRIES, tenantId,
-          `project_id = '${data.project_id}' AND entry_date >= '${data.period_start}' AND entry_date <= '${data.period_end}'`,
+          `project_id = '${data.project_id}' AND entry_date >= '${data.period_start}' AND entry_date <= '${data.period_end}'${userFilter}`,
           { limit: 200 }),
-        this.db.findAll(TABLES.ACTIONS, { tenant_id: tenantId, project_id: data.project_id }, { limit: 200 }),
+        this.db.findWhere(TABLES.ACTIONS, tenantId,
+          `project_id = '${data.project_id}'${actionFilter}`,
+          { limit: 200 }),
         this.db.findAll(TABLES.BLOCKERS, { tenant_id: tenantId, project_id: data.project_id }, { limit: 100 }),
         this.db.findAll(TABLES.MILESTONES, { tenant_id: tenantId, project_id: data.project_id }, { orderBy: 'due_date ASC', limit: 100 }),
         this.db.findAll(TABLES.DECISIONS, { tenant_id: tenantId, project_id: data.project_id }, { limit: 50 }),
@@ -129,12 +135,14 @@ class ReportController {
    */
   async getReports(req, res) {
     try {
-      const { tenantId } = req.currentUser;
+      const { tenantId, id: currentUserId, role } = req.currentUser;
       const { projectId, reportType } = req.query;
 
       const conditions = [];
       if (projectId) conditions.push(`project_id = '${DataStoreService.escape(projectId)}'`);
       if (reportType) conditions.push(`report_type = '${DataStoreService.escape(reportType)}'`);
+      // TEAM_MEMBER only sees reports they generated
+      if (role === 'TEAM_MEMBER') conditions.push(`generated_by = '${DataStoreService.escape(currentUserId)}'`);
 
       const reports = await this.db.findWhere(TABLES.REPORTS, tenantId,
         conditions.length > 0 ? conditions.join(' AND ') : null,

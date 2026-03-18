@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
-import { Plus } from 'lucide-react';
+import { useForm, Controller } from 'react-hook-form';
+import { Plus, Lock } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
@@ -11,11 +11,13 @@ import Modal, { ModalActions } from '../components/ui/Modal';
 import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
 import { PageSkeleton } from '../components/ui/Skeleton';
+import UserPicker from '../components/ui/UserPicker';
 import { useActions, useCreateAction, useUpdateAction } from '../hooks/useActions';
 import { useProjects } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
 import { Action } from '../types';
+import { canDo, PERMISSIONS } from '../utils/permissions';
 
 interface ActionForm {
   project_id: string;
@@ -42,13 +44,14 @@ const ActionsPage = () => {
   if (filterStatus) params.status = filterStatus;
 
   const { user: currentUser } = useAuth();
+  const canWrite = canDo(currentUser?.role, PERMISSIONS.ACTION_WRITE);
   const { data: actions = [], isLoading } = useActions(params);
   const { data: projects = [] } = useProjects();
   const { data: users = [] } = useUsers();
   const createAction = useCreateAction();
   const updateAction = useUpdateAction(editingAction?.id ?? '');
 
-  const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } = useForm<ActionForm>({
+  const { register, handleSubmit, reset, setValue, control, formState: { errors, isSubmitting } } = useForm<ActionForm>({
     defaultValues: { project_id: preselectedProject, priority: 'MEDIUM', owner_user_id: currentUser?.id ?? '' },
   });
 
@@ -85,7 +88,9 @@ const ActionsPage = () => {
   return (
     <Layout>
       <Header title="Actions" subtitle={`${actions.length} action${actions.length !== 1 ? 's' : ''}`}
-        actions={<Button onClick={() => { setEditingAction(null); reset({ project_id: preselectedProject, priority: 'MEDIUM' }); setShowCreate(true); }} icon={<Plus size={16} />}>New Action</Button>}
+        actions={canWrite
+          ? <Button onClick={() => { setEditingAction(null); reset({ project_id: preselectedProject, priority: 'MEDIUM' }); setShowCreate(true); }} icon={<Plus size={16} />}>New Action</Button>
+          : <span className="flex items-center gap-1.5 text-sm text-gray-400"><Lock size={14} />No permission to add actions</span>}
       />
       <div className="p-6 space-y-5">
 
@@ -103,7 +108,7 @@ const ActionsPage = () => {
 
         {actions.length === 0 ? (
           <EmptyState title="No actions found" description="Create an action to start tracking work."
-            action={<Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>New Action</Button>} />
+            action={canWrite ? <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>New Action</Button> : undefined} />
         ) : (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <table className="w-full">
@@ -219,10 +224,19 @@ const ActionsPage = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="form-label">Owner *</label>
-              <select className="form-select" {...register('owner_user_id', { required: 'Required' })}>
-                <option value="">Assign to…</option>
-                {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
-              </select>
+              <Controller
+                name="owner_user_id"
+                control={control}
+                rules={{ required: 'Required' }}
+                render={({ field }) => (
+                  <UserPicker
+                    users={users}
+                    value={field.value}
+                    onChange={field.onChange}
+                    placeholder="Assign to…"
+                  />
+                )}
+              />
               {errors.owner_user_id && <p className="form-error">{errors.owner_user_id.message}</p>}
             </div>
             <div>

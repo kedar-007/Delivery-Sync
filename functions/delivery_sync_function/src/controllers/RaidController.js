@@ -23,18 +23,19 @@ class RaidController {
       const project = await this.db.findById(TABLES.PROJECTS, data.project_id, tenantId);
       if (!project) return ResponseHelper.notFound(res, 'Project not found');
 
-      const risk = await this.db.insert(TABLES.RISKS, {
+      const riskPayload = {
         tenant_id: tenantId,
         project_id: data.project_id,
         title: data.title,
-        description: data.description,
         probability: data.probability,
         impact: data.impact,
-        mitigation: data.mitigation,
         owner_user_id: data.owner_user_id,
         status: 'OPEN',
-        created_by: userId,
-      });
+      };
+      if (data.description) riskPayload.description = data.description;
+      if (data.mitigation) riskPayload.mitigation = data.mitigation;
+      if (userId) riskPayload.created_by = userId;
+      const risk = await this.db.insert(TABLES.RISKS, riskPayload);
 
       return ResponseHelper.created(res, { risk: { id: String(risk.ROWID), ...data, status: 'OPEN' } });
     } catch (err) {
@@ -100,16 +101,17 @@ class RaidController {
       const { tenantId, id: userId } = req.currentUser;
       const data = Validator.validateCreateIssue(req.body);
 
-      const issue = await this.db.insert(TABLES.ISSUES, {
+      const issuePayload = {
         tenant_id: tenantId,
         project_id: data.project_id,
         title: data.title,
-        description: data.description,
         severity: data.severity,
         owner_user_id: data.owner_user_id,
         status: 'OPEN',
-        created_by: userId,
-      });
+      };
+      if (data.description) issuePayload.description = data.description;
+      if (userId) issuePayload.created_by = userId;
+      const issue = await this.db.insert(TABLES.ISSUES, issuePayload);
 
       return ResponseHelper.created(res, { issue: { id: String(issue.ROWID), ...data, status: 'OPEN' } });
     } catch (err) {
@@ -174,18 +176,19 @@ class RaidController {
       const { tenantId, id: userId } = req.currentUser;
       const data = Validator.validateCreateDependency(req.body);
 
-      const dep = await this.db.insert(TABLES.DEPENDENCIES, {
+      const depPayload = {
         tenant_id: tenantId,
         project_id: data.project_id,
         title: data.title,
-        description: data.description,
         dependency_type: data.dependency_type,
-        dependent_on: data.dependent_on,
-        due_date: data.due_date,
         owner_user_id: data.owner_user_id,
         status: 'PENDING',
-        created_by: userId,
-      });
+      };
+      if (data.description) depPayload.description = data.description;
+      if (data.dependent_on) depPayload.dependent_on = data.dependent_on;
+      if (data.due_date) depPayload.due_date = data.due_date;
+      if (userId) depPayload.created_by = userId;
+      const dep = await this.db.insert(TABLES.DEPENDENCIES, depPayload);
 
       return ResponseHelper.created(res, { dependency: { id: String(dep.ROWID), ...data, status: 'PENDING' } });
     } catch (err) {
@@ -249,16 +252,17 @@ class RaidController {
       const { tenantId, id: userId } = req.currentUser;
       const data = Validator.validateCreateAssumption(req.body);
 
-      const assumption = await this.db.insert(TABLES.ASSUMPTIONS, {
+      const assumptionPayload = {
         tenant_id: tenantId,
         project_id: data.project_id,
         title: data.title,
-        description: data.description,
-        impact_if_wrong: data.impact_if_wrong,
         owner_user_id: data.owner_user_id,
         status: 'VALID',
-        created_by: userId,
-      });
+      };
+      if (data.description) assumptionPayload.description = data.description;
+      if (data.impact_if_wrong) assumptionPayload.impact_if_wrong = data.impact_if_wrong;
+      if (userId) assumptionPayload.created_by = userId;
+      const assumption = await this.db.insert(TABLES.ASSUMPTIONS, assumptionPayload);
 
       return ResponseHelper.created(res, {
         assumption: { id: String(assumption.ROWID), ...data, status: 'VALID' },

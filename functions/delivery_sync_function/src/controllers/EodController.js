@@ -72,13 +72,16 @@ class EodController {
    */
   async getEod(req, res) {
     try {
-      const { tenantId } = req.currentUser;
+      const { tenantId, id: currentUserId, role } = req.currentUser;
       const { projectId, date, userId, startDate, endDate } = req.query;
+
+      // TEAM_MEMBER can only see their own EODs
+      const effectiveUserId = role === 'TEAM_MEMBER' ? currentUserId : userId;
 
       let conditions = [];
       if (projectId) conditions.push(`project_id = '${DataStoreService.escape(projectId)}'`);
       if (date) conditions.push(`entry_date = '${DataStoreService.escape(date)}'`);
-      if (userId) conditions.push(`user_id = '${DataStoreService.escape(userId)}'`);
+      if (effectiveUserId) conditions.push(`user_id = '${DataStoreService.escape(effectiveUserId)}'`);
       if (startDate && endDate) {
         conditions.push(`entry_date >= '${DataStoreService.escape(startDate)}'`);
         conditions.push(`entry_date <= '${DataStoreService.escape(endDate)}'`);
@@ -115,7 +118,7 @@ class EodController {
    */
   async getEodRollup(req, res) {
     try {
-      const { tenantId } = req.currentUser;
+      const { tenantId, id: currentUserId, role } = req.currentUser;
       const { projectId, startDate, endDate } = req.query;
 
       if (!projectId) return ResponseHelper.validationError(res, 'projectId is required');
@@ -123,9 +126,12 @@ class EodController {
       const from = startDate || DataStoreService.daysAgo(7);
       const to = endDate || DataStoreService.today();
 
+      // TEAM_MEMBER only sees their own entries in rollup
+      const userFilter = role === 'TEAM_MEMBER' ? ` AND user_id = '${currentUserId}'` : '';
+
       const eods = await this.db.findWhere(
         TABLES.EOD_ENTRIES, tenantId,
-        `project_id = '${DataStoreService.escape(projectId)}' AND entry_date >= '${from}' AND entry_date <= '${to}'`,
+        `project_id = '${DataStoreService.escape(projectId)}' AND entry_date >= '${from}' AND entry_date <= '${to}'${userFilter}`,
         { orderBy: 'CREATEDTIME DESC', limit: 200 }
       );
 

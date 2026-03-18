@@ -6,6 +6,25 @@ const ResponseHelper = require('../utils/ResponseHelper');
 const Validator = require('../utils/Validator');
 const { TABLES, USER_STATUS, AUDIT_ACTION, ROLES } = require('../utils/Constants');
 
+// Catalyst role IDs — each DS role maps to a distinct Catalyst app role.
+// Values come from env vars set in Catalyst Console → Function → Environment Variables.
+const CATALYST_ROLE_MAP = {
+  TENANT_ADMIN:  process.env.CATALYST_ROLE_TENANT_ADMIN  || '17682000000989450',
+  DELIVERY_LEAD: process.env.CATALYST_ROLE_DELIVERY_LEAD || '17682000000989455',
+  TEAM_MEMBER:   process.env.CATALYST_ROLE_TEAM_MEMBER   || '17682000000989460',
+  PMO:           process.env.CATALYST_ROLE_PMO           || '17682000000989465',
+  EXEC:          process.env.CATALYST_ROLE_EXEC          || '17682000000989470',
+  CLIENT:        process.env.CATALYST_ROLE_CLIENT        || '17682000000989475',
+  SUPER_ADMIN:   process.env.CATALYST_ROLE_SUPER_ADMIN   || '17682000001011209',
+};
+
+// Which roles each inviter role is allowed to create
+const INVITE_ALLOWED_ROLES = {
+  [ROLES.TENANT_ADMIN]: [ROLES.TENANT_ADMIN, ROLES.PMO, ROLES.DELIVERY_LEAD, ROLES.TEAM_MEMBER, ROLES.EXEC, ROLES.CLIENT],
+  [ROLES.PMO]:          [ROLES.DELIVERY_LEAD, ROLES.TEAM_MEMBER, ROLES.EXEC, ROLES.CLIENT],
+  [ROLES.DELIVERY_LEAD]: [ROLES.TEAM_MEMBER, ROLES.CLIENT],
+};
+
 /**
  * AdminController – tenant admin operations: user management, invites, settings.
  */
@@ -13,20 +32,33 @@ class AdminController {
   constructor(catalystApp) {
     this.db = new DataStoreService(catalystApp);
     this.audit = new AuditService(this.db);
+    this.auth = catalystApp.userManagement();
   }
 
   /**
    * POST /api/admin/users/invite
-   * 1. Creates a pending user record in our DB.
-   * 2. Invites the user to the Catalyst organisation (so they can log in via Zoho).
-   * 3. Sends a branded HTML invitation email via Catalyst Mail.
+   * Registers a new user in the Catalyst org and creates their DS profile.
+   * Uses Catalyst registerUser() so the invite email + account setup is handled by Catalyst.
+   * DB insert happens ONLY after Catalyst registration succeeds (fatal if it fails).
+   *
+   * Role-based invite permissions:
+   *   TENANT_ADMIN  → all roles
+   *   PMO           → DELIVERY_LEAD, TEAM_MEMBER, EXEC, CLIENT
+   *   DELIVERY_LEAD → TEAM_MEMBER, CLIENT
    */
-  async inviteUser(req, res) {
+  async inviteUserOrg(req, res) {
     try {
-      const { tenantId, id: invitedBy, name: inviterName, tenantName } = req.currentUser;
+      const { tenantId, id: invitedBy, name: inviterName, role: inviterRole, tenantName } = req.currentUser;
       const data = Validator.validateInviteUser(req.body);
 
-      // Check if email already exists in this tenant
+      // Role-based permission: check inviter can create the requested role
+      const allowedRoles = INVITE_ALLOWED_ROLES[inviterRole] || [];
+      if (!allowedRoles.includes(data.role)) {
+        return ResponseHelper.forbidden(res,
+          `Your role (${inviterRole}) cannot invite users with role ${data.role}`);
+      }
+
+      // Duplicate email check within this tenant
       const existing = await this.db.query(
         `SELECT ROWID FROM ${TABLES.USERS} WHERE tenant_id = '${tenantId}' ` +
         `AND email = '${DataStoreService.escape(data.email)}' LIMIT 1`
@@ -35,75 +67,67 @@ class AdminController {
         return ResponseHelper.conflict(res, 'A user with this email already exists in your organisation');
       }
 
-      // Step 1: Create pending user record in our DB
+      const nameParts = data.name.trim().split(/\s+/);
+      const firstName = nameParts[0];
+      const lastName  = nameParts.slice(1).join(' ') || '';
+
+      // Get the current user's Catalyst org_id — required by registerUser()
+      const currentCatalystUser = await this.auth.getCurrentUser();
+      const orgId = currentCatalystUser.org_id || '';
+
+      /** Signup email config — Catalyst replaces %LINK% with the activation URL */
+      const signupConfig = {
+        platform_type: 'web',
+        template_details: {
+          senders_mail: process.env.FROM_EMAIL || 'noreply@deliverysync.app',
+          subject: `${inviterName} invited you to join ${tenantName} on Delivery Sync`,
+          message: buildInviteEmailHtml({ firstName, lastName, inviterName, tenantName, role: data.role }),
+        },
+        redirect_url: `${process.env.APP_BASE_URL || req.headers.origin || 'https://your-app.com'}/__catalyst/auth/login`,
+      };
+
+      /** User config */
+      const userConfig = {
+        first_name: firstName,
+        last_name:  lastName,
+        email_id:   data.email.toLowerCase(),
+        role_id:    CATALYST_ROLE_MAP[data.role] || CATALYST_ROLE_MAP.TEAM_MEMBER,
+        org_id:     orgId,
+      };
+
+      /** Invite via Catalyst registerUser — fatal if fails, no DB insert */
+      const registeredUser = await this.auth.registerUser(signupConfig, userConfig);
+
+      /** DB insert ONLY after successful Catalyst registration */
       const user = await this.db.insert(TABLES.USERS, {
-        tenant_id: tenantId,
-        catalyst_user_id: '',
-        email: data.email.toLowerCase(),
-        name: data.name,
-        role: data.role,
-        status: USER_STATUS.INVITED,
-        invited_by: invitedBy,
+        tenant_id:        tenantId,
+        catalyst_user_id: registeredUser.user_details.user_id,
+        catalyst_org_id:  registeredUser.user_details.org_id || orgId,
+        email:            registeredUser.user_details.email_id,
+        name:             data.name,
+        role:             data.role,
+        status:           USER_STATUS.INVITED,
+        invited_by:       invitedBy,
       });
-
-      // Step 2: Invite user to Catalyst org so they can authenticate
-      let catalystInvited = false;
-      try {
-        const userManagement = req.catalystApp.userManagement();
-        // Get App User role (non-admin role for regular users)
-        const roles = await userManagement.getAllRoles();
-        const appUserRole = roles.find(r =>
-          r.role_name === 'App User' || r.role_name === 'app-user'
-        ) || roles[roles.length - 1]; // fallback to last role
-
-        const nameParts = data.name.split(' ');
-        await userManagement.inviteUser({
-          first_name: nameParts[0] || data.name,
-          last_name: nameParts.slice(1).join(' ') || '',
-          email_id: data.email.toLowerCase(),
-          role_details: { role_id: appUserRole.role_id },
-        });
-        catalystInvited = true;
-      } catch (catalystErr) {
-        // User may already be in the org, or org invite failed — not fatal
-        console.warn('[AdminController] Catalyst org invite failed (non-fatal):', catalystErr.message);
-      }
-
-      // Step 3: Send branded invitation email
-      try {
-        const mail = req.catalystApp.mail();
-        const loginUrl = `${req.headers.origin || 'https://your-app.com'}/__catalyst/auth/login`;
-        const htmlBody = buildInviteEmailHtml({
-          inviteeName: data.name,
-          inviterName,
-          tenantName,
-          role: data.role,
-          loginUrl,
-        });
-        await mail.sendMail({
-          from_email: process.env.FROM_EMAIL || 'noreply@deliverysync.app',
-          to_email: [data.email.toLowerCase()],
-          subject: `${inviterName} invited you to ${tenantName} on Delivery Sync`,
-          html_body: htmlBody,
-        });
-      } catch (mailErr) {
-        console.warn('[AdminController] Email send failed (non-fatal):', mailErr.message);
-      }
 
       await this.audit.log({
         tenantId, entityType: 'user', entityId: String(user.ROWID),
         action: AUDIT_ACTION.CREATE,
-        newValue: { email: data.email, role: data.role, catalystInvited },
+        newValue: { email: data.email, role: data.role, catalystUserId: registeredUser.user_details.user_id },
         performedBy: invitedBy,
       });
 
       return ResponseHelper.created(res, {
         user: {
-          id: String(user.ROWID), email: data.email, name: data.name,
-          role: data.role, status: USER_STATUS.INVITED, catalystInvited,
+          id:     String(user.ROWID),
+          email:  data.email,
+          name:   data.name,
+          role:   data.role,
+          status: USER_STATUS.INVITED,
         },
       }, `Invitation sent to ${data.email}. They'll receive an email to set up their account.`);
     } catch (err) {
+      console.error('[AdminController] inviteUserOrg error:', err.message);
       if (err.isValidation) return ResponseHelper.validationError(res, err.message, err.details);
       return ResponseHelper.serverError(res, err.message);
     }
@@ -128,7 +152,7 @@ class AdminController {
       return ResponseHelper.success(res, {
         users: users.map((u) => ({
           id: String(u.ROWID), name: u.name, email: u.email,
-          role: u.role, status: u.status, avatarUrl: u.avatar_url || '',
+          role: u.role, status: u.status, avatarUrl: u.avatar_url || u.avtar_url || '',
           invitedBy: u.invited_by, createdAt: u.CREATEDTIME,
         })),
       });
@@ -264,113 +288,247 @@ class AdminController {
 
 // ─── Email Template ───────────────────────────────────────────────────────────
 
-function buildInviteEmailHtml({ inviteeName, inviterName, tenantName, role, loginUrl }) {
-  const firstName = (inviteeName || '').split(' ')[0] || 'there';
-  const roleLabel = (role || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+// Role-specific feature bullets shown in the invite email
+const ROLE_FEATURES = {
+  TENANT_ADMIN: [
+    { icon: '⚙️', text: '<strong>Full admin access</strong> — manage users, projects and workspace settings.' },
+    { icon: '📊', text: '<strong>Portfolio dashboard</strong> — see RAG health across every project.' },
+    { icon: '📋', text: '<strong>Reports & insights</strong> — generate and share delivery reports.' },
+  ],
+  DELIVERY_LEAD: [
+    { icon: '🚀', text: '<strong>Lead your projects</strong> — manage milestones, blockers and RAID logs.' },
+    { icon: '📝', text: '<strong>Submit standups & EODs</strong> — keep stakeholders informed daily.' },
+    { icon: '⚡', text: '<strong>Action tracking</strong> — assign, follow up and close action items.' },
+    { icon: '📊', text: '<strong>Project dashboard</strong> — real-time RAG status and delivery health.' },
+  ],
+  PMO: [
+    { icon: '📊', text: '<strong>Portfolio view</strong> — track delivery health across all projects.' },
+    { icon: '📋', text: '<strong>Generate reports</strong> — weekly, monthly and custom delivery reports.' },
+    { icon: '🔍', text: '<strong>Risk & issue visibility</strong> — full RAID register across the portfolio.' },
+  ],
+  TEAM_MEMBER: [
+    { icon: '📝', text: '<strong>Daily standups</strong> — submit your updates and blockers every morning.' },
+    { icon: '✅', text: '<strong>Action items</strong> — view and complete actions assigned to you.' },
+    { icon: '🚧', text: '<strong>Blocker register</strong> — raise and track blockers on your project.' },
+    { icon: '📅', text: '<strong>Milestone tracking</strong> — stay on top of key delivery dates.' },
+  ],
+  EXEC: [
+    { icon: '📊', text: '<strong>Executive dashboard</strong> — portfolio-level RAG status at a glance.' },
+    { icon: '📋', text: '<strong>Delivery reports</strong> — access detailed project and portfolio reports.' },
+    { icon: '🔍', text: '<strong>Risk visibility</strong> — escalated blockers and critical issues.' },
+  ],
+  CLIENT: [
+    { icon: '📊', text: '<strong>Project dashboard</strong> — live status of your project delivery.' },
+    { icon: '📅', text: '<strong>Milestone updates</strong> — see key dates and delivery progress.' },
+    { icon: '📋', text: '<strong>Shared reports</strong> — access delivery reports prepared for you.' },
+  ],
+};
+
+function buildInviteEmailHtml({ firstName, lastName, inviterName, tenantName, role }) {
+  firstName = firstName || 'there';
+  lastName  = lastName  || '';
+  const fullName      = lastName ? `${firstName} ${lastName}` : firstName;
+  const roleLabel     = (role || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const inviterInitials = (inviterName || 'DS').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  const features = ROLE_FEATURES[role] || ROLE_FEATURES.TEAM_MEMBER;
+  const featureRows = features.map(f =>
+    `<tr><td style="padding:6px 0;vertical-align:top;font-size:20px;width:32px">${f.icon}</td>` +
+    `<td style="padding:6px 0;font-size:14px;color:#475569;line-height:1.6">${f.text}</td></tr>`
+  ).join('');
+
+  // %LINK% is replaced by Catalyst with the actual activation URL
+  const ctaUrl = '%LINK%';
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
+<meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>You're invited to Delivery Sync</title>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: #f1f5f9; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; color: #1e293b; }
-  .wrapper { max-width: 600px; margin: 40px auto; padding: 0 16px; }
-  .card { background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,.08); }
-  .header { background: linear-gradient(135deg,#1e40af 0%,#7c3aed 100%); padding: 40px 40px 36px; }
-  .logo-row { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
-  .logo-icon { width: 40px; height: 40px; background: rgba(255,255,255,.15); border-radius: 10px; display: flex; align-items: center; justify-content: center; }
-  .logo-name { color: #fff; font-size: 18px; font-weight: 700; }
-  .logo-tagline { color: rgba(255,255,255,.6); font-size: 12px; }
-  .hero-text { color: #fff; font-size: 26px; font-weight: 700; line-height: 1.3; }
-  .hero-sub { color: rgba(255,255,255,.75); font-size: 14px; margin-top: 8px; line-height: 1.6; }
-  .body { padding: 36px 40px; }
-  .greeting { font-size: 16px; color: #374151; margin-bottom: 20px; line-height: 1.6; }
-  .role-badge { display: inline-block; background: #ede9fe; color: #6d28d9; border: 1px solid #c4b5fd; border-radius: 20px; padding: 4px 14px; font-size: 13px; font-weight: 600; margin: 12px 0; }
-  .features { margin: 28px 0; padding: 24px; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; }
-  .features-title { font-size: 13px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 16px; }
-  .feature { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
-  .feature:last-child { margin-bottom: 0; }
-  .feature-dot { width: 8px; height: 8px; border-radius: 50%; background: #6366f1; margin-top: 6px; flex-shrink: 0; }
-  .feature-text { font-size: 14px; color: #475569; line-height: 1.5; }
-  .feature-text strong { color: #1e293b; }
-  .cta-section { text-align: center; margin: 32px 0; }
-  .cta-btn { display: inline-block; background: linear-gradient(135deg,#2563eb 0%,#7c3aed 100%); color: #fff !important; text-decoration: none; font-size: 15px; font-weight: 600; padding: 14px 36px; border-radius: 12px; box-shadow: 0 4px 16px rgba(99,102,241,.35); letter-spacing: .2px; }
-  .cta-note { font-size: 12px; color: #94a3b8; margin-top: 10px; }
-  .steps { margin: 28px 0; }
-  .steps-title { font-size: 13px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 16px; }
-  .step { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 14px; }
-  .step-num { width: 28px; height: 28px; border-radius: 50%; background: #e0e7ff; color: #4f46e5; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-  .step-text { font-size: 14px; color: #475569; padding-top: 4px; line-height: 1.5; }
-  .footer { padding: 24px 40px; background: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center; }
-  .footer p { font-size: 12px; color: #94a3b8; line-height: 1.7; }
-  .footer a { color: #6366f1; text-decoration: none; }
-</style>
+<title>${escapeHtml(inviterName)} invited you to Delivery Sync</title>
 </head>
-<body>
-<div class="wrapper">
-  <div class="card">
+<body style="margin:0;padding:0;background:#f0f4ff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1e293b">
+
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4ff;padding:32px 0">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
+
+  <!-- Card -->
+  <tr><td style="background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.10)">
+
+    <!-- Top accent bar -->
+    <table width="100%" cellpadding="0" cellspacing="0">
+    <tr>
+      <td style="background:linear-gradient(90deg,#2563eb,#7c3aed,#db2777);height:5px;font-size:0">&nbsp;</td>
+    </tr>
+    </table>
+
     <!-- Header -->
-    <div class="header">
-      <div class="logo-row">
-        <div class="logo-icon">
-          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="white" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-          </svg>
+    <table width="100%" cellpadding="0" cellspacing="0">
+    <tr>
+      <td style="background:linear-gradient(135deg,#1e3a8a 0%,#4f46e5 50%,#7c3aed 100%);padding:40px 48px 36px">
+
+        <!-- Logo row -->
+        <table cellpadding="0" cellspacing="0" style="margin-bottom:32px">
+        <tr>
+          <td style="vertical-align:middle">
+            <table cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="background:rgba(255,255,255,.15);border-radius:12px;width:44px;height:44px;text-align:center;vertical-align:middle">
+                <span style="font-size:22px;line-height:44px">📦</span>
+              </td>
+              <td style="padding-left:12px;vertical-align:middle">
+                <div style="color:#fff;font-size:18px;font-weight:700;letter-spacing:-.3px">Delivery Sync</div>
+                <div style="color:rgba(255,255,255,.55);font-size:11px;margin-top:1px">Delivery Intelligence Platform</div>
+              </td>
+            </tr>
+            </table>
+          </td>
+        </tr>
+        </table>
+
+        <!-- Inviter callout -->
+        <table cellpadding="0" cellspacing="0" style="background:rgba(255,255,255,.12);border-radius:14px;padding:20px 24px;margin-bottom:24px;width:100%">
+        <tr>
+          <td style="vertical-align:middle;width:52px">
+            <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#f59e0b,#ef4444);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:#fff;text-align:center;line-height:48px">${escapeHtml(inviterInitials)}</div>
+          </td>
+          <td style="padding-left:16px;vertical-align:middle">
+            <div style="color:rgba(255,255,255,.7);font-size:12px;text-transform:uppercase;letter-spacing:.8px;font-weight:600">Personal invitation from</div>
+            <div style="color:#fff;font-size:20px;font-weight:700;margin-top:3px">${escapeHtml(inviterName)}</div>
+          </td>
+        </tr>
+        </table>
+
+        <div style="color:#fff;font-size:28px;font-weight:800;line-height:1.25;letter-spacing:-.5px">
+          You're invited to join<br/>${escapeHtml(tenantName)}
         </div>
-        <div>
-          <div class="logo-name">Delivery Sync</div>
-          <div class="logo-tagline">Delivery Intelligence Platform</div>
+        <div style="color:rgba(255,255,255,.7);font-size:15px;margin-top:10px;line-height:1.6">
+          ${escapeHtml(inviterName)} has added you as a team member on Delivery Sync.
         </div>
-      </div>
-      <div class="hero-text">You've been invited to join ${escapeHtml(tenantName)}</div>
-      <div class="hero-sub">${escapeHtml(inviterName)} has added you to their workspace on Delivery Sync.</div>
-    </div>
+
+      </td>
+    </tr>
+    </table>
+
+    <!-- Role badge strip -->
+    <table width="100%" cellpadding="0" cellspacing="0">
+    <tr>
+      <td style="background:#f8f5ff;border-bottom:1px solid #ede9fe;padding:16px 48px">
+        <table cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="color:#6d28d9;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding-right:12px">Your role</td>
+          <td>
+            <span style="display:inline-block;background:#ede9fe;color:#5b21b6;border:1.5px solid #c4b5fd;border-radius:20px;padding:5px 16px;font-size:13px;font-weight:700;letter-spacing:.2px">${escapeHtml(roleLabel)}</span>
+          </td>
+        </tr>
+        </table>
+      </td>
+    </tr>
+    </table>
 
     <!-- Body -->
-    <div class="body">
-      <p class="greeting">
-        Hi ${escapeHtml(firstName)}, 👋<br/><br/>
-        <strong>${escapeHtml(inviterName)}</strong> has invited you to collaborate on <strong>${escapeHtml(tenantName)}</strong>'s delivery workspace.
-        You've been assigned the role:
-      </p>
-      <div style="text-align:center">
-        <span class="role-badge">${escapeHtml(roleLabel)}</span>
-      </div>
+    <table width="100%" cellpadding="0" cellspacing="0">
+    <tr>
+      <td style="padding:36px 48px">
 
-      <div class="features">
-        <div class="features-title">What you can do in Delivery Sync</div>
-        <div class="feature"><div class="feature-dot"></div><div class="feature-text"><strong>Submit daily standups & EODs</strong> — keep your team updated on progress and blockers.</div></div>
-        <div class="feature"><div class="feature-dot"></div><div class="feature-text"><strong>Track actions & blockers</strong> — never lose sight of what's preventing delivery.</div></div>
-        <div class="feature"><div class="feature-dot"></div><div class="feature-text"><strong>RAID register</strong> — document risks, issues, assumptions and dependencies.</div></div>
-        <div class="feature"><div class="feature-dot"></div><div class="feature-text"><strong>Live RAG dashboards</strong> — see project health across your portfolio at a glance.</div></div>
-      </div>
+        <!-- Greeting -->
+        <p style="font-size:16px;color:#374151;margin:0 0 8px;line-height:1.7">
+          Hi <strong>${escapeHtml(fullName)}</strong>,
+        </p>
+        <p style="font-size:15px;color:#4b5563;margin:0 0 28px;line-height:1.7">
+          <strong>${escapeHtml(inviterName)}</strong> has personally invited you to collaborate on the
+          <strong>${escapeHtml(tenantName)}</strong> delivery workspace. As a <strong>${escapeHtml(roleLabel)}</strong>,
+          here's what you'll be able to do:
+        </p>
 
-      <div class="steps">
-        <div class="steps-title">How to get started</div>
-        <div class="step"><div class="step-num">1</div><div class="step-text">Click the button below to open Delivery Sync.</div></div>
-        <div class="step"><div class="step-num">2</div><div class="step-text">Sign in with your Zoho account (or create one — it's free).</div></div>
-        <div class="step"><div class="step-num">3</div><div class="step-text">Your account will be automatically linked to <strong>${escapeHtml(tenantName)}</strong>.</div></div>
-      </div>
+        <!-- Role features -->
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:20px 24px;margin-bottom:28px">
+        <tr><td>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#64748b;margin-bottom:14px">What you can do</div>
+          <table cellpadding="0" cellspacing="0" style="width:100%">
+          ${featureRows}
+          </table>
+        </td></tr>
+        </table>
 
-      <div class="cta-section">
-        <a href="${loginUrl}" class="cta-btn">Accept invitation &amp; sign in →</a>
-        <div class="cta-note">Button not working? Copy this link: ${loginUrl}</div>
-      </div>
-    </div>
+        <!-- CTA -->
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px">
+        <tr>
+          <td align="center">
+            <a href="${ctaUrl}" style="display:inline-block;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;text-decoration:none;font-size:16px;font-weight:700;padding:16px 44px;border-radius:14px;box-shadow:0 6px 20px rgba(99,102,241,.4);letter-spacing:.1px">
+              Accept invitation &amp; sign in &rarr;
+            </a>
+            <div style="font-size:12px;color:#94a3b8;margin-top:10px">
+              Button not working? <a href="${ctaUrl}" style="color:#6366f1;text-decoration:underline">Copy this link</a>
+            </div>
+          </td>
+        </tr>
+        </table>
+
+        <!-- Steps -->
+        <table width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #f1f5f9;padding-top:24px">
+        <tr><td>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#64748b;margin-bottom:16px">How to get started</div>
+          <table cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="vertical-align:top;padding-bottom:14px">
+              <table cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="width:30px;height:30px;background:#e0e7ff;border-radius:50%;text-align:center;vertical-align:middle;font-size:13px;font-weight:700;color:#4f46e5;line-height:30px">1</td>
+                <td style="padding-left:12px;font-size:14px;color:#475569;line-height:1.6">Click <strong>Accept invitation</strong> above — you'll be taken to the Delivery Sync login page.</td>
+              </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="vertical-align:top;padding-bottom:14px">
+              <table cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="width:30px;height:30px;background:#e0e7ff;border-radius:50%;text-align:center;vertical-align:middle;font-size:13px;font-weight:700;color:#4f46e5;line-height:30px">2</td>
+                <td style="padding-left:12px;font-size:14px;color:#475569;line-height:1.6">Sign in with your Zoho account — or create a free one if you don't have one yet.</td>
+              </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="vertical-align:top">
+              <table cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="width:30px;height:30px;background:#e0e7ff;border-radius:50%;text-align:center;vertical-align:middle;font-size:13px;font-weight:700;color:#4f46e5;line-height:30px">3</td>
+                <td style="padding-left:12px;font-size:14px;color:#475569;line-height:1.6">You'll land directly on the <strong>${escapeHtml(tenantName)}</strong> workspace, ready to go.</td>
+              </tr>
+              </table>
+            </td>
+          </tr>
+          </table>
+        </td></tr>
+        </table>
+
+      </td>
+    </tr>
+    </table>
 
     <!-- Footer -->
-    <div class="footer">
-      <p>
-        This invitation was sent by <strong>${escapeHtml(inviterName)}</strong> from <strong>${escapeHtml(tenantName)}</strong>.<br/>
-        If you didn't expect this invitation, you can safely ignore this email.<br/>
-        &copy; ${new Date().getFullYear()} Delivery Sync &mdash; Delivery Intelligence Platform
-      </p>
-    </div>
-  </div>
-</div>
+    <table width="100%" cellpadding="0" cellspacing="0">
+    <tr>
+      <td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:24px 48px;text-align:center">
+        <p style="font-size:12px;color:#94a3b8;margin:0;line-height:1.8">
+          This invitation was sent by <strong style="color:#64748b">${escapeHtml(inviterName)}</strong>
+          on behalf of <strong style="color:#64748b">${escapeHtml(tenantName)}</strong>.<br/>
+          If you weren't expecting this, you can safely ignore this email.<br/>
+          &copy; ${new Date().getFullYear()} Delivery Sync &mdash; Delivery Intelligence Platform
+        </p>
+      </td>
+    </tr>
+    </table>
+
+  </td></tr>
+  <!-- End card -->
+
+</table>
+</td></tr>
+</table>
+
 </body>
 </html>`;
 }

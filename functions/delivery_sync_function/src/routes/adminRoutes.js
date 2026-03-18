@@ -13,7 +13,7 @@ const can = RBACMiddleware.require;
 const admin = RBACMiddleware.requireAdmin;
 const ctrl = (req) => new AdminController(req.catalystApp);
 
-router.post('/users/invite', auth, can(PERMISSIONS.ADMIN_USERS), asyncHandler((req, res) => ctrl(req).inviteUser(req, res)));
+router.post('/users/invite', auth, can(PERMISSIONS.INVITE_USER), asyncHandler((req, res) => ctrl(req).inviteUserOrg(req, res)));
 router.get('/users', auth, can(PERMISSIONS.ADMIN_USERS), asyncHandler((req, res) => ctrl(req).listUsers(req, res)));
 router.put('/users/:userId', auth, can(PERMISSIONS.ADMIN_USERS), asyncHandler((req, res) => ctrl(req).updateUser(req, res)));
 router.delete('/users/:userId', auth, admin(), asyncHandler((req, res) => ctrl(req).deactivateUser(req, res)));
