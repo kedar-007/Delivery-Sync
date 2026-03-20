@@ -38,6 +38,12 @@ export const useCreateDependency = () => {
   return useMutation({ mutationFn: raidApi.dependencies.create, onSuccess: () => qc.invalidateQueries({ queryKey: ['dependencies'] }) });
 };
 
+// Added
+export const useUpdateDependency = (id: string) => {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (data: unknown) => raidApi.dependencies.update(id, data), onSuccess: () => qc.invalidateQueries({ queryKey: ['dependencies'] }) });
+};
+
 // ─── Assumptions ──────────────────────────────────────────────────────────────
 export const useAssumptions = (params?: Record<string, string>) =>
   useQuery({ queryKey: ['assumptions', params], queryFn: () => raidApi.assumptions.list(params).then((d) => d.assumptions) });
@@ -45,4 +51,10 @@ export const useAssumptions = (params?: Record<string, string>) =>
 export const useCreateAssumption = () => {
   const qc = useQueryClient();
   return useMutation({ mutationFn: raidApi.assumptions.create, onSuccess: () => qc.invalidateQueries({ queryKey: ['assumptions'] }) });
+};
+
+// Added
+export const useUpdateAssumption = (id: string) => {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (data: unknown) => raidApi.assumptions.update(id, data), onSuccess: () => qc.invalidateQueries({ queryKey: ['assumptions'] }) });
 };

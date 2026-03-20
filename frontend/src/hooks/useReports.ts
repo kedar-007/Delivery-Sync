@@ -29,3 +29,15 @@ export const useGenerateReport = () => {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['reports'] }),
   });
 };
+
+// Added
+export const useUpdateReport = (id: string) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: unknown) => reportsApi.update(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['reports'] });
+      qc.invalidateQueries({ queryKey: ['reports', id] });
+    },
+  });
+};

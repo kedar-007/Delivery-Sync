@@ -14,6 +14,22 @@ const ctrl = (req) => new AuthController(req.catalystApp);
 router.post('/register-tenant', asyncHandler((req, res) => ctrl(req).registerTenant(req, res)));
 router.post('/accept-invite', asyncHandler((req, res) => ctrl(req).acceptInvite(req, res)));
 
+// Logout – clears Catalyst session cookies and redirects to the app login page.
+// We handle this ourselves because /__catalyst/auth/logout requires the redirect_uri
+// to be whitelisted in Catalyst Console; using our own route avoids that constraint.
+router.get('/logout', (_req, res) => {
+  const cookieNames = [
+    'catalyst_auth',
+    'CAESESSION',
+    'ZSC',
+    'ZKPROXY-ID',
+    'catalyst_js_sdk_access_token',
+  ];
+  const opts = { path: '/', httpOnly: true, secure: true, sameSite: 'None' };
+  cookieNames.forEach((name) => res.clearCookie(name, opts));
+  res.redirect(302, '/app/index.html');
+});
+
 // Protected – requires authenticated session
 const auth = AuthMiddleware.authenticate;
 router.get('/me', auth, asyncHandler((req, res) => ctrl(req).getCurrentUser(req, res)));

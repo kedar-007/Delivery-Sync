@@ -8,7 +8,7 @@ import es from '../locales/es';
 export type LocaleCode = 'en' | 'hi' | 'es';
 
 export const LOCALES: Record<LocaleCode, { label: string; flag: string; translations: Translations }> = {
-  en: { label: 'English',  flag: '🇬🇧', translations: en },
+  en: { label: 'English',  flag: '🇮🇳', translations: en },
   hi: { label: 'हिंदी',    flag: '🇮🇳', translations: hi },
   es: { label: 'Español',  flag: '🇪🇸', translations: es },
 };

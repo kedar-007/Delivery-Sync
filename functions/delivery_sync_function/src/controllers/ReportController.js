@@ -449,6 +449,49 @@ class ReportController {
       return ResponseHelper.serverError(res, err.message);
     }
   }
+  /**
+   * PATCH /api/reports/:reportId  Added
+   * Allows renaming the projectName inside the summary JSON.
+   */
+  async updateReport(req, res) {
+    try {
+      const { tenantId } = req.currentUser;
+      const { reportId } = req.params;
+      const { title } = req.body;
+  
+      if (!title || !title.trim()) {
+        return ResponseHelper.validationError(res, 'Title is required');
+      }
+  
+      const report = await this.db.findById(TABLES.REPORTS, reportId, tenantId);
+      if (!report) return ResponseHelper.notFound(res, 'Report not found');
+  
+      // Parse existing summary, update projectName, re-stringify
+      let summary = {};
+      try { summary = JSON.parse(report.summary); } catch { /* keep empty */ }
+      summary.projectName = title.trim();
+  
+      // Fix: Catalyst DataStore requires ROWID inside the row object
+      await this.db.update(TABLES.REPORTS, {
+        ROWID: reportId,
+        summary: JSON.stringify(summary),
+      });
+  
+      return ResponseHelper.success(res, {
+        report: {
+          id: String(report.ROWID),
+          projectId: report.project_id,
+          reportType: report.report_type,
+          periodStart: report.period_start,
+          periodEnd: report.period_end,
+          summary,
+        },
+      }, 'Report updated');
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
 }
 
 module.exports = ReportController;

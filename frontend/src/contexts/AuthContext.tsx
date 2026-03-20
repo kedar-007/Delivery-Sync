@@ -90,7 +90,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (isLocal) {
       window.location.replace('/#/login');
     } else {
-      window.location.href = '/__catalyst/auth/logout';
+      // /__catalyst/auth/logout requires its redirect_uri to be whitelisted in
+      // Catalyst Console — that config isn't set up, so it returns INVALID_URL_PATTERN.
+      // Instead we call our own backend logout route which clears the session
+      // cookie and redirects to /app/index.html.
+      window.location.href = '/server/delivery_sync_function/api/auth/logout';
     }
   };
 

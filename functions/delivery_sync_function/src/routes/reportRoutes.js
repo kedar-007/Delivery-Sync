@@ -19,5 +19,6 @@ router.get('/daily-summary', auth, can(PERMISSIONS.REPORT_READ), asyncHandler((r
 router.get('/', auth, can(PERMISSIONS.REPORT_READ), asyncHandler((req, res) => ctrl(req).getReports(req, res)));
 router.get('/public/:reportId', asyncHandler((req, res) => ctrl(req).getReportPublic(req, res)));
 router.get('/:reportId', auth, can(PERMISSIONS.REPORT_READ), asyncHandler((req, res) => ctrl(req).getReportById(req, res)));
+router.patch('/:reportId', auth, can(PERMISSIONS.REPORT_WRITE), asyncHandler((req, res) => ctrl(req).updateReport(req, res))); 
 
 module.exports = router;
