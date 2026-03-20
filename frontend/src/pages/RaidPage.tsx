@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useForm, Controller } from 'react-hook-form';
-import { Plus, Lock } from 'lucide-react';
+import { Plus, Lock, Pencil } from 'lucide-react'; // ✅ Added Pencil
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
@@ -12,7 +12,12 @@ import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
 import { PageLoader } from '../components/ui/Spinner';
 import UserPicker from '../components/ui/UserPicker';
-import { useRisks, useCreateRisk, useIssues, useCreateIssue, useDependencies, useCreateDependency, useAssumptions, useCreateAssumption } from '../hooks/useRaid';
+import {
+  useRisks, useCreateRisk, useUpdateRisk,
+  useIssues, useCreateIssue, useUpdateIssue,
+  useDependencies, useCreateDependency, useUpdateDependency,
+  useAssumptions, useCreateAssumption, useUpdateAssumption,
+} from '../hooks/useRaid'; // ✅ Added update hooks
 import { useProjects } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
@@ -28,6 +33,10 @@ const RaidPage = () => {
   const [showCreate, setShowCreate] = useState(false);
   const [viewingItem, setViewingItem] = useState<any | null>(null);
   const [createError, setCreateError] = useState('');
+
+  // ✅ Rename state
+  const [renamingItem, setRenamingItem] = useState<{ id: string; title: string } | null>(null);
+  const [renameError, setRenameError] = useState('');
 
   const { user: currentUser } = useAuth();
   const canWrite = canDo(currentUser?.role, PERMISSIONS.RAID_WRITE);
@@ -46,12 +55,25 @@ const RaidPage = () => {
   const createDep = useCreateDependency();
   const createAssumption = useCreateAssumption();
 
+  // ✅ Update hooks — same pattern as useUpdateProject(id)
+  const updateRisk = useUpdateRisk(renamingItem?.id ?? '');
+  const updateIssue = useUpdateIssue(renamingItem?.id ?? '');
+  const updateDep = useUpdateDependency(renamingItem?.id ?? '');
+  const updateAssumption = useUpdateAssumption(renamingItem?.id ?? '');
+
   const { register, handleSubmit, reset, control, formState: { errors, isSubmitting } } = useForm<Record<string, string>>({
     defaultValues: { project_id: preselectedProject, owner_user_id: '' },
     shouldUnregister: true,
   });
 
-  // Every time the create modal opens, reset form with current user as default owner
+  // ✅ Rename form
+  const {
+    register: registerRename,
+    handleSubmit: handleRenameSubmit,
+    reset: resetRename,
+    formState: { errors: renameErrors, isSubmitting: isRenaming },
+  } = useForm<{ title: string }>();
+
   useEffect(() => {
     if (showCreate) {
       reset({
@@ -79,6 +101,30 @@ const RaidPage = () => {
     } catch (err: unknown) { setCreateError((err as Error).message); }
   };
 
+  // ✅ Open rename — stops row click from firing detail modal
+  const openRename = (e: React.MouseEvent, item: { id: string; title: string }) => {
+    e.stopPropagation();
+    setRenamingItem(item);
+    resetRename({ title: item.title });
+    setRenameError('');
+  };
+
+  // ✅ Submit rename — picks the correct update hook based on active tab
+  const onRename = async (data: { title: string }) => {
+    if (!renamingItem) return;
+    try {
+      setRenameError('');
+      if (tab === 'risks') await updateRisk.mutateAsync({ title: data.title });
+      else if (tab === 'issues') await updateIssue.mutateAsync({ title: data.title });
+      else if (tab === 'dependencies') await updateDep.mutateAsync({ title: data.title });
+      else await updateAssumption.mutateAsync({ title: data.title });
+      setRenamingItem(null);
+      resetRename();
+    } catch (err: unknown) {
+      setRenameError((err as Error).message);
+    }
+  };
+
   const TABS = [
     { key: 'risks', label: 'Risks', count: risks.length },
     { key: 'issues', label: 'Issues', count: issues.length },
@@ -89,6 +135,127 @@ const RaidPage = () => {
   if (isLoading) return <Layout><PageLoader /></Layout>;
 
   const currentData = tab === 'risks' ? risks : tab === 'issues' ? issues : tab === 'dependencies' ? deps : assumptions;
+
+  // ✅ Table columns differ per tab
+  const renderTableHead = () => {
+    if (tab === 'risks') return (
+      <tr className="border-b border-gray-100 bg-gray-50">
+        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Title</th>
+        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Probability</th>
+        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Impact</th>
+        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Owner</th>
+      </tr>
+    );
+    if (tab === 'issues') return (
+      <tr className="border-b border-gray-100 bg-gray-50">
+        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Title</th>
+        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Severity</th>
+        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Owner</th>
+      </tr>
+    );
+    if (tab === 'dependencies') return (
+      <tr className="border-b border-gray-100 bg-gray-50">
+        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Title</th>
+        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
+        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Dependent On</th>
+        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Due Date</th>
+        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+      </tr>
+    );
+    // assumptions
+    return (
+      <tr className="border-b border-gray-100 bg-gray-50">
+        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Title</th>
+        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Impact If Wrong</th>
+        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Owner</th>
+      </tr>
+    );
+  };
+
+  const renderTableRow = (item: any) => {
+    const owner = users.find((u: { id: string }) => u.id === item.ownerUserId);
+    const titleCell = (
+      <td className="px-4 py-3 max-w-xs">
+        <div className="flex items-center gap-2 group/title">
+          <span
+            className="font-medium text-gray-900 truncate hover:text-blue-600 cursor-pointer"
+            onClick={() => setViewingItem(item)}
+          >
+            {item.title}
+          </span>
+          {canWrite && (
+            <button
+              type="button"
+              onClick={(e) => openRename(e, { id: item.id, title: item.title })}
+              className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-all flex-shrink-0"
+              title="Rename"
+            >
+              <Pencil size={12} />
+            </button>
+          )}
+        </div>
+        {item.description && (
+          <p className="text-xs text-gray-400 truncate mt-0.5 max-w-[220px]">{item.description}</p>
+        )}
+      </td>
+    );
+
+    if (tab === 'risks') return (
+      <tr key={item.id} className="hover:bg-gray-50 transition-colors group cursor-pointer" onClick={() => setViewingItem(item)}>
+        {titleCell}
+        <td className="px-4 py-3"><StatusBadge status={item.probability} /></td>
+        <td className="px-4 py-3"><StatusBadge status={item.impact} /></td>
+        <td className="px-4 py-3"><StatusBadge status={item.status} /></td>
+        <td className="px-4 py-3">
+          <span className="text-xs text-gray-600">{owner?.name ?? '—'}</span>
+        </td>
+      </tr>
+    );
+
+    if (tab === 'issues') return (
+      <tr key={item.id} className="hover:bg-gray-50 transition-colors group cursor-pointer" onClick={() => setViewingItem(item)}>
+        {titleCell}
+        <td className="px-4 py-3"><StatusBadge status={item.severity} /></td>
+        <td className="px-4 py-3"><StatusBadge status={item.status} /></td>
+        <td className="px-4 py-3">
+          <span className="text-xs text-gray-600">{owner?.name ?? '—'}</span>
+        </td>
+      </tr>
+    );
+
+    if (tab === 'dependencies') return (
+      <tr key={item.id} className="hover:bg-gray-50 transition-colors group cursor-pointer" onClick={() => setViewingItem(item)}>
+        {titleCell}
+        <td className="px-4 py-3">
+          <span className="text-xs text-gray-600">{item.dependencyType ?? '—'}</span>
+        </td>
+        <td className="px-4 py-3">
+          <span className="text-xs text-gray-600 truncate max-w-[140px] block">{item.dependentOn ?? '—'}</span>
+        </td>
+        <td className="px-4 py-3">
+          <span className="text-xs text-gray-600">{item.dueDate ?? '—'}</span>
+        </td>
+        <td className="px-4 py-3"><StatusBadge status={item.status} /></td>
+      </tr>
+    );
+
+    // assumptions
+    return (
+      <tr key={item.id} className="hover:bg-gray-50 transition-colors group cursor-pointer" onClick={() => setViewingItem(item)}>
+        {titleCell}
+        <td className="px-4 py-3"><StatusBadge status={item.status} /></td>
+        <td className="px-4 py-3">
+          <span className="text-xs text-gray-600 truncate max-w-[180px] block">{item.impactIfWrong ?? '—'}</span>
+        </td>
+        <td className="px-4 py-3">
+          <span className="text-xs text-gray-600">{owner?.name ?? '—'}</span>
+        </td>
+      </tr>
+    );
+  };
 
   return (
     <Layout>
@@ -103,7 +270,7 @@ const RaidPage = () => {
         {/* Project Filter */}
         <select className="form-select max-w-xs" value={filterProject} onChange={(e) => setFilterProject(e.target.value)}>
           <option value="">All Projects</option>
-          {projects.map((p: {id: string; name: string}) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          {projects.map((p: { id: string; name: string }) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
 
         {/* RAID Tabs */}
@@ -121,33 +288,21 @@ const RaidPage = () => {
           ))}
         </div>
 
+        {/* ✅ Table Layout */}
         {currentData.length === 0 ? (
           <EmptyState title={`No ${tab}`} description={`No ${tab} recorded yet.`}
             action={canWrite ? <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>Add {tab.slice(0, -1)}</Button> : undefined} />
         ) : (
-          <div className="space-y-3">
-            {currentData.map((item: any) => (
-              <Card key={item.id}>
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setViewingItem(item)}>
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <h3 className="text-sm font-semibold text-gray-900 hover:text-blue-600">{item.title}</h3>
-                      <StatusBadge status={item.status} />
-                      {item.severity && <StatusBadge status={item.severity} />}
-                      {item.probability && (
-                        <span className="text-xs text-gray-500">
-                          P:{item.probability} · I:{item.impact}
-                        </span>
-                      )}
-                    </div>
-                    {item.description && <p className="text-sm text-gray-600 mt-1">{item.description}</p>}
-                    {item.mitigation && <p className="text-xs text-green-700 mt-1 bg-green-50 p-2 rounded"><strong>Mitigation:</strong> {item.mitigation}</p>}
-                    {item.impact_if_wrong && <p className="text-xs text-red-700 mt-1 bg-red-50 p-2 rounded"><strong>Impact if wrong:</strong> {item.impactIfWrong}</p>}
-                  </div>
-                </div>
-              </Card>
-            ))}
-          </div>
+          <Card className="overflow-hidden p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>{renderTableHead()}</thead>
+                <tbody className="divide-y divide-gray-50">
+                  {currentData.map((item: any) => renderTableRow(item))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
         )}
       </div>
 
@@ -197,13 +352,14 @@ const RaidPage = () => {
             {viewingItem.owner_user_id && (
               <div>
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Owner</p>
-                <p className="text-sm text-gray-700">{users.find(u => u.id === viewingItem.owner_user_id)?.name ?? viewingItem.owner_user_id}</p>
+                <p className="text-sm text-gray-700">{users.find((u: { id: string }) => u.id === viewingItem.owner_user_id)?.name ?? viewingItem.owner_user_id}</p>
               </div>
             )}
           </div>
         )}
       </Modal>
 
+      {/* Create Modal */}
       <Modal open={showCreate} onClose={() => { setShowCreate(false); reset(); setCreateError(''); }}
         title={`Add ${tab.slice(0, -1).charAt(0).toUpperCase() + tab.slice(1, -1)}`} size="lg">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -212,7 +368,7 @@ const RaidPage = () => {
             <label className="form-label">Project *</label>
             <select className="form-select" {...register('project_id', { required: 'Please select a project' })}>
               <option value="">Select…</option>
-              {projects.map((p: {id: string; name: string}) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {projects.map((p: { id: string; name: string }) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
             {errors.project_id && <p className="form-error">{errors.project_id.message}</p>}
           </div>
@@ -232,12 +388,7 @@ const RaidPage = () => {
               control={control}
               rules={{ required: 'Please assign an owner' }}
               render={({ field }) => (
-                <UserPicker
-                  users={users}
-                  value={field.value ?? ''}
-                  onChange={field.onChange}
-                  placeholder="Assign to…"
-                />
+                <UserPicker users={users} value={field.value ?? ''} onChange={field.onChange} placeholder="Assign to…" />
               )}
             />
             {errors.owner_user_id && <p className="form-error">{errors.owner_user_id.message as string}</p>}
@@ -303,6 +454,37 @@ const RaidPage = () => {
           </ModalActions>
         </form>
       </Modal>
+
+      {/* ✅ Rename Modal */}
+      <Modal
+        open={!!renamingItem}
+        onClose={() => { setRenamingItem(null); resetRename(); setRenameError(''); }}
+        title="Rename"
+        size="sm"
+      >
+        <form onSubmit={handleRenameSubmit(onRename)} className="space-y-4">
+          {renameError && <Alert type="error" message={renameError} />}
+          <div>
+            <label className="form-label">Title *</label>
+            <input
+              className="form-input"
+              autoFocus
+              {...registerRename('title', {
+                required: 'Required',
+                validate: v => v.trim().length > 0 || 'Title cannot be blank',
+              })}
+            />
+            {renameErrors.title && <p className="form-error">{renameErrors.title.message}</p>}
+          </div>
+          <ModalActions>
+            <Button variant="outline" type="button" onClick={() => { setRenamingItem(null); resetRename(); }}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={isRenaming}>Save</Button>
+          </ModalActions>
+        </form>
+      </Modal>
+
     </Layout>
   );
 };

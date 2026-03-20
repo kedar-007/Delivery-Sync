@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Plus, Search, Calendar } from 'lucide-react';
+import { Plus, Search, Calendar, Pencil } from 'lucide-react'; // ✅ Added Pencil
 import { useForm } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
@@ -11,7 +11,7 @@ import Modal, { ModalActions } from '../components/ui/Modal';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
-import { useProjects, useCreateProject } from '../hooks/useProjects';
+import { useProjects, useCreateProject, useUpdateProject } from '../hooks/useProjects';
 import { format } from 'date-fns';
 
 interface ProjectForm {
@@ -22,20 +22,38 @@ interface ProjectForm {
   rag_status: string;
 }
 
+interface RenameForm {
+  name: string;
+}
+
 const ProjectsPage = () => {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState('');
   const [createError, setCreateError] = useState('');
 
+  // Rename State
+  const [renamingProject, setRenamingProject] = useState<{ id: string; name: string } | null>(null);
+  const [renameError, setRenameError] = useState('');
+
   const { data: projects = [], isLoading, error } = useProjects();
   const createProject = useCreateProject();
+
+  // Updating the project
+  const updateProject = useUpdateProject(renamingProject?.id ?? '');
 
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<ProjectForm>({
     defaultValues: { rag_status: 'GREEN' },
   });
 
-  const filtered = projects.filter((p: {name: string}) =>
+  const {
+    register: registerRename,
+    handleSubmit: handleRenameSubmit,
+    reset: resetRename,
+    formState: { errors: renameErrors, isSubmitting: isRenaming },
+  } = useForm<{ name: string }>();
+
+  const filtered = projects.filter((p: { name: string }) =>
     p.name.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -47,6 +65,27 @@ const ProjectsPage = () => {
       setShowCreate(false);
     } catch (err: unknown) {
       setCreateError((err as Error).message);
+    }
+  };
+
+  // Rename functions
+  const openRename = (e: React.MouseEvent, project: { id: string; name: string }) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setRenamingProject(project);
+    resetRename({ name: project.name });
+    setRenameError('');
+  };
+
+  const onRename = async (data: { name: string }) => {
+    if (!renamingProject) return;
+    try {
+      setRenameError('');
+      await updateProject.mutateAsync({ name: data.name });
+      setRenamingProject(null);
+      resetRename();
+    } catch (err: unknown) {
+      setRenameError((err as Error).message);
     }
   };
 
@@ -93,10 +132,23 @@ const ProjectsPage = () => {
             }) => (
               <Link key={project.id} to={`/${tenantSlug}/projects/${project.id}`}>
                 <Card className="hover:border-blue-300 hover:shadow-md transition-all cursor-pointer h-full">
+
+                  {/* ✅ Fixed: RAGBadge and Pencil wrapped in flex div */}
                   <div className="flex items-start justify-between mb-3">
                     <h3 className="font-semibold text-gray-900 text-sm leading-tight pr-2">{project.name}</h3>
-                    <RAGBadge status={project.ragStatus} />
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <RAGBadge status={project.ragStatus} />
+                      <button
+                        type="button"
+                        onClick={(e) => openRename(e, { id: project.id, name: project.name })}
+                        className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                        title="Rename project"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                    </div>
                   </div>
+
                   {project.description && (
                     <p className="text-xs text-gray-500 mb-3 line-clamp-2">{project.description}</p>
                   )}
@@ -153,6 +205,37 @@ const ProjectsPage = () => {
           </ModalActions>
         </form>
       </Modal>
+
+      {/* ✅ Added: Rename Project Modal */}
+      <Modal
+        open={!!renamingProject}
+        onClose={() => { setRenamingProject(null); resetRename(); setRenameError(''); }}
+        title="Rename Project"
+        size="sm"
+      >
+        <form onSubmit={handleRenameSubmit(onRename)} className="space-y-4">
+          {renameError && <Alert type="error" message={renameError} />}
+          <div>
+            <label className="form-label">Project Name *</label>
+            <input
+              className="form-input"
+              autoFocus
+              {...registerRename('name', {
+                required: 'Required',
+                validate: v => v.trim().length > 0 || 'Name cannot be blank',
+              })}
+            />
+            {renameErrors.name && <p className="form-error">{renameErrors.name.message}</p>}
+          </div>
+          <ModalActions>
+            <Button variant="outline" type="button" onClick={() => { setRenamingProject(null); resetRename(); }}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={isRenaming}>Save</Button>
+          </ModalActions>
+        </form>
+      </Modal>
+
     </Layout>
   );
 };

@@ -158,6 +158,7 @@ export const reportsApi = {
   get: (id: string) => api.get(`/reports/${id}`).then((r) => r.data.data),
   getPublic: (id: string) => api.get(`/reports/public/${id}`).then((r) => r.data.data),
   generate: (data: unknown) => api.post('/reports/generate', data).then((r) => r.data.data),
+  update: (id: string, data: unknown) => api.patch(`/reports/${id}`, data).then((r) => r.data.data),
 };
 
 // ─── Users (for assignment dropdowns) ────────────────────────────────────────

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useForm, Controller } from 'react-hook-form';
-import { Plus, CheckCircle, Lock } from 'lucide-react';
+import { Plus, CheckCircle, Lock, Pencil } from 'lucide-react'; // ✅ Added Pencil
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
@@ -13,7 +13,7 @@ import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
 import UserPicker from '../components/ui/UserPicker';
 import { PageSkeleton } from '../components/ui/Skeleton';
-import { useBlockers, useCreateBlocker, useResolveBlocker } from '../hooks/useBlockers';
+import { useBlockers, useCreateBlocker, useResolveBlocker, useUpdateBlocker } from '../hooks/useBlockers'; // ✅ Added useUpdateBlocker
 import { useProjects } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
@@ -26,6 +26,9 @@ interface BlockerForm {
 
 interface ResolveForm { resolution: string; }
 
+// Added RenameForm interface
+interface RenameForm { title: string; }
+
 const BlockersPage = () => {
   const [searchParams] = useSearchParams();
   const preselectedProject = searchParams.get('projectId') || '';
@@ -35,6 +38,10 @@ const BlockersPage = () => {
   const [resolvingBlocker, setResolvingBlocker] = useState<Blocker | null>(null);
   const [viewingBlocker, setViewingBlocker] = useState<Blocker | null>(null);
   const [createError, setCreateError] = useState('');
+
+  // Rename state
+  const [renamingBlocker, setRenamingBlocker] = useState<Blocker | null>(null);
+  const [renameError, setRenameError] = useState('');
 
   const params: Record<string, string> = {};
   if (filterProject) params.projectId = filterProject;
@@ -48,8 +55,19 @@ const BlockersPage = () => {
   const createBlocker = useCreateBlocker();
   const resolveBlocker = useResolveBlocker();
 
+  // Update blocker hook (same pattern as useUpdateProject)
+  const updateBlocker = useUpdateBlocker(renamingBlocker?.id ?? '');
+
   const createForm = useForm<BlockerForm>({ defaultValues: { project_id: preselectedProject, severity: 'MEDIUM', owner_user_id: currentUser?.id ?? '' } });
   const resolveForm = useForm<ResolveForm>();
+
+  // Rename form
+  const {
+    register: registerRename,
+    handleSubmit: handleRenameSubmit,
+    reset: resetRename,
+    formState: { errors: renameErrors, isSubmitting: isRenaming },
+  } = useForm<RenameForm>();
 
   const onCreateSubmit = async (data: BlockerForm) => {
     try {
@@ -69,6 +87,27 @@ const BlockersPage = () => {
     } catch (err: unknown) { setCreateError((err as Error).message); }
   };
 
+  // Open rename modal — stops row click from opening detail view
+  const openRename = (e: React.MouseEvent, blocker: Blocker) => {
+    e.stopPropagation();
+    setRenamingBlocker(blocker);
+    resetRename({ title: blocker.title });
+    setRenameError('');
+  };
+
+  // Submit rename
+  const onRename = async (data: RenameForm) => {
+    if (!renamingBlocker) return;
+    try {
+      setRenameError('');
+      await updateBlocker.mutateAsync({ title: data.title });
+      setRenamingBlocker(null);
+      resetRename();
+    } catch (err: unknown) {
+      setRenameError((err as Error).message);
+    }
+  };
+
   if (isLoading) return <Layout><PageSkeleton /></Layout>;
 
   const openBlockers = blockers.filter((b: Blocker) => b.status !== 'RESOLVED');
@@ -82,12 +121,14 @@ const BlockersPage = () => {
           ? <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>New Blocker</Button>
           : <span className="flex items-center gap-1.5 text-sm text-gray-400"><Lock size={14} />No permission to raise blockers</span>}
       />
+
       <div className="p-6 space-y-5">
 
+        {/* Filters */}
         <div className="flex flex-wrap gap-3">
           <select className="form-select w-auto" value={filterProject} onChange={(e) => setFilterProject(e.target.value)}>
             <option value="">All Projects</option>
-            {projects.map((p: {id: string; name: string}) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            {projects.map((p: { id: string; name: string }) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
           <select className="form-select w-auto" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
             <option value="">All Statuses</option>
@@ -95,47 +136,106 @@ const BlockersPage = () => {
           </select>
         </div>
 
+        {/* Table Layout */}
         {blockers.length === 0 ? (
           <EmptyState title="No blockers" description="No blockers at the moment."
             action={canWrite ? <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>Raise Blocker</Button> : undefined} />
         ) : (
-          <div className="space-y-3">
-            {blockers.map((b: Blocker) => (
-              <Card key={b.id}>
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setViewingBlocker(b)}>
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <h3 className="text-sm font-semibold text-gray-900 hover:text-blue-600">{b.title}</h3>
-                      <StatusBadge status={b.severity} />
-                      <StatusBadge status={b.status} />
-                      {b.ageDays !== undefined && b.status !== 'RESOLVED' && (
-                        <span className="text-xs text-gray-400">Age: {b.ageDays}d</span>
-                      )}
-                    </div>
-                    {b.description && <p className="text-sm text-gray-600 mt-1">{b.description}</p>}
-                    {b.ownerUserId && (() => { const u = users.find(u => u.id === b.ownerUserId); return u ? (
-                      <div className="flex items-center gap-1.5 mt-1.5">
-                        <UserAvatar name={u.name} avatarUrl={u.avatarUrl} size="xs" />
-                        <span className="text-xs text-gray-500">{u.name}</span>
-                      </div>
-                    ) : null; })()}
-                    {b.resolution && (
-                      <div className="mt-2 p-2 bg-green-50 rounded text-xs text-green-700">
-                        <strong>Resolution:</strong> {b.resolution}
-                        {b.resolvedDate && <span className="ml-2 text-green-500">({b.resolvedDate})</span>}
-                      </div>
-                    )}
-                  </div>
-                  {b.status !== 'RESOLVED' && (
-                    <Button variant="outline" size="sm" icon={<CheckCircle size={14} />}
-                      onClick={() => setResolvingBlocker(b)}>
-                      Resolve
-                    </Button>
-                  )}
-                </div>
-              </Card>
-            ))}
-          </div>
+          <Card className="overflow-hidden p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50">
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Title</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Severity</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Owner</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Age</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {blockers.map((b: Blocker) => {
+                    const owner = users.find((u: { id: string }) => u.id === b.ownerUserId);
+                    return (
+                      <tr
+                        key={b.id}
+                        className="hover:bg-gray-50 transition-colors cursor-pointer group"
+                        onClick={() => setViewingBlocker(b)}
+                      >
+                        {/* Title + pencil */}
+                        <td className="px-4 py-3 max-w-xs">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-gray-900 truncate hover:text-blue-600">{b.title}</span>
+                            {canWrite && (
+                              <button
+                                type="button"
+                                onClick={(e) => openRename(e, b)}
+                                className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-all flex-shrink-0"
+                                title="Rename blocker"
+                              >
+                                <Pencil size={12} />
+                              </button>
+                            )}
+                          </div>
+                          {b.description && (
+                            <p className="text-xs text-gray-400 truncate mt-0.5 max-w-[240px]">{b.description}</p>
+                          )}
+                        </td>
+
+                        {/* Severity */}
+                        <td className="px-4 py-3">
+                          <StatusBadge status={b.severity} />
+                        </td>
+
+                        {/* Status */}
+                        <td className="px-4 py-3">
+                          <StatusBadge status={b.status} />
+                        </td>
+
+                        {/* Owner */}
+                        <td className="px-4 py-3">
+                          {owner ? (
+                            <div className="flex items-center gap-1.5">
+                              <UserAvatar name={owner.name} avatarUrl={owner.avatarUrl} size="xs" />
+                              <span className="text-xs text-gray-600">{owner.name}</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
+                        </td>
+
+                        {/* Age */}
+                        <td className="px-4 py-3">
+                          {b.ageDays !== undefined && b.status !== 'RESOLVED'
+                            ? <span className="text-xs text-gray-500">{b.ageDays}d</span>
+                            : <span className="text-xs text-gray-400">—</span>
+                          }
+                        </td>
+
+                        {/* Actions */}
+                        <td className="px-4 py-3 text-right">
+                          {b.status !== 'RESOLVED' && canWrite && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              icon={<CheckCircle size={13} />}
+                              onClick={(e) => { e.stopPropagation(); setResolvingBlocker(b); }}
+                            >
+                              Resolve
+                            </Button>
+                          )}
+                          {b.resolution && (
+                            <span className="text-xs text-green-600 font-medium">Resolved</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
         )}
       </div>
 
@@ -150,7 +250,7 @@ const BlockersPage = () => {
                 <span className="text-xs text-gray-400">Age: {viewingBlocker.ageDays}d</span>
               )}
             </div>
-            {viewingBlocker.ownerUserId && (() => { const u = users.find(u => u.id === viewingBlocker.ownerUserId); return u ? (
+            {viewingBlocker.ownerUserId && (() => { const u = users.find((u: { id: string }) => u.id === viewingBlocker.ownerUserId); return u ? (
               <div className="flex items-center gap-2">
                 <UserAvatar name={u.name} avatarUrl={u.avatarUrl} size="sm" />
                 <div>
@@ -190,7 +290,7 @@ const BlockersPage = () => {
               <label className="form-label">Project *</label>
               <select className="form-select" {...createForm.register('project_id', { required: 'Required' })}>
                 <option value="">Select…</option>
-                {projects.map((p: {id: string; name: string}) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                {projects.map((p: { id: string; name: string }) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
             <div>
@@ -215,12 +315,7 @@ const BlockersPage = () => {
               control={createForm.control}
               rules={{ required: 'Required' }}
               render={({ field }) => (
-                <UserPicker
-                  users={users}
-                  value={field.value}
-                  onChange={field.onChange}
-                  placeholder="Assign to…"
-                />
+                <UserPicker users={users} value={field.value} onChange={field.onChange} placeholder="Assign to…" />
               )}
             />
           </div>
@@ -246,6 +341,37 @@ const BlockersPage = () => {
           </ModalActions>
         </form>
       </Modal>
+
+      {/* ✅ Rename Blocker Modal */}
+      <Modal
+        open={!!renamingBlocker}
+        onClose={() => { setRenamingBlocker(null); resetRename(); setRenameError(''); }}
+        title="Rename Blocker"
+        size="sm"
+      >
+        <form onSubmit={handleRenameSubmit(onRename)} className="space-y-4">
+          {renameError && <Alert type="error" message={renameError} />}
+          <div>
+            <label className="form-label">Blocker Title *</label>
+            <input
+              className="form-input"
+              autoFocus
+              {...registerRename('title', {
+                required: 'Required',
+                validate: v => v.trim().length > 0 || 'Title cannot be blank',
+              })}
+            />
+            {renameErrors.title && <p className="form-error">{renameErrors.title.message}</p>}
+          </div>
+          <ModalActions>
+            <Button variant="outline" type="button" onClick={() => { setRenamingBlocker(null); resetRename(); }}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={isRenaming}>Save</Button>
+          </ModalActions>
+        </form>
+      </Modal>
+
     </Layout>
   );
 };
