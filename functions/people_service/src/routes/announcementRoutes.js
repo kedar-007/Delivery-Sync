@@ -1,0 +1,14 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const RBACMiddleware          = require('../middleware/RBACMiddleware');
+const AnnouncementController  = require('../controllers/AnnouncementController');
+const { PERMISSIONS } = require('../utils/Constants');
+const ctrl = (req) => new AnnouncementController(req.catalystApp);
+router.get('/',                       RBACMiddleware.require(PERMISSIONS.ANNOUNCEMENT_READ),  (req, res) => ctrl(req).list(req, res));
+router.post('/',                      RBACMiddleware.require(PERMISSIONS.ANNOUNCEMENT_WRITE), (req, res) => ctrl(req).create(req, res));
+router.put('/:id',                    RBACMiddleware.require(PERMISSIONS.ANNOUNCEMENT_WRITE), (req, res) => ctrl(req).update(req, res));
+router.delete('/:id',                 RBACMiddleware.require(PERMISSIONS.ANNOUNCEMENT_WRITE), (req, res) => ctrl(req).remove(req, res));
+router.patch('/:id/read',             RBACMiddleware.require(PERMISSIONS.ANNOUNCEMENT_READ),  (req, res) => ctrl(req).markRead(req, res));
+router.get('/:id/read-status',        RBACMiddleware.require(PERMISSIONS.ANNOUNCEMENT_READ),  (req, res) => ctrl(req).readStatus(req, res));
+module.exports = router;

@@ -2,7 +2,14 @@
   "functions": {
     "targets": [
       "delivery_sync_function",
-      "ai_service"
+      "ai_service",
+      "task_sprint_service",
+      "time_tracking_service",
+      "people_service",
+      "asset_service",
+      "badge_profile_service",
+      "admin_config_service",
+      "reporting_service"
     ],
     "ignore": [],
     "source": "functions"

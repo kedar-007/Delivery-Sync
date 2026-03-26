@@ -1,0 +1,13 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const RBACMiddleware      = require('../middleware/RBACMiddleware');
+const WorkflowController  = require('../controllers/WorkflowController');
+const { PERMISSIONS } = require('../utils/Constants');
+const ctrl = (req) => new WorkflowController(req.catalystApp);
+router.get('/',                         RBACMiddleware.require(PERMISSIONS.CONFIG_READ),  (req, res) => ctrl(req).list(req, res));
+router.post('/',                        RBACMiddleware.require(PERMISSIONS.CONFIG_WRITE), (req, res) => ctrl(req).create(req, res));
+router.put('/:workflowId',              RBACMiddleware.require(PERMISSIONS.CONFIG_WRITE), (req, res) => ctrl(req).update(req, res));
+router.delete('/:workflowId',           RBACMiddleware.require(PERMISSIONS.CONFIG_WRITE), (req, res) => ctrl(req).remove(req, res));
+router.post('/:workflowId/activate',    RBACMiddleware.require(PERMISSIONS.CONFIG_WRITE), (req, res) => ctrl(req).activate(req, res));
+module.exports = router;

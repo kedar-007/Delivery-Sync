@@ -63,9 +63,9 @@ class SuperAdminController {
   async getStats(req, res) {
     try {
       const [tenants, users, projects] = await Promise.all([
-        this.db.query(`SELECT ROWID, status FROM ${TABLES.TENANTS} ORDER BY CREATEDTIME DESC LIMIT 300`),
-        this.db.query(`SELECT ROWID, status FROM ${TABLES.USERS} ORDER BY CREATEDTIME DESC LIMIT 300`),
-        this.db.query(`SELECT ROWID, status FROM ${TABLES.PROJECTS} ORDER BY CREATEDTIME DESC LIMIT 300`),
+        this.db.query(`SELECT ROWID, status FROM ${TABLES.TENANTS} ORDER BY CREATEDTIME DESC LIMIT 200`),
+        this.db.query(`SELECT ROWID, status FROM ${TABLES.USERS} ORDER BY CREATEDTIME DESC LIMIT 200`),
+        this.db.query(`SELECT ROWID, status FROM ${TABLES.PROJECTS} ORDER BY CREATEDTIME DESC LIMIT 200`),
       ]);
       return ResponseHelper.success(res, {
         stats: {

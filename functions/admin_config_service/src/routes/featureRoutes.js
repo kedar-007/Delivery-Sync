@@ -1,0 +1,12 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const RBACMiddleware       = require('../middleware/RBACMiddleware');
+const FeatureFlagController = require('../controllers/FeatureFlagController');
+const { PERMISSIONS } = require('../utils/Constants');
+const ctrl = (req) => new FeatureFlagController(req.catalystApp);
+router.get('/enabled',         RBACMiddleware.require(PERMISSIONS.CONFIG_READ),  (req, res) => ctrl(req).enabled(req, res));
+router.get('/',                RBACMiddleware.require(PERMISSIONS.CONFIG_READ),  (req, res) => ctrl(req).list(req, res));
+router.post('/',               RBACMiddleware.require(PERMISSIONS.CONFIG_WRITE), (req, res) => ctrl(req).create(req, res));
+router.put('/:flagName',       RBACMiddleware.require(PERMISSIONS.CONFIG_WRITE), (req, res) => ctrl(req).update(req, res));
+module.exports = router;

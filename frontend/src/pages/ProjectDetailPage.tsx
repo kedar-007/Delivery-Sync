@@ -110,6 +110,9 @@ const ProjectDetailPage = () => {
         {/* Sub Navigation */}
         <div className="flex flex-wrap gap-2">
           {[
+            { label: 'Tasks',          to: `/${tenantSlug}/projects/${projectId}/tasks` },
+            { label: 'Sprint Board',   to: `/${tenantSlug}/projects/${projectId}/sprints` },
+            { label: 'Backlog',        to: `/${tenantSlug}/projects/${projectId}/backlog` },
             { label: 'Standup Rollup', to: `/${tenantSlug}/standup?projectId=${projectId}` },
             { label: 'EOD Rollup', to: `/${tenantSlug}/eod?projectId=${projectId}` },
             { label: 'Actions', to: `/${tenantSlug}/actions?projectId=${projectId}` },

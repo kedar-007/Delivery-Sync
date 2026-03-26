@@ -5,7 +5,8 @@ import {
   LayoutDashboard, FolderKanban, CheckSquare, AlertTriangle,
   Shield, FileText, Settings, LogOut, ChevronDown, ChevronRight,
   Milestone, ClipboardList, Clock, BookOpen, Briefcase, X,
-  PanelLeftClose, PanelLeftOpen, Users, Sparkles,
+  PanelLeftClose, PanelLeftOpen, Users, Sparkles, CalendarDays,
+  Timer, Package, Award, BarChart3, Megaphone, GitBranch,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useMyProfile } from '../../hooks/useUsers';
@@ -23,40 +24,89 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard',     to: '/dashboard',  icon: <LayoutDashboard size={18} /> },
-  { label: 'Portfolio',     to: '/portfolio',  icon: <Briefcase size={18} />,      roles: ['TENANT_ADMIN', 'PMO', 'EXEC'] },
-  { label: 'Projects',      to: '/projects',   icon: <FolderKanban size={18} /> },
-  { label: 'Milestones',    to: '/milestones', icon: <Milestone size={18} /> },
+  // ── Core ──────────────────────────────────────────────────────────────────────
+  { label: 'Dashboard', to: '/dashboard', icon: <LayoutDashboard size={18} /> },
+
+  // ── Projects ──────────────────────────────────────────────────────────────────
   {
-    label: 'Daily Updates', icon: <Clock size={18} />,
+    label: 'Projects', icon: <FolderKanban size={18} />,
     children: [
-      { label: 'Submit Standup', to: '/standup', icon: <ClipboardList size={16} /> },
-      { label: 'Submit EOD',     to: '/eod',     icon: <BookOpen size={16} /> },
+      { label: 'All Projects',  to: '/projects',    icon: <FolderKanban size={16} /> },
+      { label: 'My Tasks',      to: '/my-tasks',    icon: <CheckSquare size={16} /> },
+      { label: 'Sprint Boards', to: '/sprints',     icon: <GitBranch size={16} /> },
+      { label: 'Milestones',    to: '/milestones',  icon: <Milestone size={16} /> },
+      { label: 'Backlog',       to: '/backlog',     icon: <ClipboardList size={16} /> },
+      { label: 'Actions',       to: '/actions',     icon: <CheckSquare size={16} /> },
+      { label: 'Blockers',      to: '/blockers',    icon: <AlertTriangle size={16} /> },
+      { label: 'RAID Register', to: '/raid',        icon: <Shield size={16} /> },
+      { label: 'Decisions',     to: '/decisions',   icon: <BookOpen size={16} /> },
     ],
   },
-  { label: 'Actions',       to: '/actions',    icon: <CheckSquare size={18} /> },
-  { label: 'Blockers',      to: '/blockers',   icon: <AlertTriangle size={18} /> },
-  { label: 'RAID Register', to: '/raid',       icon: <Shield size={18} /> },
-  { label: 'Decisions',     to: '/decisions',  icon: <BookOpen size={18} /> },
-  { label: 'Teams',         to: '/teams',       icon: <Users size={18} />,    roles: ['TENANT_ADMIN', 'DELIVERY_LEAD', 'PMO', 'EXEC', 'TEAM_MEMBER'] },
-  { label: 'Reports',       to: '/reports',    icon: <FileText size={18} /> },
-  { label: 'AI Insights',   to: '/ai-insights', icon: <Sparkles size={18} />, roles: ['TENANT_ADMIN', 'DELIVERY_LEAD', 'PMO', 'EXEC', 'TEAM_MEMBER', 'CLIENT'] },
+
+  // ── Daily Work ────────────────────────────────────────────────────────────────
   {
-    label: 'Executive', icon: <Briefcase size={18} />, roles: ['TENANT_ADMIN', 'PMO', 'EXEC'],
+    label: 'Daily Work', icon: <Clock size={18} />,
     children: [
+      { label: 'Standup',       to: '/standup',       icon: <ClipboardList size={16} /> },
+      { label: 'EOD',           to: '/eod',           icon: <BookOpen size={16} /> },
+      { label: 'Time Tracking', to: '/time-tracking', icon: <Timer size={16} /> },
+    ],
+  },
+
+  // ── People ────────────────────────────────────────────────────────────────────
+  {
+    label: 'People', icon: <Users size={18} />,
+    children: [
+      { label: 'Attendance',    to: '/attendance',    icon: <CalendarDays size={16} /> },
+      { label: 'Leave',         to: '/leave',         icon: <CalendarDays size={16} /> },
+      { label: 'Teams',         to: '/teams',         icon: <Users size={16} /> },
+      { label: 'Directory',     to: '/directory',     icon: <Users size={16} /> },
+      { label: 'Org Chart',     to: '/org-chart',     icon: <GitBranch size={16} /> },
+      { label: 'Announcements', to: '/announcements', icon: <Megaphone size={16} /> },
+    ],
+  },
+
+  // ── Assets ────────────────────────────────────────────────────────────────────
+  { label: 'Assets', to: '/assets', icon: <Package size={18} /> },
+
+  // ── Reports & AI ──────────────────────────────────────────────────────────────
+  {
+    label: 'Reports & AI', icon: <BarChart3 size={18} />,
+    children: [
+      { label: 'Reports',            to: '/reports',            icon: <FileText size={16} /> },
+      { label: 'Enterprise Reports', to: '/enterprise-reports', icon: <BarChart3 size={16} />, roles: ['TENANT_ADMIN', 'PMO', 'EXEC', 'DELIVERY_LEAD'] },
+      { label: 'AI Insights',        to: '/ai-insights',        icon: <Sparkles size={16} /> },
+    ],
+  },
+
+  // ── Executive ─────────────────────────────────────────────────────────────────
+  {
+    label: 'Executive', icon: <Briefcase size={18} />, roles: ['TENANT_ADMIN', 'PMO', 'EXEC', 'DELIVERY_LEAD'],
+    children: [
+      { label: 'Portfolio',     to: '/portfolio',     icon: <Briefcase size={16} /> },
       { label: 'CEO Dashboard', to: '/ceo-dashboard', icon: <Briefcase size={16} /> },
       { label: 'CTO Dashboard', to: '/cto-dashboard', icon: <LayoutDashboard size={16} /> },
     ],
   },
-  { label: 'Admin',         to: '/admin',      icon: <Settings size={18} />, roles: ['TENANT_ADMIN'] },
+
+  // ── Administration ────────────────────────────────────────────────────────────
+  {
+    label: 'Administration', icon: <Settings size={18} />, roles: ['TENANT_ADMIN', 'OWNER'],
+    children: [
+      { label: 'User Management',    to: '/admin',        icon: <Users size={16} /> },
+      { label: 'Config & Workflows', to: '/admin-config', icon: <GitBranch size={16} /> },
+    ],
+  },
+  // ── Help ──────────────────────────────────────────────────────────────────────
+  { label: 'Help & Docs', to: '/help', icon: <BookOpen size={18} /> },
 ];
 
 // ─── Single nav item ──────────────────────────────────────────────────────────
 
 const SidebarNavItem = ({
-  item, collapsed, onClose,
+  item, collapsed, onClose, userRole,
 }: {
-  item: NavItem; collapsed: boolean; onClose?: () => void;
+  item: NavItem; collapsed: boolean; onClose?: () => void; userRole?: string;
 }) => {
   const location = useLocation();
   const [expanded, setExpanded] = useState(
@@ -64,8 +114,14 @@ const SidebarNavItem = ({
   );
 
   if (item.children) {
+    // Filter children by role
+    const visibleChildren = item.children.filter(
+      (c) => !c.roles || (userRole && c.roles.includes(userRole)),
+    );
+    if (visibleChildren.length === 0) return null;
+
     return (
-      <div>
+      <div className="mb-0.5">
         <button
           onClick={() => setExpanded(!expanded)}
           title={collapsed ? item.label : undefined}
@@ -78,14 +134,15 @@ const SidebarNavItem = ({
         >
           <span className={clsx('flex items-center', collapsed ? 'justify-center' : 'gap-3')}>
             {item.icon}
-            {!collapsed && item.label}
+            {!collapsed && <span className="font-medium">{item.label}</span>}
           </span>
-          {!collapsed && (expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
+          {!collapsed && (expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />)}
         </button>
         {expanded && !collapsed && (
-          <div className="ml-4 mt-1 space-y-0.5">
-            {item.children.map((child) => (
-              <SidebarNavItem key={child.to || child.label} item={child} collapsed={false} onClose={onClose} />
+          <div className="ml-3 mt-0.5 space-y-0.5 border-l pl-2"
+            style={{ borderColor: 'rgba(var(--ds-sidebar-text), 0.1)' }}>
+            {visibleChildren.map((child) => (
+              <SidebarNavItem key={child.to || child.label} item={child} collapsed={false} onClose={onClose} userRole={userRole} />
             ))}
           </div>
         )}
@@ -101,7 +158,7 @@ const SidebarNavItem = ({
       aria-label={item.label}
       className={({ isActive }) =>
         clsx(
-          'sidebar-item',
+          'sidebar-item text-sm',
           collapsed ? 'justify-center px-0' : '',
           isActive ? 'sidebar-item-active' : 'sidebar-item-inactive',
         )
@@ -200,7 +257,7 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
       </div>
 
       {/* Nav */}
-      <nav className={clsx('flex-1 overflow-y-auto py-3 space-y-0.5', collapsed ? 'px-1.5' : 'px-2')}
+      <nav className={clsx('flex-1 overflow-y-auto py-2 space-y-0.5', collapsed ? 'px-1.5' : 'px-2')}
         role="navigation">
         {prefixedItems.map((item) => (
           <SidebarNavItem
@@ -208,6 +265,7 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
             item={item}
             collapsed={collapsed}
             onClose={onClose}
+            userRole={user?.role}
           />
         ))}
       </nav>

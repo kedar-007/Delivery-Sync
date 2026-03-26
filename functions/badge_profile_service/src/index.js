@@ -1,0 +1,11 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const AuthMiddleware    = require('./middleware/AuthMiddleware');
+const profileRoutes     = require('./routes/profileRoutes');
+const badgeRoutes       = require('./routes/badgeRoutes');
+router.get('/health', (req, res) => res.json({ success: true, service: 'badge_profile_service', ts: Date.now() }));
+router.use(AuthMiddleware.authenticate);
+router.use('/profiles',     profileRoutes);
+router.use('/badges',       badgeRoutes);
+module.exports = router;

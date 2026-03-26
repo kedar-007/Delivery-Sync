@@ -20,6 +20,7 @@ const PROJECT_MEMBER_ROLES = Object.freeze([
 
 // ─── Permissions ──────────────────────────────────────────────────────────────
 const PERMISSIONS = Object.freeze({
+  // ── Existing delivery permissions ───────────────────────────────────────────
   PROJECT_READ: 'PROJECT_READ',
   PROJECT_WRITE: 'PROJECT_WRITE',
   STANDUP_SUBMIT: 'STANDUP_SUBMIT',
@@ -45,6 +46,44 @@ const PERMISSIONS = Object.freeze({
   NOTIFICATION_READ: 'NOTIFICATION_READ',
   TEAM_READ: 'TEAM_READ',
   TEAM_WRITE: 'TEAM_WRITE',
+  // ── Task & Sprint permissions ────────────────────────────────────────────────
+  TASK_READ: 'TASK_READ',
+  TASK_WRITE: 'TASK_WRITE',
+  TASK_COMMENT_WRITE: 'TASK_COMMENT_WRITE',
+  SPRINT_READ: 'SPRINT_READ',
+  SPRINT_WRITE: 'SPRINT_WRITE',
+  // ── Time tracking permissions ────────────────────────────────────────────────
+  TIME_READ: 'TIME_READ',
+  TIME_WRITE: 'TIME_WRITE',
+  TIME_APPROVE: 'TIME_APPROVE',
+  // ── People / Attendance / Leave permissions ──────────────────────────────────
+  ATTENDANCE_READ: 'ATTENDANCE_READ',
+  ATTENDANCE_WRITE: 'ATTENDANCE_WRITE',
+  ATTENDANCE_ADMIN: 'ATTENDANCE_ADMIN',
+  LEAVE_READ: 'LEAVE_READ',
+  LEAVE_WRITE: 'LEAVE_WRITE',
+  LEAVE_APPROVE: 'LEAVE_APPROVE',
+  LEAVE_ADMIN: 'LEAVE_ADMIN',
+  // ── Asset permissions ────────────────────────────────────────────────────────
+  ASSET_READ: 'ASSET_READ',
+  ASSET_WRITE: 'ASSET_WRITE',
+  ASSET_ASSIGN: 'ASSET_ASSIGN',
+  ASSET_APPROVE: 'ASSET_APPROVE',
+  ASSET_ADMIN: 'ASSET_ADMIN',
+  // ── Badge & Profile permissions ──────────────────────────────────────────────
+  BADGE_READ: 'BADGE_READ',
+  BADGE_WRITE: 'BADGE_WRITE',
+  BADGE_AWARD: 'BADGE_AWARD',
+  PROFILE_READ: 'PROFILE_READ',
+  PROFILE_WRITE: 'PROFILE_WRITE',
+  // ── Announcement & Org permissions ──────────────────────────────────────────
+  ANNOUNCEMENT_READ: 'ANNOUNCEMENT_READ',
+  ANNOUNCEMENT_WRITE: 'ANNOUNCEMENT_WRITE',
+  ORG_READ: 'ORG_READ',
+  ORG_WRITE: 'ORG_WRITE',
+  // ── Admin / Config permissions ───────────────────────────────────────────────
+  CONFIG_READ: 'CONFIG_READ',
+  CONFIG_WRITE: 'CONFIG_WRITE',
 });
 
 // ─── Role → Permission Matrix ─────────────────────────────────────────────────
@@ -64,6 +103,18 @@ const ROLE_PERMISSIONS = Object.freeze({
     PERMISSIONS.INVITE_USER,
     PERMISSIONS.NOTIFICATION_READ,
     PERMISSIONS.TEAM_READ, PERMISSIONS.TEAM_WRITE,
+    // Extended
+    PERMISSIONS.TASK_READ, PERMISSIONS.TASK_WRITE, PERMISSIONS.TASK_COMMENT_WRITE,
+    PERMISSIONS.SPRINT_READ, PERMISSIONS.SPRINT_WRITE,
+    PERMISSIONS.TIME_READ, PERMISSIONS.TIME_WRITE, PERMISSIONS.TIME_APPROVE,
+    PERMISSIONS.ATTENDANCE_READ, PERMISSIONS.ATTENDANCE_WRITE,
+    PERMISSIONS.LEAVE_READ, PERMISSIONS.LEAVE_WRITE, PERMISSIONS.LEAVE_APPROVE,
+    PERMISSIONS.ASSET_READ,
+    PERMISSIONS.BADGE_READ, PERMISSIONS.BADGE_AWARD,
+    PERMISSIONS.PROFILE_READ,
+    PERMISSIONS.ANNOUNCEMENT_READ,
+    PERMISSIONS.ORG_READ,
+    PERMISSIONS.CONFIG_READ,
   ],
   [ROLES.TEAM_MEMBER]: [
     PERMISSIONS.PROJECT_READ,
@@ -74,10 +125,21 @@ const ROLE_PERMISSIONS = Object.freeze({
     PERMISSIONS.RAID_READ,
     PERMISSIONS.DECISION_READ,
     PERMISSIONS.MILESTONE_READ,
-    PERMISSIONS.REPORT_READ, PERMISSIONS.REPORT_WRITE,
+    PERMISSIONS.REPORT_READ,
     PERMISSIONS.DASHBOARD_READ,
     PERMISSIONS.NOTIFICATION_READ,
     PERMISSIONS.TEAM_READ,
+    // Extended
+    PERMISSIONS.TASK_READ, PERMISSIONS.TASK_WRITE, PERMISSIONS.TASK_COMMENT_WRITE,
+    PERMISSIONS.SPRINT_READ,
+    PERMISSIONS.TIME_READ, PERMISSIONS.TIME_WRITE,
+    PERMISSIONS.ATTENDANCE_READ, PERMISSIONS.ATTENDANCE_WRITE,
+    PERMISSIONS.LEAVE_READ, PERMISSIONS.LEAVE_WRITE,
+    PERMISSIONS.ASSET_READ,
+    PERMISSIONS.BADGE_READ,
+    PERMISSIONS.PROFILE_READ, PERMISSIONS.PROFILE_WRITE,
+    PERMISSIONS.ANNOUNCEMENT_READ,
+    PERMISSIONS.ORG_READ,
   ],
   [ROLES.PMO]: [
     PERMISSIONS.PROJECT_READ, PERMISSIONS.PROJECT_WRITE,
@@ -93,6 +155,18 @@ const ROLE_PERMISSIONS = Object.freeze({
     PERMISSIONS.INVITE_USER,
     PERMISSIONS.NOTIFICATION_READ,
     PERMISSIONS.TEAM_READ, PERMISSIONS.TEAM_WRITE,
+    // Extended
+    PERMISSIONS.TASK_READ, PERMISSIONS.TASK_WRITE,
+    PERMISSIONS.SPRINT_READ, PERMISSIONS.SPRINT_WRITE,
+    PERMISSIONS.TIME_READ, PERMISSIONS.TIME_APPROVE,
+    PERMISSIONS.ATTENDANCE_READ, PERMISSIONS.ATTENDANCE_ADMIN,
+    PERMISSIONS.LEAVE_READ, PERMISSIONS.LEAVE_APPROVE, PERMISSIONS.LEAVE_ADMIN,
+    PERMISSIONS.ASSET_READ, PERMISSIONS.ASSET_WRITE, PERMISSIONS.ASSET_ASSIGN, PERMISSIONS.ASSET_APPROVE, PERMISSIONS.ASSET_ADMIN,
+    PERMISSIONS.BADGE_READ, PERMISSIONS.BADGE_WRITE, PERMISSIONS.BADGE_AWARD,
+    PERMISSIONS.PROFILE_READ,
+    PERMISSIONS.ANNOUNCEMENT_READ, PERMISSIONS.ANNOUNCEMENT_WRITE,
+    PERMISSIONS.ORG_READ, PERMISSIONS.ORG_WRITE,
+    PERMISSIONS.CONFIG_READ,
   ],
   [ROLES.EXEC]: [
     PERMISSIONS.PROJECT_READ,
@@ -107,6 +181,17 @@ const ROLE_PERMISSIONS = Object.freeze({
     PERMISSIONS.DASHBOARD_READ,
     PERMISSIONS.NOTIFICATION_READ,
     PERMISSIONS.TEAM_READ,
+    // Extended
+    PERMISSIONS.TASK_READ,
+    PERMISSIONS.SPRINT_READ,
+    PERMISSIONS.TIME_READ,
+    PERMISSIONS.ATTENDANCE_READ,
+    PERMISSIONS.LEAVE_READ,
+    PERMISSIONS.ASSET_READ,
+    PERMISSIONS.BADGE_READ,
+    PERMISSIONS.PROFILE_READ,
+    PERMISSIONS.ANNOUNCEMENT_READ,
+    PERMISSIONS.ORG_READ,
   ],
   [ROLES.CLIENT]: [
     PERMISSIONS.PROJECT_READ,
@@ -205,6 +290,7 @@ const USER_STATUS = Object.freeze({
 
 // ─── Notification Types ───────────────────────────────────────────────────────
 const NOTIFICATION_TYPE = Object.freeze({
+  // ── Existing ─────────────────────────────────────────────────────────────────
   STANDUP_REMINDER: 'STANDUP_REMINDER',
   EOD_REMINDER: 'EOD_REMINDER',
   ACTION_OVERDUE: 'ACTION_OVERDUE',
@@ -217,6 +303,34 @@ const NOTIFICATION_TYPE = Object.freeze({
   REPORT_READY: 'REPORT_READY',
   DAILY_SUMMARY: 'DAILY_SUMMARY',
   GENERAL: 'GENERAL',
+  // ── Task & Sprint ─────────────────────────────────────────────────────────────
+  TASK_STATUS_CHANGED: 'TASK_STATUS_CHANGED',
+  TASK_COMMENTED: 'TASK_COMMENTED',
+  TASK_OVERDUE: 'TASK_OVERDUE',
+  SPRINT_ENDING_SOON: 'SPRINT_ENDING_SOON',
+  SPRINT_COMPLETED: 'SPRINT_COMPLETED',
+  // ── Time Tracking ─────────────────────────────────────────────────────────────
+  TIME_ENTRY_SUBMITTED: 'TIME_ENTRY_SUBMITTED',
+  TIME_ENTRY_APPROVED: 'TIME_ENTRY_APPROVED',
+  TIME_ENTRY_REJECTED: 'TIME_ENTRY_REJECTED',
+  TIME_APPROVAL_REMINDER: 'TIME_APPROVAL_REMINDER',
+  // ── Attendance ────────────────────────────────────────────────────────────────
+  ATTENDANCE_ANOMALY: 'ATTENDANCE_ANOMALY',
+  // ── Leave ─────────────────────────────────────────────────────────────────────
+  LEAVE_APPROVAL_NEEDED: 'LEAVE_APPROVAL_NEEDED',
+  LEAVE_APPROVED: 'LEAVE_APPROVED',
+  LEAVE_REJECTED: 'LEAVE_REJECTED',
+  LEAVE_APPROVAL_REMINDER: 'LEAVE_APPROVAL_REMINDER',
+  // ── Assets ───────────────────────────────────────────────────────────────────
+  ASSET_REQUEST_SUBMITTED: 'ASSET_REQUEST_SUBMITTED',
+  ASSET_REQUEST_APPROVED: 'ASSET_REQUEST_APPROVED',
+  ASSET_REQUEST_REJECTED: 'ASSET_REQUEST_REJECTED',
+  ASSET_ASSIGNED: 'ASSET_ASSIGNED',
+  ASSET_MAINTENANCE_DUE: 'ASSET_MAINTENANCE_DUE',
+  // ── Badges ───────────────────────────────────────────────────────────────────
+  BADGE_AWARDED: 'BADGE_AWARDED',
+  // ── Announcements ────────────────────────────────────────────────────────────
+  ANNOUNCEMENT_PUBLISHED: 'ANNOUNCEMENT_PUBLISHED',
 });
 
 // ─── Audit Actions ────────────────────────────────────────────────────────────
@@ -231,6 +345,15 @@ const AUDIT_ACTION = Object.freeze({
   NOTIFY_SENT: 'NOTIFY_SENT',
   NOTIFY_FAILED: 'NOTIFY_FAILED',
   NOTIFY_SKIPPED: 'NOTIFY_SKIPPED',
+  APPROVE: 'APPROVE',
+  REJECT: 'REJECT',
+  SUBMIT: 'SUBMIT',
+  RETRACT: 'RETRACT',
+  ASSIGN: 'ASSIGN',
+  RETURN: 'RETURN',
+  AWARD: 'AWARD',
+  REVOKE: 'REVOKE',
+  OVERRIDE: 'OVERRIDE',
 });
 
 // ─── Report Types ─────────────────────────────────────────────────────────────
@@ -242,6 +365,7 @@ const REPORT_TYPE = Object.freeze({
 
 // ─── Table Names ──────────────────────────────────────────────────────────────
 const TABLES = Object.freeze({
+  // ── Existing delivery tables ──────────────────────────────────────────────────
   TENANTS: 'tenants',
   USERS: 'users',
   PROJECTS: 'projects',
@@ -263,6 +387,45 @@ const TABLES = Object.freeze({
   TEAMS: 'teams',
   TEAM_MEMBERS: 'team_members',
   REMINDER_CONFIGS: 'reminder_configs',
+  // ── Task & Sprint tables ──────────────────────────────────────────────────────
+  SPRINTS: 'sprints',
+  SPRINT_MEMBERS: 'sprint_members',
+  TASKS: 'tasks',
+  TASK_ATTACHMENTS: 'task_attachments',
+  TASK_COMMENTS: 'task_comments',
+  TASK_STATUS_HISTORY: 'task_status_history',
+  // ── Time Tracking tables ──────────────────────────────────────────────────────
+  TIME_ENTRIES: 'time_entries',
+  TIME_APPROVAL_REQUESTS: 'time_approval_requests',
+  TIME_EXPORT_JOBS: 'time_export_jobs',
+  // ── People / HR tables ────────────────────────────────────────────────────────
+  ATTENDANCE_RECORDS: 'attendance_records',
+  ATTENDANCE_POLICIES: 'attendance_policies',
+  LEAVE_TYPES: 'leave_types',
+  LEAVE_BALANCES: 'leave_balances',
+  LEAVE_REQUESTS: 'leave_requests',
+  LEAVE_CALENDAR: 'leave_calendar',
+  ANNOUNCEMENTS: 'announcements',
+  ANNOUNCEMENT_READS: 'announcement_reads',
+  USER_PROFILES: 'user_profiles',
+  // ── Asset tables ──────────────────────────────────────────────────────────────
+  ASSET_CATEGORIES: 'asset_categories',
+  ASSETS: 'assets',
+  ASSET_REQUESTS: 'asset_requests',
+  ASSET_ASSIGNMENTS: 'asset_assignments',
+  ASSET_MAINTENANCE: 'asset_maintenance',
+  // ── Badge tables ──────────────────────────────────────────────────────────────
+  BADGE_DEFINITIONS: 'badge_definitions',
+  USER_BADGES: 'user_badges',
+  // ── Admin / Config tables ─────────────────────────────────────────────────────
+  WORKFLOW_CONFIGS: 'workflow_configs',
+  FORM_CONFIGS: 'form_configs',
+  PERMISSION_OVERRIDES: 'permission_overrides',
+  FEATURE_FLAGS: 'feature_flags',
+  PROJECT_PERMISSIONS: 'project_permissions',
+  NOTIFICATION_PREFERENCES: 'notification_preferences',
+  // ── Reporting tables ──────────────────────────────────────────────────────────
+  REPORT_EXPORTS: 'report_exports',
 });
 
 // ─── Cron Blocker Escalation Threshold (days) ────────────────────────────────

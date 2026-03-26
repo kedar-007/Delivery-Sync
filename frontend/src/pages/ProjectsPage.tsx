@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Plus, Search, Calendar, Pencil } from 'lucide-react'; // ✅ Added Pencil
+import { Plus, Search, Calendar, Pencil } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
@@ -12,6 +12,7 @@ import { PageSkeleton } from '../components/ui/Skeleton';
 import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
 import { useProjects, useCreateProject, useUpdateProject } from '../hooks/useProjects';
+import { useAuth } from '../contexts/AuthContext';
 import { format } from 'date-fns';
 
 interface ProjectForm {
@@ -28,6 +29,8 @@ interface RenameForm {
 
 const ProjectsPage = () => {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
+  const { user } = useAuth();
+  const canCreateProject = ['TENANT_ADMIN', 'DELIVERY_LEAD', 'PMO', 'EXEC'].includes(user?.role ?? '');
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState('');
   const [createError, setCreateError] = useState('');
@@ -97,9 +100,11 @@ const ProjectsPage = () => {
         title="Projects"
         subtitle={`${projects.length} project${projects.length !== 1 ? 's' : ''}`}
         actions={
-          <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>
-            New Project
-          </Button>
+          canCreateProject ? (
+            <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>
+              New Project
+            </Button>
+          ) : undefined
         }
       />
 

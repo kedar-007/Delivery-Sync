@@ -1,0 +1,12 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const RBACMiddleware  = require('../middleware/RBACMiddleware');
+const FormController  = require('../controllers/FormController');
+const { PERMISSIONS } = require('../utils/Constants');
+const ctrl = (req) => new FormController(req.catalystApp);
+router.get('/',                       RBACMiddleware.require(PERMISSIONS.CONFIG_READ),  (req, res) => ctrl(req).list(req, res));
+router.post('/',                      RBACMiddleware.require(PERMISSIONS.CONFIG_WRITE), (req, res) => ctrl(req).create(req, res));
+router.put('/:formId',                RBACMiddleware.require(PERMISSIONS.CONFIG_WRITE), (req, res) => ctrl(req).update(req, res));
+router.get('/:formType/active',       RBACMiddleware.require(PERMISSIONS.CONFIG_READ),  (req, res) => ctrl(req).getActive(req, res));
+module.exports = router;

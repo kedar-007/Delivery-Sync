@@ -45,7 +45,7 @@ class StandupController {
         yesterday: data.yesterday,
         today: data.today,
         blockers: data.blockers,
-        submitted_at: new Date().toISOString(),
+        submitted_at: DataStoreService.fmtDT(new Date()),
       });
 
       return ResponseHelper.created(res, {
@@ -77,19 +77,17 @@ class StandupController {
       // TEAM_MEMBER can only see their own entries
       const effectiveUserId = role === 'TEAM_MEMBER' ? currentUserId : userId;
 
-      let whereExtra = `project_id = '${DataStoreService.escape(projectId || '')}'`;
-      if (!projectId) whereExtra = '1=1'; // allow fetching across projects
-
+      let whereExtra = ''; // default: fetch across all projects
       if (projectId) whereExtra = `project_id = '${DataStoreService.escape(projectId)}'`;
-      if (date) whereExtra += ` AND entry_date = '${DataStoreService.escape(date)}'`;
-      if (effectiveUserId) whereExtra += ` AND user_id = '${DataStoreService.escape(effectiveUserId)}'`;
+      if (date) whereExtra += (whereExtra ? ' AND ' : '') + `entry_date = '${DataStoreService.escape(date)}'`;
+      if (effectiveUserId) whereExtra += (whereExtra ? ' AND ' : '') + `user_id = '${DataStoreService.escape(effectiveUserId)}'`;
       if (startDate && endDate) {
-        whereExtra += ` AND entry_date >= '${DataStoreService.escape(startDate)}' AND entry_date <= '${DataStoreService.escape(endDate)}'`;
+        whereExtra += (whereExtra ? ' AND ' : '') + `entry_date >= '${DataStoreService.escape(startDate)}' AND entry_date <= '${DataStoreService.escape(endDate)}'`;
       }
 
       const standups = await this.db.findWhere(
         TABLES.STANDUP_ENTRIES, tenantId,
-        whereExtra === '1=1' ? undefined : whereExtra,
+        whereExtra,
         { orderBy: 'CREATEDTIME DESC', limit: 100 }
       );
 

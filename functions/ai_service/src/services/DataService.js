@@ -439,12 +439,12 @@ class DataService {
       this._query(
         `SELECT entry_date, user_id FROM ${TABLES.STANDUP_ENTRIES}
          WHERE tenant_id = '${DataService._esc(tenantId)}' AND project_id IN (${idList})
-           AND entry_date >= '${since}' ${userClause} LIMIT 500`
+           AND entry_date >= '${since}' ${userClause} LIMIT 200`
       ),
       this._query(
         `SELECT entry_date, mood, progress_percentage FROM ${TABLES.EOD_ENTRIES}
          WHERE tenant_id = '${DataService._esc(tenantId)}' AND project_id IN (${idList})
-           AND entry_date >= '${since}' ${userClause} LIMIT 500`
+           AND entry_date >= '${since}' ${userClause} LIMIT 200`
       ),
       this._query(
         `SELECT status, action_priority, due_date FROM ${TABLES.ACTIONS}
@@ -527,7 +527,7 @@ class DataService {
       this._query(
         `SELECT project_id, user_id, role FROM ${TABLES.PROJECT_MEMBERS}
          WHERE tenant_id = '${DataService._esc(tenantId)}' AND project_id IN (${idList})
-         LIMIT 300`
+         LIMIT 200`
       ),
       // All user details for name resolution
       this._query(

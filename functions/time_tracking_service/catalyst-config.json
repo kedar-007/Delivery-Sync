@@ -1,0 +1,11 @@
+{
+  "deployment": {
+    "name": "time_tracking_service",
+    "stack": "node20",
+    "type": "advancedio",
+    "env_variables": {}
+  },
+  "execution": {
+    "main": "index.js"
+  }
+}

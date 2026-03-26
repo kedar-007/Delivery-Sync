@@ -551,6 +551,47 @@ class AIController {
     }
   }
 
+  // ─── 11. Task Insight ────────────────────────────────────────────────────
+
+  /**
+   * POST /api/ai/task-insight
+   * Body: { title, description?, status?, priority?, dueDate?, taskId? }
+   *
+   * Generates a concise AI insight for a single task: complexity, approach,
+   * potential blockers, and estimated effort.
+   */
+  async getTaskInsight(req, res) {
+    try {
+      const { title, description, status, priority, dueDate, taskId } = req.body;
+      if (!title) return ResponseHelper.validationError(res, 'title is required');
+
+      const prompt = `You are a smart project management assistant. Analyze this task and give concise, actionable insights in plain text (no JSON, no markdown headers, just 3-4 short paragraphs or bullet points):
+
+Task: ${title}
+Status: ${status || 'TODO'}
+Priority: ${priority || 'MEDIUM'}
+Due Date: ${dueDate || 'Not set'}
+Description: ${description || 'No description provided'}
+
+Cover:
+- Brief complexity/risk assessment
+- Suggested next steps (2-3 points)
+- Potential blockers to watch
+- Estimated effort (Quick/Medium/Complex)
+
+Keep it under 120 words and practical.`;
+
+      const { response: rawText } = await this.llm.call(
+        prompt, PromptService.SYSTEM_PROMPT, { max_tokens: 250 }
+      );
+
+      return ResponseHelper.success(res, { insight: rawText, taskId: taskId || null });
+    } catch (err) {
+      console.error('[AIController.getTaskInsight]', err.message);
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
   // ─── Private: JSON Parser ────────────────────────────────────────────────
 
   /**

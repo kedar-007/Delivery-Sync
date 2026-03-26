@@ -1,0 +1,11 @@
+{
+  "deployment": {
+    "name": "badge_profile_service",
+    "stack": "node20",
+    "type": "advancedio",
+    "env_variables": {}
+  },
+  "execution": {
+    "main": "index.js"
+  }
+}

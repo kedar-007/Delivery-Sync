@@ -1,0 +1,13 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const RBACMiddleware         = require('../middleware/RBACMiddleware');
+const AssetRequestController = require('../controllers/AssetRequestController');
+const { PERMISSIONS } = require('../utils/Constants');
+const ctrl = (req) => new AssetRequestController(req.catalystApp);
+router.get('/',                         RBACMiddleware.require(PERMISSIONS.ASSET_READ),    (req, res) => ctrl(req).list(req, res));
+router.post('/',                        RBACMiddleware.require(PERMISSIONS.ASSET_READ),    (req, res) => ctrl(req).create(req, res));
+router.patch('/:requestId/approve',     RBACMiddleware.require(PERMISSIONS.ASSET_APPROVE), (req, res) => ctrl(req).approve(req, res));
+router.patch('/:requestId/reject',      RBACMiddleware.require(PERMISSIONS.ASSET_APPROVE), (req, res) => ctrl(req).reject(req, res));
+router.patch('/:requestId/fulfill',     RBACMiddleware.require(PERMISSIONS.ASSET_ASSIGN),  (req, res) => ctrl(req).fulfill(req, res));
+module.exports = router;

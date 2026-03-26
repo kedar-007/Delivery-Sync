@@ -1,0 +1,13 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const RBACMiddleware    = require('../middleware/RBACMiddleware');
+const ProfileController = require('../controllers/ProfileController');
+const { PERMISSIONS } = require('../utils/Constants');
+const ctrl = (req) => new ProfileController(req.catalystApp);
+router.get('/me',             RBACMiddleware.require(PERMISSIONS.PROFILE_READ),  (req, res) => ctrl(req).getMe(req, res));
+router.put('/me',             RBACMiddleware.require(PERMISSIONS.PROFILE_WRITE), (req, res) => ctrl(req).updateMe(req, res));
+router.post('/upload-file',   RBACMiddleware.require(PERMISSIONS.PROFILE_WRITE), (req, res) => ctrl(req).uploadFile(req, res));
+router.get('/directory',      RBACMiddleware.require(PERMISSIONS.PROFILE_READ),  (req, res) => ctrl(req).directory(req, res));
+router.get('/:userId',        RBACMiddleware.require(PERMISSIONS.PROFILE_READ),  (req, res) => ctrl(req).getById(req, res));
+module.exports = router;

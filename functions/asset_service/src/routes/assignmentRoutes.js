@@ -1,0 +1,11 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const RBACMiddleware       = require('../middleware/RBACMiddleware');
+const AssignmentController = require('../controllers/AssignmentController');
+const { PERMISSIONS } = require('../utils/Constants');
+const ctrl = (req) => new AssignmentController(req.catalystApp);
+router.get('/',                               RBACMiddleware.require(PERMISSIONS.ASSET_READ),   (req, res) => ctrl(req).list(req, res));
+router.post('/',                              RBACMiddleware.require(PERMISSIONS.ASSET_ASSIGN),  (req, res) => ctrl(req).create(req, res));
+router.patch('/:assignmentId/return',         RBACMiddleware.require(PERMISSIONS.ASSET_ASSIGN),  (req, res) => ctrl(req).returnAsset(req, res));
+module.exports = router;

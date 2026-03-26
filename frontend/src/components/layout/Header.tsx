@@ -6,6 +6,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useI18n, LOCALES, LocaleCode } from '../../contexts/I18nContext';
 import UserAvatar from '../ui/UserAvatar';
 import NotificationBell from '../ui/NotificationBell';
+import AttendanceWidget from '../ui/AttendanceWidget';
 import { useMyProfile } from '../../hooks/useUsers';
 
 interface HeaderProps {
@@ -54,6 +55,9 @@ const Header = ({ title, subtitle, actions }: HeaderProps) => {
         {/* Right controls */}
         <div className="flex items-center gap-2 shrink-0">
           {actions}
+
+          {/* Attendance widget */}
+          <AttendanceWidget />
 
           {/* Dark mode toggle */}
           <button

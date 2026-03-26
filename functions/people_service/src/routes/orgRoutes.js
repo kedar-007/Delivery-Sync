@@ -1,0 +1,12 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const RBACMiddleware  = require('../middleware/RBACMiddleware');
+const OrgController   = require('../controllers/OrgController');
+const { PERMISSIONS } = require('../utils/Constants');
+const ctrl = (req) => new OrgController(req.catalystApp);
+router.get('/hierarchy',          RBACMiddleware.require(PERMISSIONS.ORG_READ),  (req, res) => ctrl(req).hierarchy(req, res));
+router.get('/reports/:userId',    RBACMiddleware.require(PERMISSIONS.ORG_READ),  (req, res) => ctrl(req).directReports(req, res));
+router.get('/manager/:userId',    RBACMiddleware.require(PERMISSIONS.ORG_READ),  (req, res) => ctrl(req).getManager(req, res));
+router.put('/manager',            RBACMiddleware.require(PERMISSIONS.ORG_WRITE), (req, res) => ctrl(req).setManager(req, res));
+module.exports = router;
