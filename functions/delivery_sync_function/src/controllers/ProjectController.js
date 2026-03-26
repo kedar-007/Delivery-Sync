@@ -22,7 +22,6 @@ class ProjectController {
     try {
       const data = Validator.validateCreateProject(req.body);
       const { tenantId, id: userId } = req.currentUser;
-      console.log("TENANT ID --",tenantId);
 
       const project = await this.db.insert(TABLES.PROJECTS, {
         tenant_id: tenantId,

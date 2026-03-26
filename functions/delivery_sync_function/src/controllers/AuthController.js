@@ -18,7 +18,6 @@ class AuthController {
    */
   async getCurrentUser(req, res) {
     try {
-      console.log("CURRENT USER--",req.currentUser);
       return ResponseHelper.success(res, { user: req.currentUser });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
@@ -41,13 +40,10 @@ class AuthController {
       // Get Catalyst user email
       const userManagement = req.catalystApp.userManagement();
       const catalystUser = await userManagement.getCurrentUser();
-      console.log("Catalyst User--",catalystUser);
       const email = catalystUser.email_id.toLowerCase();
       const name = catalystUser.first_name
         ? `${catalystUser.first_name} ${catalystUser.last_name || ''}`.trim()
         : email;
-
-      console.log("Name and email",name,email);
       // Check slug uniqueness
       const existing = await this.db.query(
         `SELECT ROWID FROM ${TABLES.TENANTS} WHERE slug = '${DataStoreService.escape(domain)}' LIMIT 1`
@@ -65,7 +61,6 @@ class AuthController {
         settings: '{}',
       });
 
-      console.log("TENANT ",tenant);
       const tenantId = String(tenant.ROWID);
 
       // Create admin user

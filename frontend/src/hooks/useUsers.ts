@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { usersApi } from '../lib/api';
+import { usersApi, profilesApi } from '../lib/api';
 
 export interface TenantUser {
   id: string;
@@ -37,6 +37,23 @@ export const useUpdateProfile = () => {
   });
 };
 
+export const useMyExtendedProfile = () =>
+  useQuery({
+    queryKey: ['my-extended-profile'],
+    queryFn: () => profilesApi.me(),
+    staleTime: 2 * 60 * 1000,
+  });
+
+export const useUpdateExtendedProfile = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: unknown) => profilesApi.updateMe(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-extended-profile'] });
+    },
+  });
+};
+
 export const useUploadAvatar = () => {
   const qc = useQueryClient();
   return useMutation({
@@ -45,6 +62,17 @@ export const useUploadAvatar = () => {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['my-profile'] });
       qc.invalidateQueries({ queryKey: ['tenant-users'] });
+    },
+  });
+};
+
+export const useUploadProfileFile = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ file, type }: { file: File; type: 'resume' | 'photo' }) =>
+      profilesApi.uploadFile(file, type),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-extended-profile'] });
     },
   });
 };

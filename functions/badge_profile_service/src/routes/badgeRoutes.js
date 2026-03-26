@@ -1,0 +1,14 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const RBACMiddleware   = require('../middleware/RBACMiddleware');
+const BadgeController  = require('../controllers/BadgeController');
+const { PERMISSIONS }  = require('../utils/Constants');
+const ctrl = (req) => new BadgeController(req.catalystApp);
+router.get('/leaderboard',           RBACMiddleware.require(PERMISSIONS.BADGE_READ),  (req, res) => ctrl(req).leaderboard(req, res));
+router.get('/',                      RBACMiddleware.require(PERMISSIONS.BADGE_READ),  (req, res) => ctrl(req).list(req, res));
+router.post('/',                     RBACMiddleware.require(PERMISSIONS.BADGE_WRITE), (req, res) => ctrl(req).create(req, res));
+router.put('/:badgeId',              RBACMiddleware.require(PERMISSIONS.BADGE_WRITE), (req, res) => ctrl(req).update(req, res));
+router.post('/:badgeId/award',       RBACMiddleware.require(PERMISSIONS.BADGE_AWARD), (req, res) => ctrl(req).award(req, res));
+router.delete('/user-badges/:awardId', RBACMiddleware.require(PERMISSIONS.BADGE_AWARD), (req, res) => ctrl(req).revoke(req, res));
+module.exports = router;

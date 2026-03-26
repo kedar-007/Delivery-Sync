@@ -106,6 +106,15 @@ router.post('/process-voice', auth, asyncHandler((req, res) =>
   ctrl(req).processVoice(req, res)
 ));
 
+/**
+ * POST /api/ai/task-insight
+ * Body: { title, description?, status?, priority?, dueDate?, taskId? }
+ * Returns: concise AI insight for a single task
+ */
+router.post('/task-insight', auth, asyncHandler((req, res) =>
+  ctrl(req).getTaskInsight(req, res)
+));
+
 // ─── Service health (no auth) ─────────────────────────────────────────────────
 router.get('/health', (_req, res) => {
   res.json({ status: 'ok', endpoints: ['daily-summary', 'project-health', 'performance', 'report', 'suggestions', 'process-voice'] });

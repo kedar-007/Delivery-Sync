@@ -12,6 +12,36 @@
 
 Go to **Catalyst Console → DataStore → Tables** and create the following tables manually. All columns are of type **Text** unless noted. Catalyst auto-creates `ROWID`, `CREATEDTIME`, and `MODIFIEDTIME` on every table.
 
+### Table: `tasks`
+| Column | Type | Notes |
+|---|---|---|
+| `tenant_id` | Text | FK → tenants.ROWID |
+| `project_id` | Text | FK → projects.ROWID |
+| `sprint_id` | Text | FK → sprints.ROWID (0 = backlog) |
+| `parent_task_id` | Text | Parent task ROWID (0 = top-level) |
+| `title` | Text | Task title |
+| `description` | Text | Detailed description |
+| `type` | Text | `TASK`, `STORY`, `BUG`, `SUBTASK`, `EPIC` |
+| `status` | Text | `TODO`, `IN_PROGRESS`, `IN_REVIEW`, `DONE`, `CANCELLED` |
+| `task_priority` | Text | `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` — note: `priority` is a ZCQL reserved word |
+| `assignee_id` | Text | Primary assignee user ROWID |
+| `assignee_ids` | Text | **Add this column** — JSON array of all assignee ROWIDs e.g. `["123","456"]` — required for multi-assignee |
+| `reporter_id` | Text | Reporter user ROWID |
+| `story_points` | Text | Estimation in story points |
+| `estimated_hours` | Text | Hour estimate |
+| `logged_hours` | Text | Aggregated from time_entries |
+| `due_date` | Text | `YYYY-MM-DD` |
+| `completed_at` | Text | `YYYY-MM-DD HH:MM:SS` completion timestamp |
+| `labels` | Text | JSON array e.g. `["frontend","urgent"]` |
+| `custom_fields` | Text | JSON key-value for custom fields |
+| `created_by` | Text | FK → users.ROWID |
+
+**Index:** `project_id`, `sprint_id`, `assignee_id`, `status`, `due_date`
+
+> **Important:** `assignee_ids` must be added as a Text column to enable multi-assignee support. Until added, only the primary `assignee_id` is stored.
+
+---
+
 ### Table: `tenants`
 | Column | Notes |
 |---|---|

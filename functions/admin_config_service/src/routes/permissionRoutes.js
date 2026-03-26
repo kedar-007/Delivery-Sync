@@ -1,0 +1,13 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const RBACMiddleware        = require('../middleware/RBACMiddleware');
+const PermissionController  = require('../controllers/PermissionController');
+const { PERMISSIONS } = require('../utils/Constants');
+const ctrl = (req) => new PermissionController(req.catalystApp);
+router.get('/matrix',               RBACMiddleware.require(PERMISSIONS.CONFIG_READ),  (req, res) => ctrl(req).matrix(req, res));
+router.get('/role/:role',           RBACMiddleware.require(PERMISSIONS.CONFIG_READ),  (req, res) => ctrl(req).getRole(req, res));
+router.put('/role/:role',           RBACMiddleware.require(PERMISSIONS.CONFIG_WRITE), (req, res) => ctrl(req).overrideRole(req, res));
+router.post('/project',             RBACMiddleware.require(PERMISSIONS.CONFIG_WRITE), (req, res) => ctrl(req).grantProject(req, res));
+router.delete('/project/:overrideId', RBACMiddleware.require(PERMISSIONS.CONFIG_WRITE), (req, res) => ctrl(req).revokeProject(req, res));
+module.exports = router;

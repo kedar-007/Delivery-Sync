@@ -45,7 +45,7 @@ class EodController {
         blockers: data.blockers,
         progress_percentage: String(data.progress_percentage),
         mood: data.mood,
-        submitted_at: new Date().toISOString(),
+        submitted_at: DataStoreService.fmtDT(new Date()),
       });
 
       return ResponseHelper.created(res, {

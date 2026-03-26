@@ -16,7 +16,10 @@
       "Bash(grep -E \"\\\\.\\(js|ts|tsx\\)$\")",
       "Bash(npx tsc:*)",
       "Bash(find /Users/kedar/Documents/C-DS -type f -path */ai_service/src/*)",
-      "Bash(/usr/local/bin/node /usr/local/bin/npx tsc --noEmit -p /Users/kedar/Documents/C-DS/frontend/tsconfig.json)"
+      "Bash(/usr/local/bin/node /usr/local/bin/npx tsc --noEmit -p /Users/kedar/Documents/C-DS/frontend/tsconfig.json)",
+      "Bash(grep -rn toISOString\\\\\\(\\\\\\) /Users/kedar/Documents/C-DS/functions/*/src/controllers/*.js)",
+      "Bash(find /Users/kedar/Documents/C-DS -name INFO -o -name *.info)",
+      "Bash(find /Users/kedar/Documents/C-DS -maxdepth 3 -name *.md -not -path */node_modules/*)"
     ]
   }
 }

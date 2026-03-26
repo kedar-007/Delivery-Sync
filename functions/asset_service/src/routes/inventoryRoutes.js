@@ -1,0 +1,15 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const RBACMiddleware  = require('../middleware/RBACMiddleware');
+const AssetController = require('../controllers/AssetController');
+const { PERMISSIONS } = require('../utils/Constants');
+const ctrl = (req) => new AssetController(req.catalystApp);
+router.get('/available',          RBACMiddleware.require(PERMISSIONS.ASSET_READ),  (req, res) => ctrl(req).getAvailable(req, res));
+router.get('/my-assets',          RBACMiddleware.require(PERMISSIONS.ASSET_READ),  (req, res) => ctrl(req).myAssets(req, res));
+router.get('/',                   RBACMiddleware.require(PERMISSIONS.ASSET_READ),  (req, res) => ctrl(req).listInventory(req, res));
+router.post('/',                  RBACMiddleware.require(PERMISSIONS.ASSET_WRITE), (req, res) => ctrl(req).createAsset(req, res));
+router.get('/:assetId',           RBACMiddleware.require(PERMISSIONS.ASSET_READ),  (req, res) => ctrl(req).getAsset(req, res));
+router.put('/:assetId',           RBACMiddleware.require(PERMISSIONS.ASSET_WRITE), (req, res) => ctrl(req).updateAsset(req, res));
+router.patch('/:assetId/retire',  RBACMiddleware.require(PERMISSIONS.ASSET_WRITE), (req, res) => ctrl(req).retireAsset(req, res));
+module.exports = router;

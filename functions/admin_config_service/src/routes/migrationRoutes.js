@@ -1,0 +1,10 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const RBACMiddleware      = require('../middleware/RBACMiddleware');
+const MigrationController = require('../controllers/MigrationController');
+const { PERMISSIONS } = require('../utils/Constants');
+const ctrl = (req) => new MigrationController(req.catalystApp);
+router.post('/validate', RBACMiddleware.require(PERMISSIONS.ADMIN_SETTINGS), (req, res) => ctrl(req).validate(req, res));
+router.post('/import',   RBACMiddleware.require(PERMISSIONS.ADMIN_SETTINGS), (req, res) => ctrl(req).import(req, res));
+module.exports = router;

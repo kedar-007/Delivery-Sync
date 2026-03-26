@@ -1,0 +1,17 @@
+'use strict';
+const express = require('express');
+const router  = express.Router();
+const RBACMiddleware        = require('../middleware/RBACMiddleware');
+const AttendanceController  = require('../controllers/AttendanceController');
+const { PERMISSIONS } = require('../utils/Constants');
+const ctrl = (req) => new AttendanceController(req.catalystApp);
+router.post('/check-in',                   RBACMiddleware.require(PERMISSIONS.ATTENDANCE_WRITE), (req, res) => ctrl(req).checkIn(req, res));
+router.post('/check-out',                  RBACMiddleware.require(PERMISSIONS.ATTENDANCE_WRITE), (req, res) => ctrl(req).checkOut(req, res));
+router.get('/live',                        RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).live(req, res));
+router.get('/my-record',                   RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).myRecord(req, res));
+router.get('/records',                     RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).records(req, res));
+router.post('/wfh',                        RBACMiddleware.require(PERMISSIONS.ATTENDANCE_WRITE), (req, res) => ctrl(req).markWfh(req, res));
+router.patch('/:recordId/override',        RBACMiddleware.require(PERMISSIONS.ATTENDANCE_ADMIN), (req, res) => ctrl(req).override(req, res));
+router.get('/anomalies',                   RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).anomalies(req, res));
+router.get('/summary',                     RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).summary(req, res));
+module.exports = router;

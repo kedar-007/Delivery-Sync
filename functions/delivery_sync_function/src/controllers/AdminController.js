@@ -251,7 +251,7 @@ class AdminController {
         performedBy: performedBy || null,
         dateFrom: dateFrom || null,
         dateTo: dateTo || null,
-        limit: Math.min(Number(limit) || 100, 500),
+        limit: Math.min(Number(limit) || 100, 200),
       });
 
       return ResponseHelper.success(res, { logs });
