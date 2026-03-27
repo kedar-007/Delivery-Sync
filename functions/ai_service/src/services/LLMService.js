@@ -125,7 +125,7 @@ class LLMService {
       system_prompt: systemPrompt,
       top_p:         options.top_p         ?? LLM_CONFIG.TOP_P,
       top_k:         options.top_k         ?? LLM_CONFIG.TOP_K,
-      best_of:       1,
+      best_of:       options.best_of       ?? LLM_CONFIG.BEST_OF,
       temperature:   options.temperature   ?? LLM_CONFIG.TEMPERATURE,
       max_tokens:    options.max_tokens    ?? LLM_CONFIG.MAX_TOKENS,
     };

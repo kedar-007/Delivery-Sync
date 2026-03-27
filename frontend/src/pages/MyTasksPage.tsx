@@ -19,6 +19,7 @@ import { useMyTasks, useUpdateTask, useCreateTask, useDeleteTask, useTask, useTa
 import { useProjects } from '../hooks/useProjects';
 import { useUsers, TenantUser } from '../hooks/useUsers';
 import { timeEntriesApi, tasksApi, aiApi } from '../lib/api';
+import UserAvatar from '../components/ui/UserAvatar';
 
 // ── Safe date formatter (Catalyst returns non-ISO strings) ────────────────────
 function safeFmt(val: string | undefined | null, fmt: string, fallback = ''): string {
@@ -346,6 +347,8 @@ function TaskDetailPanel({
   logTimeDate, setLogTimeDate,
   logTimeDesc, setLogTimeDesc,
   logTimeBillable, setLogTimeBillable,
+  logTimeStartTime, setLogTimeStartTime,
+  logTimeEndTime, setLogTimeEndTime,
   logTimePending, logTimeError, onLogTime,
   aiInsight, aiLoading,
   onEdit,
@@ -371,10 +374,12 @@ function TaskDetailPanel({
   onStopTimer: () => void;
   taskTimeEntries: any[];
   timeEntriesLoading: boolean;
-  logTimeHours: string; setLogTimeHours: (v: string) => void;
-  logTimeDate: string;  setLogTimeDate:  (v: string) => void;
-  logTimeDesc: string;  setLogTimeDesc:  (v: string) => void;
-  logTimeBillable: boolean; setLogTimeBillable: (v: boolean) => void;
+  logTimeHours: string;      setLogTimeHours:      (v: string) => void;
+  logTimeDate: string;       setLogTimeDate:       (v: string) => void;
+  logTimeDesc: string;       setLogTimeDesc:       (v: string) => void;
+  logTimeBillable: boolean;  setLogTimeBillable:   (v: boolean) => void;
+  logTimeStartTime: string;  setLogTimeStartTime:  (v: string) => void;
+  logTimeEndTime: string;    setLogTimeEndTime:    (v: string) => void;
   logTimePending: boolean;
   logTimeError: string;
   onLogTime: () => void;
@@ -595,6 +600,16 @@ function TaskDetailPanel({
                     <input type="date" className="form-input"
                       value={logTimeDate} onChange={(e) => setLogTimeDate(e.target.value)} />
                   </div>
+                  <div>
+                    <label className="form-label">Start Time</label>
+                    <input type="time" className="form-input"
+                      value={logTimeStartTime} onChange={(e) => setLogTimeStartTime(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="form-label">End Time</label>
+                    <input type="time" className="form-input"
+                      value={logTimeEndTime} onChange={(e) => setLogTimeEndTime(e.target.value)} />
+                  </div>
                 </div>
                 <div>
                   <label className="form-label">Description</label>
@@ -622,16 +637,36 @@ function TaskDetailPanel({
                 <div className="space-y-2">
                   <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wide">History</h4>
                   {taskTimeEntries.map((e: any, i: number) => (
-                    <div key={e.id ?? i} className="flex items-center gap-3 text-xs bg-white border border-gray-100 rounded-lg px-3 py-2.5 shadow-sm">
-                      <Clock size={12} className="text-indigo-400 shrink-0" />
-                      <span className="font-semibold text-indigo-700 shrink-0">{e.hours}h</span>
-                      <span className="text-gray-500 flex-1 truncate">{e.description ?? '—'}</span>
-                      <span className="text-gray-400 shrink-0">
-                        {safeFmt(e.entry_date, 'MMM d')}
-                      </span>
-                      {e.is_billable && (
-                        <span className="text-green-600 font-semibold shrink-0" title="Billable">$</span>
-                      )}
+                    <div key={e.id ?? i} className="bg-white border border-gray-100 rounded-xl px-3 py-3 shadow-sm space-y-1.5">
+                      {/* Top row: user + hours + date */}
+                      <div className="flex items-center gap-2">
+                        <UserAvatar
+                          name={e.user_name || e.userName || '?'}
+                          avatarUrl={e.user_avatar_url || e.userAvatarUrl}
+                          size="xs"
+                        />
+                        <span className="text-xs font-medium text-gray-700 flex-1 truncate">
+                          {e.user_name || e.userName || 'Unknown'}
+                        </span>
+                        <span className="text-xs font-bold text-indigo-700 shrink-0">{e.hours}h</span>
+                        <span className="text-[11px] text-gray-400 shrink-0">
+                          {safeFmt(e.entry_date, 'MMM d')}
+                        </span>
+                        {e.is_billable && (
+                          <span className="text-green-600 font-semibold shrink-0 text-xs" title="Billable">$</span>
+                        )}
+                      </div>
+                      {/* Description + time range */}
+                      <div className="flex items-center gap-2 pl-7">
+                        {e.description && (
+                          <span className="text-[11px] text-gray-500 flex-1 truncate">{e.description}</span>
+                        )}
+                        {(e.start_time || e.startTime) && (e.end_time || e.endTime) && (
+                          <span className="text-[11px] text-gray-400 shrink-0">
+                            {(e.start_time || e.startTime).slice(0, 5)} – {(e.end_time || e.endTime).slice(0, 5)}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   ))}
                   <div className="text-right text-xs text-gray-500 pt-1">
@@ -832,6 +867,8 @@ export default function MyTasksPage() {
   const [logTimeDate, setLogTimeDate]             = useState(new Date().toISOString().slice(0, 10));
   const [logTimeDesc, setLogTimeDesc]             = useState('');
   const [logTimeBillable, setLogTimeBillable]     = useState(false);
+  const [logTimeStartTime, setLogTimeStartTime]   = useState('');
+  const [logTimeEndTime, setLogTimeEndTime]       = useState('');
   const [logTimePending, setLogTimePending]       = useState(false);
   const [logTimeError, setLogTimeError]           = useState('');
 
@@ -872,6 +909,8 @@ export default function MyTasksPage() {
     setLogTimeHours('');
     setLogTimeDesc('');
     setLogTimeBillable(false);
+    setLogTimeStartTime('');
+    setLogTimeEndTime('');
     setLogTimeError('');
   }, [taskDetailId]);
 
@@ -948,8 +987,11 @@ export default function MyTasksPage() {
         hours:       parseFloat(logTimeHours),
         description: logTimeDesc || detailTask.title,
         is_billable: logTimeBillable,
+        ...(logTimeStartTime ? { start_time: logTimeStartTime } : {}),
+        ...(logTimeEndTime   ? { end_time:   logTimeEndTime   } : {}),
       });
       setLogTimeHours(''); setLogTimeDesc(''); setLogTimeBillable(false);
+      setLogTimeStartTime(''); setLogTimeEndTime('');
       const r: any = await timeEntriesApi.list({ task_id: taskDetailId });
       setTaskTimeEntries(Array.isArray(r) ? r : r?.data ?? []);
     } catch (e: unknown) { setLogTimeError((e as Error).message); }
@@ -1211,6 +1253,10 @@ export default function MyTasksPage() {
           setLogTimeDesc={setLogTimeDesc}
           logTimeBillable={logTimeBillable}
           setLogTimeBillable={setLogTimeBillable}
+          logTimeStartTime={logTimeStartTime}
+          setLogTimeStartTime={setLogTimeStartTime}
+          logTimeEndTime={logTimeEndTime}
+          setLogTimeEndTime={setLogTimeEndTime}
           logTimePending={logTimePending}
           logTimeError={logTimeError}
           onLogTime={handleDetailLogTime}

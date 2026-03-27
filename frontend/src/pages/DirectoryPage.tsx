@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Search, Trophy, Plus, Award, User, Briefcase, Link as LinkIcon,
-  Tag, ChevronRight, Edit2, X,
+  ChevronRight, Edit2, X, Upload, FileText, Camera, BarChart2,
 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
@@ -16,6 +16,7 @@ import EmptyState from '../components/ui/EmptyState';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import UserAvatar from '../components/ui/UserAvatar';
 import { useAuth } from '../contexts/AuthContext';
+import PerformanceModal from '../components/ui/PerformanceModal';
 import {
   useMyProfile,
   useProfile,
@@ -25,6 +26,7 @@ import {
   useBadgeLeaderboard,
   useCreateBadge,
   useAwardBadge,
+  useUploadProfileFile,
 } from '../hooks/useBadgeProfile';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -40,6 +42,8 @@ interface DirectoryProfile {
   experience?: ExperienceEntry[];
   social_links?: Record<string, string>;
   badges?: AwardedBadge[];
+  manager_name?: string;
+  manager_avatar_url?: string;
 }
 
 interface ExperienceEntry {
@@ -58,12 +62,21 @@ interface AwardedBadge {
   awarded_at: string;
 }
 
+interface LeaderboardBadge {
+  award_id: string;
+  badge_id: string;
+  name: string;
+  logo_url?: string;
+  icon_emoji?: string;
+}
+
 interface LeaderboardEntry {
   user_id: string;
   name: string;
   designation?: string;
   avatar_url?: string;
   badge_count: number;
+  badges?: LeaderboardBadge[];
 }
 
 interface BadgeDefinition {
@@ -150,10 +163,14 @@ const ProfileDetailModal = ({
   userId,
   open,
   onClose,
+  managerName,
+  managerAvatarUrl,
 }: {
   userId: string;
   open: boolean;
   onClose: () => void;
+  managerName?: string;
+  managerAvatarUrl?: string;
 }) => {
   const { data } = useProfile(userId);
   const profile: DirectoryProfile | undefined = data?.data ?? data;
@@ -186,6 +203,17 @@ const ProfileDetailModal = ({
                 <Badge variant="gray" className="mt-1">
                   {profile.department}
                 </Badge>
+              )}
+              {managerName && (
+                <div className="mt-2">
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">
+                    Reporting Manager
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <UserAvatar name={managerName} avatarUrl={managerAvatarUrl} size="xs" />
+                    <span className="text-sm font-medium text-gray-700">{managerName}</span>
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -267,16 +295,26 @@ const ProfileDetailModal = ({
                 Badges Earned
               </h4>
               <div className="flex flex-wrap gap-2">
-                {profile.badges.map((b) => (
-                  <div
-                    key={b.id}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200"
-                    title={b.note}
-                  >
-                    <span>{b.icon_emoji ?? '🏅'}</span>
-                    <span className="text-xs font-medium text-amber-800">{b.name}</span>
-                  </div>
-                ))}
+                {profile.badges.map((b: any) => {
+                  const def = b.badge ?? {};
+                  const logoUrl = def.logo_url || b.logo_url || '';
+                  const emoji = def.icon_emoji || b.icon_emoji || '🏅';
+                  const name = def.name || b.name || '';
+                  return (
+                    <div
+                      key={b.id ?? b.ROWID}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200"
+                      title={b.note || name}
+                    >
+                      {logoUrl ? (
+                        <img src={logoUrl} alt={name} className="w-5 h-5 rounded object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                      ) : (
+                        <span>{emoji}</span>
+                      )}
+                      <span className="text-xs font-medium text-amber-800">{name}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -293,9 +331,15 @@ const ProfileDetailModal = ({
 
 // ─── Directory Tab ────────────────────────────────────────────────────────────
 
+const PERF_ROLES = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
+
 const DirectoryTab = () => {
+  const { user } = useAuth();
+  const isAdmin = PERF_ROLES.includes(user?.role ?? '');
+
   const [search, setSearch] = useState('');
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [selectedProfile, setSelectedProfile] = useState<DirectoryProfile | null>(null);
+  const [analyzeTarget, setAnalyzeTarget] = useState<{ id: string; name: string } | null>(null);
 
   const { data, isLoading, error } = useDirectory();
   const profiles: DirectoryProfile[] = useMemo(() => {
@@ -357,7 +401,7 @@ const DirectoryTab = () => {
               <Card
                 key={profile.user_id}
                 className="cursor-pointer hover:shadow-md hover:border-blue-200 transition-all"
-                onClick={() => setSelectedUserId(profile.user_id)}
+                onClick={() => setSelectedProfile(profile)}
               >
                 <div className="flex flex-col items-center text-center gap-3">
                   <UserAvatar
@@ -376,6 +420,23 @@ const DirectoryTab = () => {
                       </Badge>
                     )}
                   </div>
+                  {profile.manager_name && (
+                    <div className="w-full">
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider text-center mb-1">
+                        Reporting Manager
+                      </p>
+                      <div className="flex items-center gap-1.5 text-xs text-gray-600 bg-gray-50 rounded-lg px-2 py-1.5 w-full justify-center">
+                        <UserAvatar
+                          name={profile.manager_name}
+                          avatarUrl={profile.manager_avatar_url}
+                          size="xs"
+                        />
+                        <span className="truncate max-w-[120px] font-medium" title={profile.manager_name}>
+                          {profile.manager_name}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                   {skills.length > 0 && (
                     <div className="flex flex-wrap justify-center gap-1">
                       {shown.map((s) => (
@@ -388,9 +449,23 @@ const DirectoryTab = () => {
                       )}
                     </div>
                   )}
-                  <div className="flex items-center gap-1 text-xs text-blue-600 mt-auto">
-                    <span>View profile</span>
-                    <ChevronRight size={12} />
+                  <div className="flex items-center justify-between w-full mt-auto gap-2">
+                    <div className="flex items-center gap-1 text-xs text-blue-600">
+                      <span>View profile</span>
+                      <ChevronRight size={12} />
+                    </div>
+                    {isAdmin && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAnalyzeTarget({ id: profile.user_id, name: profile.name });
+                        }}
+                        className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium px-2 py-0.5 rounded-lg hover:bg-indigo-50 transition-colors"
+                        title="Analyze performance"
+                      >
+                        <BarChart2 size={12} /> Analyze
+                      </button>
+                    )}
                   </div>
                 </div>
               </Card>
@@ -399,11 +474,22 @@ const DirectoryTab = () => {
         </div>
       )}
 
-      {selectedUserId && (
+      {selectedProfile && (
         <ProfileDetailModal
-          userId={selectedUserId}
-          open={!!selectedUserId}
-          onClose={() => setSelectedUserId(null)}
+          userId={selectedProfile.user_id}
+          open={!!selectedProfile}
+          onClose={() => setSelectedProfile(null)}
+          managerName={selectedProfile.manager_name}
+          managerAvatarUrl={selectedProfile.manager_avatar_url}
+        />
+      )}
+
+      {analyzeTarget && (
+        <PerformanceModal
+          open={!!analyzeTarget}
+          onClose={() => setAnalyzeTarget(null)}
+          targetUserId={analyzeTarget.id}
+          targetName={analyzeTarget.name}
         />
       )}
     </div>
@@ -464,6 +550,26 @@ const LeaderboardTab = () => {
               <Trophy size={14} />
               <span>{entry.badge_count}</span>
             </div>
+            {/* Badge list with names */}
+            {entry.badges && entry.badges.length > 0 && (
+              <div className="flex flex-col items-center gap-1 mt-1 w-full">
+                {entry.badges.slice(0, 3).map((b) => (
+                  <div key={b.award_id} className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-100 max-w-full">
+                    {b.logo_url ? (
+                      <img src={b.logo_url} alt={b.name}
+                        className="w-4 h-4 rounded-full object-cover shrink-0"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                    ) : (
+                      <span className="text-xs shrink-0">{b.icon_emoji ?? '🏅'}</span>
+                    )}
+                    <span className="text-xs text-amber-800 font-medium truncate">{b.name}</span>
+                  </div>
+                ))}
+                {entry.badges.length > 3 && (
+                  <span className="text-xs text-amber-600 font-medium">+{entry.badges.length - 3} more</span>
+                )}
+              </div>
+            )}
           </Card>
         ))}
       </div>
@@ -490,9 +596,26 @@ const LeaderboardTab = () => {
                   <p className="text-xs text-gray-500 truncate">{entry.designation}</p>
                 )}
               </div>
-              <div className="flex items-center gap-1 text-sm font-semibold text-amber-700 shrink-0">
-                <Trophy size={13} />
-                <span>{entry.badge_count}</span>
+              <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                {entry.badges && entry.badges.slice(0, 2).map((b) => (
+                  <div key={b.award_id} className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-100">
+                    {b.logo_url ? (
+                      <img src={b.logo_url} alt={b.name}
+                        className="w-3.5 h-3.5 rounded-full object-cover shrink-0"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                    ) : (
+                      <span className="text-xs shrink-0">{b.icon_emoji ?? '🏅'}</span>
+                    )}
+                    <span className="text-xs text-amber-800 font-medium max-w-[80px] truncate">{b.name}</span>
+                  </div>
+                ))}
+                {entry.badges && entry.badges.length > 2 && (
+                  <span className="text-xs text-amber-600 font-medium">+{entry.badges.length - 2}</span>
+                )}
+                <div className="flex items-center gap-1 text-sm font-semibold text-amber-700">
+                  <Trophy size={13} />
+                  <span>{entry.badge_count}</span>
+                </div>
               </div>
             </div>
           ))}
@@ -858,13 +981,27 @@ const BadgesTab = () => {
 const MyProfileTab = () => {
   const { data, isLoading, error } = useMyProfile();
   const updateProfile = useUpdateMyProfile();
+  const uploadFile = useUploadProfileFile();
   const profile: DirectoryProfile | undefined = data?.data ?? data;
 
   const [editing, setEditing] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const [uploadSuccess, setUploadSuccess] = useState('');
   const [skillInput, setSkillInput] = useState('');
   const [skills, setSkills] = useState<string[]>([]);
+
+  const handleFileUpload = async (file: File, type: 'resume' | 'photo') => {
+    setUploadError('');
+    setUploadSuccess('');
+    try {
+      await uploadFile.mutateAsync({ file, type });
+      setUploadSuccess(`${type === 'photo' ? 'Profile photo' : 'Resume'} uploaded successfully.`);
+    } catch (e: unknown) {
+      setUploadError((e as Error).message ?? 'Upload failed.');
+    }
+  };
 
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } =
     useForm<UpdateProfileForm>();
@@ -922,11 +1059,54 @@ const MyProfileTab = () => {
         <Alert type="success" message="Profile updated successfully." />
       )}
 
+      {(uploadError || uploadSuccess) && (
+        <Alert type={uploadError ? 'error' : 'success'} message={uploadError || uploadSuccess} />
+      )}
+
+      {/* File Uploads Card */}
+      <Card>
+        <h3 className="text-sm font-semibold text-gray-900 mb-4">Files &amp; Media</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Photo Upload */}
+          <div className="p-3 border border-dashed border-gray-300 rounded-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <Camera size={14} className="text-blue-500" />
+              <span className="text-xs font-medium text-gray-700">Profile Photo</span>
+            </div>
+            {(profile as any)?.avatar_url && (
+              <img src={(profile as any).avatar_url} alt="avatar" className="w-12 h-12 rounded-full object-cover mb-2 border border-gray-100" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+            )}
+            <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors">
+              <Upload size={12} />
+              {uploadFile.isPending ? 'Uploading…' : 'Upload Photo'}
+              <input type="file" accept="image/*" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileUpload(f, 'photo'); }} />
+            </label>
+          </div>
+          {/* Resume Upload */}
+          <div className="p-3 border border-dashed border-gray-300 rounded-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <FileText size={14} className="text-green-500" />
+              <span className="text-xs font-medium text-gray-700">Resume / CV</span>
+            </div>
+            {(profile as any)?.resume_url && (
+              <a href={(profile as any).resume_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline flex items-center gap-1 mb-2">
+                <FileText size={11} /> View current resume
+              </a>
+            )}
+            <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-green-50 text-green-700 border border-green-200 rounded-lg hover:bg-green-100 transition-colors">
+              <Upload size={12} />
+              {uploadFile.isPending ? 'Uploading…' : 'Upload Resume'}
+              <input type="file" accept=".pdf,.doc,.docx" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileUpload(f, 'resume'); }} />
+            </label>
+          </div>
+        </div>
+      </Card>
+
       {!editing ? (
         <Card>
           <div className="flex items-start justify-between mb-5">
             <div className="flex items-start gap-4">
-              <UserAvatar name={profile?.name ?? ''} size="xl" />
+              <UserAvatar name={profile?.name ?? ''} avatarUrl={(profile as any)?.avatar_url} size="xl" />
               <div>
                 <h2 className="text-base font-semibold text-gray-900">
                   {profile?.name}

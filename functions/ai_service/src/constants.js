@@ -2,21 +2,29 @@
 
 // ─── Database Tables (shared with delivery_sync_function) ────────────────────
 const TABLES = Object.freeze({
-  TENANTS:         'tenants',
-  USERS:           'users',
-  PROJECTS:        'projects',
-  PROJECT_MEMBERS: 'project_members',
-  MILESTONES:      'milestones',
-  STANDUP_ENTRIES: 'standup_entries',
-  EOD_ENTRIES:     'eod_entries',
-  ACTIONS:         'actions',
-  BLOCKERS:        'blockers',
-  RISKS:           'risks',
-  ISSUES:          'issues',
-  DECISIONS:       'decisions',
-  TEAMS:           'teams',
-  TEAM_MEMBERS:    'team_members',
-  AUDIT_LOGS:      'audit_logs',
+  TENANTS:            'tenants',
+  USERS:              'users',
+  PROJECTS:           'projects',
+  PROJECT_MEMBERS:    'project_members',
+  MILESTONES:         'milestones',
+  STANDUP_ENTRIES:    'standup_entries',
+  EOD_ENTRIES:        'eod_entries',
+  ACTIONS:            'actions',
+  BLOCKERS:           'blockers',
+  RISKS:              'risks',
+  ISSUES:             'issues',
+  DECISIONS:          'decisions',
+  TEAMS:              'teams',
+  TEAM_MEMBERS:       'team_members',
+  AUDIT_LOGS:         'audit_logs',
+  // Extended tables for holistic analysis
+  TASKS:              'tasks',
+  SPRINTS:            'sprints',
+  SPRINT_MEMBERS:     'sprint_members',
+  ATTENDANCE_RECORDS: 'attendance_records',
+  LEAVE_REQUESTS:     'leave_requests',
+  TIME_ENTRIES:       'time_entries',
+  USER_PROFILES:      'user_profiles',
 });
 
 // ─── Application Roles ────────────────────────────────────────────────────────
@@ -48,6 +56,7 @@ const LLM_CONFIG = Object.freeze({
   TOP_K:       50,
   TEMPERATURE: 0.7,
   MAX_TOKENS:  600,
+  BEST_OF:     1,
   CACHE_KEY:   'ai_zoho_token',
   CACHE_TTL_HOURS: 1,
 });

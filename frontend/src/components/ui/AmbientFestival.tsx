@@ -1,0 +1,150 @@
+/**
+ * AmbientFestival — persistent, non-blocking festival background particles.
+ *
+ * • Fixed overlay, z-index 1, pointer-events: none → never blocks clicks
+ * • Very low opacity (0.10 – 0.22) → decorative, not distracting
+ * • Driven by FestivalContext → active for the full festival period
+ */
+import React, { useMemo, useEffect, useRef } from 'react';
+import { useFestival } from '../../contexts/FestivalContext';
+
+/* ── CSS injected once into <head> ──────────────────────────────────────── */
+const KEYFRAMES = `
+@keyframes afloat  { 0%{transform:translateY(0)   rotate(0deg)  scale(1);  opacity:var(--af-op)}
+                    50%{transform:translateY(-40px) rotate(180deg) scale(1.1);opacity:calc(var(--af-op)*0.6)}
+                   100%{transform:translateY(-110vh) rotate(360deg) scale(0.7);opacity:0} }
+
+@keyframes afall   { 0%{transform:translateY(-30px) rotate(0deg);  opacity:var(--af-op)}
+                   100%{transform:translateY(108vh)  rotate(540deg); opacity:0.05} }
+
+@keyframes atwink  { 0%,100%{opacity:var(--af-op); transform:scale(1)}
+                        50%{opacity:calc(var(--af-op)*0.2); transform:scale(0.55)} }
+
+@keyframes adrift  { 0%{transform:translate(0,0)        scale(1);   opacity:var(--af-op)}
+                    40%{transform:translate(25px,-45px)  scale(1.15); opacity:calc(var(--af-op)*0.7)}
+                   100%{transform:translate(-15px,-100vh) scale(0.6); opacity:0} }
+
+@keyframes hstripe { 0%{background-position:0% 50%} 100%{background-position:200% 50%} }
+`;
+
+let _cssInjected = false;
+function injectCss() {
+  if (_cssInjected) return;
+  const el = document.createElement('style');
+  el.id = 'ambient-festival-css';
+  el.textContent = KEYFRAMES;
+  document.head.appendChild(el);
+  _cssInjected = true;
+}
+
+/* ── Stable particle seed (so positions don't jump on re-render) ──────── */
+interface Particle {
+  id: number;
+  x: number;       // %
+  startY: number;  // % (top for fall/drift; bottom edge for float)
+  char: string;
+  color: string;
+  size: number;    // px
+  delay: number;   // s
+  dur: number;     // s
+  opacity: number; // 0.10–0.22
+}
+
+function buildParticles(
+  festivalKey: string,
+  chars: string[],
+  colors: string[],
+  animation: string,
+  n = 22,
+): Particle[] {
+  return Array.from({ length: n }, (_, i) => {
+    // Golden-angle distribution for x so particles spread evenly
+    const x = (i * 137.508) % 100;
+    const startY =
+      animation === 'fall' || animation === 'drift'
+        ? -8           // start above viewport
+        : 95 + (i % 5) * 2; // start below viewport for float
+
+    return {
+      id: i,
+      x,
+      startY,
+      char: chars[i % chars.length],
+      color: colors[i % colors.length],
+      size: 11 + (i % 5) * 3,            // 11–23 px
+      delay: parseFloat(((i * 0.61) % 9).toFixed(2)),
+      dur: parseFloat((9 + (i % 6) * 2).toFixed(1)),  // 9–19 s
+      opacity: parseFloat((0.10 + (i % 4) * 0.03).toFixed(2)), // 0.10–0.19
+    };
+  });
+}
+
+const animMap: Record<string, string> = {
+  float:   'afloat',
+  fall:    'afall',
+  twinkle: 'atwink',
+  drift:   'adrift',
+};
+
+/* ── Component ───────────────────────────────────────────────────────────── */
+const AmbientFestival: React.FC = () => {
+  const { festival } = useFestival();
+  const injected = useRef(false);
+
+  useEffect(() => {
+    if (!injected.current) { injectCss(); injected.current = true; }
+  }, []);
+
+  const particles = useMemo(() => {
+    if (!festival) return [];
+    return buildParticles(
+      festival.key,
+      festival.particleChars,
+      festival.particleColors,
+      festival.particleAnimation,
+    );
+  }, [festival]);
+
+  if (!festival) return null;
+
+  const anim = animMap[festival.particleAnimation] ?? 'afloat';
+
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1,
+        pointerEvents: 'none',
+        overflow: 'hidden',
+        userSelect: 'none',
+      }}
+    >
+      {particles.map((p) => (
+        <span
+          key={`${festival.key}-${p.id}`}
+          style={
+            {
+              position: 'absolute',
+              left: `${p.x}%`,
+              top: `${p.startY}%`,
+              fontSize: p.size,
+              color: p.color,
+              lineHeight: 1,
+              display: 'block',
+              // CSS custom property used inside keyframe
+              '--af-op': p.opacity,
+              opacity: p.opacity,
+              animation: `${anim} ${p.dur}s ${p.delay}s infinite ease-in-out`,
+            } as React.CSSProperties
+          }
+        >
+          {p.char}
+        </span>
+      ))}
+    </div>
+  );
+};
+
+export default AmbientFestival;

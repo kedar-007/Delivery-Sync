@@ -54,7 +54,7 @@ class LeaveController {
   // ── Leave Balance ─────────────────────────────────────────────────────────────
   async getBalance(req, res) {
     try {
-      const userId = req.params.userId || req.currentUser.id;
+      let userId = req.params.userId || req.currentUser.id;
 
       if (
         req.params.userId &&
@@ -68,7 +68,15 @@ class LeaveController {
       }
 
       const year = new Date().getFullYear();
-      const userIdNum = Number(userId);
+      // Resolve userId — it must be a numeric ROWID for BigInt FK queries
+      let userIdNum = Number(userId);
+      if (isNaN(userIdNum) || !userId) {
+        const uRows = await this.db.findWhere(TABLES.USERS, req.tenantId,
+          `email = '${req.currentUser.email}'`, { limit: 1 });
+        if (!uRows.length) return ResponseHelper.notFound(res, 'User not found');
+        userId = String(uRows[0].ROWID);
+        userIdNum = Number(userId);
+      }
 
       const startDate = `${year}-01-01`;
       const endDate = `${year}-12-31`;
@@ -143,14 +151,15 @@ class LeaveController {
       const result = balances.map(b => {
         const ltId = String(b.leave_type_id);
 
-        const opening = Number(b.opening_balance || 0);
-        const allocated = Number(b.total_allocated || 0);
+        // Support both column name conventions
+        const opening = Number(b.carry_forward_days ?? b.opening_balance ?? 0);
+        const allocated = Number(b.allocated_days ?? b.total_allocated ?? 0);
 
         const used = usedMap[ltId] || 0;
         const pending = pendingMap[ltId] || 0;
 
-        const totalAvailable = allocated - used;
-        const remaining = Math.max(0, totalAvailable - used - pending);
+        const totalAvailable = Math.max(0, allocated - used);
+        const remaining = Math.max(0, totalAvailable - pending);
 
         console.log('[getBalance] computed:', {
           ltId,
@@ -239,7 +248,7 @@ class LeaveController {
       try {
         // Validate it's a valid integer string — throws if name like "Sick Leave"
         if (!/^\d+$/.test(rawId)) throw new Error('not a numeric id');
-        leaveTypeId = rawId; // keep as string ✅
+        leaveTypeId = rawId; // keep as string 
 
         const typeRows = await this.db.findWhere(TABLES.LEAVE_TYPES, tenantId,
           `ROWID = ${leaveTypeId} AND is_active = true`, { limit: 1 });
@@ -276,12 +285,14 @@ class LeaveController {
       const balance = await this.db.findWhere(TABLES.LEAVE_BALANCES, tenantId,
         `user_id = '${userId}' AND leave_type_id = ${leaveTypeId} AND year = '${year}'`, { limit: 1 });
 
+      console.log("Leave Balances--",balance);
+
       if (balance.length > 0 && parseFloat(balance[0].remaining_days) < days_count)
         return ResponseHelper.validationError(res,
           `Insufficient leave balance. Available: ${balance[0].remaining_days} days`);
 
       // ── Insert request ─────────────────────────────────────────────────────
-      // ✅ Pass as strings — avoids both precision loss and BigInt serialization error
+      //   Pass as strings — avoids both precision loss and BigInt serialization error
       const row = await this.db.insert(TABLES.LEAVE_REQUESTS, {
         tenant_id: String(tenantId),
         user_id: String(userId),
@@ -544,8 +555,7 @@ class LeaveController {
 
       const y = year || new Date().getFullYear();
 
-      // Convert values properly
-      const tenantIdNum = String(req.tenantId);
+      // Convert values properly (keep as strings to avoid BigInt precision loss)
       const userIdNum = String(user_id);
       const leaveTypeIdNum = String(ltId);
 
@@ -568,30 +578,29 @@ class LeaveController {
       );
 
       if (existing.length > 0) {
-        // UPDATE
+        // UPDATE — use allocated_days (actual DB column name)
         await this.db.update(TABLES.LEAVE_BALANCES, {
           ROWID: String(existing[0].ROWID),
-
-          total_allocated: allocNum,
-          opening_balance: cfNum
+          allocated_days: String(allocNum),
+          carry_forward_days: String(cfNum),
+          remaining_days: String(allocNum),
         });
 
         return ResponseHelper.success(res, {
           message: 'Leave balance updated successfully'
         });
       } else {
-        // INSERT
+        // INSERT — all FK BigInt columns as String to avoid precision loss
         await this.db.insert(TABLES.LEAVE_BALANCES, {
-          tenant_id: tenantIdNum,
-          user_id: userIdNum,
-          leave_type_id: leaveTypeIdNum,
+          tenant_id: String(req.tenantId),
+          user_id: String(user_id),
+          leave_type_id: String(ltId),
           year: String(y),
-
-          opening_balance: cfNum,
-          total_allocated: allocNum,
-
-          used_days: 0,
-          pending_days: 0
+          allocated_days: String(allocNum),
+          carry_forward_days: String(cfNum),
+          remaining_days: String(allocNum),
+          used_days: '0',
+          pending_days: '0',
         });
 
         return ResponseHelper.success(res, {
@@ -641,7 +650,7 @@ class LeaveController {
       // ── Fetch all data with pagination ─────────────────────────────────────
       const [balances, users, types] = await Promise.all([
         fetchAll(TABLES.LEAVE_BALANCES, `year = '${y}'`),
-        fetchAll(TABLES.USERS, `status = 'ACTIVE'`),
+        fetchAll(TABLES.USERS, ''),   // no status filter — fetch all tenant users
         fetchAll(TABLES.LEAVE_TYPES, ''),
       ]);
 
@@ -660,7 +669,8 @@ class LeaveController {
         userAvatarUrl: userMap[String(b.user_id)]?.avatar_url ?? null,
         leaveTypeId: String(b.leave_type_id),
         leaveTypeName: typeMap[String(b.leave_type_id)]?.name ?? '',
-        allocated: parseFloat(b.total_allocated ?? 0),
+        // Support both column name conventions
+        allocated: parseFloat(b.allocated_days ?? b.total_allocated ?? 0),
         used: parseFloat(b.used_days ?? 0),
         pending: parseFloat(b.pending_days ?? 0),
         remaining: parseFloat(b.remaining_days ?? 0),

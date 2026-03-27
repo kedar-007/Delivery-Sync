@@ -618,7 +618,120 @@ Return ONLY a JSON object matching this schema:
 }`.trim();
   }
 
+  // ─── Holistic Performance ────────────────────────────────────────────────
+
+  /**
+   * Builds a rich, multi-module performance analysis prompt.
+   * The LLM returns a star rating (1–5), score, summary, factors, and suggestions.
+   *
+   * @param {object}  ctx
+   * @param {object}  ctx.memberData  – map of userId → aggregated activity
+   * @param {number}  ctx.days
+   * @param {string}  ctx.scope
+   */
+  static buildHolisticPerformancePrompt({ memberData, days, scope }) {
+    // Cap at 10 members to keep prompt size manageable
+    const members = Object.values(memberData).slice(0, 10);
+    const isSingleUser = members.length === 1;
+
+    // Build compact plain-text data lines (avoids embedded JSON which causes LLM 500s)
+    const dataLines = members.map((m) => {
+      const moodFreq = PromptService._countFreq(m.moods || []);
+      const moodStr  = Object.entries(moodFreq).map(([k, v]) => `${k}:${v}`).join(',') || 'N/A';
+      return [
+        `Member: ${m.name} | Role: ${m.role || 'Team Member'}`,
+        `  Engagement: standups=${m.standupCount}/${days}d (${m.consistencyPct}%), eods=${m.eodCount}, moods=[${moodStr}]`,
+        `  Tasks: total=${m.tasksTotal}, done=${m.tasksDone}, overdue=${m.tasksOverdue}, completion=${m.taskCompletionPct !== null ? m.taskCompletionPct + '%' : 'N/A'}, storyPts=${m.storyPointsDone}`,
+        `  Attendance: days=${m.attendanceDays}, wfh=${m.wfhDays}, avgHours=${m.avgWorkHours}h/day`,
+        `  TimeTracking: hoursLogged=${m.hoursLogged}h`,
+        `  Leave: daysTaken=${m.leaveDaysTaken}`,
+        `  Accountability: actions=${m.actionsDone}/${m.actionsTotal}, blockersRaised=${m.blockersRaised}`,
+      ].join('\n');
+    }).join('\n\n');
+
+    return (
+      `Analyse this ${days}-day performance data for ${members.length} team member(s). ` +
+      `Scope: ${scope}.\n\n` +
+      `DATA:\n${dataLines}\n\n` +
+      `SCORING (weights): Engagement 25%, Task Delivery 25%, Attendance 20%, Time Mgmt 15%, Accountability 15%.\n` +
+      `Stars: 90-100=5, 75-89=4, 60-74=3, 40-59=2, 0-39=1.\n\n` +
+      `Return ONLY valid JSON in this exact shape:\n` +
+      `{"teamSummary":"string","members":[{"name":"string","starRating":1,"score":0,` +
+      `"performanceSummary":"string","factors":[{"name":"Engagement","score":0,"detail":"string"},` +
+      `{"name":"Task Delivery","score":0,"detail":"string"},{"name":"Attendance","score":0,"detail":"string"},` +
+      `{"name":"Time Management","score":0,"detail":"string"},{"name":"Accountability","score":0,"detail":"string"}],` +
+      `"issues":[{"problem":"specific problem title","evidence":"exact numbers or facts from the data that confirm this problem","severity":"high|medium|low"}],` +
+      `"strengths":["string"],"areasOfImprovement":["string"],"suggestions":["concrete actionable improvement step"]}],` +
+      `"topPerformer":${isSingleUser ? 'null' : '"string or null"'},"teamMorale":"High","alerts":["string"]}` +
+      `\nFor issues: be specific — cite actual numbers (e.g. "missed 12/30 standups", "3 overdue tasks", "logged only 2h vs expected 8h/day"). ` +
+      `For suggestions: give concrete steps tied directly to each issue (e.g. "Set a daily standup reminder at 9am", "Prioritise task X by EOD Friday"). ` +
+      `No extra text, no markdown. Only the JSON object.`
+    );
+  }
+
+  // ─── Sprint Analysis ─────────────────────────────────────────────────────
+
+  /**
+   * Builds a sprint analysis prompt covering velocity, completion, team health.
+   *
+   * @param {object}   ctx
+   * @param {object}   ctx.sprint
+   * @param {object}   ctx.taskMetrics
+   * @param {object[]} ctx.memberSummary
+   * @param {number}   ctx.standupCount
+   * @param {number}   ctx.eodCount
+   */
+  static buildSprintAnalysisPrompt({ sprint, taskMetrics, memberSummary, standupCount, eodCount }) {
+    const sName     = sprint ? (sprint.name || 'Sprint') : 'Sprint';
+    const sStatus   = sprint ? (sprint.status || 'UNKNOWN') : 'UNKNOWN';
+    const sStart    = sprint ? (sprint.start_date || sprint.startDate || 'N/A') : 'N/A';
+    const sEnd      = sprint ? (sprint.end_date   || sprint.endDate   || 'N/A') : 'N/A';
+    const sGoal     = sprint ? (sprint.goal || 'No goal set') : 'No goal set';
+    const sCap      = parseFloat((sprint && (sprint.capacity_points || sprint.capacityPoints)) || 0);
+    const sComp     = parseFloat((sprint && (sprint.completed_points || sprint.completedPoints)) || 0);
+
+    const velocityPct = sCap > 0
+      ? Math.round((taskMetrics.completedStoryPoints / sCap) * 100)
+      : null;
+
+    const completionRate = taskMetrics.total > 0
+      ? Math.round((taskMetrics.done / taskMetrics.total) * 100)
+      : 0;
+
+    // Compact member lines (avoid embedded JSON)
+    const memberLines = memberSummary.slice(0, 10).map((m) =>
+      `  ${m.name}: tasks=${m.tasksCompleted || 0}/${m.tasksAssigned || 0}, storyPts=${m.storyPoints || 0}, mood=${m.avgMood || 'N/A'}`
+    ).join('\n');
+
+    return (
+      `Analyse this sprint and generate a star-rated performance report.\n\n` +
+      `SPRINT: ${sName} | Status: ${sStatus} | ${sStart} to ${sEnd}\n` +
+      `Goal: ${sGoal}\n` +
+      `Capacity: ${sCap} pts | Completed: ${sComp} pts\n\n` +
+      `TASKS: total=${taskMetrics.total}, done=${taskMetrics.done}, inProgress=${taskMetrics.inProgress}, ` +
+      `todo=${taskMetrics.todo}, overdue=${taskMetrics.overdue}\n` +
+      `Completion: ${completionRate}% | Story pts: ${taskMetrics.completedStoryPoints}/${taskMetrics.totalStoryPoints}` +
+      (velocityPct !== null ? ` | Velocity: ${velocityPct}%` : '') + '\n\n' +
+      `TEAM: size=${memberSummary.length}, standups=${standupCount}, EODs=${eodCount}\n` +
+      `Member breakdown:\n${memberLines || '  No member data'}\n\n` +
+      `RATING GUIDE: 5=goal met velocity>=90%, 4=mostly met 70-89%, 3=partial 50-69%, 2=gaps 30-49%, 1=failed <30%\n\n` +
+      `Return ONLY valid JSON:\n` +
+      `{"starRating":1,"score":0,"sprintSummary":"string","completionRate":${completionRate},` +
+      `"velocityScore":${velocityPct || 0},"insights":"string","risks":["string"],` +
+      `"recommendations":["string"],"memberHighlights":[{"name":"string","contribution":"string","tasksCompleted":0}],` +
+      `"sprintHealth":"On Track"}\nNo markdown, no extra text.`
+    );
+  }
+
   // ─── Private Helpers ──────────────────────────────────────────────────────
+
+  /** Counts frequency of items in an array */
+  static _countFreq(arr) {
+    const dist = {};
+    (arr || []).forEach((v) => { const k = String(v || 'unknown'); dist[k] = (dist[k] || 0) + 1; });
+    return dist;
+  }
+
 
   /**
    * Formats a list of DB rows into readable numbered entries.

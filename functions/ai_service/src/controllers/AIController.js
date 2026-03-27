@@ -592,6 +592,129 @@ Keep it under 120 words and practical.`;
     }
   }
 
+  // ─── 12. Holistic Performance Analysis ───────────────────────────────────
+
+  /**
+   * POST /api/ai/holistic-performance
+   * Body: { targetUserId?: string, days?: number (7|30|90) }
+   *
+   * Analyses performance across ALL modules: tasks, attendance, leave,
+   * time tracking, standups, EODs, actions, and blockers.
+   * Returns per-member star ratings (1–5) + detailed factor breakdown.
+   */
+  async getHolisticPerformance(req, res) {
+    try {
+      const { tenantId, id: userId, role } = req.currentUser;
+      const { targetUserId, days: rawDays } = req.body;
+      const days = [7, 30, 90].includes(parseInt(rawDays, 10)) ? parseInt(rawDays, 10) : 7;
+
+      const { memberData, since } = await this.data.getHolisticPerformanceData(
+        tenantId, userId, role, targetUserId || null, days
+      );
+
+      if (Object.keys(memberData).length === 0) {
+        return ResponseHelper.aiResponse(res, 'holistic_performance', {
+          teamSummary: 'No member data found for the selected period.',
+          members: [], topPerformer: null, teamMorale: 'Unknown', alerts: [],
+        }, { days, scope: AI_SCOPE[role] });
+      }
+
+      const prompt = PromptService.buildHolisticPerformancePrompt({
+        memberData,
+        days,
+        scope: AI_SCOPE[role],
+      });
+
+      // Scale max_tokens with member count — each member needs ~220 tokens for
+      // factors + strengths + suggestions. Minimum 800, cap at 2500.
+      const memberCount = Object.keys(memberData).length;
+      const maxTokens = Math.min(2500, Math.max(800, memberCount * 220 + 400));
+
+      const { response: rawText, usage } = await this.llm.call(
+        prompt, PromptService.SYSTEM_PROMPT, { max_tokens: maxTokens }
+      );
+
+      const parsed = this._parseJSON(rawText, {
+        teamSummary: rawText,
+        members: Object.values(memberData).map((m) => ({
+          name: m.name, starRating: 3, score: 60, performanceSummary: 'Analysis unavailable.',
+          factors: [], strengths: [], areasOfImprovement: [], suggestions: [],
+        })),
+        topPerformer: null,
+        teamMorale: 'Unknown',
+        alerts: [],
+      });
+
+      return ResponseHelper.aiResponse(res, 'holistic_performance', parsed, {
+        days,
+        since,
+        memberCount: Object.keys(memberData).length,
+        tokensUsed:  usage.total_tokens,
+        scope:       AI_SCOPE[role],
+      });
+
+    } catch (err) {
+      console.error('[AIController.getHolisticPerformance]', err.message);
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  // ─── 13. Sprint Analysis ──────────────────────────────────────────────────
+
+  /**
+   * POST /api/ai/sprint-analysis
+   * Body: { sprintId: string }
+   *
+   * Analyses a specific sprint: velocity, task completion, team health,
+   * and produces a star rating + actionable recommendations.
+   */
+  async getSprintAnalysis(req, res) {
+    try {
+      const { tenantId } = req.currentUser;
+      const { sprintId } = req.body;
+
+      if (!sprintId) {
+        return ResponseHelper.validationError(res, 'sprintId is required');
+      }
+
+      const sprintData = await this.data.getSprintAnalysisData(tenantId, sprintId);
+
+      if (!sprintData.sprint) {
+        return ResponseHelper.notFound(res, 'Sprint not found');
+      }
+
+      const prompt = PromptService.buildSprintAnalysisPrompt(sprintData);
+
+      const { response: rawText, usage } = await this.llm.call(
+        prompt, PromptService.SYSTEM_PROMPT, { max_tokens: 600 }
+      );
+
+      const parsed = this._parseJSON(rawText, {
+        starRating: 3,
+        score: 60,
+        sprintSummary: rawText,
+        completionRate: `${sprintData.taskMetrics.total > 0
+          ? Math.round((sprintData.taskMetrics.done / sprintData.taskMetrics.total) * 100) : 0}%`,
+        velocityScore: sprintData.taskMetrics.completedStoryPoints,
+        insights: [],
+        risks: [],
+        recommendations: [],
+        memberHighlights: [],
+        sprintHealth: 'Unknown',
+      });
+
+      return ResponseHelper.aiResponse(res, 'sprint_analysis', parsed, {
+        sprintId,
+        taskCount:   sprintData.taskMetrics.total,
+        tokensUsed:  usage.total_tokens,
+      });
+
+    } catch (err) {
+      console.error('[AIController.getSprintAnalysis]', err.message);
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
   // ─── Private: JSON Parser ────────────────────────────────────────────────
 
   /**

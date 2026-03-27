@@ -311,6 +311,14 @@ export const aiApi = {
   /** Generate concise AI insight for a single task */
   taskInsight: (params: { title: string; description?: string; status?: string; priority?: string; dueDate?: string; taskId?: string }) =>
     aiClient.post('/task-insight', params).then((r) => r.data),
+
+  /** Holistic performance analysis across ALL modules (tasks, attendance, leave, time, standups, etc.) */
+  holisticPerformance: (params: { targetUserId?: string; days?: 7 | 30 | 90 }) =>
+    aiClient.post('/holistic-performance', params).then((r) => r.data),
+
+  /** Sprint-specific analysis: velocity, completion rate, star rating, recommendations */
+  sprintAnalysis: (params: { sprintId: string }) =>
+    aiClient.post('/sprint-analysis', params).then((r) => r.data),
 };
 
 // ─── People Service clients ────────────────────────────────────────────────────
@@ -511,8 +519,8 @@ export const assetsApi = {
     available: () => assetClient.get('/inventory/available').then((r) => r.data.data),
     myAssets:  () => assetClient.get('/inventory/my-assets').then((r) => r.data.data),
     get:       (id: string) => assetClient.get(`/inventory/${id}`).then((r) => r.data.data),
-    create:    (data: unknown) => assetClient.post('/inventory', data).then((r) => r.data.data),
-    update:    (id: string, data: unknown) => assetClient.put(`/inventory/${id}`, data).then((r) => r.data.data),
+    create:    (data: unknown) => assetClient.post('/inventory', data, data instanceof FormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : {}).then((r) => r.data.data),
+    update:    (id: string, data: unknown) => assetClient.put(`/inventory/${id}`, data, data instanceof FormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : {}).then((r) => r.data.data),
     retire:    (id: string) => assetClient.patch(`/inventory/${id}/retire`).then((r) => r.data.data),
   },
   requests:        {
@@ -559,13 +567,18 @@ export const profilesApi = {
   uploadFile: (file: File, type: 'resume' | 'photo' = 'resume') => {
     const fd = new FormData();
     fd.append('file', file);
-    return badgeClient.post(`/profiles/upload-file?type=${type}`, fd).then((r) => r.data.data as { url: string; field: string });
+    // Must delete Content-Type so axios sets multipart/form-data with correct boundary
+    return badgeClient.post(`/profiles/upload-file?type=${type}`, fd, {
+      headers: { 'Content-Type': undefined },
+    }).then((r) => r.data.data as { url: string; field: string });
   },
 };
 
 export const badgesApi = {
   list:        () => badgeClient.get('/badges').then((r) => r.data.data),
-  create:      (data: unknown) => badgeClient.post('/badges', data).then((r) => r.data.data),
+  create:      (data: unknown) => badgeClient.post('/badges', data, {
+    headers: data instanceof FormData ? { 'Content-Type': undefined } : {},
+  }).then((r) => r.data.data),
   update:      (id: string, data: unknown) => badgeClient.put(`/badges/${id}`, data).then((r) => r.data.data),
   award:       (id: string, data: unknown) => badgeClient.post(`/badges/${id}/award`, data).then((r) => r.data.data),
   revoke:      (id: string, data: unknown) => badgeClient.patch(`/badges/${id}/revoke`, data).then((r) => r.data.data),

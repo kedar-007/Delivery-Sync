@@ -54,3 +54,18 @@ export const useAiNLQuery = () =>
   useMutation({
     mutationFn: (params: { query: string; projectId?: string }) => aiApi.naturalLanguageQuery(params),
   });
+
+export const useAiHolisticPerformance = () =>
+  useMutation({
+    mutationFn: (params: { targetUserId?: string; days?: 7 | 30 | 90 }) =>
+      aiApi.holisticPerformance(params),
+    retry: 1,
+    retryDelay: 1500,
+  });
+
+export const useAiSprintAnalysis = () =>
+  useMutation({
+    mutationFn: (params: { sprintId: string }) => aiApi.sprintAnalysis(params),
+    retry: 1,
+    retryDelay: 1500,
+  });

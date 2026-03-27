@@ -11,6 +11,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { useMyProfile } from '../../hooks/useUsers';
 import { useSidebar } from '../../contexts/SidebarContext';
+import { useFestival } from '../../contexts/FestivalContext';
 import UserAvatar from '../ui/UserAvatar';
 
 // ─── Nav item definition ──────────────────────────────────────────────────────
@@ -177,6 +178,7 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const { data: profile } = useMyProfile();
   const { collapsed, toggleCollapsed, items } = useSidebar();
+  const { festival } = useFestival();
 
   // Filter by role
   const visibleItems = NAV_ITEMS.filter(
@@ -213,7 +215,8 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
       )}
       style={{
         backgroundColor: `rgb(var(--ds-sidebar-bg))`,
-        borderColor: `rgb(var(--ds-sidebar-border))`,
+        borderColor: festival ? festival.sidebarAccent : `rgb(var(--ds-sidebar-border))`,
+        borderRightWidth: festival ? 2 : 1,
       }}
       aria-label="Main navigation"
     >
@@ -224,9 +227,14 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
       >
         {!collapsed && (
           <div className="min-w-0">
-            <h1 className="font-bold text-base leading-tight truncate"
+            <h1 className="font-bold text-base leading-tight truncate flex items-center gap-1.5"
               style={{ color: `rgb(var(--ds-sidebar-text))` }}>
               {user?.tenantName || 'My Organisation'}
+              {festival && (
+                <span title={festival.name} aria-label={festival.name} style={{ fontSize: 14, lineHeight: 1 }}>
+                  {festival.emoji}
+                </span>
+              )}
             </h1>
             <p className="text-[11px] mt-0.5 truncate font-medium tracking-wide uppercase opacity-50"
               style={{ color: `rgb(var(--ds-sidebar-text))` }}>
@@ -236,6 +244,12 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
         )}
 
         <div className="flex items-center gap-1 shrink-0">
+          {/* Festival emoji in collapsed mode */}
+          {collapsed && festival && (
+            <span title={festival.name} aria-label={festival.name} style={{ fontSize: 16, lineHeight: 1 }}>
+              {festival.emoji}
+            </span>
+          )}
           {/* Mobile close */}
           {onClose && (
             <button onClick={onClose} aria-label="Close sidebar"

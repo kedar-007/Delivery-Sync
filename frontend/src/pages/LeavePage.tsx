@@ -1,6 +1,6 @@
 import React, { useState ,useEffect} from 'react';
 import { useParams } from 'react-router-dom';
-import { Plus, Calendar, CheckCircle, XCircle, Clock, BarChart2, Building2, Trash2, Upload } from 'lucide-react';
+import { Plus, Calendar, CheckCircle, XCircle, Clock, BarChart2, Building2, Trash2, Upload, LayoutGrid, LayoutList } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { format, parseISO, differenceInCalendarDays } from 'date-fns';
 import Layout from '../components/layout/Layout';
@@ -986,10 +986,21 @@ interface SetBalanceForm {
   carry_forward_days?: number;
 }
 
+const LEAVE_COLORS = [
+  { bg: 'bg-blue-50',   border: 'border-blue-200',   num: 'text-blue-700',   bar: 'bg-blue-500',   pill: 'bg-blue-100 text-blue-700 border-blue-200'   },
+  { bg: 'bg-emerald-50', border: 'border-emerald-200', num: 'text-emerald-700', bar: 'bg-emerald-500', pill: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+  { bg: 'bg-amber-50',  border: 'border-amber-200',  num: 'text-amber-700',  bar: 'bg-amber-500',  pill: 'bg-amber-100 text-amber-700 border-amber-200'  },
+  { bg: 'bg-purple-50', border: 'border-purple-200', num: 'text-purple-700', bar: 'bg-purple-500', pill: 'bg-purple-100 text-purple-700 border-purple-200' },
+  { bg: 'bg-rose-50',   border: 'border-rose-200',   num: 'text-rose-700',   bar: 'bg-rose-500',   pill: 'bg-rose-100 text-rose-700 border-rose-200'   },
+];
+
+const getLeaveColor = (idx: number) => LEAVE_COLORS[idx % LEAVE_COLORS.length];
+
 const LeaveBalancesTab = () => {
   const [setOpen, setSetOpen] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [filterUser, setFilterUser] = useState('');
+  const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
 
   const { data: raw = [], isLoading, error } = useAllLeaveBalances();
   const { data: typesData } = useLeaveTypes();
@@ -998,14 +1009,17 @@ const LeaveBalancesTab = () => {
   const allUsers = usersData as Array<{ id: string; name: string; email: string }>;
 
   const setBalance = useSetLeaveBalance();
+  const balances: BalanceRecord[] = raw as BalanceRecord[];
 
-  const balances: BalanceRecord[] = (raw as BalanceRecord[]);
+  // Use || not ?? so empty-string userName falls back to userId
+  const getUserKey = (b: BalanceRecord) => b.userName || b.userId || 'Unknown';
 
-  // Get unique users from balances for the filter
-  const userNames = Array.from(new Set(balances.map((b) => b.userName).filter(Boolean))).sort() as string[];
+  const userKeys = Array.from(
+    new Set(balances.map(getUserKey).filter(Boolean))
+  ).sort() as string[];
 
   const filtered = filterUser
-    ? balances.filter((b) => b.userName === filterUser)
+    ? balances.filter((b) => getUserKey(b) === filterUser)
     : balances;
 
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<SetBalanceForm>({
@@ -1023,71 +1037,244 @@ const LeaveBalancesTab = () => {
     }
   };
 
-  // Group by user
+  // Group by user key for card view
   const byUser = filtered.reduce<Record<string, BalanceRecord[]>>((acc, b) => {
-    const key = b.userName ?? b.userId;
+    const key = getUserKey(b);
     if (!acc[key]) acc[key] = [];
     acc[key].push(b);
     return acc;
   }, {});
 
+  const usedPct = (b: BalanceRecord) =>
+    b.allocated > 0 ? Math.min(100, ((b.used + b.pending) / b.allocated) * 100) : 0;
+
   return (
     <div className="space-y-5">
       {error && <Alert type="error" message={(error as Error).message} />}
 
-      <div className="flex items-center justify-between">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <label className="form-label">Filter by Employee</label>
-          <select className="form-select" value={filterUser} onChange={(e) => setFilterUser(e.target.value)}>
+          <select
+            className="form-select"
+            value={filterUser}
+            onChange={(e) => setFilterUser(e.target.value)}
+          >
             <option value="">All employees</option>
-            {userNames.map((n) => <option key={n} value={n}>{n}</option>)}
+            {userKeys.map((k) => <option key={k} value={k}>{k}</option>)}
           </select>
         </div>
-        <Button icon={<Upload size={15} />} onClick={() => setSetOpen(true)}>Set Balance</Button>
+
+        <div className="flex items-center gap-2">
+          {/* Card / List toggle */}
+          <div className="inline-flex rounded-lg border border-gray-200 bg-white overflow-hidden">
+            <button
+              onClick={() => setViewMode('card')}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors ${
+                viewMode === 'card' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <LayoutGrid size={14} /> Cards
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors ${
+                viewMode === 'list' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <LayoutList size={14} /> List
+            </button>
+          </div>
+          <Button icon={<Upload size={15} />} onClick={() => setSetOpen(true)}>
+            Set Balance
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
         <PageSkeleton />
       ) : Object.keys(byUser).length === 0 ? (
-        <EmptyState title="No balances found" description="Set leave balances for employees to get started." />
-      ) : (
+        <EmptyState
+          title="No balances found"
+          description="Set leave balances for employees to get started."
+        />
+      ) : viewMode === 'card' ? (
+        /* ── Card View ─────────────────────────────────────────────────────── */
         <div className="space-y-4">
-          {Object.entries(byUser).map(([userName, userBalances]) => (
-            <Card key={userName} padding={false}>
-              <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
-                <UserAvatar name={userName} avatarUrl={userBalances[0]?.userAvatarUrl} size="sm" />
-                <p className="text-sm font-semibold text-gray-900">{userName}</p>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 p-4">
-                {userBalances.map((b) => (
-                  <div key={b.leaveTypeId} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
-                    <p className="text-xs font-medium text-gray-600 mb-2 truncate">{b.leaveTypeName}</p>
-                    <div className="grid grid-cols-2 gap-1 text-center">
-                      <div>
-                        <p className="text-sm font-bold text-blue-700">{b.allocated}</p>
-                        <p className="text-xs text-gray-400">Total</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-bold text-green-700">{b.remaining}</p>
-                        <p className="text-xs text-gray-400">Left</p>
-                      </div>
-                    </div>
-                    <div className="mt-2 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-blue-500 rounded-full"
-                        style={{ width: `${b.allocated > 0 ? Math.min(100, ((b.used + b.pending) / b.allocated) * 100) : 0}%` }}
-                      />
-                    </div>
+          {Object.entries(byUser).map(([userKey, userBalances]) => {
+            const displayName = userBalances[0]?.userName ?? userKey;
+            const avatarUrl = userBalances[0]?.userAvatarUrl;
+            return (
+              <div
+                key={userKey}
+                className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm"
+              >
+                {/* Employee header */}
+                <div className="flex items-center gap-3 px-5 py-4 bg-gradient-to-r from-gray-50 to-white border-b border-gray-100">
+                  <UserAvatar name={displayName} avatarUrl={avatarUrl} size="md" />
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{displayName}</p>
+                    <p className="text-xs text-gray-400">
+                      {userBalances.length} leave type{userBalances.length !== 1 ? 's' : ''} configured
+                    </p>
                   </div>
-                ))}
+                </div>
+
+                {/* Leave type cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 p-4">
+                  {userBalances.map((b, idx) => {
+                    const col = getLeaveColor(idx);
+                    const pct = usedPct(b);
+                    return (
+                      <div
+                        key={b.leaveTypeId}
+                        className={`p-3.5 rounded-xl border ${col.bg} ${col.border} flex flex-col gap-2`}
+                      >
+                        <p className="text-xs font-semibold text-gray-700 truncate">{b.leaveTypeName}</p>
+
+                        <div className="flex items-end justify-between">
+                          <div>
+                            <p className={`text-2xl font-bold leading-none ${col.num}`}>{b.remaining}</p>
+                            <p className="text-xs text-gray-400 mt-0.5">remaining</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-semibold text-gray-700">{b.allocated}</p>
+                            <p className="text-xs text-gray-400">allocated</p>
+                          </div>
+                        </div>
+
+                        {/* Usage bar */}
+                        <div className="h-1.5 bg-white rounded-full overflow-hidden border border-gray-200">
+                          <div
+                            className={`h-full ${col.bar} rounded-full transition-all`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+
+                        <div className="flex justify-between text-xs text-gray-400">
+                          <span>{b.used} used</span>
+                          {b.pending > 0 && (
+                            <span className="text-amber-500 font-medium">{b.pending} pending</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </Card>
-          ))}
+            );
+          })}
+        </div>
+      ) : (
+        /* ── List / Table View ─────────────────────────────────────────────── */
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50">
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">
+                    Employee
+                  </th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">
+                    Leave Type
+                  </th>
+                  <th className="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">
+                    Allocated
+                  </th>
+                  <th className="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">
+                    Used
+                  </th>
+                  <th className="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">
+                    Pending
+                  </th>
+                  <th className="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">
+                    Remaining
+                  </th>
+                  <th className="px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider w-36">
+                    Usage
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {Object.entries(byUser).flatMap(([userKey, userBalances]) =>
+                  userBalances.map((b, idx) => {
+                    const displayName = b.userName ?? userKey;
+                    const col = getLeaveColor(idx);
+                    const pct = usedPct(b);
+                    return (
+                      <tr
+                        key={`${b.userId}-${b.leaveTypeId}`}
+                        className="hover:bg-gray-50 transition-colors"
+                      >
+                        {/* Employee — show only on first leave type row per user */}
+                        <td className="px-4 py-3">
+                          {idx === 0 ? (
+                            <div className="flex items-center gap-2.5">
+                              <UserAvatar
+                                name={displayName}
+                                avatarUrl={b.userAvatarUrl}
+                                size="sm"
+                              />
+                              <div>
+                                <p className="font-semibold text-gray-900">{displayName}</p>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="pl-10 text-gray-300 text-xs">↳</div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${col.pill}`}
+                          >
+                            {b.leaveTypeName}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold text-gray-900">
+                          {b.allocated}
+                        </td>
+                        <td className="px-4 py-3 text-right text-gray-600">{b.used}</td>
+                        <td className="px-4 py-3 text-right">
+                          {b.pending > 0 ? (
+                            <span className="text-amber-600 font-medium">{b.pending}</span>
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold text-green-700">
+                          {b.remaining}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full ${col.bar} rounded-full`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-gray-400 w-8 text-right shrink-0">
+                              {Math.round(pct)}%
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
       {/* Set Balance Modal */}
-      <Modal open={setOpen} onClose={() => { setSetOpen(false); reset(); }} title="Set Leave Balance" size="sm">
+      <Modal
+        open={setOpen}
+        onClose={() => { setSetOpen(false); reset(); }}
+        title="Set Leave Balance"
+        size="sm"
+      >
         <form onSubmit={handleSubmit(onSet)} className="space-y-4">
           {submitError && <Alert type="error" message={submitError} />}
           <div>
@@ -1121,7 +1308,10 @@ const LeaveBalancesTab = () => {
               {errors.allocated_days && <p className="form-error">{errors.allocated_days.message}</p>}
             </div>
             <div>
-              <label className="form-label">Carry Forward <span className="text-gray-400 font-normal">(optional)</span></label>
+              <label className="form-label">
+                Carry Forward{' '}
+                <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
               <input
                 type="number"
                 min="0"
@@ -1132,8 +1322,12 @@ const LeaveBalancesTab = () => {
             </div>
           </div>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setSetOpen(false)}>Cancel</Button>
-            <Button type="submit" loading={isSubmitting} icon={<Upload size={14} />}>Set Balance</Button>
+            <Button variant="outline" type="button" onClick={() => setSetOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={isSubmitting} icon={<Upload size={14} />}>
+              Set Balance
+            </Button>
           </ModalActions>
         </form>
       </Modal>

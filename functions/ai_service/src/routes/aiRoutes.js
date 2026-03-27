@@ -115,9 +115,28 @@ router.post('/task-insight', auth, asyncHandler((req, res) =>
   ctrl(req).getTaskInsight(req, res)
 ));
 
+/**
+ * POST /api/ai/holistic-performance
+ * Body: { targetUserId?: string, days?: 7|30|90 }
+ * Returns: star rating (1–5), score, factor breakdown, suggestions across ALL modules
+ * (tasks, attendance, leave, time tracking, standups, EODs, actions, blockers)
+ */
+router.post('/holistic-performance', auth, asyncHandler((req, res) =>
+  ctrl(req).getHolisticPerformance(req, res)
+));
+
+/**
+ * POST /api/ai/sprint-analysis
+ * Body: { sprintId: string }
+ * Returns: star rating, velocity score, completion rate, team highlights, recommendations
+ */
+router.post('/sprint-analysis', auth, asyncHandler((req, res) =>
+  ctrl(req).getSprintAnalysis(req, res)
+));
+
 // ─── Service health (no auth) ─────────────────────────────────────────────────
 router.get('/health', (_req, res) => {
-  res.json({ status: 'ok', endpoints: ['daily-summary', 'project-health', 'performance', 'report', 'suggestions', 'process-voice'] });
+  res.json({ status: 'ok', endpoints: ['daily-summary', 'project-health', 'performance', 'holistic-performance', 'sprint-analysis', 'report', 'suggestions', 'process-voice'] });
 });
 
 module.exports = router;

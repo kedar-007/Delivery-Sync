@@ -15,7 +15,7 @@ import {
 import {
   Plus, Calendar, MessageSquare, ChevronRight, ChevronDown,
   AlertCircle, CheckCircle2, PlayCircle, Layers, Clock,
-  Filter, Search, User, Zap,
+  Filter, Search, User, Zap, BarChart2,
   ArrowRight, Trash2, Edit2, GitBranch, Users, X, Timer, Paperclip, History,
 } from 'lucide-react';
 import { timeEntriesApi, aiApi } from '../lib/api';
@@ -47,6 +47,8 @@ import {
 import { useProject } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
+import SprintAnalysisModal from '../components/ui/SprintAnalysisModal';
+import { useAiSprintAnalysis } from '../hooks/useAiInsights';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -72,6 +74,7 @@ interface Task {
 
 interface Sprint {
   id: string;
+  ROWID?: string | number; // raw Catalyst PK — always present via normaliseSprint's ...r spread
   name: string;
   status: 'PLANNING' | 'ACTIVE' | 'COMPLETED';
   startDate?: string;
@@ -385,6 +388,8 @@ export default function SprintBoardPage() {
   const [taskDetailId, setTaskDetailId] = useState<string | null>(null); // detail modal
   const [showCreateSprint, setShowCreateSprint] = useState(false);
   const [showCreateTask, setShowCreateTask] = useState(false);
+  const [showAIAnalysis, setShowAIAnalysis] = useState(false);
+  const sprintAnalysis = useAiSprintAnalysis();
   const [createTaskStatus, setCreateTaskStatus] = useState<TaskStatus>('TODO');
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [editTask, setEditTask] = useState<Task | null>(null);
@@ -413,7 +418,11 @@ export default function SprintBoardPage() {
 
   const { data: project } = useProject(projectId ?? '');
   const { data: sprints, isLoading: sprintsLoading } = useSprints(projectId ?? '');
-  const { data: board, isLoading: boardLoading } = useSprintBoard(activeSprint?.id ?? '');
+  // Resolve sprint ID: prefer raw ROWID (always set by Catalyst) over normalised id
+  const activeSprintId = activeSprint
+    ? String(activeSprint.ROWID ?? activeSprint.id ?? '')
+    : '';
+  const { data: board, isLoading: boardLoading } = useSprintBoard(activeSprintId);
   const { data: usersData } = useUsers();
   const { data: fullTask } = useTask(taskDetailId ?? '');
   const { data: comments } = useTaskComments(taskDetailId ?? '');
@@ -474,18 +483,6 @@ export default function SprintBoardPage() {
       .finally(() => setTimeEntriesLoading(false));
   }, [detailTab, taskDetailId]);
 
-  // Load AI insights when AI tab opens (once per task)
-  React.useEffect(() => {
-    if (detailTab !== 'ai' || !taskDetailId || !detailTask || aiInsight !== null) return;
-    setAiLoading(true);
-    aiApi.suggestions({
-      context: `Task: ${detailTask.title}\nDescription: ${(detailTask as any).description || 'None'}\nStatus: ${detailTask.status}\nPriority: ${detailTask.priority}\nType: ${detailTask.type}\nStory Points: ${detailTask.storyPoints || 'N/A'}\nDue: ${detailTask.dueDate || 'None'}`,
-      type: 'task_insights',
-    })
-      .then((r: any) => setAiInsight(r?.content ?? r?.suggestions ?? r?.message ?? 'Insights ready.'))
-      .catch(() => setAiInsight('Unable to generate AI insights at this time.'))
-      .finally(() => setAiLoading(false));
-  }, [detailTab, taskDetailId, aiInsight]);
 
   const boardData = (board && typeof board === 'object' && !Array.isArray(board))
     ? board as Record<string, Task[]>
@@ -647,6 +644,24 @@ export default function SprintBoardPage() {
     return null;
   }, [taskDetailId, boardData, fullTask]);
 
+  // Load AI insights when AI tab opens (once per task)
+  React.useEffect(() => {
+    if (detailTab !== 'ai' || !taskDetailId || !detailTask || aiInsight !== null) return;
+    setAiLoading(true);
+    aiApi.taskInsight({
+      title:       detailTask.title,
+      description: (detailTask as any).description || '',
+      status:      detailTask.status,
+      priority:    detailTask.priority,
+      dueDate:     detailTask.dueDate || undefined,
+      taskId:      detailTask.id,
+    })
+      .then((r: any) => setAiInsight(r?.data?.insight ?? r?.insight ?? 'Insights ready.'))
+      .catch(() => setAiInsight('Unable to generate AI insights at this time.'))
+      .finally(() => setAiLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailTab, taskDetailId, detailTask, aiInsight]);
+
   // Edit task form
   const editForm = useForm<Partial<TaskForm>>();
   const onSaveEdit = editForm.handleSubmit((data) => {
@@ -691,6 +706,15 @@ export default function SprintBoardPage() {
         subtitle={activeSprint ? `${activeSprint.name} · ${activeSprint.status}` : 'Select a sprint'}
         actions={
           <div className="flex items-center gap-2">
+            {activeSprint && activeSprintId && (
+              <Button size="sm" variant="secondary" icon={<BarChart2 size={15} />} onClick={() => {
+                sprintAnalysis.reset();
+                sprintAnalysis.mutate({ sprintId: activeSprintId });
+                setShowAIAnalysis(true);
+              }}>
+                Analyze
+              </Button>
+            )}
             {isAdmin && (
               <Button size="sm" variant="secondary" icon={<Plus size={15} />} onClick={() => setShowCreateSprint(true)}>
                 New Sprint
@@ -698,7 +722,7 @@ export default function SprintBoardPage() {
             )}
             {activeSprint?.status === 'PLANNING' && isAdmin && (
               <Button size="sm" variant="primary" icon={<PlayCircle size={15} />}
-                onClick={() => startSprint.mutate(activeSprint.id)}
+                onClick={() => startSprint.mutate(String(activeSprint.ROWID ?? activeSprint.id ?? ''))}
                 loading={startSprint.isPending}
               >
                 Start Sprint
@@ -706,7 +730,7 @@ export default function SprintBoardPage() {
             )}
             {activeSprint?.status === 'ACTIVE' && isAdmin && (
               <Button size="sm" variant="secondary" icon={<CheckCircle2 size={15} />}
-                onClick={() => completeSprint.mutate(activeSprint.id)}
+                onClick={() => completeSprint.mutate(String(activeSprint.ROWID ?? activeSprint.id ?? ''))}
                 loading={completeSprint.isPending}
               >
                 Complete
@@ -1310,7 +1334,7 @@ export default function SprintBoardPage() {
                           <p className="text-sm font-semibold text-gray-600 mb-1">AI Task Insights</p>
                           <p className="text-xs text-gray-400 mb-4">Get smart suggestions, risk analysis & next steps</p>
                           <Button variant="primary" icon={<Zap size={13} />} loading={aiLoading}
-                            onClick={() => { setAiLoading(true); aiApi.suggestions({ context: `Task: ${detailTask.title}\nDescription: ${(detailTask as any).description || 'None'}\nStatus: ${detailTask.status}\nPriority: ${detailTask.priority}\nType: ${detailTask.type}`, type: 'task_insights' }).then((r: any) => setAiInsight(r?.content ?? r?.suggestions ?? r?.message ?? 'Insights ready.')).catch(() => setAiInsight('Unable to generate AI insights at this time.')).finally(() => setAiLoading(false)); }}>
+                            onClick={() => { setAiLoading(true); aiApi.taskInsight({ title: detailTask.title, description: (detailTask as any).description || '', status: detailTask.status, priority: detailTask.priority, dueDate: detailTask.dueDate || undefined, taskId: detailTask.id }).then((r: any) => setAiInsight(r?.data?.insight ?? r?.insight ?? 'Insights ready.')).catch(() => setAiInsight('Unable to generate AI insights at this time.')).finally(() => setAiLoading(false)); }}>
                             Generate AI Insights
                           </Button>
                         </div>
@@ -1463,6 +1487,19 @@ export default function SprintBoardPage() {
           </form>
         )}
       </Modal>
+
+      {showAIAnalysis && activeSprint && activeSprintId && (
+        <SprintAnalysisModal
+          open={showAIAnalysis}
+          onClose={() => setShowAIAnalysis(false)}
+          sprintId={activeSprintId}
+          title={`Sprint Analysis — ${activeSprint.name}`}
+          isPending={sprintAnalysis.isPending}
+          data={sprintAnalysis.data}
+          error={sprintAnalysis.error as Error | null}
+          onRetry={() => sprintAnalysis.mutate({ sprintId: activeSprintId })}
+        />
+      )}
     </Layout>
   );
 }

@@ -74,6 +74,7 @@ interface TimeApproval {
   hours: number;
   isBillable: boolean;
   submittedByName?: string;
+  submittedByAvatarUrl?: string;
   submittedById?: string;
 }
 
@@ -921,8 +922,17 @@ const ApprovalsTab = () => {
                         onChange={() => toggleSelect(approval.id)}
                       />
                     </td>
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
-                      {approval.submittedByName ?? '—'}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <UserAvatar
+                          name={approval.submittedByName ?? ''}
+                          avatarUrl={approval.submittedByAvatarUrl}
+                          size="sm"
+                        />
+                        <span className="text-sm font-medium text-gray-900">
+                          {approval.submittedByName || '—'}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
                       {approval.projectName ?? approval.projectId}
