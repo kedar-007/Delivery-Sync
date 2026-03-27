@@ -505,7 +505,34 @@ export default function PerformanceModal({
           </div>
         )}
 
-        {result && !analyze.isPending && (
+        {result && !analyze.isPending && result.members.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
+            <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
+              <Users size={22} className="text-gray-400" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-gray-700">No performance data found</p>
+              <p className="text-xs text-gray-400 mt-1 max-w-xs">
+                {result.teamSummary && result.teamSummary !== 'No member data found for the selected period.'
+                  ? result.teamSummary
+                  : `No active team members with activity in the last ${days} days. Try a longer time range.`}
+              </p>
+            </div>
+            <div className="flex gap-2 mt-1">
+              {([7, 30, 90] as const).filter((d) => d > days).map((d) => (
+                <button
+                  key={d}
+                  onClick={() => setDays(d)}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-medium transition-colors"
+                >
+                  Try {RANGE_LABELS[d]}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {result && !analyze.isPending && result.members.length > 0 && (
           <div className="space-y-4">
             {/* Team summary + top performer (multi-user view) */}
             {isAdmin && result.members.length > 1 && (

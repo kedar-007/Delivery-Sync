@@ -7,16 +7,19 @@ import { assetsApi } from '../lib/api';
 const normaliseAsset = (r: any) => ({
   ...r,
   id:             String(r.ROWID ?? r.id ?? ''),
+  assetName:      r.name ?? r.assetName ?? '',          // DB column is 'name'
+  assetTag:       r.asset_tag     ?? r.assetTag ?? '',
   tenantId:       r.tenant_id     ?? r.tenantId,
-  categoryId:     r.category_id   ?? r.categoryId,
-  assetTag:       r.asset_tag     ?? r.assetTag,
+  categoryId:     r.category_id   ?? r.categoryId ?? '',
   serialNumber:   r.serial_number ?? r.serialNumber ?? '',
   purchaseDate:   r.purchase_date ?? r.purchaseDate ?? null,
+  purchaseCost:   parseFloat(r.purchase_value ?? r.purchaseCost ?? r.purchaseValue ?? 0) || null,
   purchaseValue:  parseFloat(r.purchase_value ?? r.purchaseValue ?? 0) || null,
   currentValue:   parseFloat(r.current_value  ?? r.currentValue  ?? 0) || null,
   warrantyExpiry: r.warranty_expiry ?? r.warrantyExpiry ?? null,
   condition:      r.asset_condition ?? r.condition ?? 'GOOD', // reserved keyword fix
   documentUrl:    r.document_url  ?? r.documentUrl  ?? null,
+  imageUrl:       r.document_url  ?? r.documentUrl  ?? null,  // alias for image display
   assignedTo:     r.assigned_to   ?? r.assignedTo   ?? null,
   assignedAt:     r.assigned_at   ?? r.assignedAt   ?? null,
   createdBy:      r.CREATORID     ?? r.created_by   ?? r.createdBy,
@@ -117,6 +120,14 @@ export const useCreateAsset = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: unknown) => assetsApi.inventory.create(data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assets', 'inventory'] }),
+  });
+};
+
+export const useBulkCreateAssets = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (rows: unknown[]) => assetsApi.inventory.bulkCreate(rows),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['assets', 'inventory'] }),
   });
 };

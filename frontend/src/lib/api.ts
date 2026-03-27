@@ -521,7 +521,8 @@ export const assetsApi = {
     get:       (id: string) => assetClient.get(`/inventory/${id}`).then((r) => r.data.data),
     create:    (data: unknown) => assetClient.post('/inventory', data, data instanceof FormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : {}).then((r) => r.data.data),
     update:    (id: string, data: unknown) => assetClient.put(`/inventory/${id}`, data, data instanceof FormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : {}).then((r) => r.data.data),
-    retire:    (id: string) => assetClient.patch(`/inventory/${id}/retire`).then((r) => r.data.data),
+    retire:      (id: string) => assetClient.patch(`/inventory/${id}/retire`).then((r) => r.data.data),
+    bulkCreate:  (rows: unknown[]) => assetClient.post('/inventory/bulk', { assets: rows }).then((r) => r.data.data),
   },
   requests:        {
     list:    (params?: Record<string, string>) => assetClient.get('/requests', { params }).then((r) => r.data.data),

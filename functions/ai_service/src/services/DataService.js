@@ -527,30 +527,40 @@ class DataService {
     } else if (targetUserId) {
       targetIds = [String(targetUserId)];
     } else if (scope === 'all') {
-      // Admin — all active users in tenant
+      // Admin / PMO — all active users in tenant
       const rows = await this._query(
         `SELECT ROWID FROM ${TABLES.USERS}
-         WHERE tenant_id = '${DataService._esc(tenantId)}' LIMIT 100`
+         WHERE tenant_id = '${DataService._esc(tenantId)}'
+           AND status = 'ACTIVE'
+         LIMIT 100`
       );
       targetIds = rows.map((r) => String(r.ROWID));
+      console.log(`[DataService.holistic] scope=all tenantId=${tenantId} found ${targetIds.length} active users`);
     } else {
       // DELIVERY_LEAD — members of their projects
       const memberships = await this._query(
-        `SELECT ROWID FROM ${TABLES.PROJECT_MEMBERS}
+        `SELECT project_id FROM ${TABLES.PROJECT_MEMBERS}
          WHERE tenant_id = '${DataService._esc(tenantId)}' AND user_id = '${DataService._esc(userId)}'
          LIMIT 50`
       );
       if (memberships.length === 0) {
         targetIds = [String(userId)];
       } else {
-        const pIds = memberships.map((m) => `'${DataService._esc(String(m.project_id ?? m.ROWID))}'`).join(',');
-        const teamRows = await this._query(
-          `SELECT DISTINCT user_id FROM ${TABLES.PROJECT_MEMBERS}
-           WHERE tenant_id = '${DataService._esc(tenantId)}' AND project_id IN (${pIds}) LIMIT 100`
-        );
-        targetIds = [...new Set(teamRows.map((r) => String(r.user_id)).filter(Boolean))];
-        if (!targetIds.includes(String(userId))) targetIds.unshift(String(userId));
+        const pIds = memberships
+          .map((m) => m.project_id).filter(Boolean)
+          .map((id) => `'${DataService._esc(String(id))}'`).join(',');
+        if (!pIds) {
+          targetIds = [String(userId)];
+        } else {
+          const teamRows = await this._query(
+            `SELECT DISTINCT user_id FROM ${TABLES.PROJECT_MEMBERS}
+             WHERE tenant_id = '${DataService._esc(tenantId)}' AND project_id IN (${pIds}) LIMIT 100`
+          );
+          targetIds = [...new Set(teamRows.map((r) => String(r.user_id)).filter(Boolean))];
+          if (!targetIds.includes(String(userId))) targetIds.unshift(String(userId));
+        }
       }
+      console.log(`[DataService.holistic] scope=projects userId=${userId} found ${targetIds.length} team members`);
     }
 
     if (targetIds.length === 0) return { memberData: {}, days, since };
@@ -582,7 +592,8 @@ class DataService {
           `SELECT assignee_ids, status, task_priority, story_points, due_date
            FROM ${TABLES.TASKS}
            WHERE tenant_id = '${DataService._esc(tenantId)}'
-           LIMIT 200`
+             AND (status != 'DONE' OR due_date >= '${since}')
+           LIMIT 500`
         ),
         this._query(
           `SELECT user_id, attendance_date, work_hours, is_wfh FROM ${TABLES.ATTENDANCE_RECORDS}

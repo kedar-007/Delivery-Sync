@@ -625,10 +625,11 @@ Keep it under 120 words and practical.`;
         scope: AI_SCOPE[role],
       });
 
-      // Scale max_tokens with member count — each member needs ~220 tokens for
-      // factors + strengths + suggestions. Minimum 800, cap at 2500.
+      // Scale max_tokens with member count — each member needs ~250 tokens for
+      // factors + issues + strengths + suggestions. Minimum 1000, cap at 4000.
       const memberCount = Object.keys(memberData).length;
-      const maxTokens = Math.min(2500, Math.max(800, memberCount * 220 + 400));
+      const maxTokens = Math.min(4000, Math.max(1000, memberCount * 250 + 500));
+      console.log(`[AIController.getHolisticPerformance] memberCount=${memberCount} maxTokens=${maxTokens}`);
 
       const { response: rawText, usage } = await this.llm.call(
         prompt, PromptService.SYSTEM_PROMPT, { max_tokens: maxTokens }
@@ -725,22 +726,31 @@ Keep it under 120 words and practical.`;
   _parseJSON(rawText, defaults = {}) {
     if (!rawText || typeof rawText !== 'string') return defaults;
 
-    // Strip markdown fences: ```json ... ``` or ``` ... ```
+    // Strip ALL markdown fences (the LLM sometimes wraps mid-response)
     let cleaned = rawText
-      .replace(/^```(?:json)?\s*/im, '')
-      .replace(/\s*```\s*$/im, '')
+      .replace(/```(?:json)?/g, '')
+      .replace(/```/g, '')
       .trim();
 
-    // Find the outermost JSON object
+    // Extract the outermost JSON object
     const start = cleaned.indexOf('{');
     const end   = cleaned.lastIndexOf('}');
     if (start !== -1 && end !== -1 && end > start) {
       cleaned = cleaned.slice(start, end + 1);
     }
 
+    // First attempt — clean JSON
+    try { return JSON.parse(cleaned); } catch (_) { /* fall through to repair */ }
+
+    // Repair common Zoho LLM issues before giving up
     try {
-      return JSON.parse(cleaned);
-    } catch (_) {
+      const repaired = cleaned
+        .replace(/,\s*([}\]])/g, '$1')                 // trailing commas
+        .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":')     // unquoted keys
+        .replace(/:\s*'([^']*)'/g, ': "$1"')            // single-quoted values
+        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ''); // stray control chars
+      return JSON.parse(repaired);
+    } catch (__) {
       console.warn('[AIController] Could not parse LLM response as JSON, using defaults.');
       return { ...defaults, rawResponse: rawText };
     }

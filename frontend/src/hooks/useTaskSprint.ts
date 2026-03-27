@@ -158,6 +158,8 @@ export const useTasks = (params?: Record<string, string>) =>
   useQuery({
     queryKey: ['tasks', params],
     queryFn: () => tasksApi.list(params).then(applyNorm(normaliseTask)),
+    retry: 1,          // don't spam retries if task service is unavailable
+    retryDelay: 2000,
   });
 
 export const useMyTasks = () =>

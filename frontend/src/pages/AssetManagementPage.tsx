@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Package, Plus, Edit2, Wrench, CheckCircle2, XCircle,
-  RotateCcw, AlertTriangle, Calendar, DollarSign, Tag,
+  RotateCcw, AlertTriangle, Calendar, Tag, Upload, ChevronRight, MapPin,
 } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 import { useForm } from 'react-hook-form';
@@ -18,7 +18,7 @@ import { SkeletonTable, SkeletonCard } from '../components/ui/Skeleton';
 import { useAuth } from '../contexts/AuthContext';
 import {
   useAssetCategories, useCreateCategory, useAssetInventory, useAvailableAssets, useMyAssets,
-  useCreateAsset, useUpdateAsset,
+  useCreateAsset, useUpdateAsset, useBulkCreateAssets,
   useAssetRequests, useRequestAsset, useApproveAssetRequest, useRejectAssetRequest,
   useReturnAsset,
   useAssetMaintenance, useScheduleMaintenance,
@@ -38,9 +38,15 @@ interface AssetCategory {
 interface Asset {
   id: string;
   assetName: string;
+  assetTag?: string;
   categoryId: string;
   categoryName?: string;
   serialNumber?: string;
+  brand?: string;
+  model?: string;
+  location?: string;
+  condition?: string;
+  imageUrl?: string;
   status: AssetStatus;
   purchaseDate?: string;
   purchaseCost?: number;
@@ -91,6 +97,8 @@ interface RequestFormData {
   asset_id: string;
   reason: string;
   priority: Priority;
+  needed_by: string;
+  notes: string;
 }
 
 interface MaintenanceFormData {
@@ -367,24 +375,72 @@ interface RequestModalProps {
   availableAssets: Asset[];
 }
 
+const conditionColor = (c?: string) => {
+  const map: Record<string, string> = {
+    EXCELLENT: 'bg-green-100 text-green-700',
+    GOOD:      'bg-blue-100 text-blue-700',
+    FAIR:      'bg-yellow-100 text-yellow-700',
+    POOR:      'bg-red-100 text-red-700',
+  };
+  return map[(c ?? '').toUpperCase()] ?? 'bg-gray-100 text-gray-600';
+};
+
 const RequestModal = ({ open, onClose, categories, availableAssets }: RequestModalProps) => {
+  const [step, setStep] = useState<1 | 2>(1);
+  const [filterCat, setFilterCat] = useState('');
+  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
+  const [anyInCat, setAnyInCat] = useState(false); // "any available" chosen
   const [error, setError] = useState('');
   const requestAsset = useRequestAsset();
 
-  const { register, handleSubmit, reset, watch, formState: { isSubmitting, errors } } = useForm<RequestFormData>({
-    defaultValues: { category_id: '', asset_id: '', reason: '', priority: 'MEDIUM' },
+  const { register, handleSubmit, reset, watch, setValue, formState: { isSubmitting, errors } } = useForm<RequestFormData>({
+    defaultValues: { category_id: '', asset_id: '', reason: '', priority: 'MEDIUM', needed_by: '', notes: '' },
   });
 
-  const selectedCategory = watch('category_id');
-
-  const filteredAssets = useMemo(() => {
-    if (!selectedCategory) return availableAssets;
-    return availableAssets.filter((a) => a.categoryId === selectedCategory);
-  }, [selectedCategory, availableAssets]);
-
   React.useEffect(() => {
-    if (open) { reset({ category_id: '', asset_id: '', reason: '', priority: 'MEDIUM' }); setError(''); }
+    if (open) {
+      reset({ category_id: '', asset_id: '', reason: '', priority: 'MEDIUM', needed_by: '', notes: '' });
+      setStep(1); setFilterCat(''); setSelectedAsset(null); setAnyInCat(false); setError('');
+    }
   }, [open, reset]);
+
+  const filteredAssets = useMemo(() =>
+    (availableAssets as Asset[]).filter((a) => !filterCat || String(a.categoryId) === filterCat),
+    [filterCat, availableAssets]
+  );
+
+  const selCatName = useMemo(() => {
+    const catId = selectedAsset ? String(selectedAsset.categoryId) : filterCat;
+    return categories.find((c) => c.id === catId)?.name ?? '';
+  }, [selectedAsset, filterCat, categories]);
+
+  const handlePickCategory = (catId: string) => {
+    setFilterCat(catId);
+    setSelectedAsset(null);
+    setAnyInCat(false);
+    setValue('category_id', catId);
+    setValue('asset_id', '');
+  };
+
+  const handleSelectAsset = (asset: Asset) => {
+    setSelectedAsset(asset);
+    setAnyInCat(false);
+    setValue('asset_id', asset.id);
+    setValue('category_id', String(asset.categoryId));
+  };
+
+  const handleSelectAny = () => {
+    setSelectedAsset(null);
+    setAnyInCat(true);
+    setValue('asset_id', '');
+    setValue('category_id', filterCat);
+  };
+
+  const handleNext = () => {
+    if (!filterCat && !selectedAsset) { setError('Please select a category to continue.'); return; }
+    setError('');
+    setStep(2);
+  };
 
   const onSubmit = async (data: RequestFormData) => {
     try {
@@ -397,60 +453,238 @@ const RequestModal = ({ open, onClose, categories, availableAssets }: RequestMod
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Request New Asset" size="md">
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-        {error && <Alert type="error" message={error} />}
+    <Modal open={open} onClose={onClose} title="Request New Asset" size="xl">
+      {/* Step progress */}
+      <div className="flex items-center gap-2 mb-5">
+        {[{ n: 1, label: 'Browse & Select' }, { n: 2, label: 'Request Details' }].map(({ n, label }, i) => (
+          <React.Fragment key={n}>
+            <div className={`flex items-center gap-1.5 ${step === n ? 'text-indigo-600' : step > n ? 'text-green-600' : 'text-gray-400'}`}>
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border-2 ${
+                step === n ? 'border-indigo-600 bg-indigo-50' : step > n ? 'border-green-500 bg-green-50' : 'border-gray-300 bg-white'
+              }`}>
+                {step > n ? '✓' : n}
+              </div>
+              <span className="text-xs font-medium hidden sm:inline">{label}</span>
+            </div>
+            {i < 1 && <div className={`flex-1 h-px ${step > n ? 'bg-green-400' : 'bg-gray-200'}`} />}
+          </React.Fragment>
+        ))}
+      </div>
 
-        <div>
-          <label className="form-label">Category *</label>
-          <select className="form-select" {...register('category_id', { required: 'Category is required' })}>
-            <option value="">Select category…</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-          {errors.category_id && <p className="text-xs text-red-600 mt-1">{errors.category_id.message}</p>}
+      {error && <Alert type="error" message={error} className="mb-4" />}
+
+      {/* ── STEP 1: Browse & pick asset ── */}
+      {step === 1 && (
+        <div className="space-y-4">
+          {/* Category chips */}
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">Filter by Category</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => { setFilterCat(''); setSelectedAsset(null); setAnyInCat(false); setValue('category_id', ''); setValue('asset_id', ''); }}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                  !filterCat ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
+                }`}
+              >
+                All ({(availableAssets as Asset[]).length})
+              </button>
+              {categories.map((c) => {
+                const count = (availableAssets as Asset[]).filter((a) => String(a.categoryId) === c.id).length;
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => handlePickCategory(c.id)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                      filterCat === c.id ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
+                    }`}
+                  >
+                    {c.name} {count > 0 && <span className={`ml-1 ${filterCat === c.id ? 'opacity-70' : 'text-gray-400'}`}>({count})</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Asset cards */}
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">
+              {filterCat
+                ? `${filteredAssets.length} available in ${selCatName}`
+                : `${(availableAssets as Asset[]).length} assets available — select a category above`}
+            </p>
+
+            {filteredAssets.length === 0 && filterCat ? (
+              <div className="text-center py-10 text-sm text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                No available assets in this category
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-60 overflow-y-auto pr-0.5">
+                {/* "Any available" option — only shown when category is selected */}
+                {filterCat && (
+                  <button
+                    type="button"
+                    onClick={handleSelectAny}
+                    className={`flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all ${
+                      anyInCat ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-200' : 'border-dashed border-gray-300 hover:border-indigo-300 bg-white'
+                    }`}
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+                      <Package size={18} className="text-gray-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-700">Any available</p>
+                      <p className="text-xs text-gray-400">Admin will pick the best match</p>
+                    </div>
+                    {anyInCat && <CheckCircle2 size={16} className="text-indigo-600 ml-auto shrink-0" />}
+                  </button>
+                )}
+
+                {filteredAssets.map((asset) => (
+                  <button
+                    key={asset.id}
+                    type="button"
+                    onClick={() => handleSelectAsset(asset)}
+                    className={`flex items-start gap-3 p-3 rounded-xl border-2 text-left transition-all ${
+                      selectedAsset?.id === asset.id
+                        ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-200'
+                        : 'border-gray-200 hover:border-indigo-300 bg-white'
+                    }`}
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-gray-100 overflow-hidden flex items-center justify-center shrink-0">
+                      {asset.imageUrl
+                        ? <img src={asset.imageUrl} alt={asset.assetName} className="w-full h-full object-cover" />
+                        : <Package size={18} className="text-gray-400" />
+                      }
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{asset.assetName}</p>
+                      {(asset.brand || asset.model) && (
+                        <p className="text-xs text-gray-500 truncate">{[asset.brand, asset.model].filter(Boolean).join(' · ')}</p>
+                      )}
+                      <div className="flex items-center flex-wrap gap-1.5 mt-1">
+                        {asset.assetTag && (
+                          <span className="text-xs font-mono text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{asset.assetTag}</span>
+                        )}
+                        {asset.condition && (
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${conditionColor(asset.condition)}`}>
+                            {asset.condition}
+                          </span>
+                        )}
+                      </div>
+                      {asset.location && (
+                        <p className="flex items-center gap-1 text-xs text-gray-400 mt-0.5">
+                          <MapPin size={10} /> {asset.location}
+                        </p>
+                      )}
+                    </div>
+                    {selectedAsset?.id === asset.id && <CheckCircle2 size={16} className="text-indigo-600 shrink-0 mt-0.5" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <ModalActions>
+            <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
+            <Button
+              type="button"
+              onClick={handleNext}
+              disabled={!filterCat && !selectedAsset}
+              icon={<ChevronRight size={14} />}
+            >
+              Next: Request Details
+            </Button>
+          </ModalActions>
         </div>
+      )}
 
-        <div>
-          <label className="form-label">Specific Asset <span className="text-gray-400 font-normal">(optional)</span></label>
-          <select className="form-select" {...register('asset_id')}>
-            <option value="">Any available asset</option>
-            {filteredAssets.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.assetName}{a.serialNumber ? ` · ${a.serialNumber}` : ''}
-              </option>
-            ))}
-          </select>
-        </div>
+      {/* ── STEP 2: Request details ── */}
+      {step === 2 && (
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          {/* Selected asset summary */}
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-indigo-50 border border-indigo-100">
+            <div className="w-10 h-10 rounded-lg bg-indigo-100 overflow-hidden flex items-center justify-center shrink-0">
+              {selectedAsset?.imageUrl
+                ? <img src={selectedAsset.imageUrl} alt={selectedAsset.assetName} className="w-full h-full object-cover" />
+                : <Package size={16} className="text-indigo-500" />
+              }
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-indigo-800 truncate">
+                {selectedAsset ? selectedAsset.assetName : `Any available · ${selCatName}`}
+              </p>
+              {selectedAsset && (
+                <p className="text-xs text-indigo-500">
+                  {[selectedAsset.brand, selectedAsset.model, selectedAsset.assetTag].filter(Boolean).join(' · ')}
+                </p>
+              )}
+            </div>
+            <button type="button" onClick={() => setStep(1)} className="text-xs text-indigo-500 hover:text-indigo-700 font-medium shrink-0">
+              Change
+            </button>
+          </div>
 
-        <div>
-          <label className="form-label">Reason *</label>
-          <textarea
-            className="form-textarea"
-            rows={3}
-            placeholder="Why do you need this asset?"
-            {...register('reason', { required: 'Reason is required' })}
-          />
-          {errors.reason && <p className="text-xs text-red-600 mt-1">{errors.reason.message}</p>}
-        </div>
+          {/* Reason */}
+          <div>
+            <label className="form-label">Reason <span className="text-red-500">*</span></label>
+            <textarea
+              className="form-textarea"
+              rows={3}
+              placeholder="Why do you need this asset? Describe your use case…"
+              {...register('reason', { required: 'Reason is required' })}
+            />
+            {errors.reason && <p className="text-xs text-red-600 mt-1">{errors.reason.message}</p>}
+          </div>
 
-        <div>
-          <label className="form-label">Priority</label>
-          <select className="form-select" {...register('priority')}>
-            <option value="LOW">Low</option>
-            <option value="MEDIUM">Medium</option>
-            <option value="HIGH">High</option>
-          </select>
-        </div>
+          {/* Priority + Needed by */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">Priority</label>
+              <div className="flex gap-2 mt-1">
+                {(['LOW', 'MEDIUM', 'HIGH'] as Priority[]).map((p) => (
+                  <label key={p} className="flex-1 cursor-pointer">
+                    <input type="radio" className="sr-only" value={p} {...register('priority')} />
+                    <div className={`text-center py-2 rounded-lg border-2 text-xs font-semibold transition-all ${
+                      watch('priority') === p
+                        ? p === 'HIGH'   ? 'border-red-500   bg-red-50   text-red-700'
+                        : p === 'MEDIUM' ? 'border-amber-500 bg-amber-50 text-amber-700'
+                        :                  'border-gray-400  bg-gray-50  text-gray-700'
+                        : 'border-gray-200 text-gray-400 hover:border-gray-300'
+                    }`}>
+                      {p}
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
 
-        <ModalActions>
-          <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
-          <Button type="submit" loading={isSubmitting} icon={<Plus size={16} />}>
-            Submit Request
-          </Button>
-        </ModalActions>
-      </form>
+            <div>
+              <label className="form-label">Needed By <span className="text-gray-400 font-normal">(optional)</span></label>
+              <input type="date" className="form-input" {...register('needed_by')} />
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="form-label">Additional Notes <span className="text-gray-400 font-normal">(optional)</span></label>
+            <textarea
+              className="form-textarea"
+              rows={2}
+              placeholder="Special requirements, preferred specs, or any other details…"
+              {...register('notes')}
+            />
+          </div>
+
+          <ModalActions>
+            <Button variant="outline" type="button" onClick={() => setStep(1)}>Back</Button>
+            <Button type="submit" loading={isSubmitting} icon={<Plus size={16} />}>
+              Submit Request
+            </Button>
+          </ModalActions>
+        </form>
+      )}
     </Modal>
   );
 };
@@ -707,6 +941,170 @@ const CategoryManageModal = ({ open, onClose, categories }: CategoryManageModalP
   );
 };
 
+// ── Bulk Upload Modal ─────────────────────────────────────────────────────────
+
+interface BulkUploadModalProps {
+  open: boolean;
+  onClose: () => void;
+  categories: AssetCategory[];
+}
+
+// Parse a CSV line respecting quoted fields
+const parseCSVLine = (line: string): string[] => {
+  const cols: string[] = [];
+  let cur = ''; let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { inQ = !inQ; }
+    else if (c === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+    else { cur += c; }
+  }
+  cols.push(cur.trim());
+  return cols;
+};
+
+const BULK_HEADERS = ['name', 'category_id', 'asset_tag', 'serial_number', 'brand', 'model', 'purchase_value', 'purchase_date', 'warranty_expiry', 'location', 'notes'];
+
+const BulkUploadModal = ({ open, onClose, categories }: BulkUploadModalProps) => {
+  const bulkCreate = useBulkCreateAssets();
+  const [rows, setRows] = useState<Record<string, string>[]>([]);
+  const [parseErr, setParseErr] = useState('');
+  const [result, setResult] = useState<{ created: unknown[]; failed: { asset_tag: string; reason: string }[] } | null>(null);
+
+  React.useEffect(() => {
+    if (open) { setRows([]); setParseErr(''); setResult(null); }
+  }, [open]);
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setParseErr(''); setRows([]); setResult(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const lines = text.split(/\r?\n/).filter(Boolean);
+      if (lines.length < 2) { setParseErr('File must have a header row and at least one data row.'); return; }
+      const headers = parseCSVLine(lines[0]).map((h) => h.toLowerCase().replace(/\s+/g, '_'));
+      const parsed: Record<string, string>[] = [];
+      for (let i = 1; i < lines.length; i++) {
+        const vals = parseCSVLine(lines[i]);
+        if (vals.every((v) => !v)) continue;
+        const row: Record<string, string> = {};
+        headers.forEach((h, idx) => { row[h] = vals[idx] ?? ''; });
+        parsed.push(row);
+      }
+      if (parsed.length === 0) { setParseErr('No data rows found.'); return; }
+      setRows(parsed.slice(0, 200));
+    };
+    reader.readAsText(file);
+  };
+
+  const handleSubmit = async () => {
+    try {
+      const res = await bulkCreate.mutateAsync(rows);
+      setResult(res as any);
+    } catch (e: unknown) { setParseErr((e as Error).message ?? 'Upload failed'); }
+  };
+
+  const catMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    categories.forEach((c) => { m[c.name.toLowerCase()] = c.id; m[c.id] = c.id; });
+    return m;
+  }, [categories]);
+
+  // Resolve category_id from name or id
+  const resolvedRows = useMemo<Record<string, string>[]>(() =>
+    rows.map((r) => ({ ...r, category_id: catMap[String(r.category_id).toLowerCase()] ?? r.category_id })),
+  [rows, catMap]);
+
+  const TEMPLATE = BULK_HEADERS.join(',') + '\n' +
+    `MacBook Pro 14,${categories[0]?.id ?? 'CATEGORY_ID'},ASSET-001,SN123,Apple,M3 Pro,2500,2026-01-15,2029-01-15,HQ Office,Good condition`;
+
+  return (
+    <Modal open={open} onClose={onClose} title="Bulk Upload Assets" size="lg">
+      <div className="space-y-4">
+        {/* Template download */}
+        <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-100">
+          <div>
+            <p className="text-sm font-medium text-blue-800">CSV Template</p>
+            <p className="text-xs text-blue-600">Columns: {BULK_HEADERS.join(', ')}</p>
+          </div>
+          <Button size="sm" variant="outline"
+            onClick={() => {
+              const blob = new Blob([TEMPLATE], { type: 'text/csv' });
+              const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+              a.download = 'assets_template.csv'; a.click();
+            }}>
+            Download Template
+          </Button>
+        </div>
+
+        {/* File picker */}
+        <div>
+          <label className="form-label">Select CSV File</label>
+          <input type="file" accept=".csv,text/csv" className="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+            onChange={handleFile} />
+        </div>
+
+        {parseErr && <Alert type="error" message={parseErr} />}
+
+        {/* Preview */}
+        {resolvedRows.length > 0 && !result && (
+          <div>
+            <p className="text-xs font-medium text-gray-600 mb-2">{resolvedRows.length} row(s) ready to upload</p>
+            <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-48">
+              <table className="min-w-full text-xs divide-y divide-gray-100">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr>{['Name', 'Category ID', 'Asset Tag', 'Serial', 'Value'].map((h) => (
+                    <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium">{h}</th>
+                  ))}</tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {resolvedRows.slice(0, 10).map((r, i) => (
+                    <tr key={i} className="hover:bg-gray-50">
+                      <td className="px-3 py-1.5 text-gray-800">{r.name}</td>
+                      <td className="px-3 py-1.5 text-gray-600 font-mono text-xs">{r.category_id}</td>
+                      <td className="px-3 py-1.5 text-gray-600">{r.asset_tag}</td>
+                      <td className="px-3 py-1.5 text-gray-600">{r.serial_number}</td>
+                      <td className="px-3 py-1.5 text-gray-600">{r.purchase_value}</td>
+                    </tr>
+                  ))}
+                  {resolvedRows.length > 10 && (
+                    <tr><td colSpan={5} className="px-3 py-2 text-center text-gray-400 text-xs">…and {resolvedRows.length - 10} more</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Results */}
+        {result && (
+          <div className="space-y-2">
+            <div className="flex gap-4 p-3 bg-green-50 rounded-lg border border-green-100">
+              <span className="text-sm text-green-700 font-medium">✓ {result.created.length} created</span>
+              {result.failed.length > 0 && <span className="text-sm text-red-600 font-medium">✗ {result.failed.length} failed</span>}
+            </div>
+            {result.failed.length > 0 && (
+              <ul className="text-xs text-red-600 space-y-0.5 max-h-28 overflow-y-auto">
+                {result.failed.map((f, i) => <li key={i}><strong>{f.asset_tag}</strong>: {f.reason}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+      <ModalActions>
+        <Button variant="outline" onClick={onClose}>Close</Button>
+        {resolvedRows.length > 0 && !result && (
+          <Button icon={<Upload size={14} />} onClick={handleSubmit} loading={bulkCreate.isPending}>
+            Upload {resolvedRows.length} Assets
+          </Button>
+        )}
+      </ModalActions>
+    </Modal>
+  );
+};
+
 // ── Inventory Tab ─────────────────────────────────────────────────────────────
 
 interface InventoryTabProps {
@@ -720,6 +1118,7 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
   const [editAsset, setEditAsset] = useState<Asset | null>(null);
   const [retireTarget, setRetireTarget] = useState<Asset | null>(null);
   const [catModalOpen, setCatModalOpen] = useState(false);
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
 
   const filterParams = useMemo(() => {
     const p: Record<string, string> = {};
@@ -730,6 +1129,20 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
 
   const { data: inventory = [], isLoading, error } = useAssetInventory(filterParams);
   const updateAsset = useUpdateAsset();
+
+  const catMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    (categories as AssetCategory[]).forEach((c) => { m[String(c.id)] = c.name; });
+    return m;
+  }, [categories]);
+
+  const enrichedInventory = useMemo(() =>
+    (inventory as Asset[]).map((a) => ({
+      ...a,
+      categoryName: catMap[String(a.categoryId)] ?? a.categoryName ?? '—',
+    })),
+    [inventory, catMap]
+  );
 
   const handleRetire = async () => {
     if (!retireTarget) return;
@@ -787,6 +1200,9 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
             <Button size="sm" variant="outline" icon={<Tag size={14} />} onClick={() => setCatModalOpen(true)}>
               Categories {categories.length > 0 && <span className="ml-1 text-xs text-gray-500">({categories.length})</span>}
             </Button>
+            <Button size="sm" variant="outline" icon={<Upload size={14} />} onClick={() => setBulkModalOpen(true)}>
+              Upload CSV
+            </Button>
             <Button size="sm" icon={<Plus size={14} />} onClick={() => { setEditAsset(null); setModalOpen(true); }}>
               Add Asset
             </Button>
@@ -797,7 +1213,7 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
           <SkeletonTable rows={6} />
         ) : error ? (
           <Alert type="error" message={(error as Error).message} className="m-5" />
-        ) : (inventory as Asset[]).length === 0 ? (
+        ) : enrichedInventory.length === 0 ? (
           <EmptyState
             icon={<Package size={36} />}
             title="No assets found"
@@ -816,7 +1232,7 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {(inventory as Asset[]).map((asset) => (
+                {enrichedInventory.map((asset) => (
                   <tr key={asset.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">{asset.assetName}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{asset.categoryName ?? '—'}</td>
@@ -871,6 +1287,12 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
       <CategoryManageModal
         open={catModalOpen}
         onClose={() => setCatModalOpen(false)}
+        categories={categories}
+      />
+
+      <BulkUploadModal
+        open={bulkModalOpen}
+        onClose={() => setBulkModalOpen(false)}
         categories={categories}
       />
 

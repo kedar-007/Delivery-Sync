@@ -22,17 +22,21 @@ class AssetRequestController {
   }
 
   async create(req, res) {
-    const { category_id, reason, urgency } = req.body;
+    const { category_id, reason, urgency, priority, asset_id, needed_by, notes } = req.body;
     if (!category_id || !reason) return ResponseHelper.validationError(res, 'category_id and reason required');
-    const row = await this.db.insert(TABLES.ASSET_REQUESTS, {
-      tenant_id:        String(req.tenantId),
-      requested_by:     String(req.currentUser.id),
-      category_id:      String(category_id),
-      asset_id:         '0',
+    const insertData = {
+      tenant_id:    String(req.tenantId),
+      requested_by: String(req.currentUser.id),
+      category_id:  String(category_id),
       reason,
-      urgency:          urgency || 'NORMAL',
-      status:           ASSET_REQ_STATUS.PENDING,
-    });
+      urgency:      priority || urgency || 'NORMAL',
+      status:       ASSET_REQ_STATUS.PENDING,
+    };
+    // Only set asset_id if a specific asset was chosen (avoid FK '0' violation)
+    if (asset_id && String(asset_id) !== '0') insertData.asset_id = String(asset_id);
+    if (needed_by) insertData.needed_by = needed_by;
+    if (notes)     insertData.notes     = notes;
+    const row = await this.db.insert(TABLES.ASSET_REQUESTS, insertData);
     await this.notif.sendInApp({ tenantId: req.tenantId, userId: req.currentUser.id, title: 'Asset Request Submitted', message: `Your asset request has been submitted`, type: NOTIFICATION_TYPE.ASSET_REQUEST_RAISED, entityType: 'ASSET_REQUEST', entityId: row.ROWID });
     await this.audit.log({ tenantId: req.tenantId, entityType: 'ASSET_REQUEST', entityId: row.ROWID, action: AUDIT_ACTION.CREATE, newValue: row, performedBy: req.currentUser.id });
     return ResponseHelper.created(res, row);

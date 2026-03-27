@@ -101,7 +101,7 @@ class AssetController {
       location:        location || '',
       document_url:    image_url,
       notes:           notes || '',
-      assigned_to:     '0',
+      // assigned_to omitted — new assets are unassigned; '0' violates the FK to users table
       created_by:      String(req.currentUser.id),
     };
     // Only set date fields if provided — Catalyst rejects empty strings for Date columns
@@ -166,6 +166,58 @@ class AssetController {
   async myAssets(req, res) {
     const assets = await this.db.findWhere(TABLES.ASSETS, req.tenantId, `assigned_to = '${req.currentUser.id}' AND status = 'ASSIGNED'`, { limit: 50 });
     return ResponseHelper.success(res, assets);
+  }
+
+  // POST /api/assets/inventory/bulk
+  async bulkCreate(req, res) {
+    const { assets } = req.body;
+    if (!Array.isArray(assets) || assets.length === 0)
+      return ResponseHelper.validationError(res, 'assets array is required');
+    if (assets.length > 200)
+      return ResponseHelper.validationError(res, 'Maximum 200 assets per bulk upload');
+
+    const results = { created: [], failed: [] };
+    for (const item of assets) {
+      try {
+        const { name, category_id, asset_tag, serial_number, brand, model,
+                purchase_date, purchase_value, warranty_expiry, location, notes } = item;
+        if (!name || !category_id || !asset_tag) {
+          results.failed.push({ asset_tag: asset_tag || '?', reason: 'name, category_id and asset_tag are required' });
+          continue;
+        }
+        // Skip duplicate asset tags
+        const existing = await this.db.findWhere(TABLES.ASSETS, req.tenantId, `asset_tag = '${DataStoreService.escape(asset_tag)}'`, { limit: 1 });
+        if (existing.length > 0) {
+          results.failed.push({ asset_tag, reason: 'Asset tag already exists' });
+          continue;
+        }
+        const insertData = {
+          tenant_id:       String(req.tenantId),
+          category_id:     String(category_id),
+          name:            String(name),
+          asset_tag:       String(asset_tag),
+          serial_number:   serial_number || '',
+          brand:           brand || '',
+          model:           model || '',
+          purchase_value:  String(purchase_value || 0),
+          current_value:   String(purchase_value || 0),
+          status:          ASSET_STATUS.AVAILABLE,
+          asset_condition: 'GOOD',
+          location:        location || '',
+          document_url:    '',
+          notes:           notes || '',
+          created_by:      String(req.currentUser.id),
+        };
+        if (purchase_date)   insertData.purchase_date   = purchase_date;
+        if (warranty_expiry) insertData.warranty_expiry = warranty_expiry;
+
+        const row = await this.db.insert(TABLES.ASSETS, insertData);
+        results.created.push(row.ROWID);
+      } catch (e) {
+        results.failed.push({ asset_tag: item.asset_tag || '?', reason: e.message });
+      }
+    }
+    return ResponseHelper.success(res, results);
   }
 }
 

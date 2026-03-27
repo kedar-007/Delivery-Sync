@@ -288,7 +288,7 @@ High: ${openBlockers.filter((b) => b.severity === 'HIGH').length}
 Medium/Low: ${openBlockers.filter((b) => !['CRITICAL', 'HIGH'].includes(b.severity)).length}
 
 === OVERDUE ACTIONS (${overdueActions.length}) ===
-High priority: ${overdueActions.filter((a) => a.priority === 'HIGH').length}
+High priority: ${overdueActions.filter((a) => (a.action_priority || a.priority) === 'HIGH').length}
 ${overdueActions.slice(0, 5).map((a) => `- ${a.title}`).join('\n')}
 
 === DELAYED MILESTONES (${delayedMilestones.length}) ===
@@ -700,7 +700,7 @@ Return ONLY a JSON object matching this schema:
 
     // Compact member lines (avoid embedded JSON)
     const memberLines = memberSummary.slice(0, 10).map((m) =>
-      `  ${m.name}: tasks=${m.tasksCompleted || 0}/${m.tasksAssigned || 0}, storyPts=${m.storyPoints || 0}, mood=${m.avgMood || 'N/A'}`
+      `  ${m.name}: tasks=${m.tasksDone || m.tasksCompleted || 0}/${m.tasksAssigned || 0}, storyPts=${m.storyPoints || 0}, overdue=${m.overdueCount || 0}, mood=${m.avgMood || 'N/A'}`
     ).join('\n');
 
     return (
