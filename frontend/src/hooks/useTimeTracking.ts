@@ -31,15 +31,24 @@ const normaliseEntry = (r: any) => ({
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const normaliseApproval = (r: any) => ({
   ...r,
-  id:            String(r.ROWID ?? r.id ?? ''),
-  timeEntryId:   r.time_entry_id ?? r.timeEntryId,
-  requestedBy:   r.requested_by  ?? r.requestedBy,
-  assignedTo:    r.assigned_to   ?? r.assignedTo,
-  escalatedTo:   r.escalated_to  ?? r.escalatedTo ?? null,
-  escalatedAt:   r.escalated_at  ?? r.escalatedAt ?? null,
-  createdBy:     r.CREATORID     ?? r.created_by  ?? r.createdBy,
-  createdAt:     r.CREATEDTIME   ?? r.created_at  ?? r.createdAt,
-  updatedAt:     r.MODIFIEDTIME  ?? r.updated_at  ?? r.updatedAt,
+  id:                   String(r.ROWID ?? r.id ?? ''),
+  timeEntryId:          r.time_entry_id ?? r.timeEntryId,
+  requestedBy:          r.requested_by  ?? r.requestedBy,
+  assignedTo:           r.assigned_to   ?? r.assignedTo,
+  escalatedTo:          r.escalated_to  ?? r.escalatedTo ?? null,
+  escalatedAt:          r.escalated_at  ?? r.escalatedAt ?? null,
+  createdBy:            r.CREATORID     ?? r.created_by  ?? r.createdBy,
+  createdAt:            r.CREATEDTIME   ?? r.created_at  ?? r.createdAt,
+  updatedAt:            r.MODIFIEDTIME  ?? r.updated_at  ?? r.updatedAt,
+  // Flatten nested requester info (from ApprovalController enrichment)
+  submittedByName:      r.requester?.name       ?? r.submittedByName       ?? '',
+  submittedByAvatarUrl: r.requester?.avatar_url ?? r.submittedByAvatarUrl  ?? '',
+  // Flatten nested time entry fields
+  projectId:            r.entry?.project_id ?? r.projectId ?? '',
+  description:          r.entry?.description ?? r.description ?? '',
+  date:                 r.entry?.entry_date ?? r.entry?.date ?? r.date ?? '',
+  hours:                parseFloat(r.entry?.hours ?? r.hours ?? 0),
+  isBillable:           r.entry?.is_billable === 'true' || r.entry?.is_billable === true || r.isBillable === true,
 });
 
 const applyNorm = <T>(norm: (r: unknown) => T) =>

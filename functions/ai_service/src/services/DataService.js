@@ -502,6 +502,292 @@ class DataService {
     return { standups, eods, actions, blockers, milestones, sprintStart: from, sprintEnd: to };
   }
 
+  // ─── Holistic Performance Data ────────────────────────────────────────────
+
+  /**
+   * Fetches comprehensive per-member data across ALL modules:
+   * standups, EODs, tasks, attendance, leave, time entries, actions, blockers.
+   *
+   * @param {string}      tenantId
+   * @param {string}      userId        – requesting user's ID
+   * @param {string}      role          – requesting user's role
+   * @param {string|null} targetUserId  – specific user to analyse (null = all accessible)
+   * @param {number}      days          – look-back window (7 / 30 / 90)
+   */
+  async getHolisticPerformanceData(tenantId, userId, role, targetUserId, days) {
+    const scope = AI_SCOPE[role] ?? 'own';
+    const since = DataService._daysAgo(days);
+    const today = DataService._today();
+
+    // ── 1. Resolve which users to analyse ─────────────────────────────────
+    let targetIds = [];
+
+    if (scope === 'own' || (targetUserId && targetUserId === userId)) {
+      targetIds = [String(userId)];
+    } else if (targetUserId) {
+      targetIds = [String(targetUserId)];
+    } else if (scope === 'all') {
+      // Admin — all active users in tenant
+      const rows = await this._query(
+        `SELECT ROWID FROM ${TABLES.USERS}
+         WHERE tenant_id = '${DataService._esc(tenantId)}' LIMIT 100`
+      );
+      targetIds = rows.map((r) => String(r.ROWID));
+    } else {
+      // DELIVERY_LEAD — members of their projects
+      const memberships = await this._query(
+        `SELECT ROWID FROM ${TABLES.PROJECT_MEMBERS}
+         WHERE tenant_id = '${DataService._esc(tenantId)}' AND user_id = '${DataService._esc(userId)}'
+         LIMIT 50`
+      );
+      if (memberships.length === 0) {
+        targetIds = [String(userId)];
+      } else {
+        const pIds = memberships.map((m) => `'${DataService._esc(String(m.project_id ?? m.ROWID))}'`).join(',');
+        const teamRows = await this._query(
+          `SELECT DISTINCT user_id FROM ${TABLES.PROJECT_MEMBERS}
+           WHERE tenant_id = '${DataService._esc(tenantId)}' AND project_id IN (${pIds}) LIMIT 100`
+        );
+        targetIds = [...new Set(teamRows.map((r) => String(r.user_id)).filter(Boolean))];
+        if (!targetIds.includes(String(userId))) targetIds.unshift(String(userId));
+      }
+    }
+
+    if (targetIds.length === 0) return { memberData: {}, days, since };
+
+    const idList = targetIds.map((id) => `'${DataService._esc(id)}'`).join(',');
+
+    // ── 2. Fetch user names ────────────────────────────────────────────────
+    const userRows = await this._query(
+      `SELECT ROWID, name, email, role FROM ${TABLES.USERS}
+       WHERE tenant_id = '${DataService._esc(tenantId)}' AND ROWID IN (${idList}) LIMIT 100`
+    );
+    const userMap = {};
+    userRows.forEach((u) => { userMap[String(u.ROWID)] = u; });
+
+    // ── 3. Fetch all data in parallel ─────────────────────────────────────
+    const [standups, eods, tasks, attendance, leaveReqs, timeEntries, actions, blockers] =
+      await Promise.all([
+        this._query(
+          `SELECT user_id, entry_date, blockers FROM ${TABLES.STANDUP_ENTRIES}
+           WHERE tenant_id = '${DataService._esc(tenantId)}' AND user_id IN (${idList})
+             AND entry_date >= '${since}' LIMIT 200`
+        ),
+        this._query(
+          `SELECT user_id, entry_date, mood FROM ${TABLES.EOD_ENTRIES}
+           WHERE tenant_id = '${DataService._esc(tenantId)}' AND user_id IN (${idList})
+             AND entry_date >= '${since}' LIMIT 200`
+        ),
+        this._query(
+          `SELECT assignee_ids, status, task_priority, story_points, due_date
+           FROM ${TABLES.TASKS}
+           WHERE tenant_id = '${DataService._esc(tenantId)}'
+           LIMIT 200`
+        ),
+        this._query(
+          `SELECT user_id, attendance_date, work_hours, is_wfh FROM ${TABLES.ATTENDANCE_RECORDS}
+           WHERE tenant_id = '${DataService._esc(tenantId)}' AND user_id IN (${idList})
+             AND attendance_date >= '${since}' LIMIT 200`
+        ),
+        this._query(
+          `SELECT user_id, status, days_count FROM ${TABLES.LEAVE_REQUESTS}
+           WHERE tenant_id = '${DataService._esc(tenantId)}' AND user_id IN (${idList})
+             AND status = 'APPROVED' AND start_date >= '${since}' LIMIT 200`
+        ),
+        this._query(
+          `SELECT user_id, hours FROM ${TABLES.TIME_ENTRIES}
+           WHERE tenant_id = '${DataService._esc(tenantId)}' AND user_id IN (${idList})
+             AND entry_date >= '${since}' LIMIT 200`
+        ),
+        this._query(
+          `SELECT assigned_to, status FROM ${TABLES.ACTIONS}
+           WHERE tenant_id = '${DataService._esc(tenantId)}' AND assigned_to IN (${idList}) LIMIT 200`
+        ),
+        this._query(
+          `SELECT raised_by, severity, status FROM ${TABLES.BLOCKERS}
+           WHERE tenant_id = '${DataService._esc(tenantId)}' AND raised_by IN (${idList}) LIMIT 200`
+        ),
+      ]);
+
+    // ── 4. Aggregate per member ────────────────────────────────────────────
+    const memberData = {};
+    targetIds.forEach((id) => {
+      const user = userMap[id] || {};
+
+      const userTasks    = tasks.filter((t) => { try { return JSON.parse(t.assignee_ids || '[]').map(String).includes(id); } catch { return false; } });
+      const tasksDone    = userTasks.filter((t) => t.status === 'DONE').length;
+      const tasksOverdue = userTasks.filter(
+        (t) => t.status !== 'DONE' && t.due_date && t.due_date < today
+      ).length;
+      const storyPtsDone = userTasks
+        .filter((t) => t.status === 'DONE')
+        .reduce((s, t) => s + (parseFloat(t.story_points) || 0), 0);
+
+      const userAttend  = attendance.filter((a) => String(a.user_id) === id);
+      const avgHours    = userAttend.length > 0
+        ? Math.round(userAttend.reduce((s, a) => s + (parseFloat(a.work_hours) || 0), 0) / userAttend.length * 10) / 10
+        : 0;
+
+      const totalLogged = timeEntries
+        .filter((e) => String(e.user_id) === id)
+        .reduce((s, e) => s + (parseFloat(e.hours) || 0), 0);
+
+      const leaveDays = leaveReqs
+        .filter((l) => String(l.user_id) === id)
+        .reduce((s, l) => s + (parseFloat(l.days_count) || 0), 0);
+
+      const userStandups = standups.filter((s) => String(s.user_id) === id);
+      const userEods     = eods.filter((e) => String(e.user_id) === id);
+      const userActions  = actions.filter((a) => String(a.assigned_to) === id);
+
+      memberData[id] = {
+        userId:               id,
+        name:                 user.name  || `User-${id}`,
+        email:                user.email || '',
+        role:                 user.role  || '',
+        // engagement
+        standupCount:         userStandups.length,
+        eodCount:             userEods.length,
+        consistencyPct:       days > 0 ? Math.round((userStandups.length / days) * 100) : 0,
+        moods:                userEods.map((e) => String(e.mood || '').toUpperCase()),
+        // tasks
+        tasksTotal:           userTasks.length,
+        tasksDone,
+        tasksOverdue,
+        storyPointsDone:      Math.round(storyPtsDone),
+        taskCompletionPct:    userTasks.length > 0 ? Math.round((tasksDone / userTasks.length) * 100) : null,
+        // attendance
+        attendanceDays:       userAttend.length,
+        wfhDays:              userAttend.filter((a) => a.is_wfh === 'true').length,
+        avgWorkHours:         avgHours,
+        // time tracking
+        hoursLogged:          Math.round(totalLogged * 10) / 10,
+        // leave
+        leaveDaysTaken:       Math.round(leaveDays),
+        // actions / blockers
+        actionsTotal:         userActions.length,
+        actionsDone:          userActions.filter((a) => a.status === 'DONE').length,
+        blockersRaised:       blockers.filter((b) => String(b.raised_by) === id).length,
+      };
+    });
+
+    return { memberData, days, since };
+  }
+
+  // ─── Sprint Analysis Data ─────────────────────────────────────────────────
+
+  /**
+   * Fetches full sprint context: sprint details, all tasks, team members,
+   * activity data (standups + EODs) during the sprint window.
+   *
+   * @param {string} tenantId
+   * @param {string} sprintId
+   */
+  async getSprintAnalysisData(tenantId, sprintId) {
+    // 1. Sprint meta
+    const sprintRows = await this._query(
+      `SELECT ROWID, name, status, start_date, end_date, goal, capacity_points, completed_points
+       FROM ${TABLES.SPRINTS}
+       WHERE tenant_id = '${DataService._esc(tenantId)}' AND ROWID = '${DataService._esc(sprintId)}'
+       LIMIT 1`
+    );
+    const sprint = sprintRows[0] || null;
+
+    // 2. Tasks in sprint
+    const tasks = await this._query(
+      `SELECT ROWID, title, status, task_priority, story_points, assignee_ids, due_date
+       FROM ${TABLES.TASKS}
+       WHERE tenant_id = '${DataService._esc(tenantId)}' AND sprint_id = '${DataService._esc(sprintId)}'
+       LIMIT 200`
+    );
+
+    // 3. Sprint members
+    const memberRows = await this._query(
+      `SELECT user_id FROM ${TABLES.SPRINT_MEMBERS}
+       WHERE tenant_id = '${DataService._esc(tenantId)}' AND sprint_id = '${DataService._esc(sprintId)}'
+       LIMIT 50`
+    );
+
+    // Resolve member names
+    const memberIds = [...new Set([
+      ...memberRows.map((m) => String(m.user_id)),
+      ...tasks.flatMap((t) => { try { return JSON.parse(t.assignee_ids || '[]').map(String); } catch { return []; } }).filter(Boolean),
+    ])].filter(Boolean);
+
+    let userMap = {};
+    if (memberIds.length > 0) {
+      const mIdList = memberIds.map((id) => `'${DataService._esc(id)}'`).join(',');
+      const userRows = await this._query(
+        `SELECT ROWID, name FROM ${TABLES.USERS}
+         WHERE tenant_id = '${DataService._esc(tenantId)}' AND ROWID IN (${mIdList}) LIMIT 100`
+      );
+      userRows.forEach((u) => { userMap[String(u.ROWID)] = u.name || `User-${u.ROWID}`; });
+    }
+
+    // 4. Activity during sprint window
+    const from = sprint?.start_date || DataService._daysAgo(14);
+    const to   = sprint?.end_date   || DataService._today();
+
+    let standups = [], eods = [];
+    if (memberIds.length > 0) {
+      const mIdList = memberIds.map((id) => `'${DataService._esc(id)}'`).join(',');
+      [standups, eods] = await Promise.all([
+        this._query(
+          `SELECT user_id, entry_date FROM ${TABLES.STANDUP_ENTRIES}
+           WHERE tenant_id = '${DataService._esc(tenantId)}' AND user_id IN (${mIdList})
+             AND entry_date >= '${from}' AND entry_date <= '${to}' LIMIT 200`
+        ),
+        this._query(
+          `SELECT user_id, mood FROM ${TABLES.EOD_ENTRIES}
+           WHERE tenant_id = '${DataService._esc(tenantId)}' AND user_id IN (${mIdList})
+             AND entry_date >= '${from}' AND entry_date <= '${to}' LIMIT 200`
+        ),
+      ]);
+    }
+
+    // 5. Build per-member summary
+    const memberSummary = memberIds.map((id) => {
+      const myTasks  = tasks.filter((t) => { try { return JSON.parse(t.assignee_ids || '[]').map(String).includes(id); } catch { return false; } });
+      const done     = myTasks.filter((t) => t.status === 'DONE').length;
+      const pts      = myTasks.filter((t) => t.status === 'DONE')
+        .reduce((s, t) => s + (parseFloat(t.story_points) || 0), 0);
+      const overdue  = myTasks.filter(
+        (t) => t.status !== 'DONE' && t.due_date && t.due_date < DataService._today()
+      ).length;
+      return {
+        name:           userMap[id] || `User-${id}`,
+        tasksAssigned:  myTasks.length,
+        tasksDone:      done,
+        storyPoints:    Math.round(pts),
+        overdueCount:   overdue,
+        standupDays:    standups.filter((s) => String(s.user_id) === id).length,
+        avgMood:        (() => {
+          const ms = eods.filter((e) => String(e.user_id) === id).map((e) => e.mood);
+          if (ms.length === 0) return 'N/A';
+          const g = ms.filter((m) => String(m).toUpperCase() === 'GREEN').length;
+          const r = ms.filter((m) => String(m).toUpperCase() === 'RED').length;
+          if (g > r) return 'Positive'; if (r > g) return 'Negative'; return 'Neutral';
+        })(),
+      };
+    });
+
+    // 6. Overall task metrics
+    const today = DataService._today();
+    const taskMetrics = {
+      total:      tasks.length,
+      done:       tasks.filter((t) => t.status === 'DONE').length,
+      inProgress: tasks.filter((t) => t.status === 'IN_PROGRESS').length,
+      todo:       tasks.filter((t) => t.status === 'TODO').length,
+      inReview:   tasks.filter((t) => t.status === 'IN_REVIEW').length,
+      overdue:    tasks.filter((t) => t.status !== 'DONE' && t.due_date && t.due_date < today).length,
+      totalStoryPoints:     tasks.reduce((s, t) => s + (parseFloat(t.story_points) || 0), 0),
+      completedStoryPoints: tasks.filter((t) => t.status === 'DONE')
+        .reduce((s, t) => s + (parseFloat(t.story_points) || 0), 0),
+    };
+
+    return { sprint, taskMetrics, memberSummary, standupCount: standups.length, eodCount: eods.length };
+  }
+
   // ─── NL Query Context ─────────────────────────────────────────────────────
 
   /**

@@ -17,11 +17,11 @@ import EmptyState from '../components/ui/EmptyState';
 import { SkeletonTable, SkeletonCard } from '../components/ui/Skeleton';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  useAssetCategories, useAssetInventory, useAvailableAssets, useMyAssets,
+  useAssetCategories, useCreateCategory, useAssetInventory, useAvailableAssets, useMyAssets,
   useCreateAsset, useUpdateAsset,
   useAssetRequests, useRequestAsset, useApproveAssetRequest, useRejectAssetRequest,
   useReturnAsset,
-  useAssetMaintenance,
+  useAssetMaintenance, useScheduleMaintenance,
 } from '../hooks/useAssets';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -207,6 +207,7 @@ interface AssetModalProps {
 
 const AssetModal = ({ open, onClose, asset, categories }: AssetModalProps) => {
   const [error, setError] = useState('');
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const createAsset = useCreateAsset();
   const updateAsset = useUpdateAsset();
 
@@ -236,16 +237,24 @@ const AssetModal = ({ open, onClose, asset, categories }: AssetModalProps) => {
         notes: asset?.notes ?? '',
       });
       setError('');
+      setImageFile(null);
     }
   }, [open, asset, reset]);
 
   const onSubmit = async (data: AssetFormData) => {
     try {
       setError('');
+      let payload: FormData | AssetFormData = data;
+      if (imageFile) {
+        const fd = new FormData();
+        Object.entries(data).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== '') fd.append(k, String(v)); });
+        fd.append('image', imageFile);
+        payload = fd;
+      }
       if (asset) {
-        await updateAsset.mutateAsync({ id: asset!.id, data });
+        await updateAsset.mutateAsync({ id: asset!.id, data: payload });
       } else {
-        await createAsset.mutateAsync(data);
+        await createAsset.mutateAsync(payload);
       }
       onClose();
     } catch (err: unknown) {
@@ -324,6 +333,17 @@ const AssetModal = ({ open, onClose, asset, categories }: AssetModalProps) => {
           <div className="col-span-2">
             <label className="form-label">Notes <span className="text-gray-400 font-normal">(optional)</span></label>
             <textarea className="form-textarea" rows={2} {...register('notes')} />
+          </div>
+
+          <div className="col-span-2">
+            <label className="form-label">Asset Image <span className="text-gray-400 font-normal">(optional, uploaded to Stratus)</span></label>
+            <input
+              type="file"
+              accept="image/*"
+              className="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+              onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
+            />
+            {imageFile && <p className="text-xs text-indigo-600 mt-1">{imageFile.name}</p>}
           </div>
         </div>
 
@@ -445,12 +465,7 @@ interface MaintenanceModalProps {
 
 const MaintenanceModal = ({ open, onClose, assets }: MaintenanceModalProps) => {
   const [error, setError] = useState('');
-  const qc = (useCreateAsset as unknown as { queryClient?: unknown });
-  // We'll use createAsset's query client side-effect pattern via the hook
-  // Maintenance is submitted via a generic mutation — we use useRequestAsset as stand-in
-  // but in practice the hook useAssetMaintenance provides read; a separate create hook would exist.
-  // For now we post via the available pattern.
-  const requestAsset = useRequestAsset(); // placeholder — real impl would be useScheduleMaintenance
+  const scheduleMaintenance = useScheduleMaintenance();
 
   const { register, handleSubmit, reset, formState: { isSubmitting, errors } } = useForm<MaintenanceFormData>({
     defaultValues: { asset_id: '', scheduled_date: '', maintenance_type: '', notes: '' },
@@ -463,8 +478,7 @@ const MaintenanceModal = ({ open, onClose, assets }: MaintenanceModalProps) => {
   const onSubmit = async (data: MaintenanceFormData) => {
     try {
       setError('');
-      // Actual call: await scheduleMaintenance.mutateAsync(data);
-      await requestAsset.mutateAsync(data as unknown as RequestFormData);
+      await scheduleMaintenance.mutateAsync(data);
       onClose();
     } catch (err: unknown) {
       setError((err as Error).message ?? 'Something went wrong');
@@ -516,7 +530,7 @@ const MaintenanceModal = ({ open, onClose, assets }: MaintenanceModalProps) => {
 
         <ModalActions>
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
-          <Button type="submit" loading={isSubmitting} icon={<Wrench size={16} />}>
+          <Button type="submit" loading={isSubmitting || scheduleMaintenance.isPending} icon={<Wrench size={16} />}>
             Schedule
           </Button>
         </ModalActions>
@@ -638,6 +652,61 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
   );
 };
 
+// ── Manage Categories Modal ───────────────────────────────────────────────────
+
+interface CategoryManageModalProps {
+  open: boolean;
+  onClose: () => void;
+  categories: AssetCategory[];
+}
+
+const CategoryManageModal = ({ open, onClose, categories }: CategoryManageModalProps) => {
+  const createCategory = useCreateCategory();
+  const [name, setName] = useState('');
+  const [err, setErr] = useState('');
+
+  const handleAdd = async () => {
+    if (!name.trim()) { setErr('Category name is required'); return; }
+    try {
+      setErr('');
+      await createCategory.mutateAsync({ name: name.trim() });
+      setName('');
+    } catch (e: unknown) { setErr((e as Error).message ?? 'Failed to create'); }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Manage Categories" size="sm">
+      <div className="space-y-4">
+        {err && <Alert type="error" message={err} />}
+        <div className="flex gap-2">
+          <input
+            className="form-input flex-1"
+            placeholder="New category name…"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAdd(); } }}
+          />
+          <Button size="sm" onClick={handleAdd} loading={createCategory.isPending} icon={<Plus size={14} />}>
+            Add
+          </Button>
+        </div>
+        {categories.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center py-4">No categories yet. Add one above.</p>
+        ) : (
+          <ul className="divide-y divide-gray-100 max-h-56 overflow-y-auto rounded-lg border border-gray-200">
+            {categories.map((c) => (
+              <li key={c.id} className="px-3 py-2 text-sm text-gray-800">{c.name}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <ModalActions>
+        <Button variant="outline" onClick={onClose}>Close</Button>
+      </ModalActions>
+    </Modal>
+  );
+};
+
 // ── Inventory Tab ─────────────────────────────────────────────────────────────
 
 interface InventoryTabProps {
@@ -650,6 +719,7 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editAsset, setEditAsset] = useState<Asset | null>(null);
   const [retireTarget, setRetireTarget] = useState<Asset | null>(null);
+  const [catModalOpen, setCatModalOpen] = useState(false);
 
   const filterParams = useMemo(() => {
     const p: Record<string, string> = {};
@@ -713,9 +783,14 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h3 className="text-sm font-semibold text-gray-900">Asset Inventory</h3>
-          <Button size="sm" icon={<Plus size={14} />} onClick={() => { setEditAsset(null); setModalOpen(true); }}>
-            Add Asset
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" icon={<Tag size={14} />} onClick={() => setCatModalOpen(true)}>
+              Categories {categories.length > 0 && <span className="ml-1 text-xs text-gray-500">({categories.length})</span>}
+            </Button>
+            <Button size="sm" icon={<Plus size={14} />} onClick={() => { setEditAsset(null); setModalOpen(true); }}>
+              Add Asset
+            </Button>
+          </div>
         </div>
 
         {isLoading ? (
@@ -790,6 +865,12 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
         open={modalOpen}
         onClose={closeModal}
         asset={editAsset}
+        categories={categories}
+      />
+
+      <CategoryManageModal
+        open={catModalOpen}
+        onClose={() => setCatModalOpen(false)}
         categories={categories}
       />
 

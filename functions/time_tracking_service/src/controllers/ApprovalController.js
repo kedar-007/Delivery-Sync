@@ -22,7 +22,7 @@ class ApprovalController {
     // Enrich with entry details
     for (const a of approvals) {
       const entry = await this.db.findById(TABLES.TIME_ENTRIES, a.time_entry_id, req.tenantId);
-      const userRows = await this.db.query(`SELECT name, email FROM ${TABLES.USERS} WHERE ROWID = '${a.requested_by}' LIMIT 1`);
+      const userRows = await this.db.query(`SELECT name, email, avatar_url FROM ${TABLES.USERS} WHERE ROWID = '${a.requested_by}' LIMIT 1`);
       a.entry      = entry;
       a.requester  = userRows[0] || null;
     }

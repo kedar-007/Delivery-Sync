@@ -89,18 +89,37 @@ class ProfileController {
     try {
       const profiles = await this.db.findWhere(TABLES.USER_PROFILES, req.tenantId, '', { orderBy: 'CREATEDTIME ASC', limit: 200 });
       const users    = await this.db.findAll(TABLES.USERS, { tenant_id: req.tenantId }, { limit: 200 });
+
+      // Build user lookup map (id → user row)
       const userMap  = {};
       users.forEach(u => { userMap[String(u.ROWID)] = u; });
+
+      // Collect unique manager IDs from profiles
+      const managerIds = [...new Set(
+        profiles.map(p => p.reporting_manager_id).filter(Boolean).map(String)
+      )];
+
+      // Build manager lookup: manager user_id → { name, avatar_url }
+      const managerMap = {};
+      managerIds.forEach(mid => {
+        const mu = userMap[mid];
+        if (mu) managerMap[mid] = { name: mu.name || '', avatar_url: mu.avatar_url || '' };
+      });
+
       return ResponseHelper.success(res, profiles.map(p => {
-        const u = userMap[String(p.user_id)] || null;
+        const u   = userMap[String(p.user_id)] || null;
+        const mid = p.reporting_manager_id ? String(p.reporting_manager_id) : null;
+        const mgr = mid ? managerMap[mid] : null;
         return {
           ...p,
           user: u,
-          name:        (u && u.name)       || p.name       || '',
-          email:       (u && u.email)      || p.email      || '',
-          // expose avatar_url so frontend can use it directly
-          avatar_url:  (u && u.avatar_url) || p.photo_url  || '',
-          skills:      this._parse(p.skills, []),
+          name:              (u && u.name)       || p.name       || '',
+          email:             (u && u.email)      || p.email      || '',
+          avatar_url:        (u && u.avatar_url) || p.photo_url  || '',
+          skills:            this._parse(p.skills, []),
+          // Manager info
+          manager_name:      mgr ? mgr.name      : null,
+          manager_avatar_url: mgr ? mgr.avatar_url : null,
         };
       }));
     } catch (err) {
@@ -128,11 +147,16 @@ class ProfileController {
         ? process.env.STRATUS_BASE_URL
         : (process.env.RESUME_BASE_URL || process.env.STRATUS_BASE_URL);
 
+      const fs      = require('fs');
       const stratus = catalystApp.stratus();
       const bucket  = stratus.bucket(bucketName);
       const key     = `${fileType}s/${req.currentUser.id}/${Date.now()}_${file.name}`;
 
-      await bucket.putObject({ key, file: file.tempFilePath || file.path });
+      const readStream = fs.createReadStream(file.tempFilePath || file.path);
+      await bucket.putObject(key, readStream, {
+        overwrite: true,
+        contentType: file.mimetype || 'application/octet-stream',
+      });
 
       const url = `${baseUrl}/${key}`;
 

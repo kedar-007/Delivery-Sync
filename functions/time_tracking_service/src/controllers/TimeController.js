@@ -15,7 +15,7 @@ class TimeController {
 
   // GET /api/time/entries?project_id=&user_id=&date_from=&date_to=&status=&is_billable=
   async list(req, res) {
-    const { project_id, user_id, date_from, date_to, status, is_billable } = req.query;
+    const { project_id, task_id, user_id, date_from, date_to, status, is_billable } = req.query;
     const tenantId = req.tenantId;
     const me = req.currentUser;
 
@@ -24,6 +24,7 @@ class TimeController {
     const effectiveUserId = (me.role === 'TEAM_MEMBER') ? me.id : (user_id || null);
     if (effectiveUserId) where += `user_id = '${DataStoreService.escape(effectiveUserId)}' AND `;
     if (project_id) where += `project_id = '${DataStoreService.escape(project_id)}' AND `;
+    if (task_id)    where += `task_id = '${DataStoreService.escape(task_id)}' AND `;
     if (status)     where += `status = '${DataStoreService.escape(status)}' AND `;
     if (is_billable !== undefined) where += `is_billable = '${is_billable === 'true' ? 'true' : 'false'}' AND `;
     if (date_from)  where += `entry_date >= '${DataStoreService.escape(date_from)}' AND `;
@@ -69,7 +70,7 @@ class TimeController {
     if (date_to)    where += `entry_date <= '${DataStoreService.escape(date_to)}' AND `;
     where = where.replace(/ AND $/, '');
 
-    const entries = await this.db.findWhere(TABLES.TIME_ENTRIES, tenantId, where, { limit: 1000 });
+    const entries = await this.db.findWhere(TABLES.TIME_ENTRIES, tenantId, where, { limit: 200 });
 
     // Aggregate per user
     const byUser = {};

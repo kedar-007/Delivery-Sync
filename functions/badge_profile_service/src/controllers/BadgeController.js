@@ -37,26 +37,38 @@ class BadgeController {
 
       let logo_url = '';
 
-      // FILE UPLOAD (INLINE)
+      // FILE UPLOAD via Catalyst Stratus (non-fatal — badge still creates if upload fails)
       if (req.files && req.files.file) {
-        const file = req.files.file;
+        try {
+          const file = req.files.file;
+          const fs = require('fs');
 
-        const stratus = catalystApp.stratus();
-        const bucket = stratus.bucket(process.env.STRATUS_BUCKET_NAME);
+          const stratus = catalystApp.stratus();
+          const bucketName = process.env.STRATUS_BUCKET_NAME || 'badge-assets';
+          const bucket = stratus.bucket(bucketName);
+          const key = `badges/${Date.now()}_${file.name}`;
 
-        const key = `badges/${Date.now()}_${file.name}`;
+          const readStream = fs.createReadStream(file.tempFilePath || file.path);
+          await bucket.putObject(key, readStream, {
+            overwrite: true,
+            contentType: file.mimetype || 'image/jpeg',
+          });
 
-        const uploadResult = await bucket.putObject({
-          key,
-          file: file.tempFilePath || file.path,
-        });
+          // Get bucket URL from details, fall back to env var
+          let baseUrl = process.env.STRATUS_BASE_URL || '';
+          try {
+            const details = await bucket.getDetails();
+            if (details.bucket_url) baseUrl = details.bucket_url.replace(/\/$/, '');
+          } catch (_) { /* use env fallback */ }
 
-        console.log('[BadgeController] Stratus upload result:', uploadResult);
-
-        logo_url = `${process.env.STRATUS_BASE_URL}/${key}`;
+          logo_url = `${baseUrl}/${key}`;
+          console.log('[BadgeController] Stratus uploaded:', key, '->', logo_url);
+        } catch (uploadErr) {
+          console.error('[BadgeController] Stratus upload failed (badge still created):', uploadErr.message);
+        }
       }
 
-      // INSERT (BIGINT AS STRING — IMPORTANT)
+      // INSERT — use string 'true'/'false' for boolean columns
       const row = await this.db.insert(TABLES.BADGE_DEFINITIONS, {
         tenant_id: String(req.tenantId),
         name,
@@ -64,10 +76,11 @@ class BadgeController {
         level: level || 'BRONZE',
         description: description || '',
         logo_url,
+        icon_emoji: icon_emoji || '🏅',
         criteria: criteria || '',
-        is_auto_awardable: false,
+        is_auto_awardable: 'false',
         auto_award_config: JSON.stringify({}),
-        is_active: true,
+        is_active: 'true',
         created_by: String(req.currentUser.id)
       });
 
@@ -103,7 +116,7 @@ class BadgeController {
     if (!user_id || !reason) return ResponseHelper.validationError(res, 'user_id and reason required');
     console.log("Badge Id and tenant--",req.params.badgeId,req.tenantId);
     const badge = await this.db.findById(TABLES.BADGE_DEFINITIONS, req.params.badgeId, req.tenantId);
-    if (!badge || badge.is_active !== true) return ResponseHelper.notFound(res, 'Badge not found or inactive');
+    if (!badge || (badge.is_active !== true && badge.is_active !== 'true')) return ResponseHelper.notFound(res, 'Badge not found or inactive');
     const row = await this.db.insert(TABLES.USER_BADGES, {
       tenant_id: req.tenantId, user_id, badge_id: req.params.badgeId,
       awarded_by: req.currentUser.id, reason,
@@ -132,30 +145,48 @@ class BadgeController {
       const awards = await this.db.findWhere(TABLES.USER_BADGES, req.tenantId, `is_public = 'true'`, { limit: 200 });
       const byUser = {};
       for (const a of awards) {
-        if (!byUser[a.user_id]) byUser[a.user_id] = { user_id: a.user_id, badge_count: 0 };
+        if (!byUser[a.user_id]) byUser[a.user_id] = { user_id: a.user_id, badge_count: 0, award_ids: [] };
         byUser[a.user_id].badge_count++;
+        byUser[a.user_id].award_ids.push(a);
       }
       const sorted = Object.values(byUser).sort((a, b) => b.badge_count - a.badge_count).slice(0, 20);
       if (sorted.length === 0) return ResponseHelper.success(res, []);
 
-      // Enrich with user info
-      const users = await this.db.findAll(TABLES.USERS, { tenant_id: req.tenantId }, { limit: 200 });
-      const profiles = await this.db.findWhere(TABLES.USER_PROFILES, req.tenantId, '', { limit: 200 });
+      // Enrich with user info, profile info, and badge definitions
+      const [users, profiles, badgeDefs] = await Promise.all([
+        this.db.findAll(TABLES.USERS, { tenant_id: req.tenantId }, { limit: 200 }),
+        this.db.findWhere(TABLES.USER_PROFILES, req.tenantId, '', { limit: 200 }),
+        this.db.findWhere(TABLES.BADGE_DEFINITIONS, req.tenantId, '', { limit: 200 }),
+      ]);
       const userMap = {};
       users.forEach(u => { userMap[String(u.ROWID)] = u; });
       const profileMap = {};
       profiles.forEach(p => { profileMap[String(p.user_id)] = p; });
+      const badgeDefMap = {};
+      badgeDefs.forEach(b => { badgeDefMap[String(b.ROWID)] = b; });
 
       const enriched = sorted.map(entry => {
         const u = userMap[String(entry.user_id)] || {};
         const p = profileMap[String(entry.user_id)] || {};
+        const badges = entry.award_ids.map(a => {
+          const def = badgeDefMap[String(a.badge_id)] || {};
+          return {
+            award_id: String(a.ROWID),
+            badge_id: String(a.badge_id),
+            name: def.name || '',
+            logo_url: def.logo_url || '',
+            icon_emoji: def.icon_emoji || '🏅',
+          };
+        });
         return {
-          ...entry,
+          user_id: entry.user_id,
+          badge_count: entry.badge_count,
           name: u.name || 'Unknown',
           email: u.email || '',
           avatar_url: u.avatar_url || p.photo_url || '',
           designation: p.designation || '',
           department: p.department || '',
+          badges,
         };
       });
       return ResponseHelper.success(res, enriched);

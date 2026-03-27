@@ -1,11 +1,13 @@
 'use strict';
-const express = require('express');
-const routes  = require('./index');
+const express    = require('express');
+const fileUpload = require('express-fileupload');
+const routes     = require('./index');
 const ResponseHelper = require('./utils/ResponseHelper');
 const app = express();
 const PREFIX = '/server/asset_service';
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use(fileUpload({ useTempFiles: true, tempFileDir: '/tmp/' }));
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');

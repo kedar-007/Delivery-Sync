@@ -35,6 +35,15 @@ export const useCreateBadge = () => {
   });
 };
 
+export const useUploadProfileFile = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ file, type }: { file: File; type: 'resume' | 'photo' }) =>
+      profilesApi.uploadFile(file, type),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['profiles'] }),
+  });
+};
+
 export const useAwardBadge = () => {
   const qc = useQueryClient();
 

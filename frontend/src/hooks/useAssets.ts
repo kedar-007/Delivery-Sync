@@ -81,8 +81,19 @@ const applyNorm = <T>(norm: (r: unknown) => T) =>
   };
 
 // ── Hooks ─────────────────────────────────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const normaliseCategory = (r: any) => ({ ...r, id: String(r.ROWID ?? r.id ?? '') });
+
 export const useAssetCategories = () =>
-  useQuery({ queryKey: ['assets', 'categories'], queryFn: () => assetsApi.categories.list() });
+  useQuery({ queryKey: ['assets', 'categories'], queryFn: () => assetsApi.categories.list().then(applyNorm(normaliseCategory)) });
+
+export const useCreateCategory = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: unknown) => assetsApi.categories.create(data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assets', 'categories'] }),
+  });
+};
 
 export const useAssetInventory = (params?: Record<string, string>) =>
   useQuery({
@@ -167,3 +178,11 @@ export const useAssetMaintenance = (params?: Record<string, string>) =>
     queryKey: ['assets', 'maintenance', params],
     queryFn: () => assetsApi.maintenance.list(params).then(applyNorm(normaliseMaintenance)),
   });
+
+export const useScheduleMaintenance = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: unknown) => assetsApi.maintenance.schedule(data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assets', 'maintenance'] }),
+  });
+};

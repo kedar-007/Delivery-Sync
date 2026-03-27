@@ -66,6 +66,26 @@ class AssetController {
     const existing = await this.db.findWhere(TABLES.ASSETS, req.tenantId, `asset_tag = '${DataStoreService.escape(asset_tag)}'`, { limit: 1 });
     if (existing.length > 0) return ResponseHelper.conflict(res, 'Asset tag already exists');
 
+    // Image upload via Catalyst Stratus (non-fatal)
+    let image_url = '';
+    if (req.files && req.files.image) {
+      try {
+        const catalyst = require('zcatalyst-sdk-node');
+        const catalystApp = catalyst.initialize(req);
+        const fs = require('fs');
+        const file = req.files.image;
+        const stratus = catalystApp.stratus();
+        const bucket = stratus.bucket(process.env.STRATUS_BUCKET_NAME || 'asset-images');
+        const key = `assets/${Date.now()}_${file.name}`;
+        await bucket.putObject(key, fs.createReadStream(file.tempFilePath || file.path), {
+          overwrite: true, contentType: file.mimetype || 'image/jpeg',
+        });
+        let baseUrl = process.env.STRATUS_BASE_URL || '';
+        try { const d = await bucket.getDetails(); if (d.bucket_url) baseUrl = d.bucket_url.replace(/\/$/, ''); } catch (_) {}
+        image_url = `${baseUrl}/${key}`;
+      } catch (e) { console.error('[AssetController] image upload failed:', e.message); }
+    }
+
     const insertData = {
       tenant_id:       String(req.tenantId),
       category_id:     String(category_id),
@@ -79,7 +99,7 @@ class AssetController {
       status:          ASSET_STATUS.AVAILABLE,
       asset_condition: 'GOOD',
       location:        location || '',
-      document_url:    '',
+      document_url:    image_url,
       notes:           notes || '',
       assigned_to:     '0',
       created_by:      String(req.currentUser.id),
@@ -96,11 +116,31 @@ class AssetController {
   async updateAsset(req, res) {
     const asset = await this.db.findById(TABLES.ASSETS, req.params.assetId, req.tenantId);
     if (!asset) return ResponseHelper.notFound(res, 'Asset not found');
-    const allowed = ['name', 'serial_number', 'brand', 'model', 'purchase_value', 'current_value', 'warranty_expiry', 'location', 'notes'];
+    const allowed = ['name', 'serial_number', 'brand', 'model', 'purchase_value', 'current_value', 'warranty_expiry', 'location', 'notes', 'status'];
     const updates = {};
     allowed.forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
     if (req.body.asset_condition !== undefined) updates.asset_condition = req.body.asset_condition;
     if (req.body.condition !== undefined) updates.asset_condition = req.body.condition;
+
+    // Image upload via Catalyst Stratus (non-fatal)
+    if (req.files && req.files.image) {
+      try {
+        const catalyst = require('zcatalyst-sdk-node');
+        const catalystApp = catalyst.initialize(req);
+        const fs = require('fs');
+        const file = req.files.image;
+        const stratus = catalystApp.stratus();
+        const bucket = stratus.bucket(process.env.STRATUS_BUCKET_NAME || 'asset-images');
+        const key = `assets/${Date.now()}_${file.name}`;
+        await bucket.putObject(key, fs.createReadStream(file.tempFilePath || file.path), {
+          overwrite: true, contentType: file.mimetype || 'image/jpeg',
+        });
+        let baseUrl = process.env.STRATUS_BASE_URL || '';
+        try { const d = await bucket.getDetails(); if (d.bucket_url) baseUrl = d.bucket_url.replace(/\/$/, ''); } catch (_) {}
+        updates.document_url = `${baseUrl}/${key}`;
+      } catch (e) { console.error('[AssetController] image upload failed:', e.message); }
+    }
+
     const updated = await this.db.update(TABLES.ASSETS, { ROWID: req.params.assetId, ...updates });
     await this.audit.log({ tenantId: req.tenantId, entityType: 'ASSET', entityId: req.params.assetId, action: AUDIT_ACTION.UPDATE, oldValue: asset, newValue: updated, performedBy: req.currentUser.id });
     return ResponseHelper.success(res, updated);

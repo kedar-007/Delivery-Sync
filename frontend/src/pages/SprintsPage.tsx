@@ -13,8 +13,10 @@ import Card from '../components/ui/Card';
 import EmptyState from '../components/ui/EmptyState';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import Alert from '../components/ui/Alert';
+import { useQueries } from '@tanstack/react-query';
 import { useProjects } from '../hooks/useProjects';
 import { useSprints } from '../hooks/useTaskSprint';
+import { sprintsApi } from '../lib/api';
 
 // ── Per-project sprint list ──────────────────────────────────────────────────
 
@@ -25,7 +27,7 @@ interface Sprint {
   startDate?: string;
   endDate?: string;
   capacityPoints?: number;
-  totalPoints?: number;
+  completedPoints?: number;
 }
 
 interface Project {
@@ -106,8 +108,8 @@ function ProjectSprintCard({ project, tenantSlug }: { project: Project; tenantSl
           const sd = safeDate(sprint.startDate);
           const ed = safeDate(sprint.endDate);
           const isOverdue = ed && sprint.status !== 'COMPLETED' && isPast(ed);
-          const pct = sprint.capacityPoints && sprint.totalPoints
-            ? Math.min(100, Math.round((sprint.totalPoints / sprint.capacityPoints) * 100))
+          const pct = sprint.capacityPoints && sprint.completedPoints != null
+            ? Math.min(100, Math.round(((sprint.completedPoints ?? 0) / sprint.capacityPoints) * 100))
             : null;
 
           return (
@@ -143,7 +145,7 @@ function ProjectSprintCard({ project, tenantSlug }: { project: Project; tenantSl
               {pct !== null && (
                 <div className="mt-1.5">
                   <div className="flex justify-between text-[10px] text-gray-400 mb-0.5">
-                    <span>{sprint.totalPoints} / {sprint.capacityPoints} pts</span>
+                    <span>{sprint.completedPoints ?? 0} / {sprint.capacityPoints} pts</span>
                     <span>{pct}%</span>
                   </div>
                   <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
@@ -177,15 +179,55 @@ function ProjectSprintCard({ project, tenantSlug }: { project: Project; tenantSl
 
 // ── Stats bar ─────────────────────────────────────────────────────────────────
 
-function StatsBar({ projects, tenantSlug }: { projects: Project[]; tenantSlug: string }) {
+function StatsBar({ projects }: { projects: Project[] }) {
+  const sprintQueries = useQueries({
+    queries: projects.map((p) => ({
+      queryKey: ['sprints', p.id],
+      queryFn: () => sprintsApi.list(p.id),
+      enabled: !!p.id,
+      staleTime: 60_000,
+    })),
+  });
+
+  const { activeSprints, totalTasks, teamMembers } = useMemo(() => {
+    let activeSprints = 0;
+    let totalTasks = 0;
+    const memberSet = new Set<string>();
+
+    sprintQueries.forEach((q) => {
+      if (!q.data) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const raw = (q.data as any)?.data ?? q.data;
+      const list: Sprint[] = Array.isArray(raw) ? raw : [];
+      list.forEach((s) => {
+        if (s.status === 'ACTIVE') activeSprints++;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const tasks = (s as any).tasks;
+        if (Array.isArray(tasks)) {
+          totalTasks += tasks.length;
+          tasks.forEach((t: any) => {
+            if (t.assignee_id || t.assigneeId) memberSet.add(String(t.assignee_id ?? t.assigneeId));
+            if (Array.isArray(t.assigneeIds)) t.assigneeIds.forEach((id: string) => memberSet.add(id));
+          });
+        }
+      });
+    });
+
+    return { activeSprints, totalTasks, teamMembers: memberSet.size };
+  }, [sprintQueries]);
+
+  const loading = sprintQueries.some((q) => q.isLoading);
+
+  const stats = [
+    { label: 'Projects',      value: projects.length, icon: <Layers size={16} className="text-indigo-500" /> },
+    { label: 'Active Sprints', value: loading ? '…' : activeSprints, icon: <Play size={16} className="text-green-500" /> },
+    { label: 'Total Tasks',    value: loading ? '…' : (totalTasks || '–'), icon: <BarChart2 size={16} className="text-amber-500" /> },
+    { label: 'Team Members',   value: loading ? '…' : (teamMembers || '–'), icon: <Users size={16} className="text-blue-500" /> },
+  ];
+
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-      {[
-        { label: 'Projects', value: projects.length, icon: <Layers size={16} className="text-indigo-500" /> },
-        { label: 'Active Sprints', value: '–', icon: <Play size={16} className="text-green-500" /> },
-        { label: 'Total Tasks', value: '–', icon: <BarChart2 size={16} className="text-amber-500" /> },
-        { label: 'Team Members', value: '–', icon: <Users size={16} className="text-blue-500" /> },
-      ].map((s) => (
+      {stats.map((s) => (
         <div key={s.label} className="bg-white border border-gray-100 rounded-xl p-3 flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center">{s.icon}</div>
           <div>
@@ -232,7 +274,7 @@ export default function SprintsPage() {
       <div className="p-6 space-y-5">
         {error && <Alert type="error" message={(error as Error).message} />}
 
-        <StatsBar projects={projects} tenantSlug={tenantSlug!} />
+        <StatsBar projects={projects} />
 
         {/* Search */}
         <div className="relative max-w-sm">

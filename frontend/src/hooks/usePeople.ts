@@ -24,7 +24,7 @@ const normaliseAttendance = (r: any) => ({
   overrideReason:      r.override_reason   ?? r.overrideReason ?? '',
   overriddenBy:        r.overridden_by     ?? r.overriddenBy   ?? null,
   createdBy:           r.CREATORID         ?? r.created_by     ?? r.createdBy,
-  createdAt:           r.CREATEDTIME       ?? r.created_at     ?? r.createdAt,
+  createdAt:           (() => { const raw = r.CREATEDTIME ?? r.created_at ?? r.createdAt; if (!raw) return null; const n = Number(raw); return (!isNaN(n) && n > 946684800000) ? new Date(n).toISOString() : String(raw); })(),
   updatedAt:           r.MODIFIEDTIME      ?? r.updated_at     ?? r.updatedAt,
   // enriched fields from backend
   name:                r.name              ?? '',
@@ -64,19 +64,22 @@ const normaliseLeave = (r: any) => {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const normaliseLeaveBalance = (r: any) => {
   const lt = r.leave_type ?? r.leaveType ?? null;
-  const allocated  = parseFloat(r.allocated_days  ?? r.total_days    ?? r.allocated    ?? r.totalDays    ?? 0);
+  // Support both DB column names: allocated_days (actual) and total_allocated (legacy code)
+  const allocated  = parseFloat(r.allocated_days  ?? r.total_allocated ?? r.total_days ?? r.allocated ?? r.totalDays ?? 0);
   const used       = parseFloat(r.used_days        ?? r.used          ?? r.usedDays     ?? 0);
   const pending    = parseFloat(r.pending_days     ?? r.pending       ?? r.pendingDays  ?? 0);
-  const remaining  = parseFloat(r.remaining_days   ?? r.remaining     ?? r.remainingDays ?? allocated - used - pending);
+  const remaining  = parseFloat(r.remaining_days   ?? r.remaining     ?? r.remainingDays ?? Math.max(0, allocated - used - pending));
   return {
     ...r,
     id:             String(r.ROWID ?? r.id ?? ''),
     leaveTypeId:    r.leave_type_id  ?? r.leaveTypeId,
     leaveTypeName:  (lt && lt.name)  ?? r.leave_type_name ?? r.leaveTypeName ?? '',
     allocated,
+    total_allocated: allocated,
     used,
     pending,
     remaining,
+    total_available: Math.max(0, allocated - used),
     // legacy aliases
     totalDays:      allocated,
     usedDays:       used,
@@ -101,9 +104,24 @@ const normaliseAnnouncement = (r: any) => ({
   expiresAt:     r.expires_at  ?? r.expiresAt  ?? null,
   targetRoles:   (() => { try { return JSON.parse(r.target_roles ?? r.targetRoles ?? '[]'); } catch { return []; } })(),
   targetUserIds: (() => { try { return JSON.parse(r.target_user_ids ?? r.targetUserIds ?? '[]'); } catch { return []; } })(),
+  subtype:     r.subtype     ?? r.announcement_subtype ?? 'GENERAL',
+  festivalKey: r.festival_key ?? r.festivalKey ?? null,
   createdBy:     r.CREATORID ?? r.created_by ?? r.createdBy ?? null,
-  createdAt:     r.CREATEDTIME ?? r.created_at ?? r.createdAt,
-  updatedAt:     r.MODIFIEDTIME ?? r.updated_at ?? r.updatedAt,
+  // Catalyst returns CREATEDTIME as Unix ms number — convert to ISO string
+  createdAt:     (() => {
+    const raw = r.CREATEDTIME ?? r.created_at ?? r.createdAt;
+    if (!raw) return null;
+    const n = Number(raw);
+    if (!isNaN(n) && n > 946684800000) return new Date(n).toISOString();
+    return String(raw);
+  })(),
+  updatedAt:     (() => {
+    const raw = r.MODIFIEDTIME ?? r.updated_at ?? r.updatedAt;
+    if (!raw) return null;
+    const n = Number(raw);
+    if (!isNaN(n) && n > 946684800000) return new Date(n).toISOString();
+    return String(raw);
+  })(),
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
