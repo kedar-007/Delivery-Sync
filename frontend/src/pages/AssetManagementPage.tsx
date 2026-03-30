@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import {
   Package, Plus, Edit2, Wrench, CheckCircle2, XCircle,
   RotateCcw, AlertTriangle, Calendar, Tag, Upload, ChevronRight, MapPin,
+  Eye, Clock, User, FileText, Hash,
 } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 import { useForm } from 'react-hook-form';
@@ -16,6 +17,7 @@ import Badge from '../components/ui/Badge';
 import EmptyState from '../components/ui/EmptyState';
 import { SkeletonTable, SkeletonCard } from '../components/ui/Skeleton';
 import { useAuth } from '../contexts/AuthContext';
+import UserAvatar from '../components/ui/UserAvatar';
 import {
   useAssetCategories, useCreateCategory, useAssetInventory, useAvailableAssets, useMyAssets,
   useCreateAsset, useUpdateAsset, useBulkCreateAssets,
@@ -62,11 +64,16 @@ interface AssetRequest {
   categoryName?: string;
   assetId?: string;
   assetName?: string;
+  assetTag?: string;
   reason: string;
   priority: Priority;
   status: RequestStatus;
   requestedBy?: string;
   requestedByName?: string;
+  requestedByEmail?: string;
+  requestedByAvatar?: string;
+  neededBy?: string | null;
+  reqNotes?: string | null;
   createdAt?: string;
   notes?: string;
 }
@@ -1325,6 +1332,129 @@ interface RequestsTabProps {
   availableAssets: Asset[];
 }
 
+// ── Request Detail Modal ──────────────────────────────────────────────────────
+
+function RequestDetailModal({ req, open, onClose, onApprove, onReject, isAdmin, approving }: {
+  req: AssetRequest | null;
+  open: boolean;
+  onClose: () => void;
+  onApprove: (id: string) => void;
+  onReject: (id: string) => void;
+  isAdmin: boolean;
+  approving: boolean;
+}) {
+  if (!req) return null;
+
+  const statusColors: Record<string, string> = {
+    PENDING:   'bg-amber-50 text-amber-700 border-amber-200',
+    APPROVED:  'bg-green-50 text-green-700 border-green-200',
+    REJECTED:  'bg-red-50 text-red-700 border-red-200',
+    FULFILLED: 'bg-blue-50 text-blue-700 border-blue-200',
+    CANCELLED: 'bg-gray-50 text-gray-600 border-gray-200',
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Request Details" size="md">
+      <div className="space-y-5">
+        {/* Status + Priority bar */}
+        <div className="flex items-center gap-2">
+          <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${statusColors[req.status] ?? 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+            {req.status}
+          </span>
+          <Badge variant={priorityVariant(req.priority)}>{req.priority || 'NORMAL'}</Badge>
+          <span className="text-xs text-gray-400 ml-auto">
+            Submitted {safeFormat(req.createdAt, 'MMM d, yyyy · hh:mm a')}
+          </span>
+        </div>
+
+        {/* Requester */}
+        <div className="bg-gray-50 rounded-xl p-4">
+          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+            <User size={12} /> Requested By
+          </p>
+          <div className="flex items-center gap-3">
+            <UserAvatar name={req.requestedByName ?? ''} avatarUrl={req.requestedByAvatar ?? undefined} size="md" />
+            <div>
+              <p className="text-sm font-semibold text-gray-900">{req.requestedByName ?? '—'}</p>
+              {req.requestedByEmail && <p className="text-xs text-gray-500">{req.requestedByEmail}</p>}
+            </div>
+          </div>
+        </div>
+
+        {/* Category + Asset */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-gray-50 rounded-xl p-4">
+            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
+              <Tag size={12} /> Category
+            </p>
+            <p className="text-sm font-semibold text-gray-900">{req.categoryName ?? '—'}</p>
+          </div>
+          <div className="bg-gray-50 rounded-xl p-4">
+            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
+              <Package size={12} /> Asset
+            </p>
+            <p className="text-sm font-semibold text-gray-900">{req.assetName ?? 'Any available'}</p>
+            {req.assetTag && <p className="text-xs text-gray-400 font-mono mt-0.5">{req.assetTag}</p>}
+          </div>
+        </div>
+
+        {/* Reason */}
+        <div>
+          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
+            <FileText size={12} /> Reason
+          </p>
+          <p className="text-sm text-gray-700 bg-gray-50 rounded-xl p-4 leading-relaxed">{req.reason || '—'}</p>
+        </div>
+
+        {/* Needed By + Notes */}
+        {(req.neededBy || req.reqNotes) && (
+          <div className="grid grid-cols-1 gap-3">
+            {req.neededBy && (
+              <div className="flex items-center gap-3 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
+                <Calendar size={15} className="text-blue-500 shrink-0" />
+                <div>
+                  <p className="text-xs text-blue-500 font-medium">Needed By</p>
+                  <p className="text-sm font-semibold text-blue-800">
+                    {(() => { try { return format(parseISO(req.neededBy!), 'MMMM d, yyyy'); } catch { return req.neededBy; } })()}
+                  </p>
+                </div>
+              </div>
+            )}
+            {req.reqNotes && (
+              <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
+                <p className="text-xs text-amber-600 font-medium mb-1">Additional Notes</p>
+                <p className="text-sm text-amber-900">{req.reqNotes}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Admin actions */}
+        {isAdmin && req.status === 'PENDING' && (
+          <div className="flex gap-3 pt-1 border-t border-gray-100">
+            <Button
+              className="flex-1 justify-center bg-green-600 hover:bg-green-700 text-white"
+              icon={<CheckCircle2 size={15} />}
+              onClick={() => { onApprove(req.id); onClose(); }}
+              loading={approving}
+            >
+              Approve Request
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-1 justify-center text-red-600 border-red-300 hover:bg-red-50"
+              icon={<XCircle size={15} />}
+              onClick={() => { onReject(req.id); onClose(); }}
+            >
+              Reject
+            </Button>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 const RequestsTab = ({ isAdmin, categories, availableAssets }: RequestsTabProps) => {
   const params = useMemo<Record<string, string>>(() => {
     const p: Record<string, string> = {};
@@ -1333,8 +1463,9 @@ const RequestsTab = ({ isAdmin, categories, availableAssets }: RequestsTabProps)
   }, [isAdmin]);
   const { data: requests = [], isLoading, error } = useAssetRequests(params);
   const approveRequest = useApproveAssetRequest();
-  const rejectRequest = useRejectAssetRequest();
-  const [rejectTarget, setRejectTarget] = useState<string | null>(null);
+  const rejectRequest  = useRejectAssetRequest();
+  const [rejectTarget,  setRejectTarget]  = useState<string | null>(null);
+  const [detailReq,     setDetailReq]     = useState<AssetRequest | null>(null);
   const [requestModalOpen, setRequestModalOpen] = useState(false);
 
   const handleApprove = async (id: string) => {
@@ -1350,6 +1481,8 @@ const RequestsTab = ({ isAdmin, categories, availableAssets }: RequestsTabProps)
   if (isLoading) return <SkeletonTable rows={4} />;
   if (error) return <Alert type="error" message={(error as Error).message} />;
 
+  const reqList = requests as AssetRequest[];
+
   return (
     <div className="space-y-4">
       {!isAdmin && (
@@ -1361,13 +1494,14 @@ const RequestsTab = ({ isAdmin, categories, availableAssets }: RequestsTabProps)
       )}
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-900">
             {isAdmin ? 'Pending Asset Requests' : 'My Requests'}
           </h3>
+          <span className="text-xs text-gray-400">{reqList.length} request{reqList.length !== 1 ? 's' : ''}</span>
         </div>
 
-        {(requests as AssetRequest[]).length === 0 ? (
+        {reqList.length === 0 ? (
           <EmptyState
             icon={<Package size={36} />}
             title="No requests"
@@ -1381,73 +1515,83 @@ const RequestsTab = ({ isAdmin, categories, availableAssets }: RequestsTabProps)
             }
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-100">
-              <thead className="bg-gray-50">
-                <tr>
-                  {[
-                    ...(isAdmin ? ['Requested By'] : []),
-                    'Category', 'Asset', 'Reason', 'Priority', 'Status',
-                    ...(isAdmin ? ['Actions'] : ['Date']),
-                  ].map((h) => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {(requests as AssetRequest[]).map((req) => (
-                  <tr key={req.id} className="hover:bg-gray-50 transition-colors">
+          <div className="divide-y divide-gray-100">
+            {reqList.map((req) => (
+              <div
+                key={req.id}
+                className="px-5 py-4 flex items-center gap-4 hover:bg-gray-50 transition-colors cursor-pointer"
+                onClick={() => setDetailReq(req)}
+              >
+                {/* Requester avatar */}
+                {isAdmin && (
+                  <div className="shrink-0">
+                    <UserAvatar name={req.requestedByName ?? ''} avatarUrl={req.requestedByAvatar ?? undefined} size="md" />
+                  </div>
+                )}
+
+                {/* Main info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
                     {isAdmin && (
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
-                        {req.requestedByName ?? '—'}
-                      </td>
+                      <span className="text-sm font-semibold text-gray-900">{req.requestedByName ?? '—'}</span>
                     )}
-                    <td className="px-4 py-3 text-sm text-gray-700">{req.categoryName ?? '—'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{req.assetName ?? 'Any'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate" title={req.reason}>
-                      {req.reason}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={priorityVariant(req.priority)}>{req.priority}</Badge>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={requestStatusVariant(req.status)}>{req.status}</Badge>
-                    </td>
-                    {isAdmin ? (
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-green-600 border-green-300 hover:bg-green-50"
-                            icon={<CheckCircle2 size={14} />}
-                            onClick={() => handleApprove(req.id)}
-                            loading={approveRequest.isPending}
-                          >
-                            Approve
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-red-600 border-red-300 hover:bg-red-50"
-                            icon={<XCircle size={14} />}
-                            onClick={() => setRejectTarget(req.id)}
-                          >
-                            Reject
-                          </Button>
-                        </div>
-                      </td>
-                    ) : (
-                      <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
-                        {safeFormat(req.createdAt, 'MMM d, yyyy')}
-                      </td>
+                    <span className="text-xs text-gray-400">
+                      {isAdmin ? '·' : ''} {req.categoryName ?? 'Unknown category'}
+                    </span>
+                    {req.assetName && (
+                      <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Hash size={10} /> {req.assetName}
+                      </span>
                     )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                  </div>
+                  <p className="text-sm text-gray-700 truncate">{req.reason || '—'}</p>
+                  <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                    {req.neededBy && (
+                      <span className="text-xs text-blue-600 flex items-center gap-1">
+                        <Clock size={11} />
+                        Needed by {(() => { try { return format(parseISO(req.neededBy), 'MMM d'); } catch { return req.neededBy; } })()}
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-400">
+                      {safeFormat(req.createdAt, 'MMM d, yyyy')}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Priority + Status */}
+                <div className="shrink-0 flex flex-col items-end gap-2">
+                  <Badge variant={requestStatusVariant(req.status)}>{req.status}</Badge>
+                  <Badge variant={priorityVariant(req.priority)}>{req.priority || 'NORMAL'}</Badge>
+                </div>
+
+                {/* Admin action buttons */}
+                {isAdmin && req.status === 'PENDING' && (
+                  <div className="shrink-0 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-green-600 border-green-300 hover:bg-green-50"
+                      icon={<CheckCircle2 size={13} />}
+                      onClick={() => handleApprove(req.id)}
+                      loading={approveRequest.isPending}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-red-600 border-red-300 hover:bg-red-50"
+                      icon={<XCircle size={13} />}
+                      onClick={() => setRejectTarget(req.id)}
+                    >
+                      Reject
+                    </Button>
+                  </div>
+                )}
+
+                <Eye size={15} className="text-gray-300 shrink-0" />
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -1460,6 +1604,16 @@ const RequestsTab = ({ isAdmin, categories, availableAssets }: RequestsTabProps)
           availableAssets={availableAssets}
         />
       )}
+
+      <RequestDetailModal
+        req={detailReq}
+        open={detailReq !== null}
+        onClose={() => setDetailReq(null)}
+        onApprove={handleApprove}
+        onReject={(id) => { setDetailReq(null); setRejectTarget(id); }}
+        isAdmin={isAdmin}
+        approving={approveRequest.isPending}
+      />
 
       <RejectModal
         open={rejectTarget !== null}

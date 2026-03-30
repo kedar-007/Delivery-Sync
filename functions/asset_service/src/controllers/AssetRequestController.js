@@ -18,24 +18,80 @@ class AssetRequestController {
     let where = me.role === 'TEAM_MEMBER' ? `requested_by = '${me.id}'` : '';
     if (status) where += (where ? ' AND ' : '') + `status = '${DataStoreService.escape(status)}'`;
     const requests = await this.db.findWhere(TABLES.ASSET_REQUESTS, req.tenantId, where, { orderBy: 'CREATEDTIME DESC', limit: 100 });
-    return ResponseHelper.success(res, requests);
+
+    if (!requests.length) return ResponseHelper.success(res, []);
+
+    // Collect unique IDs for batch enrichment
+    const userIds     = [...new Set(requests.map((r) => r.requested_by).filter(Boolean))];
+    const categoryIds = [...new Set(requests.map((r) => r.category_id).filter(Boolean))];
+    const assetIds    = [...new Set(requests.map((r) => r.asset_id).filter(Boolean))];
+
+    const [users, categories, assets] = await Promise.all([
+      userIds.length
+        ? this.db.query(`SELECT ROWID, name, email, avatar_url FROM ${TABLES.USERS} WHERE ROWID IN (${userIds.map((id) => `'${id}'`).join(',')}) LIMIT 100`)
+        : [],
+      categoryIds.length
+        ? this.db.query(`SELECT ROWID, name FROM ${TABLES.ASSET_CATEGORIES} WHERE ROWID IN (${categoryIds.map((id) => `'${id}'`).join(',')}) LIMIT 100`)
+        : [],
+      assetIds.length
+        ? this.db.query(`SELECT ROWID, name, asset_tag FROM ${TABLES.ASSETS} WHERE ROWID IN (${assetIds.map((id) => `'${id}'`).join(',')}) LIMIT 100`)
+        : [],
+    ]);
+
+    const userMap     = Object.fromEntries(users.map((u) => [String(u.ROWID), u]));
+    const catMap      = Object.fromEntries(categories.map((c) => [String(c.ROWID), c]));
+    const assetMap    = Object.fromEntries(assets.map((a) => [String(a.ROWID), a]));
+
+    const enriched = requests.map((r) => {
+      const user     = userMap[String(r.requested_by)] ?? {};
+      const cat      = catMap[String(r.category_id)]   ?? {};
+      const asset    = assetMap[String(r.asset_id)]    ?? {};
+
+      // Parse embedded needed_by / notes from reason field
+      let cleanReason = r.reason ?? '';
+      let neededBy = null;
+      let reqNotes = null;
+      const nbMatch = cleanReason.match(/\nNeeded by: (.+?)(?:\n|$)/);
+      const notesMatch = cleanReason.match(/\nNotes: (.+?)(?:\n|$)/s);
+      if (nbMatch)    { neededBy   = nbMatch[1].trim();    cleanReason = cleanReason.replace(nbMatch[0], ''); }
+      if (notesMatch) { reqNotes   = notesMatch[1].trim(); cleanReason = cleanReason.replace(notesMatch[0], ''); }
+
+      return {
+        ...r,
+        reason:            cleanReason.trim(),
+        needed_by:         neededBy,
+        req_notes:         reqNotes,
+        requested_by_name: user.name  ?? null,
+        requested_by_email:user.email ?? null,
+        requested_by_avatar: user.avatar_url ?? null,
+        category_name:     cat.name   ?? null,
+        asset_name:        asset.name ?? null,
+        asset_tag:         asset.asset_tag ?? null,
+      };
+    });
+
+    return ResponseHelper.success(res, enriched);
   }
 
   async create(req, res) {
     const { category_id, reason, urgency, priority, asset_id, needed_by, notes } = req.body;
     if (!category_id || !reason) return ResponseHelper.validationError(res, 'category_id and reason required');
+
+    // Embed needed_by / notes into reason text (no schema columns required)
+    let fullReason = String(reason);
+    if (needed_by) fullReason += `\nNeeded by: ${needed_by}`;
+    if (notes)     fullReason += `\nNotes: ${notes}`;
+
     const insertData = {
       tenant_id:    String(req.tenantId),
       requested_by: String(req.currentUser.id),
       category_id:  String(category_id),
-      reason,
+      reason:       fullReason,
       urgency:      priority || urgency || 'NORMAL',
       status:       ASSET_REQ_STATUS.PENDING,
     };
     // Only set asset_id if a specific asset was chosen (avoid FK '0' violation)
     if (asset_id && String(asset_id) !== '0') insertData.asset_id = String(asset_id);
-    if (needed_by) insertData.needed_by = needed_by;
-    if (notes)     insertData.notes     = notes;
     const row = await this.db.insert(TABLES.ASSET_REQUESTS, insertData);
     await this.notif.sendInApp({ tenantId: req.tenantId, userId: req.currentUser.id, title: 'Asset Request Submitted', message: `Your asset request has been submitted`, type: NOTIFICATION_TYPE.ASSET_REQUEST_RAISED, entityType: 'ASSET_REQUEST', entityId: row.ROWID });
     await this.audit.log({ tenantId: req.tenantId, entityType: 'ASSET_REQUEST', entityId: row.ROWID, action: AUDIT_ACTION.CREATE, newValue: row, performedBy: req.currentUser.id });

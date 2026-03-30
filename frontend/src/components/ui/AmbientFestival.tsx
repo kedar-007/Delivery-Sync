@@ -51,19 +51,18 @@ interface Particle {
 }
 
 function buildParticles(
-  festivalKey: string,
+  _festivalKey: string,
   chars: string[],
   colors: string[],
   animation: string,
-  n = 22,
+  n = 28,
 ): Particle[] {
   return Array.from({ length: n }, (_, i) => {
-    // Golden-angle distribution for x so particles spread evenly
     const x = (i * 137.508) % 100;
     const startY =
       animation === 'fall' || animation === 'drift'
-        ? -8           // start above viewport
-        : 95 + (i % 5) * 2; // start below viewport for float
+        ? -8
+        : 95 + (i % 5) * 2;
 
     return {
       id: i,
@@ -71,10 +70,10 @@ function buildParticles(
       startY,
       char: chars[i % chars.length],
       color: colors[i % colors.length],
-      size: 11 + (i % 5) * 3,            // 11–23 px
+      size: 16 + (i % 5) * 5,            // 16–36 px — much bigger
       delay: parseFloat(((i * 0.61) % 9).toFixed(2)),
-      dur: parseFloat((9 + (i % 6) * 2).toFixed(1)),  // 9–19 s
-      opacity: parseFloat((0.10 + (i % 4) * 0.03).toFixed(2)), // 0.10–0.19
+      dur: parseFloat((9 + (i % 6) * 2).toFixed(1)),
+      opacity: parseFloat((0.55 + (i % 4) * 0.12).toFixed(2)), // 0.55–0.91 — visible
     };
   });
 }
@@ -115,7 +114,7 @@ const AmbientFestival: React.FC = () => {
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 1,
+        zIndex: 9990,
         pointerEvents: 'none',
         overflow: 'hidden',
         userSelect: 'none',
@@ -133,10 +132,13 @@ const AmbientFestival: React.FC = () => {
               color: p.color,
               lineHeight: 1,
               display: 'block',
-              // CSS custom property used inside keyframe
               '--af-op': p.opacity,
               opacity: p.opacity,
               animation: `${anim} ${p.dur}s ${p.delay}s infinite ease-in-out`,
+              // Dark outline shadow → visible on white/light bg
+              // Colour glow → visible on dark bg
+              // Both together → works on any background
+              filter: `drop-shadow(0 0 ${Math.round(p.size * 0.4)}px ${p.color}) drop-shadow(0 1px 3px rgba(0,0,0,0.65))`,
             } as React.CSSProperties
           }
         >
