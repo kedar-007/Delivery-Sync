@@ -284,6 +284,45 @@ class AdminController {
       return ResponseHelper.serverError(res, err.message);
     }
   }
+
+  /** GET /api/admin/modules — returns module enabled/disabled state for this tenant */
+  async getModulePermissions(req, res) {
+    try {
+      const { tenantId } = req;
+      const ALL_MODULES = [
+        { key: 'projects', label: 'Projects & Sprints',  defaultEnabled: true  },
+        { key: 'people',   label: 'People & HR',         defaultEnabled: true  },
+        { key: 'assets',   label: 'Asset Management',    defaultEnabled: true  },
+        { key: 'time',     label: 'Time Tracking',       defaultEnabled: true  },
+        { key: 'reports',  label: 'Reports & Analytics', defaultEnabled: true  },
+        { key: 'ai',       label: 'AI Insights',         defaultEnabled: true  },
+        { key: 'exec',     label: 'Executive Dashboard', defaultEnabled: true  },
+      ];
+
+      let savedModules = {};
+      try {
+        const rows = await this.db.query(
+          `SELECT settings FROM ${TABLES.TENANTS} WHERE ROWID = '${tenantId}' LIMIT 1`
+        );
+        if (rows.length > 0) {
+          savedModules = (JSON.parse(rows[0].settings || '{}').modules) || {};
+        }
+      } catch (_) {}
+
+      const modules = Object.fromEntries(
+        ALL_MODULES.map((m) => [
+          m.key,
+          Object.prototype.hasOwnProperty.call(savedModules, m.key)
+            ? savedModules[m.key]
+            : m.defaultEnabled,
+        ])
+      );
+
+      return ResponseHelper.success(res, { modules });
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
 }
 
 // ─── Email Template ───────────────────────────────────────────────────────────

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>TurnLoggerOn</key>
+	<false/>
+	<key>RequestTimeOut</key>
+	<integer>20</integer>
+	<key>APIVersion</key>
+	<string>v1</string>
+	<key>MinLogLevel</key>
+	<string>default</string>
+	<key>RequestHeaders</key>
+	<dict>
+		<key>PROJECT_ID</key>
+		<string>50039299089</string>
+		<key>X-Catalyst-Environment</key>
+		<string>Development</string>
+		<key>X-CATALYST-USER</key>
+		<string>user</string>
+	</dict>
+	<key>OAuthScopes</key>
+	<string>ZohoCatalyst.zcql.CREATE,ZohoCatalyst.files.READ,ZohoCatalyst.tables.columns.READ,ZohoCatalyst.tables.rows.CREATE,ZohoCatalyst.projects.users.READ,ZohoCatalyst.files.CREATE,ZohoCatalyst.tables.rows.UPDATE,ZohoCatalyst.tables.READ,ZohoCatalyst.cache.READ,ZohoCatalyst.tables.rows.READ,ZohoCatalyst.tables.rows.DELETE,ZohoCatalyst.mltools.READ,ZohoCatalyst.projects.users.CREATE,ZohoCatalyst.functions.execute.CUSTOM,ZohoCatalyst.files.DELETE,ZohoCatalyst.catalyst.search.READ,ZohoCatalyst.folders.READ,ZohoCatalyst.projects.config.READ,Stratus.fileop.ALL,ZohoCatalyst.buckets.objects.ALL,ZohoCatalyst.notifications.mobile.register.CUSTOM,AaaServer.profile.READ</string>
+	<key>APIBaseURL</key>
+	<string>https://api.catalyst.zoho.in</string>
+	<key>AccountsPortalDomain</key>
+	<string>https://delivery-sync-60040289923.development.catalystserverless.in</string>
+	<key>ProjectID</key>
+	<string>17682000000819069</string>
+	<key>RedirectURLScheme</key>
+	<string>deliverysync</string>
+	<key>PortalID</key>
+	<string>50039299089</string>
+	<key>ClientSecretID</key>
+	<string>967726a2e354e94fef98bbe0dbfcd0108fd95cf105</string>
+	<key>ClientID</key>
+	<string>50039299089.PWFQ3QX64AGXI0PEGDXZWF0WQ71RNI</string>
+	<key>JWTClientID</key>
+	<string>50039299089.VCWJAKK81DF97HPACSVFPVYDU6WP2Z</string>
+	<key>JWTClientSecret</key>
+	<string>ad8d6907db10ff092963457c76c1e45265775b054d</string>
+	<key>notificationAppID</key>
+	<string>{{notificationAppID}}</string>
+	<key>zcqlParser</key>
+	<string>V1</string>
+	<key>StratusDomainSuffix</key>
+	<string>.zohostratus.in</string>
+	<key>NimbusDomainSuffix</key>
+	<string>.nimbuspop.com</string>
+</dict>
+</plist>

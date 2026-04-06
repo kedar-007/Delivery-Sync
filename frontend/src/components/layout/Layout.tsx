@@ -5,6 +5,7 @@ import { useSidebar } from '../../contexts/SidebarContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { FestivalProvider } from '../../contexts/FestivalContext';
 import AmbientFestival from '../ui/AmbientFestival';
+import SuspendedScreen from '../ui/SuspendedScreen';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -13,7 +14,11 @@ interface LayoutProps {
 const Layout = ({ children }: LayoutProps) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { collapsed } = useSidebar();
-  const { user } = useAuth();
+  const { user, suspensionInfo } = useAuth();
+
+  if (suspensionInfo) {
+    return <SuspendedScreen info={suspensionInfo} />;
+  }
 
   return (
     <FestivalProvider>

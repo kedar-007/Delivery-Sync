@@ -17,6 +17,7 @@ class AuthController {
    * Returns the current authenticated user's DS profile.
    */
   async getCurrentUser(req, res) {
+    console.log("Current User",req.currentUser);
     try {
       return ResponseHelper.success(res, { user: req.currentUser });
     } catch (err) {

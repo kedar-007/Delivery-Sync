@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Delivery Sync</string>
+    <!-- OAuth redirect scheme for Zoho Catalyst SDK RedirActivity.
+         Must match redirectUrl in app_configuration_development.properties -->
+    <string name="url_scheme">deliverysync</string>
+</resources>
