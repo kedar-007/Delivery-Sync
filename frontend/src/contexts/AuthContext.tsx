@@ -29,42 +29,77 @@ const AuthContext = createContext<AuthContextValue>({
   needsRegistration: false,
   isLoggedOut: false,
   suspensionInfo: null,
-  refetch: async () => {},
-  logout: async () => {},
+  refetch: async () => { },
+  logout: async () => { },
 });
 
 export const useAuth = () => useContext(AuthContext);
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const clearAllSiteData = () => {
+
+  localStorage.clear();
+  sessionStorage.clear();
+
+  document.cookie.split(';').forEach((cookie) => {
+    const name = cookie.split('=')[0].trim();
+    document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+    document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/app`;
+    document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/server`;
+    document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; domain=${window.location.hostname}; path=/`;
+  });
+
+  if ('caches' in window) {
+    caches.keys().then((names) => names.forEach((n) => caches.delete(n)));
+  }
+
+  if ('indexedDB' in window) {
+    indexedDB.databases?.().then((dbs) => {
+      dbs.forEach((db) => { if (db.name) indexedDB.deleteDatabase(db.name); });
+    }).catch(() => { });
+  }
+};
+
+// ── Provider ──────────────────────────────────────────────────────────────────
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [needsRegistration, setNeedsRegistration] = useState(false);
-  const [isLoggedOut, setIsLoggedOut] = useState(false);
+  const [needsRegistration, setNeedsReg] = useState(false);
+  const [isLoggedOut, setIsLoggedOut] = useState(
+    // Initialise from localStorage so first render is correct
+    localStorage.getItem('ds_logged_out') === '1'
+  );
   const [suspensionInfo, setSuspensionInfo] = useState<SuspensionInfo | null>(null);
 
   const fetchUser = async () => {
     try {
       setLoading(true);
       setError(null);
-      setNeedsRegistration(false);
+      setNeedsReg(false);
       setSuspensionInfo(null);
 
       const data = await authApi.me();
       const u = data?.user ?? null;
       setUser(u);
-      if (u) {
-        const slug = u.tenantSlug || localStorage.getItem('tenantSlug') || '';
-        if (slug) localStorage.setItem('tenantSlug', slug);
+      setIsLoggedOut(false);
+
+      if (u?.tenantSlug) {
+        localStorage.setItem('tenantSlug', u.tenantSlug);
       }
     } catch (err: unknown) {
-      const e = err as Error & { status?: number; data?: { code?: string; suspension?: SuspensionInfo } };
+      const e = err as Error & {
+        status?: number;
+        data?: { code?: string; suspension?: SuspensionInfo };
+      };
       setUser(null);
 
       if (e.status === 403 && e.data?.code === 'TENANT_SUSPENDED' && e.data.suspension) {
         setSuspensionInfo(e.data.suspension);
       } else if (e.status === 403) {
-        setNeedsRegistration(true);
+        setNeedsReg(true);
       }
     } finally {
       setLoading(false);
@@ -72,39 +107,52 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
+    // If flagged as logged out, skip the API call entirely
+    if (localStorage.getItem('ds_logged_out') === '1') {
+      setLoading(false);
+      return;
+    }
     fetchUser();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const logout = async () => {
+    // 1. Update React state immediately
     setUser(null);
     setIsLoggedOut(true);
+    setNeedsReg(false);
+    setSuspensionInfo(null);
+    setLoading(false);
+
+    // 2. Clear all site data
+    clearAllSiteData();
+
+    // 3. Set logout flag AFTER clear (clearAllSiteData wipes localStorage)
     localStorage.setItem('ds_logged_out', '1');
-    localStorage.removeItem('tenantSlug');
-    sessionStorage.clear();
 
-    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const catalyst = (window as any).catalyst;
+    // 4. Yield one frame so React can flush state before navigation
+    await new Promise((r) => requestAnimationFrame(r));
 
-    if (isLocal) {
+    // 5. Sign out via Catalyst SDK — it clears the SSO session cookie and
+    //    redirects the browser to redirectURL. Same pattern as LMS reference.
+    try {
+      const redirectURL = `${window.location.origin}/app/index.html#/login`;
+      await (window as any).catalyst?.auth?.signOut?.(redirectURL);
+    } catch (e) {
+      console.warn('[DS Auth] signOut threw:', e);
+      // Fallback — hard navigate to login
       window.location.replace(`${window.location.origin}/app/index.html#/login`);
-      return;
     }
-
-    if (typeof catalyst?.auth?.signOut === 'function') {
-      try {
-        catalyst.auth.signOut(`${window.location.origin}/app/index.html`);
-        return;
-      } catch (e) {
-        console.warn('[DS Auth] catalyst.auth.signOut threw:', e);
-      }
-    }
-
-    window.location.href = '/server/delivery_sync_function/api/auth/logout';
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, needsRegistration, isLoggedOut, suspensionInfo, refetch: fetchUser, logout }}>
+    <AuthContext.Provider value={{
+      user, loading, error,
+      needsRegistration, isLoggedOut,
+      suspensionInfo,
+      refetch: fetchUser,
+      logout,
+    }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/services/api_client.dart';
@@ -234,7 +235,7 @@ class _ProjectCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: () {},
+          onTap: () => context.push('/projects/${project.id}', extra: project),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(

@@ -256,10 +256,10 @@ class _AssetTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ds     = context.ds;
-    final name   = asset['assetName'] as String? ?? asset['name'] as String? ?? '—';
-    final tag    = asset['assetTag'] as String?;
+    final name   = asset['assetName'] as String? ?? asset['asset_name'] as String? ?? asset['name'] as String? ?? '—';
+    final tag    = asset['assetTag'] as String? ?? asset['asset_tag'] as String?;
     final status = asset['status'] as String? ?? 'ASSIGNED';
-    final category = asset['categoryName'] as String? ?? asset['category'] as String?;
+    final category = asset['categoryName'] as String? ?? asset['category_name'] as String? ?? asset['category'] as String?;
     final brand  = asset['brand'] as String?;
     final model  = asset['model'] as String?;
 
@@ -376,9 +376,11 @@ class _RequestTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ds     = context.ds;
-    final desc   = request['description'] as String? ?? request['assetName'] as String? ?? '—';
+    final reason = request['reason'] as String? ?? request['description'] as String? ?? '';
+    final desc   = reason.isNotEmpty ? reason : (request['asset_name'] as String? ?? request['assetName'] as String? ?? '—');
     final status = request['status'] as String? ?? 'PENDING';
-    final reason = request['reason'] as String?;
+    final notes  = request['req_notes'] as String?;
+    final categoryName = request['category_name'] as String?;
 
     final (color, label) = switch (status) {
       'APPROVED'  => (AppColors.success,      'Approved'),
@@ -406,10 +408,16 @@ class _RequestTile extends StatelessWidget {
         ),
         const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(desc, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: ds.textPrimary)),
-          if (reason != null)
-            Text(reason, style: TextStyle(fontSize: 12, color: ds.textMuted),
+          Text(desc, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: ds.textPrimary),
+              maxLines: 2, overflow: TextOverflow.ellipsis),
+          if (categoryName != null) ...[
+            const SizedBox(height: 2),
+            Text(categoryName, style: TextStyle(fontSize: 11, color: ds.textMuted)),
+          ] else if (notes != null && notes.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(notes, style: TextStyle(fontSize: 12, color: ds.textMuted),
                 maxLines: 1, overflow: TextOverflow.ellipsis),
+          ],
         ])),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

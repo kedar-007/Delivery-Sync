@@ -15,10 +15,12 @@ export const useCreateBlocker = () => {
   });
 };
 
-export const useUpdateBlocker = (blockerId: string) => {
+// ID now comes from mutationFn payload, not hook argument
+export const useUpdateBlocker = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: unknown) => blockersApi.update(blockerId, data),
+    mutationFn: ({ id, data }: { id: string; data: unknown }) =>
+      blockersApi.update(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['blockers'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });

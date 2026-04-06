@@ -83,8 +83,9 @@ class _ActionsScreenState extends ConsumerState<ActionsScreen> {
                     itemCount: filtered.length,
                     itemBuilder: (_, i) => _ActionCard(
                       filtered[i],
-                      onMarkDone: () => _markDone(filtered[i].id),
-                      onDelete:   () => _delete(context, filtered[i].id),
+                      onMarkDone:    () => _markDone(filtered[i].id),
+                      onDelete:      () => _delete(context, filtered[i].id),
+                      onStatusTap:   () => _showStatusPicker(context, filtered[i]),
                     ),
                   );
                 },
@@ -111,10 +112,15 @@ class _ActionsScreenState extends ConsumerState<ActionsScreen> {
   }
 
   Future<void> _markDone(String id) async {
+    await _updateStatus(id, 'DONE');
+  }
+
+  Future<void> _updateStatus(String id, String status) async {
     try {
-      await ApiClient.instance.patch(
+      // Backend only has PUT /:actionId — no PATCH endpoint
+      await ApiClient.instance.put(
         '${AppConstants.baseCore}/actions/$id',
-        data: {'status': 'DONE'},
+        data: {'status': status},
       );
       ref.invalidate(_actionsProvider);
     } catch (e) {
@@ -125,6 +131,54 @@ class _ActionsScreenState extends ConsumerState<ActionsScreen> {
         );
       }
     }
+  }
+
+  void _showStatusPicker(BuildContext context, Action action) {
+    final statuses = [
+      ('OPEN',        'Open',        Icons.radio_button_unchecked_rounded, AppColors.warning),
+      ('IN_PROGRESS', 'In Progress', Icons.pending_rounded,               AppColors.info),
+      ('DONE',        'Done',        Icons.check_circle_rounded,           AppColors.success),
+      ('CANCELLED',   'Cancelled',   Icons.cancel_rounded,                 AppColors.textMuted),
+    ];
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: context.ds.bgCard,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 36, height: 4,
+            margin: const EdgeInsets.only(bottom: 16),
+            decoration: BoxDecoration(
+                color: context.ds.border,
+                borderRadius: BorderRadius.circular(2)),
+          ),
+          Text('Update Status',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700,
+                  color: context.ds.textPrimary)),
+          const SizedBox(height: 16),
+          ...statuses.map((s) {
+            final (val, label, icon, color) = s;
+            final isCurrent = action.status == val;
+            return ListTile(
+              leading: Icon(icon, color: color),
+              title: Text(label,
+                  style: TextStyle(fontWeight: FontWeight.w600,
+                      color: isCurrent ? color : context.ds.textPrimary)),
+              trailing: isCurrent
+                  ? Icon(Icons.check_rounded, color: color)
+                  : null,
+              onTap: () {
+                Navigator.pop(context);
+                if (!isCurrent) _updateStatus(action.id, val);
+              },
+            );
+          }),
+        ]),
+      ),
+    );
   }
 
   Future<void> _delete(BuildContext context, String id) async {
@@ -230,10 +284,11 @@ class _FilterChips extends StatelessWidget {
 
 class _ActionCard extends StatelessWidget {
   const _ActionCard(this.action,
-      {required this.onMarkDone, required this.onDelete});
+      {required this.onMarkDone, required this.onDelete, required this.onStatusTap});
   final Action action;
   final VoidCallback onMarkDone;
   final VoidCallback onDelete;
+  final VoidCallback onStatusTap;
 
   @override
   Widget build(BuildContext context) {
@@ -269,7 +324,8 @@ class _ActionCard extends StatelessWidget {
         ),
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: onMarkDone,
+          onTap: onStatusTap,
+          onLongPress: onStatusTap,
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Row(

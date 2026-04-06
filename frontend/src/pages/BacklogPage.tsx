@@ -1,10 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import {
-  Plus, Search, Calendar, Trash2, Pencil, MoveRight,
-  Star, AlertCircle, User, Layers,
-} from 'lucide-react';
 import { format, isPast, parseISO } from 'date-fns';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
@@ -249,7 +245,7 @@ const BacklogPage = () => {
     if (!movingTask) return;
     try {
       setMoveError('');
-      await moveTaskMutation.mutateAsync({ id: movingTask!.id, data: { sprint_id: data.sprint_id } });
+      await moveTaskMutation.mutateAsync({ id: movingTask.id, data: { sprint_id: data.sprint_id } });
       setMovingTask(null);
     } catch (err: unknown) {
       setMoveError((err as Error).message);
@@ -266,7 +262,7 @@ const BacklogPage = () => {
         title="Backlog"
         subtitle={`${(backlogTasks as Task[]).length} task${(backlogTasks as Task[]).length !== 1 ? 's' : ''} not in a sprint`}
         actions={
-          <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>
+          <Button onClick={() => setShowCreate(true)}>
             New Task
           </Button>
         }
@@ -277,15 +273,12 @@ const BacklogPage = () => {
 
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-3">
-          <div className="relative">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              className="form-input pl-9 w-56"
-              placeholder="Search tasks…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
+          <input
+            className="form-input w-56"
+            placeholder="Search tasks…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
           <select
             className="form-select w-auto"
             value={filterStatus}
@@ -324,12 +317,9 @@ const BacklogPage = () => {
                 ? 'Add tasks to the backlog to start planning sprints.'
                 : 'Try adjusting your search or filters.'
             }
-            icon={<Layers size={40} />}
             action={
               (backlogTasks as Task[]).length === 0 ? (
-                <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>
-                  Add First Task
-                </Button>
+                <Button onClick={() => setShowCreate(true)}>Add First Task</Button>
               ) : undefined
             }
           />
@@ -339,27 +329,13 @@ const BacklogPage = () => {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50">
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-8">
-                      Priority
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      Title
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      Status
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      Assignee
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      Points
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      Due Date
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      Actions
-                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Priority</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Title</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Assignee</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Points</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Due Date</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -368,6 +344,7 @@ const BacklogPage = () => {
                     const overdue = isOverdue(task.dueDate, task.status);
                     return (
                       <tr key={task.id} className="hover:bg-gray-50 transition-colors group">
+
                         {/* Priority */}
                         <td className="px-4 py-3">
                           <Badge variant={PRIORITY_VARIANT[task.priority]} className="text-xs">
@@ -377,9 +354,7 @@ const BacklogPage = () => {
 
                         {/* Title */}
                         <td className="px-4 py-3 max-w-xs">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-gray-900 truncate">{task.title}</span>
-                          </div>
+                          <span className="font-medium text-gray-900 truncate block">{task.title}</span>
                           {task.description && (
                             <p className="text-xs text-gray-400 truncate mt-0.5 max-w-[280px]">
                               {task.description}
@@ -400,19 +375,15 @@ const BacklogPage = () => {
                               <span className="text-xs text-gray-600 truncate max-w-[100px]">{assignee.name}</span>
                             </div>
                           ) : (
-                            <div className="flex items-center gap-1 text-gray-400">
-                              <User size={13} />
-                              <span className="text-xs">Unassigned</span>
-                            </div>
+                            <span className="text-xs text-gray-400">Unassigned</span>
                           )}
                         </td>
 
                         {/* Story Points */}
                         <td className="px-4 py-3">
                           {task.storyPoints != null ? (
-                            <span className="inline-flex items-center gap-1 text-xs text-gray-600 bg-gray-100 rounded-full px-2 py-0.5">
-                              <Star size={10} />
-                              {task.storyPoints}
+                            <span className="text-xs text-gray-600 bg-gray-100 rounded-full px-2 py-0.5">
+                              {task.storyPoints} pts
                             </span>
                           ) : (
                             <span className="text-xs text-gray-400">—</span>
@@ -422,13 +393,8 @@ const BacklogPage = () => {
                         {/* Due Date */}
                         <td className="px-4 py-3">
                           {task.dueDate ? (
-                            <span
-                              className={`inline-flex items-center gap-1 text-xs ${
-                                overdue ? 'text-red-600 font-medium' : 'text-gray-500'
-                              }`}
-                            >
-                              {overdue && <AlertCircle size={11} />}
-                              <Calendar size={11} />
+                            <span className={`text-xs ${overdue ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
+                              {overdue && <span className="mr-1">!</span>}
                               {fmtDate(task.dueDate)}
                             </span>
                           ) : (
@@ -443,25 +409,25 @@ const BacklogPage = () => {
                               type="button"
                               title="Move to Sprint"
                               onClick={(e) => openMove(e, task)}
-                              className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors text-xs font-medium"
                             >
-                              <MoveRight size={14} />
+                              Move
                             </button>
                             <button
                               type="button"
                               title="Edit task"
                               onClick={(e) => openEdit(e, task)}
-                              className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors text-xs font-medium"
                             >
-                              <Pencil size={14} />
+                              Edit
                             </button>
                             <button
                               type="button"
                               title="Delete task"
                               onClick={(e) => openDelete(e, task)}
-                              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors text-xs font-medium"
                             >
-                              <Trash2 size={14} />
+                              Delete
                             </button>
                           </div>
                         </td>
@@ -541,12 +507,8 @@ const BacklogPage = () => {
             </div>
           </div>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setShowCreate(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" loading={createForm.formState.isSubmitting} icon={<Plus size={14} />}>
-              Add to Backlog
-            </Button>
+            <Button variant="outline" type="button" onClick={() => setShowCreate(false)}>Cancel</Button>
+            <Button type="submit" loading={createForm.formState.isSubmitting}>Add to Backlog</Button>
           </ModalActions>
         </form>
       </Modal>
@@ -562,10 +524,7 @@ const BacklogPage = () => {
           {editError && <Alert type="error" message={editError} />}
           <div>
             <label className="form-label">Title *</label>
-            <input
-              className="form-input"
-              {...registerEdit('title', { required: 'Required' })}
-            />
+            <input className="form-input" {...registerEdit('title', { required: 'Required' })} />
             {editErrors.title && <p className="form-error">{editErrors.title.message}</p>}
           </div>
           <div>
@@ -610,12 +569,8 @@ const BacklogPage = () => {
             <input type="date" className="form-input" {...registerEdit('due_date')} />
           </div>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setEditingTask(null)}>
-              Cancel
-            </Button>
-            <Button type="submit" loading={isEditSubmitting}>
-              Save Changes
-            </Button>
+            <Button variant="outline" type="button" onClick={() => setEditingTask(null)}>Cancel</Button>
+            <Button type="submit" loading={isEditSubmitting}>Save Changes</Button>
           </ModalActions>
         </form>
       </Modal>
@@ -635,15 +590,8 @@ const BacklogPage = () => {
             This action cannot be undone.
           </p>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setDeletingTask(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              loading={deleteTask.isPending}
-              icon={<Trash2 size={14} />}
-              onClick={onDeleteTask}
-            >
+            <Button variant="outline" type="button" onClick={() => setDeletingTask(null)}>Cancel</Button>
+            <Button variant="danger" loading={deleteTask.isPending} onClick={onDeleteTask}>
               Delete Task
             </Button>
           </ModalActions>
@@ -659,14 +607,9 @@ const BacklogPage = () => {
       >
         <form onSubmit={moveForm.handleSubmit(onMoveToSprint)} className="space-y-4">
           {moveError && <Alert type="error" message={moveError} />}
-          <p className="text-sm text-gray-600 font-medium truncate">
-            "{movingTask?.title}"
-          </p>
+          <p className="text-sm text-gray-600 font-medium truncate">"{movingTask?.title}"</p>
           {availableSprints.length === 0 ? (
-            <Alert
-              type="warning"
-              message="No active or planning sprints available. Create a sprint first."
-            />
+            <Alert type="warning" message="No active or planning sprints available. Create a sprint first." />
           ) : (
             <div>
               <label className="form-label">Select Sprint *</label>
@@ -676,9 +619,7 @@ const BacklogPage = () => {
               >
                 <option value="">Select a sprint…</option>
                 {availableSprints.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.status})
-                  </option>
+                  <option key={s.id} value={s.id}>{s.name} ({s.status})</option>
                 ))}
               </select>
               {moveForm.formState.errors.sprint_id && (
@@ -687,14 +628,11 @@ const BacklogPage = () => {
             </div>
           )}
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setMovingTask(null)}>
-              Cancel
-            </Button>
+            <Button variant="outline" type="button" onClick={() => setMovingTask(null)}>Cancel</Button>
             <Button
               type="submit"
               loading={moveTaskMutation.isPending}
               disabled={availableSprints.length === 0}
-              icon={<MoveRight size={14} />}
             >
               Move to Sprint
             </Button>

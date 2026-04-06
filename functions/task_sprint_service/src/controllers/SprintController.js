@@ -20,8 +20,11 @@ class SprintController {
       const { project_id, status } = req.query;
       const tenantId = req.tenantId;
 
-      let where = `project_id = '${DataStoreService.escape(project_id)}'`;
-      if (status) where += ` AND status = '${DataStoreService.escape(status)}'`;
+      let where = project_id ? `project_id = '${DataStoreService.escape(project_id)}'` : null;
+      if (status) {
+        const sc = `status = '${DataStoreService.escape(status)}'`;
+        where = where ? `${where} AND ${sc}` : sc;
+      }
 
       const sprints = await this.db.findWhere(TABLES.SPRINTS, tenantId, where, { orderBy: 'CREATEDTIME DESC', limit: 50 });
 

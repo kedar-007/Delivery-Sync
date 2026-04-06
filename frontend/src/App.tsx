@@ -1,6 +1,6 @@
 import React, { useEffect, useCallback, useState } from "react";
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider } from "./contexts/AuthContext";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/layout/ProtectedRoute";
 
 import LoginPage from "./pages/LoginPage";
@@ -41,67 +41,24 @@ import MyTasksPage from "./pages/MyTasksPage";
 import SprintsPage from "./pages/SprintsPage";
 import HelpPage from "./pages/HelpPage";
 
-const App = () => {
-  const [authState, setAuthState] = useState<'loading' | 'authed' | 'unauthenticated'>('loading');
+// ── SDK loader ────────────────────────────────────────────────────────────────
 
-  const ensureScript = useCallback((src: string): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
-      const script = document.createElement("script");
-      script.src = src;
-      script.async = true;
-      script.onload = () => resolve();
-      script.onerror = reject;
-      document.body.appendChild(script);
-    });
-  }, []);
+const loadScript = (src: string): Promise<void> =>
+  new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
+    const s = document.createElement('script');
+    s.src = src; s.async = true;
+    s.onload = () => resolve();
+    s.onerror = reject;
+    document.body.appendChild(s);
+  });
 
-  useEffect(() => {
-    const init = async () => {
-      try {
-        await ensureScript("https://static.zohocdn.com/catalyst/sdk/js/4.5.0/catalystWebSDK.js");
-      } catch (e) { console.warn('[DS Auth] CDN SDK failed:', e); }
+// ── Inner app — consumes AuthContext ──────────────────────────────────────────
 
-      try {
-        await ensureScript("/__catalyst/sdk/init.js");
-      } catch (e) { console.warn('[DS Auth] init.js failed (expected on localhost):', e); }
+const AppRoutes = () => {
+  const { user, loading, isLoggedOut } = useAuth();
 
-      if (localStorage.getItem('ds_logged_out') === '1') {
-        setAuthState('unauthenticated');
-        return;
-      }
-
-      try {
-        const ok = await (window as any).catalyst?.auth?.isUserAuthenticated?.();
-        if (ok) {
-          localStorage.removeItem('ds_logged_out');
-
-          if (!localStorage.getItem('tenantSlug')) {
-            try {
-              const res = await fetch('/server/delivery_sync_function/api/users/me', { credentials: 'include' });
-              const data = await res.json();
-              console.log("Auth Res details - ", data.data.user);
-
-              if (data?.data?.user?.tenantSlug) {
-                localStorage.setItem('tenantSlug', data.data.user.tenantSlug);
-              }
-            } catch (e) {
-              console.warn('[DS Auth] Could not fetch /auth/me:', e);
-            }
-          }
-
-          setAuthState('authed');
-        } else {
-          setAuthState('unauthenticated');
-        }
-      } catch (e) {
-        setAuthState('unauthenticated');
-      }
-    };
-    init();
-  }, [ensureScript]);
-
-  if (authState === 'loading') {
+  if (loading) {
     return (
       <div className="min-h-screen w-full flex items-center justify-center" style={{ background: '#0a0f1e' }}>
         <div className="text-slate-400 text-sm animate-pulse">Loading...</div>
@@ -109,61 +66,100 @@ const App = () => {
     );
   }
 
-  const mustLogin = authState === 'unauthenticated';
-  const tenantSlug = localStorage.getItem('tenantSlug') || '';
-  const homePath = tenantSlug ? `/${tenantSlug}/dashboard` : '/';
+  // ✅ Single source of truth — AuthContext decides if user is logged in
+  const mustLogin = !user || isLoggedOut;
+  const tenantSlug = user?.tenantSlug || localStorage.getItem('tenantSlug') || '';
+  const homePath = tenantSlug ? `/${tenantSlug}/dashboard` : '/login';
 
   return (
-    <HashRouter>
-      <Routes>
-        <Route path="/login" element={mustLogin ? <LoginPage /> : <Navigate to={homePath} replace />} />
-        <Route path="/super-admin" element={<SuperAdminPage />} />
-        <Route path="/:tenantSlug/reports/:reportId" element={<ReportDetailPage />} />
+    <Routes>
+      <Route path="/login" element={mustLogin ? <LoginPage /> : <Navigate to={homePath} replace />} />
+      <Route path="/super-admin" element={<SuperAdminPage />} />
+      <Route path="/:tenantSlug/reports/:reportId" element={<ReportDetailPage />} />
 
-        <Route
-          path="/:tenantSlug"
-          element={mustLogin ? <Navigate to="/login" replace /> : <AuthProvider><ProtectedRoute /></AuthProvider>}
-        >
-          <Route index element={<Navigate to="dashboard" replace />} />
-          <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="portfolio" element={<PortfolioDashboard />} />
-          <Route path="projects" element={<ProjectsPage />} />
-          <Route path="projects/:projectId" element={<ProjectDetailPage />} />
-          <Route path="projects/:projectId/sprints" element={<SprintBoardPage />} />
-          <Route path="projects/:projectId/backlog" element={<BacklogPage />} />
-          <Route path="projects/:projectId/tasks" element={<ProjectTasksPage />} />
-          <Route path="my-tasks" element={<MyTasksPage />} />
-          <Route path="sprints" element={<SprintsPage />} />
-          <Route path="milestones" element={<MilestonesPage />} />
-          <Route path="standup" element={<StandupPage />} />
-          <Route path="eod" element={<EodPage />} />
-          <Route path="actions" element={<ActionsPage />} />
-          <Route path="blockers" element={<BlockersPage />} />
-          <Route path="raid" element={<RaidPage />} />
-          <Route path="decisions" element={<DecisionsPage />} />
-          <Route path="teams" element={<TeamsPage />} />
-          <Route path="attendance" element={<AttendancePage />} />
-          <Route path="leave" element={<LeavePage />} />
-          <Route path="announcements" element={<AnnouncementsPage />} />
-          <Route path="org-chart" element={<OrgChartPage />} />
-          <Route path="directory" element={<DirectoryPage />} />
-          <Route path="time-tracking" element={<TimeTrackingPage />} />
-          <Route path="assets" element={<AssetManagementPage />} />
-          <Route path="reports" element={<ReportsPage />} />
-          <Route path="enterprise-reports" element={<EnterpriseReportsPage />} />
-          <Route path="profile" element={<ProfilePage />} />
-          <Route path="settings" element={<SettingsPage />} />
-          <Route path="ai-insights" element={<AiInsightsPage />} />
-          <Route path="ceo-dashboard" element={<CeoDashboardPage />} />
-          <Route path="cto-dashboard" element={<CtoDashboardPage />} />
-          <Route path="admin" element={<AdminPage />} />
-          <Route path="admin-config" element={<AdminConfigPage />} />
-          <Route path="help" element={<HelpPage />} />
-        </Route>
+      <Route
+        path="/:tenantSlug"
+        element={mustLogin ? <Navigate to="/login" replace /> : <ProtectedRoute />}
+      >
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="portfolio" element={<PortfolioDashboard />} />
+        <Route path="projects" element={<ProjectsPage />} />
+        <Route path="projects/:projectId" element={<ProjectDetailPage />} />
+        <Route path="projects/:projectId/sprints" element={<SprintBoardPage />} />
+        <Route path="projects/:projectId/backlog" element={<BacklogPage />} />
+        <Route path="backlog" element={<BacklogPage />} />
+        <Route path="projects/:projectId/tasks" element={<ProjectTasksPage />} />
+        <Route path="my-tasks" element={<MyTasksPage />} />
+        <Route path="sprints" element={<SprintsPage />} />
+        <Route path="milestones" element={<MilestonesPage />} />
+        <Route path="standup" element={<StandupPage />} />
+        <Route path="eod" element={<EodPage />} />
+        <Route path="actions" element={<ActionsPage />} />
+        <Route path="blockers" element={<BlockersPage />} />
+        <Route path="raid" element={<RaidPage />} />
+        <Route path="decisions" element={<DecisionsPage />} />
+        <Route path="teams" element={<TeamsPage />} />
+        <Route path="attendance" element={<AttendancePage />} />
+        <Route path="leave" element={<LeavePage />} />
+        <Route path="announcements" element={<AnnouncementsPage />} />
+        <Route path="org-chart" element={<OrgChartPage />} />
+        <Route path="directory" element={<DirectoryPage />} />
+        <Route path="time-tracking" element={<TimeTrackingPage />} />
+        <Route path="assets" element={<AssetManagementPage />} />
+        <Route path="reports" element={<ReportsPage />} />
+        <Route path="enterprise-reports" element={<EnterpriseReportsPage />} />
+        <Route path="profile" element={<ProfilePage />} />
+        <Route path="settings" element={<SettingsPage />} />
+        <Route path="ai-insights" element={<AiInsightsPage />} />
+        <Route path="ceo-dashboard" element={<CeoDashboardPage />} />
+        <Route path="cto-dashboard" element={<CtoDashboardPage />} />
+        <Route path="admin" element={<AdminPage />} />
+        <Route path="admin-config" element={<AdminConfigPage />} />
+        <Route path="help" element={<HelpPage />} />
+      </Route>
 
-        <Route path="*" element={<Navigate to={mustLogin ? "/login" : homePath} replace />} />
-      </Routes>
-    </HashRouter>
+      <Route path="*" element={<Navigate to={mustLogin ? "/login" : homePath} replace />} />
+    </Routes>
+  );
+};
+
+// ── Root — loads SDK then mounts AuthProvider once ────────────────────────────
+
+const App = () => {
+  const [sdkReady, setSdkReady] = useState(false);
+
+  useEffect(() => {
+    const init = async () => {
+      try {
+        await loadScript("https://static.zohocdn.com/catalyst/sdk/js/4.5.0/catalystWebSDK.js");
+      } catch (e) { console.warn('[DS Auth] CDN SDK failed:', e); }
+
+      try {
+        await loadScript("/__catalyst/sdk/init.js");
+      } catch (e) { console.warn('[DS Auth] init.js failed (expected on localhost):', e); }
+
+      setSdkReady(true);
+    };
+    init();
+  }, []);
+
+  // Wait for SDK scripts before mounting AuthProvider so catalyst.auth is available
+  if (!sdkReady) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center" style={{ background: '#0a0f1e' }}>
+        <div className="text-slate-400 text-sm animate-pulse">Loading...</div>
+      </div>
+    );
+  }
+
+  return (
+    // ✅ AuthProvider is mounted ONCE at the top — not inside routes
+    <AuthProvider>
+      <HashRouter>
+        <AppRoutes />
+      </HashRouter>
+    </AuthProvider>
   );
 };
 

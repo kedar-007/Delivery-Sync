@@ -45,6 +45,13 @@ const LeftPanel = () => (
 export default function LoginPage() {
   const didInit = useRef(false);
 
+  //  Clear the logged-out flag when login page mounts so a fresh
+  // reload after logout doesn't get stuck in an unauthenticated loop
+  useEffect(() => {
+    localStorage.removeItem('ds_logged_out');
+    localStorage.removeItem('tenantSlug');
+  }, []);
+
   useEffect(() => {
     if (didInit.current) return;
     didInit.current = true;
@@ -86,20 +93,25 @@ export default function LoginPage() {
 
       <LeftPanel />
 
-      <div className="flex-1 flex flex-col items-center justify-center relative px-6 py-10"
-        style={{ background: "linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%)" }}>
-
+      <div
+        className="flex-1 flex flex-col items-center justify-center relative px-6 py-10"
+        style={{ background: "linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%)" }}
+      >
         <div className="pointer-events-none absolute inset-0" style={{
           backgroundImage: "linear-gradient(rgba(99,102,241,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,0.06) 1px, transparent 1px)",
           backgroundSize: "40px 40px",
         }} />
-        <div className="pointer-events-none absolute top-1/4 left-1/2 -translate-x-1/2 w-80 h-80 rounded-full"
-          style={{ background: "radial-gradient(circle, rgba(99,102,241,0.18) 0%, transparent 70%)" }} />
+        <div
+          className="pointer-events-none absolute top-1/4 left-1/2 -translate-x-1/2 w-80 h-80 rounded-full"
+          style={{ background: "radial-gradient(circle, rgba(99,102,241,0.18) 0%, transparent 70%)" }}
+        />
 
         <div className="relative z-10 w-full max-w-[440px]">
           <div className="mb-6 text-center">
-            <div className="inline-flex items-center gap-2 mb-4 px-3 py-1.5 rounded-full text-xs font-medium"
-              style={{ background: "rgba(99,102,241,0.15)", color: "#a5b4fc", border: "1px solid rgba(99,102,241,0.3)" }}>
+            <div
+              className="inline-flex items-center gap-2 mb-4 px-3 py-1.5 rounded-full text-xs font-medium"
+              style={{ background: "rgba(99,102,241,0.15)", color: "#a5b4fc", border: "1px solid rgba(99,102,241,0.3)" }}
+            >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
               Secure · Session protected
             </div>
@@ -107,8 +119,10 @@ export default function LoginPage() {
             <p className="text-sm" style={{ color: "#94a3b8" }}>Sign in to your organisation account</p>
           </div>
 
-          <div className="rounded-2xl overflow-hidden"
-            style={{ background: "#ffffff", border: "1px solid rgba(255,255,255,0.15)", boxShadow: "0 25px 60px rgba(0,0,0,0.4)" }}>
+          <div
+            className="rounded-2xl overflow-hidden"
+            style={{ background: "#ffffff", border: "1px solid rgba(255,255,255,0.15)", boxShadow: "0 25px 60px rgba(0,0,0,0.4)" }}
+          >
             <div id="loginDivElementId" style={{ height: "clamp(480px, 60dvh, 600px)", width: "100%" }} />
           </div>
 
