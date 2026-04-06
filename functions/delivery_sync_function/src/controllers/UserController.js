@@ -31,7 +31,10 @@ class UserController {
       const { id: userId, tenantId } = req.currentUser;
       const user = await this.db.findById(TABLES.USERS, userId, tenantId);
       if (!user) return ResponseHelper.notFound(res, 'User not found');
-
+      // Fetch tenant to get the slug
+      const tenant = await this.db.findeTenantById(TABLES.TENANTS, tenantId);
+      if (!tenant) return ResponseHelper.notFound(res, 'Tenant not found');
+  
       return ResponseHelper.success(res, {
         user: {
           id: String(user.ROWID),
@@ -40,13 +43,13 @@ class UserController {
           role: user.role,
           status: user.status,
           avatarUrl: user.avatar_url || '',
+          tenantSlug: tenant.slug,
         },
       });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }
   }
-
   /**
    * PATCH /api/users/me
    * Update display name.

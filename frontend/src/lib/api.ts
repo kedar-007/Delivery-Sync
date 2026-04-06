@@ -16,14 +16,15 @@ const api = axios.create({
 // ─── Response interceptor: normalise errors ──────────────────────────────────
 api.interceptors.response.use(
   (response) => response,
-  (error: AxiosError<{ success: boolean; message: string; errors?: string[] }>) => {
+  (error: AxiosError<{ success: boolean; message: string; errors?: string[]; code?: string; suspension?: unknown }>) => {
     const message =
       error.response?.data?.message ||
       error.message ||
       'An unexpected error occurred';
-    const enhanced = new Error(message) as Error & { status?: number; errors?: string[] };
+    const enhanced = new Error(message) as Error & { status?: number; errors?: string[]; data?: unknown };
     enhanced.status = error.response?.status;
     enhanced.errors = error.response?.data?.errors;
+    enhanced.data = error.response?.data;
     return Promise.reject(enhanced);
   }
 );
@@ -185,17 +186,70 @@ export const adminApi = {
   getTenant: () => api.get('/admin/tenant').then((r) => r.data.data),
   getAuditLogs: (params?: Record<string, string>) =>
     api.get('/admin/audit-logs', { params }).then((r) => r.data.data),
+  getModules: () => api.get('/admin/modules').then((r) => r.data.data),
 };
 
 // ─── Super Admin ──────────────────────────────────────────────────────────────
 
 export const superAdminApi = {
+  // Overview
   getStats: () => api.get('/super-admin/stats').then(r => r.data.data),
-  listTenants: () => api.get('/super-admin/tenants').then(r => r.data.data),
-  updateTenantStatus: (tenantId: string, status: string) =>
-    api.patch(`/super-admin/tenants/${tenantId}/status`, { status }).then(r => r.data.data),
+
+  // Tenants
+  listTenants: (params?: Record<string, string>) =>
+    api.get('/super-admin/tenants', { params }).then(r => r.data.data),
+  getTenantDetail: (tenantId: string) =>
+    api.get(`/super-admin/tenants/${tenantId}`).then(r => r.data.data),
+  updateTenantStatus: (tenantId: string, status: string, reason?: string) =>
+    api.patch(`/super-admin/tenants/${tenantId}/status`, { status, reason }).then(r => r.data.data),
+  lockTenant: (tenantId: string, data: { lockType: string; reason: string; durationDays?: number }) =>
+    api.post(`/super-admin/tenants/${tenantId}/lock`, data).then(r => r.data.data),
+  unlockTenant: (tenantId: string, data?: { reason?: string }) =>
+    api.post(`/super-admin/tenants/${tenantId}/unlock`, data ?? {}).then(r => r.data.data),
   listTenantUsers: (tenantId: string) =>
     api.get(`/super-admin/tenants/${tenantId}/users`).then(r => r.data.data),
+
+  // Module Permissions
+  getModulePermissions: (tenantId: string) =>
+    api.get(`/super-admin/tenants/${tenantId}/modules`).then(r => r.data.data),
+  updateModulePermissions: (tenantId: string, modules: { key: string; enabled: boolean }[]) =>
+    api.put(`/super-admin/tenants/${tenantId}/modules`, { modules }).then(r => r.data.data),
+
+  // Subscription
+  getSubscriptionUsage: (tenantId: string) =>
+    api.get(`/super-admin/tenants/${tenantId}/subscription`).then(r => r.data.data),
+
+  // Users (cross-tenant)
+  getAllUsers: (params?: Record<string, string>) =>
+    api.get('/super-admin/users', { params }).then(r => r.data.data),
+  blockUser: (userId: string, reason: string) =>
+    api.post(`/super-admin/users/${userId}/block`, { reason }).then(r => r.data.data),
+  unblockUser: (userId: string) =>
+    api.post(`/super-admin/users/${userId}/unblock`).then(r => r.data.data),
+
+  // AI Recommendations
+  getRecommendations: (params?: Record<string, string>) =>
+    api.get('/super-admin/recommendations', { params }).then(r => r.data.data),
+  resolveRecommendation: (recId: string, notes?: string) =>
+    api.post(`/super-admin/recommendations/${recId}/resolve`, { notes }).then(r => r.data.data),
+
+  // Audit & Security
+  getAuditLogs: (params?: Record<string, string>) =>
+    api.get('/super-admin/audit-logs', { params }).then(r => r.data.data),
+  getLockHistory: (params?: Record<string, string>) =>
+    api.get('/super-admin/lock-history', { params }).then(r => r.data.data),
+
+  // Performance
+  getPerformanceMetrics: () =>
+    api.get('/super-admin/performance').then(r => r.data.data),
+
+  // Smart Alerts
+  getSmartAlerts: () =>
+    api.get('/super-admin/alerts').then(r => r.data.data),
+
+  // Feature Usage
+  getFeatureUsage: () =>
+    api.get('/super-admin/feature-usage').then(r => r.data.data),
 };
 
 // ─── Notifications ────────────────────────────────────────────────────────────

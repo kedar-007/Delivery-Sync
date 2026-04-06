@@ -45,12 +45,32 @@ class AuthMiddleware {
       const userEmail = catalystUser.email_id.toLowerCase();
       // console.log("QUERY--",`SELECT * FROM ${TABLES.USERS} WHERE email = '${DataStoreService.escape(userEmail)}' LIMIT 1`);
 
+      // Check Catalyst-level role before hitting the DB
+      const catalystRoleName = (catalystUser.role_details && catalystUser.role_details.role_name) || '';
+      const isSuperAdmin = catalystRoleName === 'SUPER_ADMIN';
+
       const rows = await db.query(
         `SELECT * FROM ${TABLES.USERS} WHERE email = '${DataStoreService.escape(userEmail)}' LIMIT 1`
       );
 
+      // SUPER_ADMIN users may not have a row in the DS users table — allow through
       if (rows.length === 0) {
-        // First-time login: create a bare user record so they can onboard
+        if (isSuperAdmin) {
+          req.currentUser = {
+            id: String(catalystUser.user_id),
+            email: userEmail,
+            name: catalystUser.first_name
+              ? `${catalystUser.first_name} ${catalystUser.last_name || ''}`.trim()
+              : userEmail,
+            role: 'SUPER_ADMIN',
+            tenantId: '',
+            tenantName: '',
+            tenantSlug: '',
+            status: 'ACTIVE',
+          };
+          req.tenantId = '';
+          return next();
+        }
         return ResponseHelper.forbidden(res,
           'User account not set up. Please contact your tenant administrator.');
       }
@@ -64,24 +84,57 @@ class AuthMiddleware {
       }
 
       // 3. Attach to request context
-      // Only use Catalyst role if it matches one of our known app roles.
-      // "App Administrator" / "App User" are Catalyst system roles — fall back to DB role.
+      // SUPER_ADMIN always wins regardless of DB row value.
+      // For other roles: only use Catalyst role if it matches a known app role.
       const KNOWN_ROLES = ['TENANT_ADMIN', 'DELIVERY_LEAD', 'TEAM_MEMBER', 'PMO', 'EXEC', 'CLIENT'];
-      const catalystRole = catalystUser.role_details && catalystUser.role_details.role_name;
-      const resolvedRole = (catalystRole && KNOWN_ROLES.includes(catalystRole)) ? catalystRole : user.role;
+      const resolvedRole = isSuperAdmin
+        ? 'SUPER_ADMIN'
+        : (catalystRoleName && KNOWN_ROLES.includes(catalystRoleName)) ? catalystRoleName : user.role;
 
-      // Fetch tenant name for sidebar display
+      // Fetch tenant info for sidebar display + suspension check
+      // Split into two queries: first get lightweight columns (name/domain/status),
+      // then fetch settings only when tenant is suspended (TEXT column can be large).
       let tenantName = '';
       let tenantSlug = '';
+      let tenantStatus = 'ACTIVE';
       try {
         const tenantRows = await db.query(
-          `SELECT name, slug FROM ${TABLES.TENANTS} WHERE ROWID = '${user.tenant_id}' LIMIT 1`
+          `SELECT name, slug, status FROM ${TABLES.TENANTS} WHERE ROWID = '${user.tenant_id}' LIMIT 1`
         );
         if (tenantRows.length > 0) {
-          tenantName = tenantRows[0].name || '';
-          tenantSlug = tenantRows[0].slug || '';
+          const tenant = tenantRows[0];
+          tenantName = tenant.name || '';
+          tenantSlug = tenant.slug || '';
+          tenantStatus = tenant.status || 'ACTIVE';
         }
       } catch (_) {}
+
+      // If tenant is suspended or cancelled, block access and return lock details
+      if (tenantStatus === 'SUSPENDED' || tenantStatus === 'CANCELLED') {
+        let lockInfo = {};
+        try {
+          const settingsRows = await db.query(
+            `SELECT settings FROM ${TABLES.TENANTS} WHERE ROWID = '${user.tenant_id}' LIMIT 1`
+          );
+          if (settingsRows.length > 0) {
+            const parsed = JSON.parse(settingsRows[0].settings || '{}');
+            lockInfo = parsed.lockInfo || {};
+          }
+        } catch (_) {}
+        return res.status(403).json({
+          success: false,
+          code: 'TENANT_SUSPENDED',
+          message: 'Organisation access is suspended.',
+          suspension: {
+            status: tenantStatus,
+            tenantName,
+            reason: lockInfo.reason || null,
+            lockType: lockInfo.lockType || null,
+            lockedAt: lockInfo.lockedAt || null,
+            unlockDate: lockInfo.unlockDate || null,
+          },
+        });
+      }
 
       req.currentUser = {
         id: String(user.ROWID),
@@ -92,6 +145,7 @@ class AuthMiddleware {
         tenantName,
         tenantSlug,
         status: user.status,
+        avatarUrl: user.avatar_url || user.avtar_url || '',
       };
       req.tenantId = String(user.tenant_id);
 

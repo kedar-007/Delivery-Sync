@@ -1,0 +1,781 @@
+/* ================================================================
+   BASE CATALYST CSS — Keep all original rules intact
+   ================================================================ */
+
+   @font-face {
+	font-family: "Roboto Mono";
+	font-weight: 400;
+	font-style: normal;
+	src: url("https://webfonts.zohowebstatic.com/robotomonoregular/font.eot");
+	src: url("https://webfonts.zohowebstatic.com/robotomonoregular/font.eot?#iefix") format("eot"),
+	  url("https://webfonts.zohowebstatic.com/robotomonoregular/font.woff2") format("woff2"),
+	  url("https://webfonts.zohowebstatic.com/robotomonoregular/font.woff") format("woff"),
+	  url("https://webfonts.zohowebstatic.com/robotomonoregular/font.ttf") format("truetype"),
+	  url("https://webfonts.zohowebstatic.com/robotomonoregular/font.svg#RobotoMono-Regular") format("svg");
+  }
+  @font-face {
+	font-family: "LatoLgt";
+	font-weight: 300;
+	font-style: normal;
+	src: url("https://webfonts.zohowebstatic.com/latolight/font.eot");
+	src: url("https://webfonts.zohowebstatic.com/latolight/font.eot?#iefix") format("eot"),
+	  url("https://webfonts.zohowebstatic.com/latolight/font.woff2") format("woff2"),
+	  url("https://webfonts.zohowebstatic.com/latolight/font.woff") format("woff"),
+	  url("https://webfonts.zohowebstatic.com/latolight/font.ttf") format("truetype"),
+	  url("https://webfonts.zohowebstatic.com/latolight/font.svg#Lato-Light") format("svg");
+  }
+  @font-face {
+	font-family: "LatoReg";
+	font-weight: 400;
+	font-style: normal;
+	src: url("https://webfonts.zohowebstatic.com/latoregular/font.eot");
+	src: url("https://webfonts.zohowebstatic.com/latoregular/font.eot?#iefix") format("eot"),
+	  url("https://webfonts.zohowebstatic.com/latoregular/font.woff2") format("woff2"),
+	  url("https://webfonts.zohowebstatic.com/latoregular/font.woff") format("woff"),
+	  url("https://webfonts.zohowebstatic.com/latoregular/font.ttf") format("truetype"),
+	  url("https://webfonts.zohowebstatic.com/latoregular/font.svg#Lato-Regular") format("svg");
+  }
+  @font-face {
+	font-family: "LatoSB";
+	font-weight: 700;
+	font-style: normal;
+	src: url("https://webfonts.zohowebstatic.com/latobold/font.eot");
+	src: url("https://webfonts.zohowebstatic.com/latobold/font.eot?#iefix") format("eot"),
+	  url("https://webfonts.zohowebstatic.com/latobold/font.woff2") format("woff2"),
+	  url("https://webfonts.zohowebstatic.com/latobold/font.woff") format("woff"),
+	  url("https://webfonts.zohowebstatic.com/latobold/font.ttf") format("truetype"),
+	  url("https://webfonts.zohowebstatic.com/latobold/font.svg#Lato-Bold") format("svg");
+  }
+  @font-face {
+	font-family: "LatoB";
+	font-weight: 900;
+	font-style: normal;
+	src: url("https://webfonts.zohowebstatic.com/latoblack/font.eot");
+	src: url("https://webfonts.zohowebstatic.com/latoblack/font.eot?#iefix") format("eot"),
+	  url("https://webfonts.zohowebstatic.com/latoblack/font.woff2") format("woff2"),
+	  url("https://webfonts.zohowebstatic.com/latoblack/font.woff") format("woff"),
+	  url("https://webfonts.zohowebstatic.com/latoblack/font.ttf") format("truetype"),
+	  url("https://webfonts.zohowebstatic.com/latoblack/font.svg#Lato-Black") format("svg");
+  }
+  @font-face {
+	font-family: "signinicon";
+	src: url(/images/signinicon.eot);
+	src: url(/images/signinicon.eot) format("embedded-opentype"),
+	  url(/__catalyst/auth/static-file?file_name=signinicon.woff2) format("woff2"),
+	  url(/__catalyst/auth/static-file?file_name=signinicon.ttf) format("truetype"),
+	  url(/__catalyst/auth/static-file?file_name=signinicon.woff) format("woff"),
+	  url("../images/fonts/signinicon.651f82b8f8f51f33cd0b6331f95b5b4f.svg") format("svg");
+	font-weight: normal;
+	font-style: normal;
+	font-display: block;
+  }
+  
+  [class^="icon-"], [class*=" icon-"] {
+	font-family: 'signinicon' !important;
+	speak: never;
+	font-style: normal;
+	font-weight: normal;
+	font-variant: normal;
+	text-transform: none;
+	line-height: 1;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+  }
+  .icon-hide:before { content: "\e907"; }
+  .icon-show:before { content: "\e914"; }
+  .icon-backarrow:before { content: "\e900"; }
+  .icon-backup:before { content: "\e901"; }
+  .icon-support:before { content: "\e915"; }
+  
+  body { font-family: 'Roboto', sans-serif; margin: 0px; }
+  
+  .bg_one {
+	display: block;
+	position: fixed;
+	top: 0px; left: 0px;
+	height: 100%; width: 100%;
+	background: url('../images/bg.49756b7c711696d95133fa95451f8e13.svg') transparent;
+	background-size: auto 100%;
+	z-index: -1;
+  }
+  .signin_container {
+	display: block;
+	width: 520px;
+	min-height: 520px;
+	background-color: #fff;
+	box-shadow: 0px 2px 30px #ccc6;
+	margin: auto;
+	position: relative;
+	z-index: 1;
+	margin-top: 7%;
+	overflow: hidden;
+  }
+  .mod_container { width: 500px; }
+  .checkbox_label {
+	display: inline-block;
+	font-size: 14px;
+	margin: 0px 6px;
+	float: left;
+	cursor: pointer;
+	line-height: 20px;
+  }
+  .signin_box {
+	width: 520px;
+	min-height: 520px;
+	height: auto;
+	background: #fff;
+	box-sizing: border-box;
+	padding: 50px 50px;
+	border-radius: 2px;
+	transition: all .1s ease-in-out;
+	float: left;
+	overflow-y: auto;
+	display: table-cell;
+	border-right: 2px solid #f1f1f1;
+  }
+  .nopassword_message {
+	display: table-cell;
+	font-size: 14px;
+	color: #222222;
+	letter-spacing: 0px;
+	line-height: 20px;
+	height: auto;
+	width: auto;
+	margin-left: 10px;
+	font-weight: 400;
+	padding-left: 10px;
+  }
+  .portal_logo {
+	display: block;
+	height: 30px;
+	width: auto;
+	margin-bottom: 20px;
+	background-size: auto 100%;
+  }
+  .pointer { cursor: pointer; }
+  #forgotpassword { cursor: default; }
+  #forgotpassword > a { cursor: pointer; }
+  .text16 {
+	display: block;
+	text-align: center;
+	margin-bottom: 30px;
+	color: #626262;
+	font-size: 16px;
+	font-weight: 500;
+	text-decoration: none;
+  }
+  .checkbox {
+	float: left;
+	z-index: 0;
+	height: 12px;
+	width: 12px;
+	display: inline-block;
+	border: 2px solid #ccc;
+	border-radius: 2px;
+	position: relative;
+	top: 1.5px;
+	overflow: hidden;
+	background-color: #fff;
+  }
+  .show_hide_password {
+	font-size: 34px;
+	color: #a7a7a7;
+	position: relative;
+	top: -39px;
+	right: 13px;
+	float: right;
+	cursor: pointer;
+	height: 20px;
+  }
+  .pass_policy, .pass_policy_error { color: #8c8c8c; font-size: 14px; padding-top: 10px; }
+  .pass_policy_error { color: #ed7500; display: block; }
+  .checkbox_check {
+	position: absolute;
+	z-index: 1;
+	opacity: 0;
+	left: 50px;
+	margin: 0px;
+	height: 16px;
+	cursor: pointer;
+	width: 16px;
+  }
+  .checkbox_div { display: none; height: 16px; width: auto; margin-bottom: 30px; }
+  .checkbox_div { display: block; }
+  #terminate_session_form .checkbox_mod { margin-top: 50px; }
+  .checkbox_tick {
+	display: block;
+	height: 3px;
+	width: 8px;
+	border-bottom: 2px solid #fff;
+	border-left: 2px solid #fff;
+	transform: rotate(-45deg);
+	margin: 2px 1px;
+  }
+  .passexpsuccess {
+	display: none;
+	height: 106px;
+	width: 178px;
+	background: url("../images/passexpiry.db4c66debd4dd8880655f338ead6b973.png") no-repeat transparent;
+	background-size: auto 100%;
+	margin: 0px auto;
+	margin-bottom: 20px;
+  }
+  .signin_head {
+	display: block;
+	font-size: 24px;
+	font-weight: 500;
+	margin-bottom: 30px;
+	line-height: 30px;
+	transition: all .1s ease-in-out;
+  }
+  .rightside_box {
+	width: 390px;
+	height: auto;
+	float: right;
+	box-sizing: border-box;
+	padding: 40px;
+	background-color: #fff;
+	display: table-cell;
+  }
+  .service_name, .backup_desc, .pass_name { display: block; font-size: 16px; color: #000; font-weight: 400; }
+  .titlename {
+	display: block;
+	font-size: 24px;
+	color: #000;
+	font-weight: 400;
+	text-transform: capitalize;
+	width: auto;
+	margin-bottom: 20px;
+  }
+  .extramargin { margin-top: 10px; }
+  .textbox_div { display: block; margin-bottom: 30px; position: relative; }
+  .textbox_label { display: block; font-size: 14px; color: #626262; padding-bottom: 10px; }
+  .textbox {
+	display: block;
+	width: 100%;
+	height: 44px;
+	box-sizing: border-box;
+	border-radius: 2px;
+	text-indent: 12px;
+	font-size: 16px;
+	outline: none;
+	border: none;
+	padding-right: 12px;
+	transition: all .2s ease-in-out;
+	background: #F1F1F1;
+	border: 1px solid #E4E4E4;
+  }
+  .textbox:valid { border: 2px solid #F4F6F8; }
+  .textindent42 { text-indent: 36px; }
+  .textindent62 { text-indent: 56px; }
+  .textintent52 { text-indent: 46px; }
+  ::-webkit-credentials-auto-fill-button { visibility: hidden; pointer-events: none; position: absolute; right: 0px; }
+  input[type="text"], input[type="password"], input[type="email"], input[type="number"] {
+	-webkit-appearance: none;
+	-moz-appearance: none;
+	appearance: none;
+  }
+  .errorborder:focus, .textbox.errorborder { border-bottom: 2px solid #ff8484; }
+  .btn {
+	cursor: pointer;
+	display: block;
+	width: 100%;
+	height: 44px;
+	border-radius: 4px;
+	letter-spacing: .5px;
+	font-size: 14px;
+	font-weight: 600;
+	outline: none;
+	border: none;
+	margin: auto;
+	text-transform: uppercase;
+	margin-bottom: 30px;
+	transition: all .2s ease-in-out;
+  }
+  .signupbtn { width: 250px; margin-left: 0px; }
+  .blue { box-shadow: 0px 2px 2px #fff; background-color: #159AFF; color: #fff; }
+  .grey { background-color: #F3F3F3; color: #3a3a3a; letter-spacing: 0px; }
+  .green { box-shadow: 0px 2px 2px #fff; background-color: #00C573; color: #fff; }
+  .blue:hover { box-shadow: 0px 2px 2px rgba(90, 183, 254, 0.2); }
+  .changeloadbtn { display: block; height: 44px; width: 44px; border-radius: 22px; padding: 0px; }
+  .changeloadbtn:before {
+	content: "";
+	height: 20px;
+	width: 20px;
+	display: inline-block;
+	margin: 9px;
+	border: 3px solid #fff;
+	border-top: 3px solid #5AB7FE;
+	border-radius: 50%;
+	animation: spin .5s linear infinite;
+  }
+  @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  .hellouser { margin-bottom: 30px; }
+  .username {
+	display: inline-block;
+	max-width: 100%;
+	font-size: 16px;
+	font-weight: 500;
+	line-height: 24px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	padding-right: 10px;
+	float: left;
+  }
+  .Notyou { display: inline-block; font-size: 16px; line-height: 24px; }
+  .signup_text { text-align: center; margin: 20px 0px; font-size: 16px; }
+  .backbtn {
+	display: none;
+	float: left;
+	height: 28px;
+	width: 28px;
+	border-radius: 50%;
+	position: absolute;
+	padding: 0px 5px;
+	cursor: pointer;
+	overflow: hidden;
+	transition: all .1s ease;
+  }
+  .zeroheight { width: 0px; height: 0px; overflow: hidden; display: block; }
+  #captcha, #bcaptcha { background: #fff; width: 60%; display: inline-block; }
+  #captcha_img, #bcaptcha_img { width: 40%; float: right; background-color: #FFFFFF; border-left: none; }
+  #captcha_img img, #bcaptcha_img img { height: 40px; }
+  .reloadcaptcha {
+	float: right;
+	clear: both;
+	margin-top: -37px;
+	height: 30px;
+	width: 30px;
+	border-radius: 50px;
+	background: url("../images/reload.eaef7ea18b680bc07558164c918909a6.png") no-repeat transparent 5px;
+	background-size: 50%;
+	display: inline-block;
+	cursor: pointer;
+  }
+  #captcha_container { display: none; }
+  .options {
+	display: block;
+	width: 100%;
+	max-width: 500px;
+	min-height: 80px;
+	padding: 0px 50px;
+	cursor: pointer;
+  }
+  .options:hover { background-color: #F9F9F9; }
+  .option_details { display: inline-block; height: auto; width: 320px; margin-left: 15px; }
+  .option_title { display: block; font-size: 16px; font-weight: 500; }
+  .img_option { display: table-cell; height: 24px; width: 24px; color: #499aff; font-size: 24px; vertical-align: top; }
+  .errorlabel { color: #E92B2B; }
+  .fielderror { display: none; font-size: 14px; margin-top: 10px; }
+  .fielderror a { text-decoration: none; color: #309FF4; }
+  .bluetext { color: #309FF4; cursor: pointer; }
+  .nonclickelem { color: #626262; pointer-events: none; }
+  .field_error { color: #f37272; font-size: 14px; padding-top: 10px; }
+  #recoverybtn, #problemsignin, .tryanother { position: absolute; left: 0px; right: 0px; bottom: 40px; }
+  .textbox_actions, .textbox_actions_saml, .textbox_actions_more { display: block; margin-top: 20px; height: 20px; }
+  .bluetext_action {
+	display: inline-block;
+	float: left;
+	font-size: 14px;
+	color: #159AFF;
+	font-weight: 500;
+	line-height: 16px;
+	cursor: pointer;
+  }
+  .bluetext_action a { text-decoration: none; }
+  .bluetext_action_right { float: right; }
+  .Alert, .Errormsg {
+	display: block;
+	margin: auto;
+	height: auto;
+	min-width: 200px;
+	width: fit-content;
+	max-width: 600px;
+	background-color: #032239;
+	border-radius: 6px;
+	position: fixed;
+	top: -100px;
+	left: 0px;
+	right: 0px;
+	transition: all .2s ease;
+	padding: 0px 20px;
+	z-index: 2;
+  }
+  .tick_icon, .error_icon {
+	display: inline-block;
+	height: 20px;
+	width: 20px;
+	background-color: #22C856;
+	border-radius: 50%;
+	background-size: 60px;
+	margin: 15px;
+	float: left;
+  }
+  .tick_icon:after {
+	display: block;
+	content: "";
+	height: 5px;
+	width: 9px;
+	border-bottom: 2px solid #fff;
+	border-left: 2px solid #fff;
+	transform: rotate(-45deg);
+	margin: 7px 6px;
+	box-sizing: border-box;
+  }
+  .alert_message, .error_message {
+	display: inline-block;
+	font-size: 14px;
+	color: #fff;
+	line-height: 18px;
+	margin: 16px 0px;
+	margin-right: 20px;
+	max-width: 510px;
+  }
+  .error_icon { background-color: #FF676F; }
+  .error_icon:before, .error_icon:after {
+	position: absolute;
+	left: 44px;
+	top: 20px;
+	content: ' ';
+	height: 10px;
+	width: 2px;
+	background-color: #FFFFFF;
+  }
+  .error_icon:before { transform: rotate(45deg); }
+  .error_icon:after { transform: rotate(-45deg); }
+  .select2-results__options { padding-left: 0px; }
+  .line { background-color: #f1f1f1; width: 100%; height: 2px; border-radius: 1px; margin-bottom: 20px; }
+  .options, .optionstry {
+	display: table;
+	width: 100%;
+	height: auto;
+	padding: 20px 50px;
+	box-sizing: border-box;
+	cursor: pointer;
+  }
+  .options:hover, .optionstry:hover { background-color: #F9F9F9; }
+  .option_details, .option_details_try {
+	height: auto;
+	width: auto;
+	padding-left: 10px;
+	vertical-align: top;
+	box-sizing: border-box;
+  }
+  .option_title_try { display: block; font-size: 16px; font-weight: 500; }
+  .option_description { display: block; font-size: 13px; line-height: 20px; color: #696969; margin-top: 5px; }
+  .option_details { display: table-cell; }
+  .problemsignincon, .recoverymodes, .addaptivetfalist, #recoverymodeContainer { width: auto; margin: 0px -50px; }
+  #otp_container, #enableotpoption, #mfa_ga_container, #mfa_otp_container, #mfa_totp_container,
+  #recoverybtn, #recovery_container, #enableforgot, #enablesaml, .trustbrowser_ui,
+  #backup_ver_container, #backup_container, #enablemore, .password_expiry_container,
+  .terminate_session_container { display: none; }
+  #recoverybtn, #problemsignin, .tryanother { display: none; bottom: 50px; width: fit-content; margin: 0px auto; cursor: pointer; }
+  #recoverOption, #verify_totp_container, #verify_qr_container { display: none; }
+  .backoption {
+	width: 30px;
+	height: 30px;
+	font-size: 24px;
+	display: inline-block;
+	float: left;
+	color: #666666;
+	padding: 3px;
+	box-sizing: border-box;
+	margin-right: 5px;
+	border-radius: 15px;
+	cursor: pointer;
+  }
+  .backoption:hover { background: #f4f4f4; }
+  .hover-tool-tip {
+	position: absolute;
+	top: 15px;
+	left: 335px;
+	background: #fff;
+	padding: 20px;
+	box-shadow: 0px 0px 10px #0000001a;
+	transition: opacity 0.1s;
+	border-radius: 5px;
+	z-index: 9;
+	opacity: 0;
+  }
+  .hover-tool-tip ul { padding: 0; margin: 0px 0px 0px 15px; list-style: none; }
+  .hover-tool-tip p { margin: 0px 0px 10px 0px; font-size: 14px; font-weight: 500; }
+  .hover-tool-tip ul li { font-size: 12px; display: flex; align-items: center; white-space: nowrap; line-height: 25px; }
+  .hover-tool-tip ul li.success::before { background-color: #0dbc83; }
+  .hover-tool-tip ul li::before { content: ""; margin-right: 10px; background-color: red; width: 8px; height: 8px; border-radius: 50%; }
+  
+  /* Catalyst base overrides */
+  .titlename, .service_name { display: none !important; }
+  .signin_head { padding-top: 20px; }
+  #login_id { text-indent: 0 !important; }
+  .showcountry_code { display: none !important; }
+  
+  @media only screen and (max-width: 600px) {
+	body { -webkit-tap-highlight-color: rgba(255, 255, 255, 0); }
+	.signin_container { width: 100%; box-shadow: none; margin: 0 auto; position: relative; z-index: 1; margin-top: 40px; height: auto; overflow: hidden; }
+	.signin_box { width: 100%; padding: 0px 30px; height: auto; border-right: none; }
+	.textbox { background-color: transparent; border: none; border-bottom: 2px solid #F4F6F8; text-indent: 0px; border-radius: 0px; }
+	.textbox:focus { border: none; border-bottom: 2px solid #159AFF; }
+	.errorborder:focus, .textbox.errorborder { border-bottom: 2px solid #ff8484; }
+	.bg_one, .line { display: none; }
+	.signin_head { margin-bottom: 30px; }
+	.btn { margin-top: 10px; border-radius: 4px; }
+	.changeloadbtn { border-radius: 22px; }
+  }
+  
+  /* ================================================================
+	 DELIVERY SYNC OVERRIDES
+	 Strip Catalyst's own card shell so the widget sits flush inside
+	 our React white card (rounded-3xl). All overrides use !important
+	 to beat the base rules above.
+	 ================================================================ */
+  
+  /* ── Body & background ──────────────────────────────────────────── */
+  body {
+	font-family: 'Inter', 'Roboto', sans-serif !important;
+	background: transparent !important;
+	margin: 0 !important;
+  }
+  
+  /* Hide Catalyst's own full-page SVG background — we have our own */
+  .bg_one {
+	display: none !important;
+  }
+  
+  /* ── Strip Catalyst's card — render flush inside our React card ── */
+  .signin_container {
+	width: 100% !important;
+	min-height: unset !important;
+	background-color: transparent !important;
+	box-shadow: none !important;
+	border-radius: 0 !important;
+	border: none !important;
+	margin: 0 !important;
+	margin-top: 0 !important;
+	overflow: visible !important;
+  }
+  
+  .signin_box {
+	width: 100% !important;
+	min-height: unset !important;
+	background: transparent !important;
+	padding: 32px 32px 28px 32px !important;
+	box-sizing: border-box !important;
+	border-right: none !important;
+	float: none !important;
+	display: block !important;
+	border-radius: 0 !important;
+  }
+  
+  /* ── Heading ─────────────────────────────────────────────────────── */
+  .signin_head {
+	color: #0f172a !important;
+	font-size: 20px !important;
+	font-weight: 700 !important;
+	letter-spacing: -0.02em !important;
+	margin-bottom: 24px !important;
+	padding-top: 0 !important;
+  }
+
+  /* ── Labels ──────────────────────────────────────────────────────── */
+  .textbox_label {
+	color: #475569 !important;
+	font-size: 11px !important;
+	font-weight: 600 !important;
+	text-transform: uppercase !important;
+	letter-spacing: 0.06em !important;
+	padding-bottom: 6px !important;
+  }
+  
+  /* ── Inputs ──────────────────────────────────────────────────────── */
+  .textbox,
+  #login_id,
+  #password {
+	background: #f8fafc !important;
+	border: 1px solid #e2e8f0 !important;
+	border-radius: 10px !important;
+	color: #0f172a !important;
+	font-size: 14px !important;
+	height: 46px !important;
+	text-indent: 12px !important;
+	width: 100% !important;
+	box-sizing: border-box !important;
+	transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+  }
+  .textbox:focus,
+  #login_id:focus,
+  #password:focus {
+	border: 1.5px solid #6366f1 !important;
+	box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12) !important;
+	background: #fff !important;
+	outline: none !important;
+  }
+  .textbox:valid {
+	border: 1px solid #e2e8f0 !important;
+	box-shadow: none !important;
+  }
+  
+  /* ── Error input state ───────────────────────────────────────────── */
+  .errorborder,
+  .textbox.errorborder,
+  .errorborder:focus {
+	border: 1.5px solid #ef4444 !important;
+	box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1) !important;
+  }
+  
+  /* ── Password eye icon ───────────────────────────────────────────── */
+  .show_hide_password { color: #94a3b8 !important; }
+  .show_hide_password:hover { color: #6366f1 !important; }
+  
+  /* ── NEXT / Sign In button ───────────────────────────────────────── */
+  .btn {
+	border-radius: 10px !important;
+	font-size: 13px !important;
+	font-weight: 700 !important;
+	height: 46px !important;
+	letter-spacing: 0.04em !important;
+	text-transform: uppercase !important;
+	width: 100% !important;
+	max-width: 100% !important;
+	margin-bottom: 20px !important;
+  }
+  .btn.blue {
+	background: linear-gradient(135deg, #4f46e5 0%, #6366f1 60%, #818cf8 100%) !important;
+	box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35) !important;
+	color: #fff !important;
+  }
+  .btn.blue:hover {
+	background: linear-gradient(135deg, #4338ca 0%, #4f46e5 60%, #6366f1 100%) !important;
+	box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5) !important;
+  }
+  .btn.green {
+	background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important;
+	color: #fff !important;
+	box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3) !important;
+  }
+  .btn.grey {
+	background: #f1f5f9 !important;
+	border: 1px solid #e2e8f0 !important;
+	color: #64748b !important;
+	box-shadow: none !important;
+  }
+  .btn.grey:hover {
+	background: #e2e8f0 !important;
+	color: #0f172a !important;
+  }
+  .changeloadbtn { background: rgba(99, 102, 241, 0.1) !important; }
+  .changeloadbtn:before { border: 3px solid rgba(99, 102, 241, 0.2) !important; border-top: 3px solid #6366f1 !important; }
+  
+  /* ── Links & actions ─────────────────────────────────────────────── */
+  .bluetext,
+  .bluetext_action,
+  .bluetext_action a,
+  #forgotpassword a {
+	color: #6366f1 !important;
+	text-decoration: none !important;
+	font-weight: 500 !important;
+  }
+  .bluetext:hover,
+  .bluetext_action:hover,
+  .bluetext_action a:hover,
+  #forgotpassword a:hover {
+	color: #4f46e5 !important;
+  }
+  
+  /* ── Username display on password step ──────────────────────────── */
+  .username { color: #0f172a !important; font-size: 15px !important; }
+  .Notyou { color: #6366f1 !important; }
+  .Notyou:hover { color: #4f46e5 !important; }
+
+  /* ── Sign up text ────────────────────────────────────────────────── */
+  .text16 { color: #64748b !important; }
+  .signup_text { color: #64748b !important; }
+  .signup_text a { color: #6366f1 !important; font-weight: 600 !important; text-decoration: none !important; }
+  
+  /* ── Errors ──────────────────────────────────────────────────────── */
+  .errorlabel { color: #ef4444 !important; font-size: 12px !important; }
+  .fielderror, .field_error { color: #ef4444 !important; font-size: 12px !important; }
+  .fielderror a { color: #6366f1 !important; }
+  
+  /* ── Alert / toast ───────────────────────────────────────────────── */
+  .Alert, .Errormsg {
+	background: #0f172a !important;
+	border: 1px solid rgba(99, 102, 241, 0.2) !important;
+	border-radius: 12px !important;
+	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15) !important;
+  }
+  .alert_message, .error_message { color: #f1f5f9 !important; font-size: 13px !important; }
+  .tick_icon { background-color: #10b981 !important; }
+  .error_icon { background-color: #ef4444 !important; }
+  
+  /* ── Checkbox ────────────────────────────────────────────────────── */
+  .checkbox {
+	border: 2px solid #cbd5e1 !important;
+	background: #ffffff !important;
+	border-radius: 4px !important;
+  }
+  .checkbox_label { color: #475569 !important; }
+
+  /* ── MFA option rows ─────────────────────────────────────────────── */
+  .options:hover, .optionstry:hover { background: #f8fafc !important; }
+  .option_title, .option_title_try { color: #0f172a !important; }
+  .option_description { color: #64748b !important; font-size: 12px !important; }
+  .img_option { color: #6366f1 !important; }
+
+  /* ── nopassword / helper text ───────────────────────────────────── */
+  .nopassword_message { color: #334155 !important; }
+  .pass_policy { color: #64748b !important; font-size: 12px !important; }
+  .pass_policy_error { color: #f97316 !important; font-size: 12px !important; font-weight: 600 !important; }
+
+  /* ── Divider ─────────────────────────────────────────────────────── */
+  .line { background: #e2e8f0 !important; }
+  
+  /* ── Back button ─────────────────────────────────────────────────── */
+  .backoption { color: #6366f1 !important; }
+  .backoption:hover { background: rgba(99, 102, 241, 0.08) !important; }
+  
+  /* ── Tooltip ─────────────────────────────────────────────────────── */
+  .hover-tool-tip {
+	background: #fff !important;
+	border: 1px solid #e2e8f0 !important;
+	border-radius: 10px !important;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1) !important;
+  }
+  .hover-tool-tip p { color: #0f172a !important; }
+  .hover-tool-tip ul li { color: #64748b !important; }
+  .hover-tool-tip ul li.success::before { background-color: #10b981 !important; }
+  .hover-tool-tip ul li::before { background-color: #ef4444 !important; }
+  
+  /* ── Social login buttons ────────────────────────────────────────── */
+  .fed_div { border-radius: 10px !important; overflow: hidden !important; }
+  
+  /* ── Scrollbar ───────────────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  
+  /* ── Mobile ──────────────────────────────────────────────────────── */
+  @media only screen and (max-width: 600px) {
+	.signin_container {
+	  border-radius: 0 !important;
+	  margin-top: 0 !important;
+	  min-height: 100vh !important;
+	  box-shadow: none !important;
+	}
+	.signin_box {
+	  padding: 24px 20px !important;
+	  border-right: none !important;
+	}
+	.textbox {
+	  border: none !important;
+	  border-bottom: 1px solid #e2e8f0 !important;
+	  border-radius: 0 !important;
+	  background: transparent !important;
+	  box-shadow: none !important;
+	}
+	.textbox:focus {
+	  border: none !important;
+	  border-bottom: 2px solid #6366f1 !important;
+	  box-shadow: none !important;
+	}
+  }

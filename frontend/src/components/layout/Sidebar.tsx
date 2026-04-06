@@ -12,6 +12,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useMyProfile } from '../../hooks/useUsers';
 import { useSidebar } from '../../contexts/SidebarContext';
 import { useFestival } from '../../contexts/FestivalContext';
+import { useModulePermissions } from '../../hooks/useModulePermissions';
 import UserAvatar from '../ui/UserAvatar';
 
 // ─── Nav item definition ──────────────────────────────────────────────────────
@@ -22,6 +23,7 @@ interface NavItem {
   icon: React.ReactNode;
   children?: NavItem[];
   roles?: string[];
+  moduleKey?: string; // gated by super-admin module permissions
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -30,7 +32,7 @@ const NAV_ITEMS: NavItem[] = [
 
   // ── Projects ──────────────────────────────────────────────────────────────────
   {
-    label: 'Projects', icon: <FolderKanban size={18} />,
+    label: 'Projects', icon: <FolderKanban size={18} />, moduleKey: 'projects',
     children: [
       { label: 'All Projects',  to: '/projects',    icon: <FolderKanban size={16} /> },
       { label: 'My Tasks',      to: '/my-tasks',    icon: <CheckSquare size={16} /> },
@@ -46,17 +48,17 @@ const NAV_ITEMS: NavItem[] = [
 
   // ── Daily Work ────────────────────────────────────────────────────────────────
   {
-    label: 'Daily Work', icon: <Clock size={18} />,
+    label: 'Daily Work', icon: <Clock size={18} />, moduleKey: 'projects',
     children: [
       { label: 'Standup',       to: '/standup',       icon: <ClipboardList size={16} /> },
       { label: 'EOD',           to: '/eod',           icon: <BookOpen size={16} /> },
-      { label: 'Time Tracking', to: '/time-tracking', icon: <Timer size={16} /> },
+      { label: 'Time Tracking', to: '/time-tracking', icon: <Timer size={16} />, moduleKey: 'time' },
     ],
   },
 
   // ── People ────────────────────────────────────────────────────────────────────
   {
-    label: 'People', icon: <Users size={18} />,
+    label: 'People', icon: <Users size={18} />, moduleKey: 'people',
     children: [
       { label: 'Attendance',    to: '/attendance',    icon: <CalendarDays size={16} /> },
       { label: 'Leave',         to: '/leave',         icon: <CalendarDays size={16} /> },
@@ -68,21 +70,21 @@ const NAV_ITEMS: NavItem[] = [
   },
 
   // ── Assets ────────────────────────────────────────────────────────────────────
-  { label: 'Assets', to: '/assets', icon: <Package size={18} /> },
+  { label: 'Assets', to: '/assets', icon: <Package size={18} />, moduleKey: 'assets' },
 
   // ── Reports & AI ──────────────────────────────────────────────────────────────
   {
-    label: 'Reports & AI', icon: <BarChart3 size={18} />,
+    label: 'Reports & AI', icon: <BarChart3 size={18} />, moduleKey: 'reports',
     children: [
       { label: 'Reports',            to: '/reports',            icon: <FileText size={16} /> },
       { label: 'Enterprise Reports', to: '/enterprise-reports', icon: <BarChart3 size={16} />, roles: ['TENANT_ADMIN', 'PMO', 'EXEC', 'DELIVERY_LEAD'] },
-      { label: 'AI Insights',        to: '/ai-insights',        icon: <Sparkles size={16} /> },
+      { label: 'AI Insights',        to: '/ai-insights',        icon: <Sparkles size={16} />, moduleKey: 'ai' },
     ],
   },
 
   // ── Executive ─────────────────────────────────────────────────────────────────
   {
-    label: 'Executive', icon: <Briefcase size={18} />, roles: ['TENANT_ADMIN', 'PMO', 'EXEC', 'DELIVERY_LEAD'],
+    label: 'Executive', icon: <Briefcase size={18} />, roles: ['TENANT_ADMIN', 'PMO', 'EXEC', 'DELIVERY_LEAD'], moduleKey: 'exec',
     children: [
       { label: 'Portfolio',     to: '/portfolio',     icon: <Briefcase size={16} /> },
       { label: 'CEO Dashboard', to: '/ceo-dashboard', icon: <Briefcase size={16} /> },
@@ -105,9 +107,9 @@ const NAV_ITEMS: NavItem[] = [
 // ─── Single nav item ──────────────────────────────────────────────────────────
 
 const SidebarNavItem = ({
-  item, collapsed, onClose, userRole,
+  item, collapsed, onClose, userRole, modules,
 }: {
-  item: NavItem; collapsed: boolean; onClose?: () => void; userRole?: string;
+  item: NavItem; collapsed: boolean; onClose?: () => void; userRole?: string; modules: Record<string, boolean>;
 }) => {
   const location = useLocation();
   const [expanded, setExpanded] = useState(
@@ -115,10 +117,12 @@ const SidebarNavItem = ({
   );
 
   if (item.children) {
-    // Filter children by role
-    const visibleChildren = item.children.filter(
-      (c) => !c.roles || (userRole && c.roles.includes(userRole)),
-    );
+    // Filter children by role and module key
+    const visibleChildren = item.children.filter((c) => {
+      if (c.roles && !(userRole && c.roles.includes(userRole))) return false;
+      if (c.moduleKey && !(modules as Record<string, boolean>)[c.moduleKey]) return false;
+      return true;
+    });
     if (visibleChildren.length === 0) return null;
 
     return (
@@ -143,7 +147,7 @@ const SidebarNavItem = ({
           <div className="ml-3 mt-0.5 space-y-0.5 border-l pl-2"
             style={{ borderColor: 'rgba(var(--ds-sidebar-text), 0.1)' }}>
             {visibleChildren.map((child) => (
-              <SidebarNavItem key={child.to || child.label} item={child} collapsed={false} onClose={onClose} userRole={userRole} />
+              <SidebarNavItem key={child.to || child.label} item={child} collapsed={false} onClose={onClose} userRole={userRole} modules={modules} />
             ))}
           </div>
         )}
@@ -179,11 +183,14 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
   const { data: profile } = useMyProfile();
   const { collapsed, toggleCollapsed, items } = useSidebar();
   const { festival } = useFestival();
+  const modules = useModulePermissions();
 
-  // Filter by role
-  const visibleItems = NAV_ITEMS.filter(
-    (item) => !item.roles || (user && item.roles.includes(user.role)),
-  );
+  // Filter by role AND module permissions
+  const visibleItems = NAV_ITEMS.filter((item) => {
+    if (item.roles && !(user && item.roles.includes(user.role))) return false;
+    if (item.moduleKey && !(modules as Record<string, boolean>)[item.moduleKey]) return false;
+    return true;
+  });
 
   // Apply saved order + visibility from SidebarContext
   const orderedItems = visibleItems
@@ -280,6 +287,7 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
             collapsed={collapsed}
             onClose={onClose}
             userRole={user?.role}
+            modules={modules as Record<string, boolean>}
           />
         ))}
       </nav>

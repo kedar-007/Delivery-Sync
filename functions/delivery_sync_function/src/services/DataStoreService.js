@@ -68,6 +68,20 @@ class DataStoreService {
     return rows.length > 0 ? rows[0] : null;
   }
 
+
+  /**
+   * Find a tanant with the row id
+   * @param {string} tableName
+   * @param {string | number} rowId
+   */
+   async findeTenantById(tableName,rowId){
+    const rows = await this.query(
+      `SELECT * FROM ${tableName} WHERE ROWID = '${rowId}'`
+    );
+    return rows.length>0 ?rows[0]: null
+   }
+
+
   /**
    * Find all rows matching filters (key=value pairs).
    * All queries MUST include tenant_id.

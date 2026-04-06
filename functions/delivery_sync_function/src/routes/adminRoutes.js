@@ -20,5 +20,6 @@ router.delete('/users/:userId', auth, admin(), asyncHandler((req, res) => ctrl(r
 
 router.get('/tenant', auth, can(PERMISSIONS.ADMIN_SETTINGS), asyncHandler((req, res) => ctrl(req).getTenant(req, res)));
 router.get('/audit-logs', auth, can(PERMISSIONS.ADMIN_SETTINGS), asyncHandler((req, res) => ctrl(req).getAuditLogs(req, res)));
+router.get('/modules', auth, asyncHandler((req, res) => ctrl(req).getModulePermissions(req, res)));
 
 module.exports = router;

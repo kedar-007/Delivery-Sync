@@ -185,7 +185,7 @@ class DataStoreService {
   /**
    * Get today's date as YYYY-MM-DD string (IST / server timezone).
    */
-  static today() {
+   static today() {
     return new Date().toISOString().split('T')[0];
   }
 

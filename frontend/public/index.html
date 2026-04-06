@@ -122,6 +122,17 @@
     }
     </script>
 
+    <!-- Suppress cross-origin "Script error." from Catalyst SDK iframes.
+         Must run BEFORE the React bundle so it intercepts before the dev overlay. -->
+    <script>
+      window.addEventListener('error', function(e) {
+        if (e.message === 'Script error.' && !e.filename) {
+          e.stopImmediatePropagation();
+          e.preventDefault();
+          return true;
+        }
+      }, true);
+    </script>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>

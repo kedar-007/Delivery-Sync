@@ -16,6 +16,7 @@ import {
   useAiDailySummary, useAiProjectHealth,
   useAiPerformance, useAiReport, useAiSuggestions,
   useAiDetectBlockers, useAiTrends, useAiRetrospective, useAiNLQuery,
+  useAiHolisticPerformance, useAiSprintAnalysis,
 } from '../hooks/useAiInsights';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -230,15 +231,15 @@ const SeverityBadge = ({ severity }: { severity: string }) => {
 
 // ─── Role-based visibility ────────────────────────────────────────────────────
 
-type CardKey = 'summary' | 'health' | 'performance' | 'suggestions' | 'report' | 'blockers' | 'trends' | 'retro' | 'nlq';
+type CardKey = 'summary' | 'health' | 'performance' | 'suggestions' | 'report' | 'blockers' | 'trends' | 'retro' | 'nlq' | 'holistic' | 'sprint';
 
 const ROLE_VISIBILITY: Record<string, Record<CardKey, boolean>> = {
-  TENANT_ADMIN:  { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true },
-  PMO:           { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true },
-  DELIVERY_LEAD: { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true },
-  EXEC:          { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true },
-  TEAM_MEMBER:   { summary: true,  health: false, performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true },
-  CLIENT:        { summary: false, health: true,  performance: false, suggestions: true, report: true, blockers: true, trends: false, retro: false, nlq: true },
+  TENANT_ADMIN:  { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true,  sprint: true  },
+  PMO:           { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true,  sprint: true  },
+  DELIVERY_LEAD: { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true,  sprint: true  },
+  EXEC:          { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true,  sprint: true  },
+  TEAM_MEMBER:   { summary: true,  health: false, performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true,  sprint: false },
+  CLIENT:        { summary: false, health: true,  performance: false, suggestions: true, report: true, blockers: true, trends: false, retro: false, nlq: true, holistic: false, sprint: false },
 };
 
 const ROLE_BANNER: Record<string, { title: string; desc: string } | undefined> = {
@@ -280,6 +281,12 @@ const AiInsightsPage = () => {
   const retro         = useAiRetrospective();
   const nlq           = useAiNLQuery();
 
+  // AI hooks — holistic + sprint
+  const [holisticDays, setHolisticDays] = useState<7 | 30 | 90>(30);
+  const [sprintId, setSprintId]         = useState('');
+  const holistic = useAiHolisticPerformance();
+  const sprintAI = useAiSprintAnalysis();
+
   const params = { projectId: projectId || undefined };
 
   const runSummary       = useCallback(() => summary.mutate({ ...params, date }),                                [projectId, date]);
@@ -291,6 +298,8 @@ const AiInsightsPage = () => {
   const runTrends        = useCallback(() => trends.mutate({ ...params, days: trendDays }),                     [projectId, trendDays]);
   const runRetro         = useCallback(() => retro.mutate({ ...params, sprintStart, sprintEnd }),                [projectId, sprintStart, sprintEnd]);
   const runNLQuery       = () => { if (nlQuery.trim().length >= 3) nlq.mutate({ ...params, query: nlQuery.trim() }); };
+  const runHolistic      = useCallback(() => holistic.mutate({ days: holisticDays }),                            [holisticDays]);
+  const runSprintAI      = useCallback(() => { if (sprintId.trim()) sprintAI.mutate({ sprintId: sprintId.trim() }); }, [sprintId]);
 
   const runAll = () => {
     if (canSee.summary)     runSummary();
@@ -301,6 +310,7 @@ const AiInsightsPage = () => {
     if (canSee.blockers)    runBlockers();
     if (canSee.trends)      runTrends();
     if (canSee.retro)       runRetro();
+    if (canSee.holistic)    runHolistic();
   };
 
   const isAnyLoading =
@@ -311,7 +321,9 @@ const AiInsightsPage = () => {
     (canSee.suggestions && suggests.isPending)       ||
     (canSee.blockers    && blockerDetect.isPending)  ||
     (canSee.trends      && trends.isPending)         ||
-    (canSee.retro       && retro.isPending);
+    (canSee.retro       && retro.isPending)          ||
+    (canSee.holistic    && holistic.isPending)       ||
+    (canSee.sprint      && sprintAI.isPending);
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -984,9 +996,174 @@ const AiInsightsPage = () => {
         </div>
         )}
 
+        {/* ── Holistic Performance ── */}
+        {canSee.holistic && (
+        <AiCard
+          title="Holistic Performance"
+          icon={<Activity size={14} className="text-white" />}
+          onDownload={holistic.data ? () => downloadJSON(holistic.data, 'holistic-performance.json') : undefined}
+        >
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
+            {([7, 30, 90] as const).map(d => (
+              <button key={d}
+                onClick={() => setHolisticDays(d)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${holisticDays === d ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                {d} days
+              </button>
+            ))}
+            <button
+              onClick={runHolistic}
+              disabled={holistic.isPending}
+              className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white rounded-lg text-xs font-medium hover:bg-violet-700 disabled:opacity-60 transition-colors">
+              {holistic.isPending ? <RefreshCw size={12} className="animate-spin" /> : <Brain size={12} />}
+              Analyse
+            </button>
+          </div>
+          {holistic.isPending && <AiLoadingState label="Analysing performance across all modules…" />}
+          {holistic.isError  && <p className="text-xs text-red-500">{String(holistic.error)}</p>}
+          {!holistic.data && !holistic.isPending && !holistic.isError && (
+            <AiEmptyState label="Cross-module performance: tasks, attendance, leave, time, standups & more." onGenerate={runHolistic} loading={false} />
+          )}
+          {holistic.data && (() => {
+            const d = holistic.data?.data ?? holistic.data;
+            const score = d?.overallScore ?? d?.score;
+            const summary2 = d?.summary ?? d?.executiveSummary;
+            const strengths = d?.strengths ?? [];
+            const improvements = d?.areasForImprovement ?? d?.improvements ?? [];
+            const modules = d?.moduleBreakdown ?? d?.modules ?? [];
+            return (
+              <div className="space-y-4">
+                {score != null && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-gray-500 font-medium">Overall Score</span>
+                      <span className="text-lg font-bold text-violet-700">{score}<span className="text-xs text-gray-400">/100</span></span>
+                    </div>
+                    <ScoreBar score={Number(score)} />
+                  </div>
+                )}
+                {summary2 && <p className="text-sm text-gray-700 leading-relaxed bg-gray-50 rounded-xl p-3">{summary2}</p>}
+                {strengths.length > 0 && (
+                  <Collapsible label={`Strengths (${strengths.length})`}>
+                    <BulletList items={strengths} icon={<CheckCircle size={12} className="text-green-500" />} />
+                  </Collapsible>
+                )}
+                {improvements.length > 0 && (
+                  <Collapsible label={`Areas for Improvement (${improvements.length})`}>
+                    <BulletList items={improvements} icon={<AlertTriangle size={12} className="text-amber-500" />} />
+                  </Collapsible>
+                )}
+                {modules.length > 0 && (
+                  <Collapsible label={`Module Breakdown (${modules.length})`}>
+                    <div className="space-y-2">
+                      {modules.map((m: any, i: number) => (
+                        <div key={i} className="flex items-center justify-between text-sm">
+                          <span className="text-gray-700 font-medium capitalize">{m.module ?? m.name}</span>
+                          {m.score != null && <ScoreBar score={Number(m.score)} />}
+                          {m.status && <span className="text-xs text-gray-500 ml-2">{m.status}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </Collapsible>
+                )}
+              </div>
+            );
+          })()}
+        </AiCard>
+        )}
+
+        {/* ── Sprint AI Analysis ── */}
+        {canSee.sprint && (
+        <AiCard
+          title="Sprint AI Analysis"
+          icon={<Zap size={14} className="text-white" />}
+          onDownload={sprintAI.data ? () => downloadJSON(sprintAI.data, 'sprint-analysis.json') : undefined}
+        >
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
+            <input
+              type="text"
+              value={sprintId}
+              onChange={e => setSprintId(e.target.value)}
+              placeholder="Sprint ID…"
+              className="flex-1 min-w-0 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300"
+            />
+            <button
+              onClick={runSprintAI}
+              disabled={sprintAI.isPending || !sprintId.trim()}
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-violet-600 text-white rounded-lg text-xs font-medium hover:bg-violet-700 disabled:opacity-60 transition-colors">
+              {sprintAI.isPending ? <RefreshCw size={12} className="animate-spin" /> : <Zap size={12} />}
+              Analyse Sprint
+            </button>
+          </div>
+          {sprintAI.isPending && <AiLoadingState label="Analysing sprint velocity, completion and recommendations…" />}
+          {sprintAI.isError  && <p className="text-xs text-red-500">{String(sprintAI.error)}</p>}
+          {!sprintAI.data && !sprintAI.isPending && !sprintAI.isError && (
+            <AiEmptyState label="Enter a sprint ID to get velocity analysis, star rating, and recommendations." onGenerate={runSprintAI} loading={false} />
+          )}
+          {sprintAI.data && (() => {
+            const d = sprintAI.data?.data ?? sprintAI.data;
+            const rating = d?.starRating ?? d?.rating;
+            const velocity = d?.velocity ?? d?.completedPoints;
+            const completion = d?.completionRate ?? d?.completionPercentage;
+            const summary2 = d?.summary ?? d?.analysis;
+            const recs = d?.recommendations ?? [];
+            const went_well = d?.wentWell ?? [];
+            const went_wrong = d?.wentWrong ?? d?.challenges ?? [];
+            return (
+              <div className="space-y-4">
+                <div className="flex items-center gap-6 flex-wrap">
+                  {rating != null && (
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-violet-700">{typeof rating === 'number' ? '★'.repeat(Math.round(rating)) : rating}</div>
+                      <div className="text-xs text-gray-400">Rating</div>
+                    </div>
+                  )}
+                  {velocity != null && (
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-indigo-700">{velocity}</div>
+                      <div className="text-xs text-gray-400">Velocity (pts)</div>
+                    </div>
+                  )}
+                  {completion != null && (
+                    <div className="flex-1 min-w-[120px]">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-gray-500">Completion</span>
+                        <span className="text-xs font-bold text-gray-700">{Math.round(Number(completion))}%</span>
+                      </div>
+                      <ScoreBar score={Math.round(Number(completion))} />
+                    </div>
+                  )}
+                </div>
+                {summary2 && <p className="text-sm text-gray-700 leading-relaxed bg-gray-50 rounded-xl p-3">{summary2}</p>}
+                {went_well.length > 0 && (
+                  <Collapsible label={`Went Well (${went_well.length})`}>
+                    <BulletList items={went_well} icon={<CheckCircle size={12} className="text-green-500" />} />
+                  </Collapsible>
+                )}
+                {went_wrong.length > 0 && (
+                  <Collapsible label={`Challenges (${went_wrong.length})`}>
+                    <BulletList items={went_wrong} icon={<AlertTriangle size={12} className="text-amber-500" />} />
+                  </Collapsible>
+                )}
+                {recs.length > 0 && (
+                  <Collapsible label={`Recommendations (${recs.length})`}>
+                    <div className="space-y-2">
+                      {recs.map((r: any, i: number) => (
+                        <SuggestionItem key={i} item={typeof r === 'string' ? { suggestion: r, priority: 'medium', impact: '' } : r} />
+                      ))}
+                    </div>
+                  </Collapsible>
+                )}
+              </div>
+            );
+          })()}
+        </AiCard>
+        )}
+
         {/* ── Token usage footer ── */}
         {(summary.data || health.data || perf.data || report.data || suggests.data ||
-          blockerDetect.data || trends.data || retro.data || nlq.data) && (
+          blockerDetect.data || trends.data || retro.data || nlq.data ||
+          holistic.data || sprintAI.data) && (
           <div className="flex items-center justify-end gap-1.5 text-[11px] text-gray-400">
             <Brain size={11} />
             Powered by Qwen3-30B-A3B (Zoho Catalyst QuickML) ·
@@ -996,7 +1173,8 @@ const AiInsightsPage = () => {
               perf.data?.meta?.tokensUsed,        report.data?.meta?.tokensUsed,
               suggests.data?.meta?.tokensUsed,    blockerDetect.data?.meta?.tokensUsed,
               trends.data?.meta?.tokensUsed,      retro.data?.meta?.tokensUsed,
-              nlq.data?.meta?.tokensUsed,
+              nlq.data?.meta?.tokensUsed,         holistic.data?.meta?.tokensUsed,
+              sprintAI.data?.meta?.tokensUsed,
             ].filter(Boolean).reduce((a: number, b: any) => a + Number(b), 0)}
           </div>
         )}

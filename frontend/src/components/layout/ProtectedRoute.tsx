@@ -3,6 +3,7 @@ import { Navigate, Outlet, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { PageLoader } from '../ui/Spinner';
 import { UserRole } from '../../types';
+import SuspendedScreen from '../ui/SuspendedScreen';
 
 interface ProtectedRouteProps {
   children?: React.ReactNode;
@@ -10,23 +11,27 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) => {
-  const { user, loading, needsRegistration } = useAuth();
+  const { user, loading, needsRegistration, suspensionInfo } = useAuth();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
 
   if (loading) return <PageLoader />;
+
+  if (suspensionInfo) return <SuspendedScreen info={suspensionInfo} />;
 
   if (!user || needsRegistration) {
     return <Navigate to="/login" replace />;
   }
 
-  // Super admin belongs at /super-admin, not inside any tenant
   if (user.role === 'SUPER_ADMIN') {
     return <Navigate to="/super-admin" replace />;
   }
 
-  // If the URL tenantSlug doesn't match the user's tenant, redirect to correct slug
-  if (tenantSlug && user.tenantSlug && tenantSlug !== user.tenantSlug) {
-    return <Navigate to={`/${user.tenantSlug}/dashboard`} replace />;
+  // Correct tenant slug mismatch — also handles the case where we land on /
+  // with no tenantSlug param by redirecting to the user's real tenant.
+  const correctSlug = user.tenantSlug || user.tenantSlug;
+  console.log("Slug to be redirected--",correctSlug);
+  if (correctSlug && tenantSlug !== correctSlug) {
+    return <Navigate to={`/${correctSlug}/dashboard`} replace />;
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
