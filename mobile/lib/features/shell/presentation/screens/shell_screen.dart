@@ -1,154 +1,238 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_colors.dart';
-import '../../../auth/providers/auth_provider.dart';
 
-/// The root shell that hosts the bottom navigation bar and swaps between tabs.
-class ShellScreen extends ConsumerStatefulWidget {
+/// Root shell — hosts the bottom navigation bar and swaps between tabs.
+class ShellScreen extends ConsumerWidget {
   const ShellScreen({super.key, required this.navigationShell});
   final StatefulNavigationShell navigationShell;
 
   @override
-  ConsumerState<ShellScreen> createState() => _ShellScreenState();
-}
-
-class _ShellScreenState extends ConsumerState<ShellScreen> {
-  @override
-  Widget build(BuildContext context) {
-    final user = ref.watch(currentUserProvider);
-
+  Widget build(BuildContext context, WidgetRef ref) {
     final ds = context.ds;
     return Scaffold(
       backgroundColor: ds.bgPage,
-      body: widget.navigationShell,
-      bottomNavigationBar: _DsBottomNav(
-        currentIndex: widget.navigationShell.currentIndex,
-        onTap: (i) => widget.navigationShell.goBranch(
-          i,
-          initialLocation: i == widget.navigationShell.currentIndex,
-        ),
-        userRole: user?.role ?? '',
+      extendBody: true,
+      body: navigationShell,
+      bottomNavigationBar: _PremiumNav(
+        currentIndex: navigationShell.currentIndex,
+        onTap: (i) {
+          HapticFeedback.selectionClick();
+          navigationShell.goBranch(
+            i,
+            initialLocation: i == navigationShell.currentIndex,
+          );
+        },
       ),
     );
   }
 }
 
-// ── Bottom navigation ─────────────────────────────────────────────────────────
+// ── Premium animated bottom navigation ───────────────────────────────────────
 
-class _DsBottomNav extends StatelessWidget {
-  const _DsBottomNav({
-    required this.currentIndex,
-    required this.onTap,
-    required this.userRole,
-  });
-
+class _PremiumNav extends StatefulWidget {
+  const _PremiumNav({required this.currentIndex, required this.onTap});
   final int currentIndex;
   final ValueChanged<int> onTap;
-  final String userRole;
+
+  @override
+  State<_PremiumNav> createState() => _PremiumNavState();
+}
+
+class _PremiumNavState extends State<_PremiumNav>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _anim;
+  int _prevIndex = 0;
+
+  static const _items = [
+    _NavItem('Home',     Icons.home_outlined,         Icons.home_rounded),
+    _NavItem('Projects', Icons.folder_outlined,        Icons.folder_rounded),
+    _NavItem('Sprints',  Icons.view_kanban_outlined,   Icons.view_kanban_rounded),
+    _NavItem('People',   Icons.people_outline_rounded, Icons.people_rounded),
+    _NavItem('More',     Icons.grid_view_outlined,     Icons.grid_view_rounded),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _prevIndex = widget.currentIndex;
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+    _anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic);
+  }
+
+  @override
+  void didUpdateWidget(_PremiumNav old) {
+    super.didUpdateWidget(old);
+    if (old.currentIndex != widget.currentIndex) {
+      _prevIndex = old.currentIndex;
+      _ctrl.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ds    = context.ds;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+        child: Container(
+          decoration: BoxDecoration(
+            color: isDark
+                ? ds.navBar.withOpacity(0.85)
+                : ds.navBar.withOpacity(0.92),
+            border: Border(
+              top: BorderSide(color: ds.border, width: 0.5),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isDark ? 0.35 : 0.06),
+                blurRadius: 24,
+                offset: const Offset(0, -6),
+              ),
+            ],
+          ),
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height: 68,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final tabW = constraints.maxWidth / _items.length;
+                  return Stack(
+                    children: [
+                      // ── Sliding pill indicator ──────────────────────────
+                      AnimatedBuilder(
+                        animation: _anim,
+                        builder: (_, __) {
+                          final from = _prevIndex * tabW + tabW / 2;
+                          final to   = widget.currentIndex * tabW + tabW / 2;
+                          final x    = from + (to - from) * _anim.value;
+                          return Positioned(
+                            top: 8,
+                            left: x - 36,
+                            child: Container(
+                              width: 72,
+                              height: 34,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    AppColors.primary.withOpacity(0.18),
+                                    AppColors.primaryLight.withOpacity(0.10),
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                borderRadius: BorderRadius.circular(17),
+                                border: Border.all(
+                                  color: AppColors.primary.withOpacity(0.25),
+                                  width: 1,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+
+                      // ── Tab items ────────────────────────────────────────
+                      Row(
+                        children: _items.asMap().entries.map((e) {
+                          final i        = e.key;
+                          final item     = e.value;
+                          final selected = widget.currentIndex == i;
+
+                          return Expanded(
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () => widget.onTap(i),
+                              child: _NavTab(
+                                item: item,
+                                selected: selected,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavTab extends StatelessWidget {
+  const _NavTab({required this.item, required this.selected});
+  final _NavItem item;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
     final ds = context.ds;
-    return Container(
-      decoration: BoxDecoration(
-        color: ds.navBar,
-        border: Border(top: BorderSide(color: ds.border, width: 0.5)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(
-                Theme.of(context).brightness == Brightness.dark ? 0.3 : 0.06),
-            blurRadius: 16,
-            offset: const Offset(0, -4),
+    return AnimatedScale(
+      scale: selected ? 1.0 : 0.92,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOutBack,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            transitionBuilder: (child, anim) => ScaleTransition(
+              scale: Tween<double>(begin: 0.7, end: 1.0).animate(
+                CurvedAnimation(parent: anim, curve: Curves.easeOutBack),
+              ),
+              child: FadeTransition(opacity: anim, child: child),
+            ),
+            child: Icon(
+              selected ? item.activeIcon : item.icon,
+              key: ValueKey('${item.label}$selected'),
+              size: 22,
+              color: selected ? AppColors.primary : ds.textMuted,
+            ),
+          ),
+          const SizedBox(height: 4),
+          AnimatedDefaultTextStyle(
+            duration: const Duration(milliseconds: 200),
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 10,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+              color: selected ? AppColors.primary : ds.textMuted,
+              letterSpacing: selected ? 0.2 : 0,
+            ),
+            child: Text(item.label),
           ),
         ],
-      ),
-      child: SafeArea(
-        child: SizedBox(
-          height: 60,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: _tabs(userRole).asMap().entries.map((e) {
-              final i = e.key;
-              final tab = e.value;
-              final selected = currentIndex == i;
-              return Expanded(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => onTap(i),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 200),
-                        child: Icon(
-                          selected ? tab.activeIcon : tab.icon,
-                          key: ValueKey('$i$selected'),
-                          color: selected
-                              ? AppColors.primaryLight
-                              : ds.textMuted,
-                          size: 22,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        tab.label,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
-                          color: selected
-                              ? AppColors.primaryLight
-                              : ds.textMuted,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-        ),
       ),
     );
   }
 }
 
-class _NavTab {
-  const _NavTab({
-    required this.label,
-    required this.icon,
-    required this.activeIcon,
-  });
-  final String label;
+class _NavItem {
+  const _NavItem(this.label, this.icon, this.activeIcon);
+  final String   label;
   final IconData icon;
   final IconData activeIcon;
 }
-
-List<_NavTab> _tabs(String role) => [
-      const _NavTab(
-        label: 'Home',
-        icon: Icons.home_outlined,
-        activeIcon: Icons.home_rounded,
-      ),
-      const _NavTab(
-        label: 'Projects',
-        icon: Icons.folder_outlined,
-        activeIcon: Icons.folder_rounded,
-      ),
-      const _NavTab(
-        label: 'Sprints',
-        icon: Icons.view_kanban_outlined,
-        activeIcon: Icons.view_kanban_rounded,
-      ),
-      const _NavTab(
-        label: 'People',
-        icon: Icons.people_outline_rounded,
-        activeIcon: Icons.people_rounded,
-      ),
-      const _NavTab(
-        label: 'More',
-        icon: Icons.grid_view_outlined,
-        activeIcon: Icons.grid_view_rounded,
-      ),
-    ];

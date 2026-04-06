@@ -11,31 +11,29 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) => {
-  const { user, loading, needsRegistration, suspensionInfo } = useAuth();
+  const { user, loading, isLoggedOut, needsRegistration, suspensionInfo } = useAuth();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
 
+  // Still initialising
   if (loading) return <PageLoader />;
+
+  // Logged out — stop here, no further checks
+  if (isLoggedOut || !user) return <Navigate to="/login" replace />;
 
   if (suspensionInfo) return <SuspendedScreen info={suspensionInfo} />;
 
-  if (!user || needsRegistration) {
-    return <Navigate to="/login" replace />;
-  }
+  if (needsRegistration) return <Navigate to="/login" replace />;
 
-  if (user.role === 'SUPER_ADMIN') {
-    return <Navigate to="/super-admin" replace />;
-  }
+  if (user.role === 'SUPER_ADMIN') return <Navigate to="/super-admin" replace />;
 
-  // Correct tenant slug mismatch — also handles the case where we land on /
-  // with no tenantSlug param by redirecting to the user's real tenant.
-  const correctSlug = user.tenantSlug || user.tenantSlug;
-  console.log("Slug to be redirected--",correctSlug);
+  // Tenant slug mismatch — redirect to correct tenant
+  const correctSlug = user.tenantSlug;
   if (correctSlug && tenantSlug !== correctSlug) {
     return <Navigate to={`/${correctSlug}/dashboard`} replace />;
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return <Navigate to={`/${user.tenantSlug || tenantSlug}/dashboard`} replace />;
+    return <Navigate to={`/${correctSlug || tenantSlug}/dashboard`} replace />;
   }
 
   return children ? <>{children}</> : <Outlet />;

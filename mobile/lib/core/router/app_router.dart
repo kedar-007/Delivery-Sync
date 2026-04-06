@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../theme/app_colors.dart';
+import '../../shared/models/models.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/dashboard/presentation/screens/dashboard_screen.dart';
 import '../../features/projects/presentation/screens/projects_screen.dart';
+import '../../features/projects/presentation/screens/project_detail_screen.dart';
 import '../../features/standup/presentation/screens/standup_screen.dart';
 import '../../features/eod/presentation/screens/eod_screen.dart';
 import '../../features/people/presentation/screens/people_screen.dart';
@@ -79,6 +81,17 @@ final routerProvider = Provider<GoRouter>((ref) {
             GoRoute(
               path: '/projects',
               builder: (_, __) => const ProjectsScreen(),
+              routes: [
+                GoRoute(
+                  path: ':projectId',
+                  builder: (_, state) {
+                    final extra = state.extra as Project?;
+                    if (extra != null) return ProjectDetailScreen(project: extra);
+                    // Fallback: shouldn't happen but avoids crash
+                    return const Scaffold(body: Center(child: CircularProgressIndicator()));
+                  },
+                ),
+              ],
             ),
           ]),
 

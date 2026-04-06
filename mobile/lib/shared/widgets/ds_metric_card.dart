@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../core/theme/app_colors.dart';
-// DsColorsX extension brought in by app_colors.dart
 
-/// Reusable metric tile — shown on the dashboard.
+// ─────────────────────────────────────────────────────────────────────────────
+//  Premium metric card
+// ─────────────────────────────────────────────────────────────────────────────
+
 class DsMetricCard extends StatelessWidget {
   const DsMetricCard({
     super.key,
@@ -31,18 +33,25 @@ class DsMetricCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [
-              color.withOpacity(0.12),
-              ds.bgCard,
-            ],
+            colors: [color.withOpacity(0.12), ds.bgCard],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withOpacity(0.25), width: 1),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: color.withOpacity(0.22), width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(
+                  Theme.of(context).brightness == Brightness.dark
+                      ? 0.08
+                      : 0.06),
+              blurRadius: 14,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -54,19 +63,20 @@ class DsMetricCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(10),
+                    color: color.withOpacity(0.14),
+                    borderRadius: BorderRadius.circular(11),
                   ),
-                  child: Icon(icon, color: color, size: 20),
+                  child: Icon(icon, color: color, size: 18),
                 ),
                 if (trend != null)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                     decoration: BoxDecoration(
                       color: trendPositive
                           ? AppColors.successBg
                           : AppColors.errorBg,
-                      borderRadius: BorderRadius.circular(6),
+                      borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -75,16 +85,20 @@ class DsMetricCard extends StatelessWidget {
                           trendPositive
                               ? Icons.trending_up_rounded
                               : Icons.trending_down_rounded,
-                          size: 12,
-                          color: trendPositive ? AppColors.success : AppColors.error,
+                          size: 11,
+                          color: trendPositive
+                              ? AppColors.success
+                              : AppColors.error,
                         ),
-                        const SizedBox(width: 2),
+                        const SizedBox(width: 3),
                         Text(
                           trend!,
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: 10,
                             fontWeight: FontWeight.w700,
-                            color: trendPositive ? AppColors.success : AppColors.error,
+                            color: trendPositive
+                                ? AppColors.success
+                                : AppColors.error,
                           ),
                         ),
                       ],
@@ -92,37 +106,45 @@ class DsMetricCard extends StatelessWidget {
                   ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             FittedBox(
               fit: BoxFit.scaleDown,
               alignment: Alignment.centerLeft,
               child: Text(
                 value,
                 style: TextStyle(
-                  fontSize: 26,
+                  fontSize: 28,
                   fontWeight: FontWeight.w800,
                   color: color,
-                  letterSpacing: -0.5,
+                  letterSpacing: -0.8,
+                  height: 1,
                 ),
               ),
             ),
             const SizedBox(height: 4),
             Text(
               label,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: AppColors.textSecondary,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: ds.textMuted,
+                letterSpacing: 0.1,
               ),
             ),
           ],
         ),
       ),
-    ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.08, curve: Curves.easeOut);
+    )
+        .animate()
+        .fadeIn(duration: 400.ms)
+        .slideY(begin: 0.06, curve: Curves.easeOutCubic);
   }
 }
 
-/// RAG status badge.
+// ─────────────────────────────────────────────────────────────────────────────
+//  RAG status badge
+// ─────────────────────────────────────────────────────────────────────────────
+
 class RagBadge extends StatelessWidget {
   const RagBadge(this.rag, {super.key});
   final String rag;
@@ -136,11 +158,11 @@ class RagBadge extends StatelessWidget {
     };
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withOpacity(0.4)),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.35)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -148,10 +170,7 @@ class RagBadge extends StatelessWidget {
           Container(
             width: 6,
             height: 6,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
           const SizedBox(width: 5),
           Text(
@@ -160,7 +179,7 @@ class RagBadge extends StatelessWidget {
               fontSize: 11,
               fontWeight: FontWeight.w700,
               color: color,
-              letterSpacing: 0.5,
+              letterSpacing: 0.3,
             ),
           ),
         ],
@@ -169,7 +188,10 @@ class RagBadge extends StatelessWidget {
   }
 }
 
-/// Priority colour badge.
+// ─────────────────────────────────────────────────────────────────────────────
+//  Priority badge
+// ─────────────────────────────────────────────────────────────────────────────
+
 class PriorityBadge extends StatelessWidget {
   const PriorityBadge(this.priority, {super.key});
   final String priority;
@@ -184,25 +206,25 @@ class PriorityBadge extends StatelessWidget {
     };
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
         color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(color: color.withOpacity(0.3)),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withOpacity(0.28)),
       ),
       child: Text(
         label,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: color,
-        ),
+        style:
+            TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: color),
       ),
     );
   }
 }
 
-/// Task status chip.
+// ─────────────────────────────────────────────────────────────────────────────
+//  Status chip
+// ─────────────────────────────────────────────────────────────────────────────
+
 class StatusChip extends StatelessWidget {
   const StatusChip(this.status, {super.key});
   final String status;
@@ -214,28 +236,29 @@ class StatusChip extends StatelessWidget {
       'IN_PROGRESS' => (AppColors.info,    'In Progress'),
       'BLOCKED'     => (AppColors.error,   'Blocked'),
       'OPEN'        => (AppColors.warning, 'Open'),
-      _             => (AppColors.textMuted, status),
+      _             => (AppColors.textSecondary, status),
     };
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(6),
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: color.withOpacity(0.2)),
       ),
       child: Text(
         label,
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: color,
-        ),
+        style:
+            TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color),
       ),
     );
   }
 }
 
-/// Loading shimmer placeholder.
+// ─────────────────────────────────────────────────────────────────────────────
+//  Shimmer loading card
+// ─────────────────────────────────────────────────────────────────────────────
+
 class ShimmerCard extends StatelessWidget {
   const ShimmerCard({super.key, this.height = 80});
   final double height;
@@ -245,14 +268,20 @@ class ShimmerCard extends StatelessWidget {
     final ds = context.ds;
     return Container(
       height: height,
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: ds.bgElevated,
+        gradient: LinearGradient(
+          colors: [ds.bgCard, ds.bgElevated, ds.bgCard],
+          stops: const [0.0, 0.5, 1.0],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: ds.border.withOpacity(0.5)),
       ),
     ).animate(onPlay: (c) => c.repeat()).shimmer(
-          duration: 1200.ms,
-          color: ds.border,
+          duration: 1400.ms,
+          color: ds.border.withOpacity(0.8),
         );
   }
 }

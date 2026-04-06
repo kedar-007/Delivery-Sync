@@ -596,13 +596,22 @@ class Sprint extends Equatable {
   };
 
   factory Sprint.fromJson(Map<String, dynamic> j) => Sprint(
-        id:              j['id']?.toString() ?? '',
+        // Catalyst DataStore returns ROWID; web may return id
+        id:              j['ROWID']?.toString()
+                      ?? j['id']?.toString()
+                      ?? '',
         name:            j['name'] as String? ?? '',
-        projectId:       j['projectId']?.toString() ?? '',
+        // snake_case from DataStore, camelCase from web
+        projectId:       j['project_id']?.toString()
+                      ?? j['projectId']?.toString()
+                      ?? '',
         status:          j['status'] as String? ?? 'PLANNING',
-        startDate:       j['startDate'] as String?,
-        endDate:         j['endDate'] as String?,
-        goalDescription: j['goalDescription'] as String?,
+        startDate:       j['start_date'] as String?
+                      ?? j['startDate'] as String?,
+        endDate:         j['end_date'] as String?
+                      ?? j['endDate'] as String?,
+        goalDescription: j['goal'] as String?
+                      ?? j['goalDescription'] as String?,
         velocity:        (j['velocity'] as num?)?.toInt(),
       );
 

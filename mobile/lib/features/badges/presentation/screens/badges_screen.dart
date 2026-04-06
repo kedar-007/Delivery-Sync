@@ -12,14 +12,25 @@ import '../../../../shared/widgets/ds_metric_card.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 
 final myBadgesProvider = FutureProvider.autoDispose<List<dynamic>>((ref) async {
+  // Profile /me returns { badges: [ { ...user_badge, badge: { ...definition } } ] }
   final raw = await ApiClient.instance.get<Map<String, dynamic>>(
-    '${AppConstants.baseBadge}/my-badges',
+    '${AppConstants.baseBadge}/profiles/me',
     fromJson: (r) => r as Map<String, dynamic>,
   );
   final d = raw['data'];
-  if (d is List) return d;
-  if (d is Map) return d['badges'] as List? ?? d['earned'] as List? ?? [];
-  return [];
+  final List<dynamic> earned = d is Map
+      ? (d['badges'] as List? ?? d['earned'] as List? ?? [])
+      : (d is List ? d : []);
+  // Flatten nested badge definition into the top-level map
+  return earned.map((b) {
+    final m = Map<String, dynamic>.from(b as Map<String, dynamic>);
+    final def = m['badge'] as Map<String, dynamic>?;
+    if (def != null) {
+      def.forEach((k, v) { m.putIfAbsent(k, () => v); });
+      m['earnedAt'] = m['awarded_at'] ?? m['CREATEDTIME'];
+    }
+    return m;
+  }).toList();
 });
 
 final allBadgesProvider = FutureProvider.autoDispose<List<dynamic>>((ref) async {
@@ -35,7 +46,7 @@ final allBadgesProvider = FutureProvider.autoDispose<List<dynamic>>((ref) async 
 
 final leaderboardProvider = FutureProvider.autoDispose<List<dynamic>>((ref) async {
   final raw = await ApiClient.instance.get<Map<String, dynamic>>(
-    '${AppConstants.baseBadge}/leaderboard',
+    '${AppConstants.baseBadge}/badges/leaderboard',
     fromJson: (r) => r as Map<String, dynamic>,
   );
   final d = raw['data'];

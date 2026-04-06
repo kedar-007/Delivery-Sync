@@ -504,13 +504,40 @@ class _LeaveTab extends ConsumerWidget {
           ?? b['leaveTypeName'] as String?
           ?? b['type'] as String?
           ?? 'Leave ${e.key + 1}';
-      // remaining days may be in different fields
-      final remaining = b['remaining_days']
+
+      // --- remaining days: try direct fields first ---
+      final rawRemaining = b['remaining_days']
           ?? b['remaining']
           ?? b['balance']
           ?? b['remainingDays']
-          ?? '—';
-      return (name, '$remaining', colors[e.key % colors.length]);
+          ?? b['days_remaining']
+          ?? b['available_days'];
+
+      String remaining;
+      if (rawRemaining != null) {
+        remaining = rawRemaining is num
+            ? rawRemaining.toInt().toString()
+            : '$rawRemaining';
+      } else {
+        // fallback: compute total_allocated − used_days
+        final total = (b['total_allocated'] as num?)?.toInt()
+            ?? (b['total'] as num?)?.toInt()
+            ?? (b['allocated_days'] as num?)?.toInt()
+            ?? (lt['total_days'] as num?)?.toInt();
+        final used = (b['used_days'] as num?)?.toInt()
+            ?? (b['used'] as num?)?.toInt()
+            ?? (b['taken'] as num?)?.toInt()
+            ?? (b['taken_days'] as num?)?.toInt();
+        if (total != null && used != null) {
+          remaining = '${total - used}';
+        } else if (total != null) {
+          remaining = '$total';
+        } else {
+          remaining = '—';
+        }
+      }
+
+      return (name, remaining, colors[e.key % colors.length]);
     }).toList();
   }
 
