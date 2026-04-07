@@ -14,6 +14,7 @@ import { useSidebar } from '../../contexts/SidebarContext';
 import { useFestival } from '../../contexts/FestivalContext';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 import UserAvatar from '../ui/UserAvatar';
+import BrandLogo from '../ui/BrandLogo';
 
 // ─── Nav item definition ──────────────────────────────────────────────────────
 
@@ -229,51 +230,91 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
     >
       {/* Logo */}
       <div
-        className="px-3 py-4 border-b flex items-center justify-between shrink-0"
+        className="px-3 py-3 border-b flex items-center justify-between shrink-0"
         style={{ borderColor: `rgb(var(--ds-sidebar-border))` }}
       >
-        {!collapsed && (
-          <div className="min-w-0">
-            <h1 className="font-bold text-base leading-tight truncate flex items-center gap-1.5"
-              style={{ color: `rgb(var(--ds-sidebar-text))` }}>
-              {user?.tenantName || 'My Organisation'}
-              {festival && (
-                <span title={festival.name} aria-label={festival.name} style={{ fontSize: 14, lineHeight: 1 }}>
-                  {festival.emoji}
+        {collapsed ? (
+          /* Collapsed: mark only, centred */
+          <div className="flex flex-col items-center w-full gap-1">
+            <BrandLogo variant="mark" height={34} />
+            {festival && (
+              <span title={festival.name} aria-label={festival.name} style={{ fontSize: 13, lineHeight: 1 }}>
+                {festival.emoji}
+              </span>
+            )}
+          </div>
+        ) : (
+          /* Expanded: mark + org name + product badge */
+          <div className="min-w-0 flex items-center gap-2.5 flex-1">
+            <BrandLogo variant="mark" height={36} />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <h1
+                  className="font-semibold text-sm leading-tight truncate"
+                  style={{ color: `rgb(var(--ds-sidebar-text))` }}
+                >
+                  {user?.tenantName || 'My Organisation'}
+                </h1>
+                {festival && (
+                  <span title={festival.name} aria-label={festival.name} style={{ fontSize: 13, lineHeight: 1, flexShrink: 0 }}>
+                    {festival.emoji}
+                  </span>
+                )}
+              </div>
+              {/* Product name pill — uses theme accent so it matches every colour preset */}
+              <div className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md"
+                style={{
+                  background: 'rgba(var(--ds-accent), 0.12)',
+                  border: '1px solid rgba(var(--ds-accent), 0.25)',
+                }}>
+                <span style={{
+                  width: 5, height: 5, borderRadius: '50%',
+                  background: 'rgb(var(--ds-accent))',
+                  flexShrink: 0, display: 'inline-block',
+                }} />
+                <span style={{
+                  fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
+                  textTransform: 'uppercase',
+                  color: 'rgb(var(--ds-accent))',
+                  lineHeight: 1,
+                }}>
+                  DSV OpsPulse
                 </span>
-              )}
-            </h1>
-            <p className="text-[11px] mt-0.5 truncate font-medium tracking-wide uppercase opacity-50"
-              style={{ color: `rgb(var(--ds-sidebar-text))` }}>
-              Delivery Sync
-            </p>
+              </div>
+            </div>
           </div>
         )}
 
-        <div className="flex items-center gap-1 shrink-0">
-          {/* Festival emoji in collapsed mode */}
-          {collapsed && festival && (
-            <span title={festival.name} aria-label={festival.name} style={{ fontSize: 16, lineHeight: 1 }}>
-              {festival.emoji}
-            </span>
-          )}
+        <div className="flex items-center gap-0.5 shrink-0">
           {/* Mobile close */}
           {onClose && (
             <button onClick={onClose} aria-label="Close sidebar"
-              className="lg:hidden p-1.5 rounded-lg opacity-60 hover:opacity-100 transition-opacity"
+              className="lg:hidden p-1.5 rounded-lg opacity-50 hover:opacity-100 transition-opacity"
               style={{ color: `rgb(var(--ds-sidebar-text))` }}>
               <X size={16} />
             </button>
           )}
           {/* Desktop collapse toggle */}
-          <button
-            onClick={toggleCollapsed}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className="hidden lg:flex p-1.5 rounded-lg opacity-60 hover:opacity-100 transition-opacity"
-            style={{ color: `rgb(var(--ds-sidebar-text))` }}
-          >
-            {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-          </button>
+          {!collapsed && (
+            <button
+              onClick={toggleCollapsed}
+              aria-label="Collapse sidebar"
+              className="hidden lg:flex p-1.5 rounded-lg opacity-40 hover:opacity-80 transition-opacity"
+              style={{ color: `rgb(var(--ds-sidebar-text))` }}
+            >
+              <PanelLeftClose size={15} />
+            </button>
+          )}
+          {collapsed && (
+            <button
+              onClick={toggleCollapsed}
+              aria-label="Expand sidebar"
+              className="hidden lg:flex p-1.5 rounded-lg opacity-40 hover:opacity-80 transition-opacity"
+              style={{ color: `rgb(var(--ds-sidebar-text))` }}
+            >
+              <PanelLeftOpen size={15} />
+            </button>
+          )}
         </div>
       </div>
 

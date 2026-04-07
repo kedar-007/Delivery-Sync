@@ -5,7 +5,6 @@ const AuditService = require('../services/AuditService');
 const NotificationService = require('../services/NotificationService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const { TABLES, LEAVE_STATUS, AUDIT_ACTION, NOTIFICATION_TYPE } = require('../utils/Constants');
-const { use } = require('../routes/attendanceRoutes');
 
 const fmtDT = (d) => DataStoreService.fmtDT(d);
 
@@ -573,34 +572,34 @@ class LeaveController {
       const existing = await this.db.findWhere(
         TABLES.LEAVE_BALANCES,
         req.tenantId,
-        `user_id = ${userIdNum} AND leave_type_id = ${leaveTypeIdNum} AND year = '${y}'`,
+        `user_id = '${userIdNum}' AND leave_type_id = '${leaveTypeIdNum}' AND year = '${String(y)}'`,
         { limit: 1 }
       );
 
       if (existing.length > 0) {
-        // UPDATE — use allocated_days (actual DB column name)
+        // UPDATE — use actual schema column names
         await this.db.update(TABLES.LEAVE_BALANCES, {
           ROWID: String(existing[0].ROWID),
-          allocated_days: String(allocNum),
-          carry_forward_days: String(cfNum),
-          remaining_days: String(allocNum),
+          total_allocated: allocNum,
+          opening_balance: cfNum,
+          remaining_days: allocNum,
         });
 
         return ResponseHelper.success(res, {
           message: 'Leave balance updated successfully'
         });
       } else {
-        // INSERT — all FK BigInt columns as String to avoid precision loss
+        // INSERT — FK columns (user_id, leave_type_id) must be String per Catalyst FK rules
         await this.db.insert(TABLES.LEAVE_BALANCES, {
           tenant_id: String(req.tenantId),
           user_id: String(user_id),
           leave_type_id: String(ltId),
           year: String(y),
-          allocated_days: String(allocNum),
-          carry_forward_days: String(cfNum),
-          remaining_days: String(allocNum),
-          used_days: '0',
-          pending_days: '0',
+          total_allocated: allocNum,
+          opening_balance: cfNum,
+          remaining_days: allocNum,
+          used_days: 0,
+          pending_days: 0,
         });
 
         return ResponseHelper.success(res, {

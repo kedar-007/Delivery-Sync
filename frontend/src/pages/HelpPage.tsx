@@ -650,7 +650,7 @@ export default function HelpPage() {
 
   return (
     <Layout>
-      <Header title="Help & Documentation" subtitle="How to use every feature in Delivery Sync" />
+      <Header title="Help & Documentation" subtitle="How to use every feature in DSV OpsPulse" />
       <div className="p-6 max-w-4xl mx-auto space-y-6">
 
         {/* Search */}

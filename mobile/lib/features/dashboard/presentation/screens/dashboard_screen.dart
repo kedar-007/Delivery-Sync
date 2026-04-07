@@ -52,43 +52,12 @@ final _currentUserAvatarProvider = FutureProvider.autoDispose<String?>((ref) asy
 
 // ── Attendance quick-status provider ─────────────────────────────────────────
 
-/// Normalises a raw DB attendance record (snake_case) to the camelCase keys
-/// the UI widgets expect.
-Map<String, dynamic> _normaliseAttendance(Map<String, dynamic> r) => {
-  'status':       r['status'] as String? ?? 'ABSENT',
-  'checkInTime':  r['check_in_time']  as String? ?? r['checkInTime']  as String?,
-  'checkOutTime': r['check_out_time'] as String? ?? r['checkOutTime'] as String?,
-  'isWfh':        r['is_wfh'] == true || r['is_wfh'] == 'true' || r['isWfh'] == true,
-  'hoursWorked':  (r['work_hours'] as num? ?? r['hoursWorked'] as num? ?? 0).toDouble(),
-};
-
+// Delegates to myAttendanceProvider so that invalidating it from the
+// attendance screen (check-in / check-out / wfh) automatically refreshes
+// the dashboard widget too — no separate fetch needed.
 final _dashAttendanceProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
   try {
-    final raw = await ApiClient.instance.get<Map<String, dynamic>>(
-      '${AppConstants.basePeople}/attendance/my-record',
-      fromJson: (r) => r as Map<String, dynamic>,
-    );
-    final d = raw['data'];
-
-    // API returns a List of records (ordered by date DESC, limit 30)
-    if (d is List) {
-      final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      final todayMap = d
-          .whereType<Map<String, dynamic>>()
-          .firstWhere(
-            (r) => r['attendance_date'] == todayStr,
-            orElse: () => <String, dynamic>{},
-          );
-      return _normaliseAttendance(todayMap);
-    }
-
-    // Fallback: some environments return {today: {...}, history: [...]}
-    if (d is Map<String, dynamic>) {
-      final today = d['today'];
-      if (today is Map<String, dynamic>) return _normaliseAttendance(today);
-      return _normaliseAttendance(d);
-    }
-    return {};
+    return await ref.watch(myAttendanceProvider.future);
   } catch (_) {
     return {};
   }
@@ -483,6 +452,21 @@ class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
         if (checkedIn && _timer == null) {
           SchedulerBinding.instance.addPostFrameCallback((_) {
             if (mounted) _startTimer(checkInTime);
+          });
+        } else if (!checkedIn && _timer != null) {
+          // Checked out (possibly from attendance screen) — stop timer
+          SchedulerBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _timer?.cancel();
+              _timer = null;
+              _breakTimer?.cancel();
+              setState(() {
+                _elapsed = Duration.zero;
+                _breakElapsed = Duration.zero;
+                _onLunchBreak = false;
+                _onShortBreak = false;
+              });
+            }
           });
         }
 

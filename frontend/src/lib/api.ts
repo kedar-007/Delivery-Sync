@@ -171,6 +171,8 @@ export const usersApi = {
     api.patch('/users/me', data).then((r) => r.data.data),
   uploadAvatar: (data: { fileName: string; contentType: string; base64: string }) =>
     api.post('/users/me/avatar/upload', data).then((r) => r.data.data),
+  updateEmail: (data: { email: string }) =>
+    api.post('/users/me/email-update', data).then((r) => r.data),
 };
 
 // ─── Admin ────────────────────────────────────────────────────────────────────

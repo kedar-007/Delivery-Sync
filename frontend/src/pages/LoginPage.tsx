@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import BrandLogo from "../components/ui/BrandLogo";
 
 const FEATURES = [
   { title: "Live Delivery Tracking", desc: "Monitor every shipment in real time.", color: "from-blue-500 to-cyan-500" },
@@ -17,8 +18,9 @@ const MetricTile = ({ value, label, color }: { value: string; label: string; col
 const LeftPanel = () => (
   <div className="hidden lg:flex flex-col h-full bg-slate-950 text-white px-10 py-10">
     <div className="mb-10">
-      <p className="text-2xl font-bold">Delivery Sync</p>
-      <p className="text-blue-400/70 text-sm">Delivery Intelligence Platform</p>
+      {/* Brand logo */}
+      <div className="flex items-center gap-3 mb-1">
+        <BrandLogo variant="full" height={52} /></div>
     </div>
     <div className="flex-1">
       <h1 className="text-6xl font-bold leading-tight mb-10">Track. Sync.<br />Deliver.</h1>

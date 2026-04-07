@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import {
   Camera, Save, User, Mail, Shield, Check, CheckCircle, XCircle,
-  Phone, Briefcase, BookOpen, Link, Calendar, FileText,
+  Phone, Briefcase, BookOpen, Calendar, FileText, AlertTriangle, LogOut,
 } from 'lucide-react';
 import { canDo, PERMISSIONS } from '../utils/permissions';
 import Layout from '../components/layout/Layout';
@@ -12,11 +12,13 @@ import Alert from '../components/ui/Alert';
 import {
   useMyProfile, useUpdateProfile, useUploadAvatar,
   useMyExtendedProfile, useUpdateExtendedProfile, useUploadProfileFile,
+  useUpdateEmail,
 } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
 import { PageLoader } from '../components/ui/Spinner';
 
 interface ProfileForm { name: string; }
+interface EmailForm { email: string; confirmEmail: string; }
 
 interface ExtendedForm {
   bio: string;
@@ -43,15 +45,18 @@ const GRAD: Record<string, string> = {
 const gradFor = (name: string) => GRAD[(name?.[0] ?? 'A').toUpperCase()] ?? 'from-blue-500 to-violet-600';
 
 const ProfilePage = () => {
-  const { user: authUser } = useAuth();
+  const { user: authUser, logout } = useAuth();
   const { data: profile, isLoading } = useMyProfile();
   const { data: extProfile } = useMyExtendedProfile();
   const updateProfile = useUpdateProfile();
   const updateExtended = useUpdateExtendedProfile();
   const uploadAvatar = useUploadAvatar();
   const uploadFile = useUploadProfileFile();
+  const updateEmail = useUpdateEmail();
 
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState('');
+  const [emailConfirmOpen, setEmailConfirmOpen] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [extSaveSuccess, setExtSaveSuccess] = useState(false);
@@ -79,6 +84,28 @@ const ProfilePage = () => {
   const { register, handleSubmit, formState: { errors, isSubmitting, isDirty } } = useForm<ProfileForm>({
     values: { name: profile?.name ?? authUser?.name ?? '' },
   });
+
+  const {
+    register: regEmail,
+    handleSubmit: handleEmailSubmit,
+    watch: watchEmail,
+    reset: resetEmail,
+    formState: { errors: emailFormErrors, isSubmitting: isEmailSubmitting },
+  } = useForm<EmailForm>({ defaultValues: { email: '', confirmEmail: '' } });
+
+  const onEmailUpdate = async (data: EmailForm) => {
+    setEmailError('');
+    try {
+      await updateEmail.mutateAsync({ email: data.email.trim().toLowerCase() });
+      // Success — must log out immediately so the old session is invalidated
+      // and the user re-authenticates with the new email.
+      resetEmail();
+      setEmailConfirmOpen(false);
+      await logout();
+    } catch (err: unknown) {
+      setEmailError((err as Error).message ?? 'Email update failed');
+    }
+  };
 
   const { register: regExt, handleSubmit: handleExtSubmit, formState: { isSubmitting: isExtSubmitting, isDirty: isExtDirty }, setError: setExtError } = useForm<ExtendedForm>({
     values: {
@@ -223,7 +250,14 @@ const ProfilePage = () => {
             <div>
               <label className="form-label flex items-center gap-1.5"><Mail size={13} className="text-gray-400" /> Email</label>
               <input className="form-input bg-gray-50 cursor-not-allowed" value={profile?.email ?? authUser?.email ?? ''} disabled />
-              <p className="text-xs text-gray-400 mt-1">Email is managed by Zoho and cannot be changed here.</p>
+              <p className="text-xs text-gray-400 mt-1">
+                To change your email, use the{' '}
+                <button type="button" onClick={() => setEmailConfirmOpen(true)}
+                  className="text-blue-600 hover:underline font-medium">
+                  Change Email
+                </button>{' '}
+                section below.
+              </p>
             </div>
             <div>
               <label className="form-label flex items-center gap-1.5"><Shield size={13} className="text-gray-400" /> Role</label>
@@ -316,6 +350,88 @@ const ProfilePage = () => {
               </Button>
             </div>
           </form>
+        </div>
+
+        {/* ── Change Email ────────────────────────────────────────────────── */}
+        <div className={`rounded-2xl border shadow-sm p-6 transition-colors ${emailConfirmOpen ? 'border-amber-300 bg-amber-50' : 'bg-white border-gray-200'}`}>
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+              <Mail size={15} className="text-gray-400" /> Change Email Address
+            </h3>
+            <button
+              type="button"
+              onClick={() => { setEmailConfirmOpen(!emailConfirmOpen); setEmailError(''); resetEmail(); }}
+              className="text-xs text-blue-600 hover:underline font-medium"
+            >
+              {emailConfirmOpen ? 'Cancel' : 'Change email'}
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 mb-4">
+            Current: <span className="font-medium text-gray-700">{profile?.email ?? authUser?.email}</span>
+          </p>
+
+          {!emailConfirmOpen && (
+            <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+              <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+              <span>Changing your email will send a confirmation link to the new address and <strong>log you out immediately</strong>. You will need to sign in again with your new email.</span>
+            </div>
+          )}
+
+          {emailConfirmOpen && (
+            <form onSubmit={handleEmailSubmit(onEmailUpdate)} className="space-y-4">
+              <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-100 border border-amber-300 rounded-xl px-4 py-3">
+                <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+                <span>You will be <strong>logged out immediately</strong> after this change. A setup link will be sent to your new email to activate your account.</span>
+              </div>
+
+              <div>
+                <label className="form-label flex items-center gap-1.5"><Mail size={13} className="text-gray-400" /> New Email Address</label>
+                <input
+                  type="email"
+                  className="form-input"
+                  placeholder="new@example.com"
+                  autoComplete="off"
+                  {...regEmail('email', {
+                    required: 'Email is required',
+                    pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: 'Enter a valid email' },
+                    validate: (v) => v.trim().toLowerCase() !== (profile?.email ?? authUser?.email ?? '').toLowerCase() || 'New email must be different from your current email',
+                  })}
+                />
+                {emailFormErrors.email && <p className="form-error">{emailFormErrors.email.message}</p>}
+              </div>
+
+              <div>
+                <label className="form-label flex items-center gap-1.5"><Mail size={13} className="text-gray-400" /> Confirm New Email</label>
+                <input
+                  type="email"
+                  className="form-input"
+                  placeholder="Repeat new email"
+                  autoComplete="off"
+                  {...regEmail('confirmEmail', {
+                    required: 'Please confirm your new email',
+                    validate: (v) => v.trim().toLowerCase() === watchEmail('email').trim().toLowerCase() || 'Emails do not match',
+                  })}
+                />
+                {emailFormErrors.confirmEmail && <p className="form-error">{emailFormErrors.confirmEmail.message}</p>}
+              </div>
+
+              {emailError && <Alert type="error" message={emailError} />}
+
+              <div className="flex justify-end gap-3 pt-1">
+                <Button type="button" variant="outline" onClick={() => { setEmailConfirmOpen(false); setEmailError(''); resetEmail(); }}>
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  loading={isEmailSubmitting || updateEmail.isPending}
+                  icon={<LogOut size={14} />}
+                  className="bg-amber-600 hover:bg-amber-700 text-white border-amber-600"
+                >
+                  Update & Sign Out
+                </Button>
+              </div>
+            </form>
+          )}
         </div>
 
         {/* Account details */}
