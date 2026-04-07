@@ -2,6 +2,7 @@ import React, { useEffect, useCallback, useState } from "react";
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/layout/ProtectedRoute";
+import AppLoader from "./components/ui/AppLoader";
 
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
@@ -59,11 +60,7 @@ const AppRoutes = () => {
   const { user, loading, isLoggedOut } = useAuth();
 
   if (loading) {
-    return (
-      <div className="min-h-screen w-full flex items-center justify-center" style={{ background: '#0a0f1e' }}>
-        <div className="text-slate-400 text-sm animate-pulse">Loading...</div>
-      </div>
-    );
+    return <AppLoader />;
   }
 
   // ✅ Single source of truth — AuthContext decides if user is logged in
@@ -146,11 +143,7 @@ const App = () => {
 
   // Wait for SDK scripts before mounting AuthProvider so catalyst.auth is available
   if (!sdkReady) {
-    return (
-      <div className="min-h-screen w-full flex items-center justify-center" style={{ background: '#0a0f1e' }}>
-        <div className="text-slate-400 text-sm animate-pulse">Loading...</div>
-      </div>
-    );
+    return <AppLoader />;
   }
 
   return (

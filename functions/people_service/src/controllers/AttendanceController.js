@@ -21,6 +21,7 @@ class AttendanceController {
     // Fetch the actual user ROWID from DB to ensure we have the correct FK value
     const users = await this.db.findWhere(TABLES.USERS, tenantId,
       `email = '${req.currentUser.email}'`, { limit: 1 });
+    console.log("Users --",users);
     if (!users || users.length === 0)
       return ResponseHelper.notFound(res, 'User not found');
 

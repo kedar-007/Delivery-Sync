@@ -547,7 +547,7 @@ const AdminPage = () => {
             <p className="font-medium">What happens when you send this invitation:</p>
             <ol className="list-decimal list-inside space-y-1 text-blue-600 text-xs">
               <li>The user is added to your Catalyst org and receives a Zoho email invite.</li>
-              <li>A branded Delivery Sync invitation email is sent with a sign-in link.</li>
+              <li>A branded DSV OpsPulse invitation email is sent with a sign-in link.</li>
               <li>When they sign in, their account is automatically activated.</li>
             </ol>
           </div>

@@ -1,0 +1,43 @@
+{
+  "test_event_cache_put": {
+    "rule_id": "908503675921947730",
+    "target_id": "16166061",
+    "version": 1,
+    "attempt": 1,
+    "account": {
+      "org_id": "60040289923",
+      "project": {
+        "environment": "Development",
+        "name": "Delivery-Sync",
+        "id": "17682000000819069"
+      }
+    },
+    "events": [
+      {
+        "data": {
+          "cache_name": "e7cb98eebd",
+          "cache_value": "a9f71f15de",
+          "project_details": {
+            "project_name": "Delivery-Sync",
+            "id": "17682000000819069",
+            "project_type": "Live"
+          },
+          "segment_details": {
+            "segment_name": "Default",
+            "id": "17682000000819110"
+          },
+          "expiry_in_hours": 23,
+          "expires_in": "Apr 08, 2026 10:16 AM",
+          "ttl_in_milliseconds": "82800000"
+        },
+        "id": "e7c391c4-615d-c3cc-3736-411af954d16",
+        "time_in_ms": "1775540812267",
+        "source": "publisher_id:24051332799431889/service:cloudscalecache/account:93901989",
+        "event_config": {
+          "api_name": "cache_item_created",
+          "id": "28338242841967147"
+        }
+      }
+    ]
+  }
+}

@@ -513,7 +513,7 @@ function SuperAdminSidebar({ active, onChange, alertCount }: {
             </div>
             <div>
               <p className="font-bold text-sm text-white leading-tight">Platform Admin</p>
-              <p className="text-[10px] text-slate-500">Delivery Sync</p>
+              <p className="text-[10px] text-slate-500">DSV OpsPulse</p>
             </div>
           </div>
         )}

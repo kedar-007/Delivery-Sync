@@ -388,12 +388,12 @@ export default function SuspendedScreen({ info }: { info: SuspensionInfo }) {
           }}
         >
           <LogOut size={15} />
-          Sign out of Delivery Sync
+          Sign out of DSV OpsPulse
         </button>
 
         {/* Bottom watermark */}
         <p style={{ fontSize: 11, color: '#1e293b', marginTop: 20, letterSpacing: '0.04em' }}>
-          DELIVERY SYNC · WORKSPACE ACCESS CONTROL
+          DSV OPSPULSE · WORKSPACE ACCESS CONTROL
         </p>
       </div>
 

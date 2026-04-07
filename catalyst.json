@@ -9,7 +9,8 @@
       "asset_service",
       "badge_profile_service",
       "admin_config_service",
-      "reporting_service"
+      "reporting_service",
+      "user_confirmation"
     ],
     "ignore": [],
     "source": "functions"

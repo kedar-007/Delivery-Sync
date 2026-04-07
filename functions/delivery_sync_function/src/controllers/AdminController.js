@@ -83,7 +83,7 @@ class AdminController {
           subject: `${inviterName} invited you to join ${tenantName} on Delivery Sync`,
           message: buildInviteEmailHtml({ firstName, lastName, inviterName, tenantName, role: data.role }),
         },
-        redirect_url: `${process.env.APP_BASE_URL || req.headers.origin || 'https://your-app.com'}/__catalyst/auth/login`,
+        redirect_url: `${process.env.APP_BASE_URL}`,
       };
 
       /** User config */

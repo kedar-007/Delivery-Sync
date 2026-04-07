@@ -66,6 +66,11 @@ export const useUploadAvatar = () => {
   });
 };
 
+export const useUpdateEmail = () =>
+  useMutation({
+    mutationFn: (data: { email: string }) => usersApi.updateEmail(data),
+  });
+
 export const useUploadProfileFile = () => {
   const qc = useQueryClient();
   return useMutation({
