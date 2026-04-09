@@ -221,10 +221,9 @@ class _TeamCard extends StatelessWidget {
     final ds          = context.ds;
     final name        = team['name']        as String? ?? '—';
     final description = team['description'] as String?;
-    final members     = team['members'] as List? ?? [];
-    final lead        = team['lead'] as Map<String, dynamic>?
-        ?? team['teamLead'] as Map<String, dynamic>?;
-    final leadName    = lead?['name'] as String? ?? lead?['fullName'] as String?;
+    final members     = team['members']     as List? ?? [];
+    final leadName    = team['leadName']    as String?
+        ?? (team['lead'] as Map?)?['name']  as String?;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),

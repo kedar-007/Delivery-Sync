@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import {
   Plus, UserCheck, UserX, Shield, Search, Filter, RefreshCw,
   ChevronDown, ChevronUp, Clock, User, Tag, Layers, Calendar, Lock,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, Edit2, Check, X, KeyRound,
 } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
@@ -14,7 +14,8 @@ import Modal, { ModalActions } from '../components/ui/Modal';
 import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
 import { PageLoader } from '../components/ui/Spinner';
-import { useAdminUsers, useInviteUser, useDeactivateUser, useAuditLogs } from '../hooks/useAdmin';
+import { useAdminUsers, useInviteUser, useDeactivateUser, useUpdateAdminUser, useAuditLogs } from '../hooks/useAdmin';
+import UserPermissionsModal from '../components/ui/UserPermissionsModal';
 import { useAuth } from '../contexts/AuthContext';
 import { canDo, PERMISSIONS, INVITE_ALLOWED_ROLES } from '../utils/permissions';
 import { User as UserType } from '../types';
@@ -187,6 +188,116 @@ const LogRow = ({ log, avatarUrl }: { log: AuditLog; avatarUrl?: string }) => {
   );
 };
 
+// ─── Role options ─────────────────────────────────────────────────────────────
+const ALL_ROLES = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD', 'TEAM_MEMBER', 'EXEC', 'CLIENT'];
+
+// ─── UserRow ──────────────────────────────────────────────────────────────────
+const UserRow = ({
+  user, currentUserId, allowedInviteRoles,
+  isEditingRole, editingRole, onStartEdit, onCancelEdit, onRoleChange, onSaveRoleDone, onDeactivate,
+}: {
+  user: UserType;
+  currentUserId: string;
+  allowedInviteRoles: string[];
+  isEditingRole: boolean;
+  editingRole: string;
+  onStartEdit: () => void;
+  onCancelEdit: () => void;
+  onRoleChange: (r: string) => void;
+  onSaveRoleDone: () => void;
+  onDeactivate: () => void;
+}) => {
+  const updateUser = useUpdateAdminUser(user.id);
+  const isSelf = user.id === currentUserId;
+  const canChangeRole = !isSelf && allowedInviteRoles.length > 0;
+  const [showPerms, setShowPerms] = useState(false);
+
+  const saveRole = async () => {
+    try { await updateUser.mutateAsync({ role: editingRole }); } catch { /* */ }
+    onSaveRoleDone();
+  };
+
+  return (
+    <>
+      <tr className="hover:bg-gray-50">
+        <td className="px-4 py-3">
+          <div className="flex items-center gap-3">
+            <UserAvatar name={user.name} avatarUrl={user.avatarUrl} size="sm" />
+            <span className="text-sm font-medium text-gray-900">{user.name}</span>
+          </div>
+        </td>
+        <td className="px-4 py-3 text-sm text-gray-500">{user.email}</td>
+        <td className="px-4 py-3">
+          {isEditingRole ? (
+            <div className="flex items-center gap-1.5">
+              <select
+                className="form-select text-xs py-1 px-2 border-gray-300 rounded-lg"
+                value={editingRole}
+                onChange={(e) => onRoleChange(e.target.value)}
+              >
+                {ALL_ROLES.filter(r => allowedInviteRoles.includes(r)).map(r => (
+                  <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>
+                ))}
+              </select>
+              <button onClick={saveRole} disabled={updateUser.isPending}
+                className="p-1 rounded text-emerald-600 hover:bg-emerald-50 transition-colors" title="Save">
+                <Check size={13} />
+              </button>
+              <button onClick={onCancelEdit}
+                className="p-1 rounded text-gray-400 hover:bg-gray-100 transition-colors" title="Cancel">
+                <X size={13} />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-600">
+                <Shield size={12} /> {user.role.replace(/_/g, ' ')}
+              </span>
+              {canChangeRole && user.status === 'ACTIVE' && (
+                <button onClick={onStartEdit}
+                  className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors" title="Change role">
+                  <Edit2 size={11} />
+                </button>
+              )}
+            </div>
+          )}
+        </td>
+        <td className="px-4 py-3"><StatusBadge status={user.status} /></td>
+        <td className="px-4 py-3">
+          <div className="flex items-center gap-2">
+            {/* Permissions button */}
+            <button
+              onClick={() => setShowPerms(true)}
+              className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors"
+              title="Manage permissions"
+            >
+              <KeyRound size={12} /> Permissions
+            </button>
+            {user.status === 'ACTIVE' && !isSelf && (
+              <button onClick={onDeactivate}
+                className="text-xs text-red-600 hover:underline flex items-center gap-1">
+                <UserX size={12} /> Deactivate
+              </button>
+            )}
+            {user.status === 'INACTIVE' && (
+              <span className="text-xs text-gray-400 flex items-center gap-1"><UserCheck size={12} /> Inactive</span>
+            )}
+          </div>
+        </td>
+      </tr>
+
+      {/* Per-user permissions modal */}
+      <UserPermissionsModal
+        open={showPerms}
+        onClose={() => setShowPerms(false)}
+        userId={user.id}
+        userName={user.name}
+        userRole={user.role}
+      />
+    </>
+  );
+};
+
 // ─── AdminPage ────────────────────────────────────────────────────────────────
 const AdminPage = () => {
   const { user: currentUser } = useAuth();
@@ -215,6 +326,9 @@ const AdminPage = () => {
     if (filterDateTo) p.dateTo = filterDateTo + ' 23:59:59';
     return p;
   }, [filterAction, filterEntity, filterUser, filterDateFrom, filterDateTo]);
+
+  const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
+  const [editingRole, setEditingRole] = useState('');
 
   const { data: users = [], isLoading } = useAdminUsers();
   const { data: rawLogs = [], isLoading: auditLoading, refetch: refetchLogs } =
@@ -263,6 +377,14 @@ const AdminPage = () => {
     if (!window.confirm('Deactivate this user? They will lose access.')) return;
     try { await deactivateUser.mutateAsync(userId); } catch { /* */ }
   };
+
+  const startEditRole = (userId: string, currentRole: string) => {
+    setEditingRoleId(userId);
+    setEditingRole(currentRole);
+  };
+
+  const cancelEditRole = () => { setEditingRoleId(null); setEditingRole(''); };
+
 
   const clearFilters = () => {
     setFilterAction(''); setFilterEntity(''); setFilterUser('');
@@ -327,29 +449,19 @@ const AdminPage = () => {
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {users.map((u: UserType) => (
-                    <tr key={u.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <UserAvatar name={u.name} avatarUrl={u.avatarUrl} size="sm" />
-                          <span className="text-sm font-medium text-gray-900">{u.name}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-500">{u.email}</td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-600">
-                          <Shield size={12} /> {u.role}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3"><StatusBadge status={u.status} /></td>
-                      <td className="px-4 py-3">
-                        {u.status === 'ACTIVE' && (
-                          <button onClick={() => handleDeactivate(u.id)}
-                            className="text-xs text-red-600 hover:underline flex items-center gap-1">
-                            <UserX size={12} /> Deactivate
-                          </button>
-                        )}
-                      </td>
-                    </tr>
+                    <UserRow
+                      key={u.id}
+                      user={u}
+                      currentUserId={currentUser?.id ?? ''}
+                      allowedInviteRoles={allowedInviteRoles}
+                      isEditingRole={editingRoleId === u.id}
+                      editingRole={editingRole}
+                      onStartEdit={() => startEditRole(u.id, u.role)}
+                      onCancelEdit={cancelEditRole}
+                      onRoleChange={setEditingRole}
+                      onSaveRoleDone={cancelEditRole}
+                      onDeactivate={() => handleDeactivate(u.id)}
+                    />
                   ))}
                 </tbody>
               </table>

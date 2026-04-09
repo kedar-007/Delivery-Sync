@@ -97,6 +97,39 @@ class DataStoreService {
   }
 
   /**
+   * Paginated query with total count.
+   * Returns { rows, total, page, pageSize, totalPages }
+   */
+  async findPaginated(tableName, tenantId, whereExtra, options = {}) {
+    const page     = Math.max(1, parseInt(options.page) || 1);
+    const pageSize = Math.min(200, Math.max(1, parseInt(options.pageSize) || 20));
+    const offset   = (page - 1) * pageSize;
+    const orderStr = options.orderBy ? `ORDER BY ${options.orderBy}` : 'ORDER BY CREATEDTIME DESC';
+    const tenantClause = `tenant_id = '${tenantId}'`;
+    const fullWhere    = whereExtra ? `${tenantClause} AND ${whereExtra}` : tenantClause;
+
+    const rows = await this.query(
+      `SELECT * FROM ${tableName} WHERE ${fullWhere} ${orderStr} LIMIT ${pageSize} OFFSET ${offset}`
+    );
+    let total = 0;
+    try {
+      const countRows = await this.query(`SELECT COUNT(ROWID) FROM ${tableName} WHERE ${fullWhere}`);
+      if (countRows.length > 0) total = parseInt(Object.values(countRows[0])[0], 10) || 0;
+    } catch (_) { total = rows.length; }
+
+    return { rows, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
+  }
+
+  async countWhere(tableName, tenantId, whereExtra) {
+    const tenantClause = `tenant_id = '${tenantId}'`;
+    const fullWhere    = whereExtra ? `${tenantClause} AND ${whereExtra}` : tenantClause;
+    try {
+      const rows = await this.query(`SELECT COUNT(ROWID) FROM ${tableName} WHERE ${fullWhere}`);
+      return rows.length > 0 ? parseInt(Object.values(rows[0])[0], 10) || 0 : 0;
+    } catch (_) { return 0; }
+  }
+
+  /**
    * Count rows matching filters.
    */
   async count(tableName, filters = {}) {
@@ -104,7 +137,7 @@ class DataStoreService {
       ([col, val]) => `${col} = '${String(val).replace(/'/g, "''")}'`
     );
     const whereStr = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
-    const rows = await this.query(`SELECT COUNT(*) FROM ${tableName} ${whereStr}`);
+    const rows = await this.query(`SELECT COUNT(ROWID) FROM ${tableName} ${whereStr}`);
     if (rows.length > 0) {
       const countVal = Object.values(rows[0])[0];
       return parseInt(countVal, 10) || 0;

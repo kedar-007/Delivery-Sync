@@ -12,7 +12,8 @@ import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import UserPicker from '../components/ui/UserPicker';
-import { useActions, useCreateAction, useUpdateAction } from '../hooks/useActions';
+import { useActionsPaginated, useCreateAction, useUpdateAction } from '../hooks/useActions';
+import Pagination from '../components/ui/Pagination';
 import { useProjects } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
@@ -38,14 +39,19 @@ const ActionsPage = () => {
   const [editingAction, setEditingAction] = useState<Action | null>(null);
   const [viewingAction, setViewingAction] = useState<Action | null>(null);
   const [createError, setCreateError] = useState('');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
 
-  const params: Record<string, string> = {};
+  const params: Record<string, string | number> = { page, pageSize: PAGE_SIZE };
   if (filterProject) params.projectId = filterProject;
   if (filterStatus) params.status = filterStatus;
 
   const { user: currentUser } = useAuth();
   const canWrite = canDo(currentUser?.role, PERMISSIONS.ACTION_WRITE);
-  const { data: actions = [], isLoading } = useActions(params);
+  const { data: pagedData, isLoading } = useActionsPaginated(params);
+  const actions: Action[] = pagedData?.actions ?? [];
+  const total: number = pagedData?.total ?? 0;
+  const totalPages: number = pagedData?.totalPages ?? 1;
   const { data: projects = [] } = useProjects();
   const { data: users = [] } = useUsers();
   const createAction = useCreateAction();
@@ -87,7 +93,7 @@ const ActionsPage = () => {
 
   return (
     <Layout>
-      <Header title="Actions" subtitle={`${actions.length} action${actions.length !== 1 ? 's' : ''}`}
+      <Header title="Actions" subtitle={`${total} action${total !== 1 ? 's' : ''}`}
         actions={canWrite
           ? <Button onClick={() => { setEditingAction(null); reset({ project_id: preselectedProject, priority: 'MEDIUM' }); setShowCreate(true); }} icon={<Plus size={16} />}>New Action</Button>
           : <span className="flex items-center gap-1.5 text-sm text-gray-400"><Lock size={14} />No permission to add actions</span>}
@@ -96,11 +102,11 @@ const ActionsPage = () => {
 
         {/* Filters */}
         <div className="flex flex-wrap gap-3">
-          <select className="form-select w-auto" value={filterProject} onChange={(e) => setFilterProject(e.target.value)}>
+          <select className="form-select w-auto" value={filterProject} onChange={(e) => { setFilterProject(e.target.value); setPage(1); }}>
             <option value="">All Projects</option>
             {projects.map((p: {id: string; name: string}) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <select className="form-select w-auto" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+          <select className="form-select w-auto" value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }}>
             <option value="">All Statuses</option>
             {['OPEN', 'IN_PROGRESS', 'DONE', 'CANCELLED'].map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
@@ -149,6 +155,8 @@ const ActionsPage = () => {
             </table>
           </div>
         )}
+
+        <Pagination page={page} totalPages={totalPages} total={total} pageSize={PAGE_SIZE} onPageChange={setPage} />
       </div>
 
       {/* Detail View Modal */}

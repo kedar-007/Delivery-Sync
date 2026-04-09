@@ -163,7 +163,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
     try {
       await ApiClient.instance.post(
         '${AppConstants.basePeople}/attendance/check-in',
-        data: {'timestamp': DateTime.now().toIso8601String()},
+        data: {'client_time': DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())},
       );
       ref.invalidate(myAttendanceProvider);
       ref.invalidate(liveAttendanceProvider);
@@ -182,7 +182,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
     try {
       await ApiClient.instance.post(
         '${AppConstants.basePeople}/attendance/check-out',
-        data: {'timestamp': DateTime.now().toIso8601String()},
+        data: {'client_time': DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())},
       );
       ref.invalidate(myAttendanceProvider);
       ref.invalidate(liveAttendanceProvider);

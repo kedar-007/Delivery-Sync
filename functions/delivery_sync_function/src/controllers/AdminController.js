@@ -285,6 +285,146 @@ class AdminController {
     }
   }
 
+  /**
+   * GET /api/admin/my-permissions
+   * Returns the calling user's effective permissions (role defaults + overrides).
+   * Any authenticated user can call this — no admin required.
+   */
+  async getMyPermissions(req, res) {
+    try {
+      const { tenantId, id: userId, role } = req.currentUser;
+      const { ROLE_PERMISSIONS } = require('../utils/Constants');
+      const rolePerms = ROLE_PERMISSIONS[role] || [];
+
+      let granted = [], revoked = [];
+      try {
+        const rows = await this.db.query(
+          `SELECT permissions FROM ${TABLES.PERMISSION_OVERRIDES} ` +
+          `WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = true LIMIT 1`
+        );
+        if (rows.length > 0) {
+          const parsed = JSON.parse(rows[0].permissions || '{}');
+          granted = parsed.granted || [];
+          revoked = parsed.revoked || [];
+        }
+      } catch (_) { /* table not yet created — fall back to role defaults */ }
+
+      // Compute effective: (role ∪ granted) \ revoked
+      const effective = new Set(rolePerms);
+      granted.forEach((p) => effective.add(p));
+      revoked.forEach((p) => effective.delete(p));
+
+      return ResponseHelper.success(res, {
+        role,
+        permissions: Array.from(effective),
+      });
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
+   * GET /api/admin/users/:userId/permissions
+   * Returns the role-default permissions plus any per-user overrides.
+   */
+  async getUserPermissions(req, res) {
+    try {
+      const { tenantId } = req.currentUser;
+      const { userId } = req.params;
+
+      const user = await this.db.findById(TABLES.USERS, userId, tenantId);
+      if (!user) return ResponseHelper.notFound(res, 'User not found');
+
+      const { ROLE_PERMISSIONS, PERMISSIONS } = require('../utils/Constants');
+      const rolePerms = ROLE_PERMISSIONS[user.role] || [];
+
+      // Load per-user overrides from permission_overrides table
+      // Schema: tenant_id(bigint), user_id(varchar), role(varchar), permissions(text JSON), is_active(boolean)
+      // permissions JSON format: { "granted": [...], "revoked": [...] }
+      let granted = [], revoked = [];
+      try {
+        const rows = await this.db.query(
+          `SELECT permissions FROM ${TABLES.PERMISSION_OVERRIDES} ` +
+          `WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = true LIMIT 1`
+        );
+        if (rows.length > 0) {
+          const parsed = JSON.parse(rows[0].permissions || '{}');
+          granted = parsed.granted || [];
+          revoked = parsed.revoked || [];
+        }
+      } catch (_) {
+        // Table not yet created or user_id column missing — return role defaults only
+      }
+
+      return ResponseHelper.success(res, {
+        userId,
+        role: user.role,
+        rolePermissions: rolePerms,
+        granted,
+        revoked,
+        allPermissions: Object.values(PERMISSIONS),
+      });
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
+   * PUT /api/admin/users/:userId/permissions
+   * Body: { granted: string[], revoked: string[] }
+   * Upserts the per-user permission override row.
+   */
+  async setUserPermissions(req, res) {
+    try {
+      const { tenantId, id: performedBy } = req.currentUser;
+      const { userId } = req.params;
+      const { granted = [], revoked = [] } = req.body;
+
+      const user = await this.db.findById(TABLES.USERS, userId, tenantId);
+      if (!user) return ResponseHelper.notFound(res, 'User not found');
+
+      const { PERMISSIONS } = require('../utils/Constants');
+      const validPerms = new Set(Object.values(PERMISSIONS));
+      const cleanGranted = granted.filter((p) => validPerms.has(p));
+      const cleanRevoked = revoked.filter((p) => validPerms.has(p));
+
+      const permJson = JSON.stringify({ granted: cleanGranted, revoked: cleanRevoked });
+
+      const existing = await this.db.query(
+        `SELECT ROWID FROM ${TABLES.PERMISSION_OVERRIDES} ` +
+        `WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' LIMIT 1`
+      );
+
+      if (existing.length > 0) {
+        await this.db.update(TABLES.PERMISSION_OVERRIDES, {
+          ROWID: String(existing[0].ROWID),
+          permissions: permJson,
+          role: user.role,
+          is_active: true,
+        });
+      } else {
+        await this.db.insert(TABLES.PERMISSION_OVERRIDES, {
+          tenant_id: Number(tenantId),
+          user_id: String(userId),
+          role: user.role,
+          permissions: permJson,
+          is_active: true,
+        });
+      }
+
+      await this.audit.log({
+        tenantId, entityType: 'user_permissions', entityId: userId,
+        action: AUDIT_ACTION.UPDATE,
+        newValue: { granted: cleanGranted, revoked: cleanRevoked },
+        performedBy,
+      });
+
+      return ResponseHelper.success(res, { userId, granted: cleanGranted, revoked: cleanRevoked });
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
   /** GET /api/admin/modules — returns module enabled/disabled state for this tenant */
   async getModulePermissions(req, res) {
     try {

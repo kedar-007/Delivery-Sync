@@ -1,10 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Clock, Plus, Edit2, Trash2, Send, RotateCcw, CheckCircle2,
-  XCircle, DollarSign, CalendarDays, ChevronDown, ChevronUp,
+  XCircle, DollarSign, CalendarDays, TrendingUp, Users,
 } from 'lucide-react';
-import { format, startOfWeek, addDays, parseISO, isValid } from 'date-fns';
+import { format, startOfWeek, addDays, startOfMonth, endOfMonth, eachDayOfInterval, parseISO, isValid } from 'date-fns';
 import { useForm, useWatch } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
@@ -18,7 +18,7 @@ import { PageSkeleton, SkeletonTable } from '../components/ui/Skeleton';
 import UserAvatar from '../components/ui/UserAvatar';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  useTimeEntries, useMyWeek, useTimeSummary,
+  useTimeEntries, useMyWeek,
   useCreateTimeEntry, useUpdateTimeEntry, useDeleteTimeEntry,
   useSubmitTimeEntry, useRetractTimeEntry,
   useTimeApprovals, useApproveTime, useRejectTime,
@@ -62,6 +62,9 @@ interface WeekSummary {
   nonBillableHours: number;
   daysLogged: number;
   days: WeekDay[];
+  entries: TimeEntry[];
+  weekStart: string;
+  weekEnd: string;
 }
 
 interface TimeApproval {
@@ -158,9 +161,10 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
     }
   }, [watchedStart, watchedEnd, setValue]);
 
-  // Load tasks whenever a project is selected
+  // Load tasks only when a project is selected — avoid fetching all tasks otherwise
   const { data: tasksRaw = [] } = useTasks(
     watchedProjectId ? { project_id: watchedProjectId } : undefined,
+    !!watchedProjectId,
   );
   const tasks = (tasksRaw as Array<{ id: string; title: string }>).filter(Boolean);
 
@@ -383,6 +387,13 @@ interface MyTimeLogTabProps {
 const PAGE_SIZE = 20;
 
 const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
+  // Build id→name map for instant project name lookup
+  const projectMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    (projects as Array<{ id: string; name: string }>).forEach((p) => { m[p.id] = p.name; });
+    return m;
+  }, [projects]);
+
   const [modalOpen, setModalOpen] = useState(false);
   const [editEntry, setEditEntry] = useState<TimeEntry | null>(null);
   const [filterDateFrom, setFilterDateFrom] = useState('');
@@ -401,15 +412,16 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
   );
   const viewTasks = (viewTasksRaw as Array<{ id: string; title: string }>).filter(Boolean);
 
+  // Reset to page 1 whenever any filter changes — must be useEffect, not inside useMemo
+  useEffect(() => { setPage(1); }, [filterDateFrom, filterDateTo, filterProject, filterStatus]);
+
   const filterParams = useMemo(() => {
-    setPage(1);
     const p: Record<string, string> = {};
     if (filterDateFrom) p.date_from = filterDateFrom;
     if (filterDateTo) p.date_to = filterDateTo;
     if (filterProject) p.project_id = filterProject;
     if (filterStatus) p.status = filterStatus;
     return p;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterDateFrom, filterDateTo, filterProject, filterStatus]);
 
   const { data: entriesRaw = [], isLoading, error } = useTimeEntries(filterParams);
@@ -591,7 +603,7 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
                       {safeFormat(entry.date, 'MMM d, yyyy')}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
-                      {entry.projectName ?? entry.projectId}
+                      {entry.projectName || projectMap[entry.projectId] || entry.projectId}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate" title={entry.description}>
                       {entry.description}
@@ -728,88 +740,268 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
   );
 };
 
-// ── This Week Tab ─────────────────────────────────────────────────────────────
+// ── Analytics Tab (Week / Month / Overall) ────────────────────────────────────
 
-const ThisWeekTab = () => {
-  const { data: weekData, isLoading, error } = useMyWeek();
-  const { data: summary } = useTimeSummary();
+type AnalyticsPeriod = 'week' | 'month' | 'overall';
 
+interface AnalyticsTabProps {
+  projects: Array<{ id: string; name: string }>;
+}
+
+const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
+  const [period, setPeriod] = useState<AnalyticsPeriod>('week');
+
+  const projectMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    projects.forEach((p) => { m[p.id] = p.name; });
+    return m;
+  }, [projects]);
+
+  // Date ranges
+  const now        = new Date();
+  const weekStart  = format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+  const weekEnd    = format(addDays(startOfWeek(now, { weekStartsOn: 1 }), 6), 'yyyy-MM-dd');
+  const monthStart = format(startOfMonth(now), 'yyyy-MM-dd');
+  const monthEnd   = format(endOfMonth(now), 'yyyy-MM-dd');
+
+  const params = useMemo((): Record<string, string> => {
+    if (period === 'week')    return { date_from: weekStart, date_to: weekEnd };
+    if (period === 'month')   return { date_from: monthStart, date_to: monthEnd };
+    return {};
+  }, [period, weekStart, weekEnd, monthStart, monthEnd]);
+
+  const { data: weekData, isLoading: weekLoading } = useMyWeek();
+  const { data: entriesRaw = [], isLoading: entriesLoading } = useTimeEntries(
+    period !== 'week' ? params : undefined,
+  );
+
+  const isLoading = period === 'week' ? weekLoading : entriesLoading;
+
+  // For week period use the pre-computed myWeek shape; for others compute from entries
   const week = weekData as WeekSummary | undefined;
-  const maxHours = useMemo(() => {
-    if (!week?.days) return 8;
-    return Math.max(8, ...week.days.map((d) => d.hours));
-  }, [week]);
+
+  const entries: TimeEntry[] = useMemo(() => {
+    if (period === 'week') return (week?.entries ?? []) as TimeEntry[];
+    return (Array.isArray(entriesRaw) ? entriesRaw : []) as TimeEntry[];
+  }, [period, week, entriesRaw]);
+
+  // Aggregate stats
+  const totalHours       = useMemo(() => period === 'week' && week ? week.totalHours       : entries.reduce((s, e) => s + (parseFloat(String(e.hours)) || 0), 0), [period, week, entries]);
+  const billableHours    = useMemo(() => period === 'week' && week ? week.billableHours    : entries.filter((e) => e.isBillable).reduce((s, e) => s + (parseFloat(String(e.hours)) || 0), 0), [period, week, entries]);
+  const nonBillableHours = useMemo(() => Math.round((totalHours - billableHours) * 100) / 100, [totalHours, billableHours]);
+
+  // Days with at least one entry
+  const daysLogged = useMemo(() => {
+    if (period === 'week' && week) return week.daysLogged;
+    return new Set(entries.map((e) => e.date)).size;
+  }, [period, week, entries]);
+
+  // Per-day breakdown for week / month
+  const dayBreakdown = useMemo(() => {
+    if (period === 'week' && week?.days) return week.days;
+
+    const dateRange = period === 'month'
+      ? eachDayOfInterval({ start: startOfMonth(now), end: endOfMonth(now) }).map((d) => format(d, 'yyyy-MM-dd'))
+      : Array.from({ length: 7 }, (_, i) => format(addDays(startOfWeek(now, { weekStartsOn: 1 }), i), 'yyyy-MM-dd'));
+
+    const byDate: Record<string, TimeEntry[]> = {};
+    for (const e of entries) { const d = e.date ?? ''; if (!byDate[d]) byDate[d] = []; byDate[d].push(e); }
+
+    return dateRange.map((date) => {
+      const dayEntries = byDate[date] ?? [];
+      const hours = Math.round(dayEntries.reduce((s, e) => s + (parseFloat(String(e.hours)) || 0), 0) * 100) / 100;
+      return {
+        date,
+        label: date,
+        hours,
+        entries: dayEntries.map((e) => ({
+          projectName: e.projectName || projectMap[e.projectId] || e.projectId || '',
+          hours: parseFloat(String(e.hours)) || 0,
+          description: e.description,
+          status: e.status,
+          id: e.id,
+        })),
+      };
+    });
+  }, [period, week, entries, projectMap, now]);
+
+  // Per-project breakdown
+  const byProject = useMemo(() => {
+    const m: Record<string, { name: string; total: number; billable: number; count: number }> = {};
+    for (const e of entries) {
+      const pid = e.projectId ?? '';
+      if (!m[pid]) m[pid] = { name: (e as any).projectName || projectMap[pid] || pid, total: 0, billable: 0, count: 0 };
+      const h = parseFloat(String(e.hours)) || 0;
+      m[pid].total    += h;
+      m[pid].billable += e.isBillable ? h : 0;
+      m[pid].count    += 1;
+    }
+    return Object.values(m).sort((a, b) => b.total - a.total);
+  }, [entries, projectMap]);
+
+  const maxDayHours = useMemo(() => Math.max(8, ...dayBreakdown.map((d) => d.hours)), [dayBreakdown]);
+  const maxProjHours = useMemo(() => Math.max(1, ...byProject.map((p) => p.total)), [byProject]);
+
+  const periodLabel = period === 'week' ? 'This Week' : period === 'month' ? format(now, 'MMMM yyyy') : 'All Time';
 
   if (isLoading) return <PageSkeleton />;
-  if (error) return <Alert type="error" message={(error as Error).message} className="m-5" />;
-
-  const totalHours = (summary as WeekSummary | undefined)?.totalHours ?? week?.totalHours ?? 0;
-  const billableHours = (summary as WeekSummary | undefined)?.billableHours ?? week?.billableHours ?? 0;
-  const nonBillableHours = (summary as WeekSummary | undefined)?.nonBillableHours ?? week?.nonBillableHours ?? 0;
-  const daysLogged = (summary as WeekSummary | undefined)?.daysLogged ?? week?.daysLogged ?? 0;
-
-  const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
-  const dayLabels = Array.from({ length: 7 }, (_, i) => ({
-    label: format(addDays(weekStart, i), 'EEE'),
-    date: format(addDays(weekStart, i), 'yyyy-MM-dd'),
-  }));
 
   return (
     <div className="space-y-5">
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Total Hours" value={`${totalHours}h`} icon={<Clock size={20} />} color="blue" />
-        <StatCard label="Billable" value={`${billableHours}h`} icon={<DollarSign size={20} />} color="green" />
-        <StatCard label="Non-Billable" value={`${nonBillableHours}h`} icon={<Clock size={20} />} color="amber" />
-        <StatCard label="Days Logged" value={daysLogged} icon={<CalendarDays size={20} />} color="purple" />
+      {/* Sub-tab switcher */}
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+        {(['week', 'month', 'overall'] as AnalyticsPeriod[]).map((p) => (
+          <button
+            key={p}
+            onClick={() => setPeriod(p)}
+            className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+              period === p ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {p === 'week' ? 'This Week' : p === 'month' ? 'This Month' : 'Overall'}
+          </button>
+        ))}
       </div>
 
-      {/* Day-by-day breakdown */}
-      <Card>
-        <h3 className="text-sm font-semibold text-gray-900 mb-5">Week Overview</h3>
-        <div className="space-y-4">
-          {dayLabels.map(({ label, date }) => {
-            const dayData = week?.days?.find((d) => d.date === date);
-            const hours = dayData?.hours ?? 0;
-            const pct = maxHours > 0 ? (hours / maxHours) * 100 : 0;
-            const isToday = date === todayStr();
+      {/* Summary stat cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard label="Total Hours"     value={`${Math.round(totalHours * 10) / 10}h`}       icon={<Clock size={20} />}        color="blue"   />
+        <StatCard label="Billable"        value={`${Math.round(billableHours * 10) / 10}h`}    icon={<DollarSign size={20} />}   color="green"  />
+        <StatCard label="Non-Billable"    value={`${Math.round(nonBillableHours * 10) / 10}h`} icon={<Clock size={20} />}        color="amber"  />
+        <StatCard label="Days Logged"     value={daysLogged}                                    icon={<CalendarDays size={20} />} color="purple" />
+      </div>
 
-            return (
-              <div key={date}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className={`text-sm font-medium w-8 ${isToday ? 'text-blue-600' : 'text-gray-700'}`}>
-                      {label}
-                    </span>
-                    <span className="text-xs text-gray-400">{safeFormat(date, 'MMM d')}</span>
-                    {isToday && (
-                      <Badge variant="default" className="text-[10px] py-0">Today</Badge>
-                    )}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+        {/* Day-by-day bar chart */}
+        <Card className="lg:col-span-3">
+          <h3 className="text-sm font-semibold text-gray-900 mb-5">{periodLabel} — Day Breakdown</h3>
+          <div
+            className={`space-y-${period === 'month' ? '2' : '4'} ${period === 'month' ? 'overflow-y-auto pr-1' : ''}`}
+            style={period === 'month' ? { maxHeight: '420px' } : undefined}
+          >
+            {dayBreakdown.map(({ date, hours, entries: de }) => {
+              const pct    = maxDayHours > 0 ? (hours / maxDayHours) * 100 : 0;
+              const isToday = date === todayStr();
+              const dayFmt  = period === 'month' ? safeFormat(date, 'd EEE') : safeFormat(date, 'EEE, MMM d');
+              return (
+                <div key={date}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-medium w-16 ${isToday ? 'text-blue-600' : 'text-gray-600'}`}>{dayFmt}</span>
+                      {isToday && <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Today</span>}
+                    </div>
+                    <span className="text-xs font-semibold text-gray-800">{hours > 0 ? `${hours}h` : '—'}</span>
                   </div>
-                  <span className="text-sm font-semibold text-gray-900">{hours > 0 ? `${hours}h` : '—'}</span>
-                </div>
-                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-300 ${
-                      hours >= 8 ? 'bg-green-500' : hours > 0 ? 'bg-blue-500' : 'bg-transparent'
-                    }`}
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-                {dayData?.entries && dayData.entries.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {dayData.entries.map((e, idx) => (
-                      <span key={idx} className="text-xs text-gray-500 bg-gray-50 px-2 py-0.5 rounded-full border border-gray-100">
-                        {e.projectName} · {e.hours}h
-                      </span>
-                    ))}
+                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-300 ${hours >= 8 ? 'bg-green-500' : hours > 0 ? 'bg-blue-500' : 'bg-transparent'}`}
+                      style={{ width: `${pct}%` }}
+                    />
                   </div>
-                )}
+                  {de.length > 0 && period !== 'month' && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {de.map((e, idx) => (
+                        <span key={idx} className="text-[11px] text-gray-500 bg-gray-50 px-2 py-0.5 rounded-full border border-gray-100">
+                          {e.projectName || '—'} · {e.hours}h
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+
+        {/* Per-project breakdown */}
+        <Card className="lg:col-span-2 flex flex-col">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+              <TrendingUp size={15} className="text-blue-500" /> By Project
+            </h3>
+            {byProject.length > 0 && (
+              <span className="text-[11px] text-gray-400">{byProject.length} project{byProject.length !== 1 ? 's' : ''}</span>
+            )}
+          </div>
+          {byProject.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-8">No entries for this period</p>
+          ) : (
+            <div className="overflow-y-auto pr-1" style={{ maxHeight: '420px' }}>
+              <div className="space-y-3">
+                {byProject.map((p) => {
+                  const pct = maxProjHours > 0 ? (p.total / maxProjHours) * 100 : 0;
+                  const billPct = p.total > 0 ? Math.round((p.billable / p.total) * 100) : 0;
+                  return (
+                    <div key={p.name}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-gray-700 truncate max-w-[140px]" title={p.name}>
+                          {p.name || 'Unknown'}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-gray-400">{billPct}% billable</span>
+                          <span className="text-xs font-semibold text-gray-800">{Math.round(p.total * 10) / 10}h</span>
+                        </div>
+                      </div>
+                      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-indigo-500 rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{p.count} entr{p.count === 1 ? 'y' : 'ies'}</p>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
-        </div>
-      </Card>
+            </div>
+          )}
+
+          {/* Billable ratio summary */}
+          {totalHours > 0 && (
+            <div className="mt-5 pt-4 border-t border-gray-100">
+              <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
+                <span>Billable ratio</span>
+                <span className="font-semibold text-gray-700">{Math.round((billableHours / totalHours) * 100)}%</span>
+              </div>
+              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div className="h-full bg-green-500 rounded-full" style={{ width: `${(billableHours / totalHours) * 100}%` }} />
+              </div>
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* Overall: All entries table summary */}
+      {period === 'overall' && entries.length > 0 && (
+        <Card>
+          <h3 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <Users size={15} className="text-indigo-500" /> All My Entries — {entries.length} total
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-100 text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  {['Date', 'Project', 'Description', 'Hours', 'Billable', 'Status'].map((h) => (
+                    <th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {(entries as TimeEntry[]).slice(0, 50).map((e) => (
+                  <tr key={e.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{safeFormat(e.date, 'MMM d, yyyy')}</td>
+                    <td className="px-4 py-2.5 text-gray-700 whitespace-nowrap">{e.projectName || projectMap[e.projectId] || e.projectId}</td>
+                    <td className="px-4 py-2.5 text-gray-600 max-w-xs truncate">{e.description}</td>
+                    <td className="px-4 py-2.5 font-medium text-gray-900">{e.hours}h</td>
+                    <td className="px-4 py-2.5 text-center">{e.isBillable ? <DollarSign size={13} className="text-green-600 mx-auto" /> : <span className="text-gray-300">—</span>}</td>
+                    <td className="px-4 py-2.5"><Badge variant={statusVariant(e.status)}>{e.status}</Badge></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {entries.length > 50 && (
+              <p className="text-xs text-gray-400 text-center py-3">Showing first 50 of {entries.length} entries. Use filters on My Time Log for full history.</p>
+            )}
+          </div>
+        </Card>
+      )}
     </div>
   );
 };
@@ -1008,7 +1200,7 @@ const TimeTrackingPage = () => {
 
   const tabs: Array<{ id: Tab; label: string; managerOnly?: boolean }> = [
     { id: 'my-log', label: 'My Time Log' },
-    { id: 'this-week', label: 'This Week' },
+    { id: 'this-week', label: 'Analytics' },
     { id: 'approvals', label: 'Approvals', managerOnly: true },
   ];
 
@@ -1041,7 +1233,7 @@ const TimeTrackingPage = () => {
 
         {/* Tab content */}
         {activeTab === 'my-log' && <MyTimeLogTab projects={projects as Array<{ id: string; name: string }>} />}
-        {activeTab === 'this-week' && <ThisWeekTab />}
+        {activeTab === 'this-week' && <AnalyticsTab projects={projects as Array<{ id: string; name: string }>} />}
         {activeTab === 'approvals' && isManager && <ApprovalsTab />}
       </div>
     </Layout>

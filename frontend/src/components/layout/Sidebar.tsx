@@ -6,7 +6,7 @@ import {
   Shield, FileText, Settings, LogOut, ChevronDown, ChevronRight,
   Milestone, ClipboardList, Clock, BookOpen, Briefcase, X,
   PanelLeftClose, PanelLeftOpen, Users, Sparkles, CalendarDays,
-  Timer, Package, Award, BarChart3, Megaphone, GitBranch,
+  Timer, Package, Award, BarChart3, Megaphone, GitBranch, FlaskConical,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useMyProfile } from '../../hooks/useUsers';
@@ -99,6 +99,7 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { label: 'User Management',    to: '/admin',        icon: <Users size={16} /> },
       { label: 'Config & Workflows', to: '/admin-config', icon: <GitBranch size={16} /> },
+      { label: 'Data Seeder',        to: '/data-seed',    icon: <FlaskConical size={16} /> },
     ],
   },
   // ── Help ──────────────────────────────────────────────────────────────────────

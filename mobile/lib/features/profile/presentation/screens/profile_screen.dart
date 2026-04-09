@@ -231,10 +231,10 @@ class ProfileScreen extends ConsumerWidget {
                         content: const Text('You will need to sign in again.'),
                         actions: [
                           TextButton(
-                              onPressed: () => Navigator.pop(context, false),
+                              onPressed: () => Navigator.pop(_, false),
                               child: const Text('Cancel')),
                           TextButton(
-                              onPressed: () => Navigator.pop(context, true),
+                              onPressed: () => Navigator.pop(_, true),
                               child: const Text('Sign out',
                                   style: TextStyle(color: AppColors.error))),
                         ],

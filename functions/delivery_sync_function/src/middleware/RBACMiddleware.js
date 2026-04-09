@@ -5,35 +5,75 @@ const { ROLE_PERMISSIONS, TABLES } = require('../utils/Constants');
 const DataStoreService = require('../services/DataStoreService');
 
 /**
- * RBACMiddleware – role-based access control.
+ * RBACMiddleware – role-based access control with per-user permission overrides.
  *
- * Architecture decision:
- *  - Permissions are statically defined in ROLE_PERMISSIONS.
- *  - Project-level membership checks are a secondary layer: a user must both
- *    have the right role permission AND be a member of the project they are
- *    accessing (unless they are TENANT_ADMIN or PMO).
- *  - Middleware factories return Express middleware functions so they compose
- *    cleanly in route definitions: router.get('/', auth, rbac.require('X'), handler)
+ * Permission resolution order:
+ *   1. Start with ROLE_PERMISSIONS[user.role]
+ *   2. Add any `granted` permissions from permission_overrides table
+ *   3. Remove any `revoked` permissions from permission_overrides table
+ *
+ * This allows admins to grant extra permissions (e.g. ATTENDANCE_ADMIN to a
+ * TEAM_MEMBER) or revoke role defaults without changing the user's role.
  */
+
+/**
+ * Fetch per-user permission overrides from the DB.
+ * Returns { granted: string[], revoked: string[] }
+ * Result is cached on req._permOverrides to avoid repeat queries per request.
+ */
+async function getUserOverrides(req) {
+  if (req._permOverrides !== undefined) return req._permOverrides;
+  try {
+    const db = new DataStoreService(req.catalystApp);
+    const rows = await db.query(
+      `SELECT permissions FROM ${TABLES.PERMISSION_OVERRIDES} ` +
+      `WHERE tenant_id = '${req.currentUser.tenantId}' ` +
+      `AND user_id = '${req.currentUser.id}' AND is_active = true LIMIT 1`
+    );
+    if (rows.length === 0) {
+      req._permOverrides = { granted: [], revoked: [] };
+    } else {
+      const parsed = JSON.parse(rows[0].permissions || '{}');
+      req._permOverrides = {
+        granted: parsed.granted || [],
+        revoked: parsed.revoked || [],
+      };
+    }
+  } catch (_) {
+    req._permOverrides = { granted: [], revoked: [] };
+  }
+  return req._permOverrides;
+}
+
+/** Compute effective permissions for the current user (role + overrides). */
+async function effectivePermissions(req) {
+  const base = new Set(ROLE_PERMISSIONS[req.currentUser.role] || []);
+  const { granted, revoked } = await getUserOverrides(req);
+  granted.forEach((p) => base.add(p));
+  revoked.forEach((p) => base.delete(p));
+  return base;
+}
+
 class RBACMiddleware {
   /**
    * Returns Express middleware that enforces a permission check.
    * @param {string} permission  One of PERMISSIONS.*
    */
   static require(permission) {
-    return (req, res, next) => {
+    return async (req, res, next) => {
       const user = req.currentUser;
-      if (!user) {
-        return ResponseHelper.unauthorized(res);
+      if (!user) return ResponseHelper.unauthorized(res);
+      try {
+        const allowed = await effectivePermissions(req);
+        if (!allowed.has(permission)) {
+          return ResponseHelper.forbidden(res,
+            `Your role (${user.role}) does not have permission: ${permission}`);
+        }
+        next();
+      } catch (err) {
+        console.error('[RBACMiddleware]', err.message);
+        return ResponseHelper.serverError(res, 'Authorisation check failed');
       }
-
-      const allowed = ROLE_PERMISSIONS[user.role] || [];
-      if (!allowed.includes(permission)) {
-        return ResponseHelper.forbidden(res,
-          `Your role (${user.role}) does not have permission: ${permission}`);
-      }
-
-      next();
     };
   }
 
@@ -41,18 +81,20 @@ class RBACMiddleware {
    * Returns Express middleware that enforces at least ONE of the listed permissions.
    */
   static requireAny(...permissions) {
-    return (req, res, next) => {
+    return async (req, res, next) => {
       const user = req.currentUser;
       if (!user) return ResponseHelper.unauthorized(res);
-
-      const allowed = ROLE_PERMISSIONS[user.role] || [];
-      const hasAny = permissions.some((p) => allowed.includes(p));
-
-      if (!hasAny) {
-        return ResponseHelper.forbidden(res,
-          `Your role (${user.role}) requires one of: ${permissions.join(', ')}`);
+      try {
+        const allowed = await effectivePermissions(req);
+        const hasAny = permissions.some((p) => allowed.has(p));
+        if (!hasAny) {
+          return ResponseHelper.forbidden(res,
+            `Your role (${user.role}) requires one of: ${permissions.join(', ')}`);
+        }
+        next();
+      } catch (err) {
+        return ResponseHelper.serverError(res, 'Authorisation check failed');
       }
-      next();
     };
   }
 

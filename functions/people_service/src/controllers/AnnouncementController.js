@@ -40,7 +40,19 @@ class AnnouncementController {
         `user_id = '${me.id}'`, { limit: 200 });
       const readSet = new Set(readRows.map(r => String(r.announcement_id)));
 
-      return ResponseHelper.success(res, visible.map(a => ({ ...a, is_read: readSet.has(String(a.ROWID)) })));
+      // Enrich with author name
+      const creatorIds = [...new Set(visible.map(a => String(a.created_by)).filter(Boolean))];
+      const userMap = {};
+      if (creatorIds.length > 0) {
+        const users = await this.db.findAll(TABLES.USERS, { tenant_id: req.tenantId }, { limit: 200 });
+        users.forEach(u => { userMap[String(u.ROWID)] = u.name || u.email || ''; });
+      }
+
+      return ResponseHelper.success(res, visible.map(a => ({
+        ...a,
+        is_read:     readSet.has(String(a.ROWID)),
+        author_name: userMap[String(a.created_by)] || '',
+      })));
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }

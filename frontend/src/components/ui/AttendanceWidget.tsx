@@ -158,7 +158,7 @@ const AttendanceWidget: React.FC = () => {
 
       {!isCheckedIn && (
         <button
-          onClick={() => checkIn.mutate({})}
+          onClick={() => checkIn.mutate({ client_time: new Date().toLocaleString('sv') })}
           disabled={checkIn.isPending}
           className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-medium transition-colors disabled:opacity-60"
         >
@@ -169,7 +169,7 @@ const AttendanceWidget: React.FC = () => {
 
       {isWorking && (
         <button
-          onClick={() => checkOut.mutate({})}
+          onClick={() => checkOut.mutate({ client_time: new Date().toLocaleString('sv') })}
           disabled={checkOut.isPending}
           className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium transition-colors disabled:opacity-60"
         >

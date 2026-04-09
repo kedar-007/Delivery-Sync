@@ -43,12 +43,7 @@ class UserAvatar extends StatelessWidget {
         child: avatarUrl != null && avatarUrl!.isNotEmpty
             ? CachedNetworkImage(
                 imageUrl: avatarUrl!,
-                httpHeaders: () {
-                  final token = TokenManager.instance.token;
-                  return token != null
-                      ? {'Authorization': 'Zoho-oauthtoken $token'}
-                      : <String, String>{};
-                }(),
+                httpHeaders: _headersFor(avatarUrl!),
                 fit: BoxFit.cover,
                 placeholder: (_, __) => _initialsWidget(initials, fs),
                 errorWidget:  (_, __, ___) => _initialsWidget(initials, fs),
@@ -61,6 +56,17 @@ class UserAvatar extends StatelessWidget {
       return GestureDetector(onTap: onTap, child: avatar);
     }
     return avatar;
+  }
+
+  /// Only attach the Zoho OAuth token for our own Catalyst backend URLs.
+  /// Zoho profile CDN (zohostratus.in, zoho.com, etc.) uses public URLs
+  /// and rejects the token header, causing image load failures.
+  static Map<String, String> _headersFor(String url) {
+    final isCatalyst = url.contains('catalystserverless') ||
+        url.contains('catalyst.zoho');
+    if (!isCatalyst) return const {};
+    final token = TokenManager.instance.token;
+    return token != null ? {'Authorization': 'Zoho-oauthtoken $token'} : const {};
   }
 
   Widget _initialsWidget(String text, double fs) => Center(

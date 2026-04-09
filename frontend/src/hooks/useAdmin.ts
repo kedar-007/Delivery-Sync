@@ -44,3 +44,27 @@ export const useAuditLogs = (params?: Record<string, string>, enabled = true) =>
     enabled,
     staleTime: 30 * 1000,
   });
+
+export const useMyPermissions = () =>
+  useQuery({
+    queryKey: ['my-permissions'],
+    queryFn: () => adminApi.getMyPermissions(),
+    staleTime: 2 * 60 * 1000,
+  });
+
+export const useUserPermissions = (userId: string, enabled = true) =>
+  useQuery({
+    queryKey: ['user-permissions', userId],
+    queryFn: () => adminApi.getUserPermissions(userId),
+    enabled: enabled && !!userId,
+    staleTime: 60 * 1000,
+  });
+
+export const useSetUserPermissions = (userId: string) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { granted: string[]; revoked: string[] }) =>
+      adminApi.setUserPermissions(userId, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['user-permissions', userId] }),
+  });
+};

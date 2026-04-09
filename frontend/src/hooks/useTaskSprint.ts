@@ -154,10 +154,11 @@ export const useCompleteSprint = () => {
 };
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
-export const useTasks = (params?: Record<string, string>) =>
+export const useTasks = (params?: Record<string, string>, enabled = true) =>
   useQuery({
     queryKey: ['tasks', params],
     queryFn: () => tasksApi.list(params).then(applyNorm(normaliseTask)),
+    enabled,
     retry: 1,          // don't spam retries if task service is unavailable
     retryDelay: 2000,
   });

@@ -152,12 +152,12 @@ class ActionController {
   }
 
   /**
-   * GET /api/actions?projectId=&status=&ownerId=
+   * GET /api/actions?projectId=&status=&ownerId=&page=1&pageSize=20
    */
   async listActions(req, res) {
     try {
       const { tenantId, id: userId, role } = req.currentUser;
-      const { projectId, status, ownerId } = req.query;
+      const { projectId, status, ownerId, page, pageSize } = req.query;
 
       let conditions = [];
       if (projectId) conditions.push(`project_id = '${DataStoreService.escape(projectId)}'`);
@@ -168,15 +168,15 @@ class ActionController {
         conditions.push(`assigned_to = '${userId}'`);
       }
 
-      const actions = await this.db.findWhere(
-        TABLES.ACTIONS, tenantId,
-        conditions.length > 0 ? conditions.join(' AND ') : null,
-        { orderBy: 'due_date ASC', limit: 100 }
+      const whereExtra = conditions.length > 0 ? conditions.join(' AND ') : null;
+      const paged = await this.db.findPaginated(
+        TABLES.ACTIONS, tenantId, whereExtra,
+        { orderBy: 'due_date ASC', page, pageSize }
       );
 
       const today = DataStoreService.today();
       return ResponseHelper.success(res, {
-        actions: actions.map((a) => ({
+        actions: paged.rows.map((a) => ({
           id: String(a.ROWID),
           projectId: a.project_id,
           title: a.title,
@@ -189,6 +189,10 @@ class ActionController {
           source: a.source,
           isOverdue: a.due_date < today && a.status !== ACTION_STATUS.DONE && a.status !== ACTION_STATUS.CANCELLED,
         })),
+        total: paged.total,
+        page: paged.page,
+        pageSize: paged.pageSize,
+        totalPages: paged.totalPages,
       });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);

@@ -147,7 +147,17 @@ class LeaveController {
       console.log('[getBalance] pendingMap:', pendingMap);
 
       // 7. Build response
-      const result = balances.map(b => {
+      // If no balance rows exist for this user+year, synthesise one per active leave type
+      const sourceRows = balances.length > 0
+        ? balances
+        : types.map(t => ({
+            leave_type_id: String(t.ROWID),
+            carry_forward_days: 0,
+            allocated_days: t.days_per_year || 0,
+            total_allocated: t.days_per_year || 0,
+          }));
+
+      const result = sourceRows.map(b => {
         const ltId = String(b.leave_type_id);
 
         // Support both column name conventions
@@ -159,15 +169,6 @@ class LeaveController {
 
         const totalAvailable = Math.max(0, allocated - used);
         const remaining = Math.max(0, totalAvailable - pending);
-
-        console.log('[getBalance] computed:', {
-          ltId,
-          opening,
-          allocated,
-          used,
-          pending,
-          remaining
-        });
 
         return {
           leave_type_id: ltId,

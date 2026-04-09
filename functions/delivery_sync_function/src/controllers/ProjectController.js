@@ -60,30 +60,40 @@ class ProjectController {
   }
 
   /**
-   * GET /api/projects
+   * GET /api/projects?page=1&pageSize=20&status=
    */
   async getProjects(req, res) {
     try {
       const { tenantId, id: userId, role } = req.currentUser;
-      let projects = [];
+      const { page, pageSize, status } = req.query;
+
+      let paged;
+      const statusClause = status ? `status = '${DataStoreService.escape(status)}'` : null;
 
       if (role === 'TENANT_ADMIN' || role === 'PMO' || role === 'EXEC' || role === 'CLIENT') {
-        projects = await this.db.findAll(TABLES.PROJECTS,
-          { tenant_id: tenantId },
-          { orderBy: 'CREATEDTIME DESC', limit: 100 });
+        paged = await this.db.findPaginated(
+          TABLES.PROJECTS, tenantId, statusClause,
+          { orderBy: 'CREATEDTIME DESC', page, pageSize }
+        );
       } else {
+        // Get all membership IDs (these are typically small — one user won't be in 200+ projects)
         const memberships = await this.db.findAll(TABLES.PROJECT_MEMBERS,
-          { tenant_id: tenantId, user_id: userId }, { limit: 100 });
-        if (memberships.length > 0) {
-          const ids = memberships.map((m) => `'${m.project_id}'`).join(',');
-          projects = await this.db.query(
-            `SELECT * FROM ${TABLES.PROJECTS} WHERE tenant_id = '${tenantId}' AND ROWID IN (${ids}) ORDER BY CREATEDTIME DESC LIMIT 100`
-          );
+          { tenant_id: tenantId, user_id: userId }, { limit: 200 });
+        if (memberships.length === 0) {
+          return ResponseHelper.success(res, { projects: [], total: 0, page: 1, pageSize: 20, totalPages: 1 });
         }
+        const ids = memberships.map((m) => `'${m.project_id}'`).join(',');
+        const extraWhere = statusClause
+          ? `ROWID IN (${ids}) AND ${statusClause}`
+          : `ROWID IN (${ids})`;
+        paged = await this.db.findPaginated(
+          TABLES.PROJECTS, tenantId, extraWhere,
+          { orderBy: 'CREATEDTIME DESC', page, pageSize }
+        );
       }
 
       return ResponseHelper.success(res, {
-        projects: projects.map((p) => ({
+        projects: paged.rows.map((p) => ({
           id: String(p.ROWID),
           name: p.name,
           description: p.description,
@@ -93,6 +103,10 @@ class ProjectController {
           endDate: p.end_date,
           ownerUserId: p.owner_user_id,
         })),
+        total: paged.total,
+        page: paged.page,
+        pageSize: paged.pageSize,
+        totalPages: paged.totalPages,
       });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);

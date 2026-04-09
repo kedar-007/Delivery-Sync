@@ -71,27 +71,27 @@ class BlockerController {
   }
 
   /**
-   * GET /api/blockers?projectId=&status=&severity=
+   * GET /api/blockers?projectId=&status=&severity=&page=1&pageSize=20
    */
   async listBlockers(req, res) {
     try {
       const { tenantId } = req.currentUser;
-      const { projectId, status, severity } = req.query;
+      const { projectId, status, severity, page, pageSize } = req.query;
 
       const conditions = [];
       if (projectId) conditions.push(`project_id = '${DataStoreService.escape(projectId)}'`);
       if (status) conditions.push(`status = '${DataStoreService.escape(status)}'`);
       if (severity) conditions.push(`severity = '${DataStoreService.escape(severity)}'`);
 
-      const blockers = await this.db.findWhere(
-        TABLES.BLOCKERS, tenantId,
-        conditions.length > 0 ? conditions.join(' AND ') : null,
-        { orderBy: 'CREATEDTIME DESC', limit: 100 }
+      const whereExtra = conditions.length > 0 ? conditions.join(' AND ') : null;
+      const paged = await this.db.findPaginated(
+        TABLES.BLOCKERS, tenantId, whereExtra,
+        { orderBy: 'CREATEDTIME DESC', page, pageSize }
       );
 
       const today = DataStoreService.today();
       return ResponseHelper.success(res, {
-        blockers: blockers.map((b) => {
+        blockers: paged.rows.map((b) => {
           const createdDate = b.raised_date || today;
           const ageDays = Math.floor((new Date(today) - new Date(createdDate)) / 86400000);
           return {
@@ -109,6 +109,10 @@ class BlockerController {
             ageDays,
           };
         }),
+        total: paged.total,
+        page: paged.page,
+        pageSize: paged.pageSize,
+        totalPages: paged.totalPages,
       });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);

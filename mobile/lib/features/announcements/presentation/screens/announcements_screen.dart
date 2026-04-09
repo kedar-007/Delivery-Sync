@@ -205,38 +205,48 @@ class _AnnouncementCardState extends ConsumerState<_AnnouncementCard> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Unread indicator
+                  // Unread dot
                   if (isNew)
                     Container(
-                      width: 8,
-                      height: 8,
+                      width: 8, height: 8,
                       margin: const EdgeInsets.only(top: 5, right: 8),
                       decoration: const BoxDecoration(
-                        color: AppColors.primaryLight,
-                        shape: BoxShape.circle,
-                      ),
+                          color: AppColors.primaryLight, shape: BoxShape.circle),
                     ),
 
-                  // Title
                   Expanded(
-                    child: Text(
-                      ann.title,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight:
-                            isNew ? FontWeight.w800 : FontWeight.w600,
-                        color: ds.textPrimary,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Priority + pinned chips
+                        if (ann.isPinned || ann.priority == 'CRITICAL' || ann.priority == 'HIGH')
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Wrap(spacing: 6, children: [
+                              if (ann.isPinned)
+                                _TypeChip(label: '📌 Pinned', color: AppColors.info),
+                              if (ann.priority == 'CRITICAL')
+                                _TypeChip(label: '🔴 Critical', color: AppColors.error),
+                              if (ann.priority == 'HIGH')
+                                _TypeChip(label: '🟠 High', color: AppColors.warning),
+                            ]),
+                          ),
+                        Text(
+                          ann.title,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: isNew ? FontWeight.w800 : FontWeight.w600,
+                            color: ds.textPrimary,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
 
                   // Expand indicator
                   Icon(
-                    _expanded
-                        ? Icons.keyboard_arrow_up_rounded
-                        : Icons.keyboard_arrow_down_rounded,
-                    size: 20,
-                    color: ds.textMuted,
+                    _expanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                    size: 20, color: ds.textMuted,
                   ),
                 ],
               ),
@@ -294,18 +304,18 @@ class _AnnouncementCardState extends ConsumerState<_AnnouncementCard> {
                       style: TextStyle(
                           fontSize: 11, color: ds.textMuted)),
                   const Spacer(),
-                  if (ann.isRead)
-                    Row(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(Icons.done_all_rounded,
-                          size: 12,
-                          color: AppColors.ragGreen),
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    if (ann.type == 'ROLE_TARGETED')
+                      _TypeChip(label: 'Role', color: AppColors.info),
+                    if (ann.type == 'USER_TARGETED')
+                      _TypeChip(label: 'Direct', color: AppColors.primary),
+                    if (ann.isRead) ...[
+                      const SizedBox(width: 6),
+                      const Icon(Icons.done_all_rounded, size: 12, color: AppColors.ragGreen),
                       const SizedBox(width: 3),
-                      Text('Read',
-                          style: TextStyle(
-                              fontSize: 10,
-                              color: AppColors.ragGreen,
-                              fontWeight: FontWeight.w600)),
-                    ]),
+                      const Text('Read', style: TextStyle(fontSize: 10, color: AppColors.ragGreen, fontWeight: FontWeight.w600)),
+                    ],
+                  ]),
                 ],
               ),
             ],
@@ -313,5 +323,25 @@ class _AnnouncementCardState extends ConsumerState<_AnnouncementCard> {
         ),
       ),
     ).animate().fadeIn(duration: 300.ms).slideY(begin: 0.05);
+  }
+}
+
+// ── Type chip ─────────────────────────────────────────────────────────────────
+
+class _TypeChip extends StatelessWidget {
+  const _TypeChip({required this.label, required this.color});
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: color)),
+    );
   }
 }
