@@ -33,13 +33,24 @@ class TimeController {
 
     const entries = await this.db.findWhere(TABLES.TIME_ENTRIES, tenantId, where, { orderBy: 'entry_date DESC', limit: 200 });
 
-    // Enrich with user info
-    const users = await this.db.findAll(TABLES.USERS, { tenant_id: tenantId }, { limit: 200 });
+    // Enrich with user info + project name
+    const [users, projects] = await Promise.all([
+      this.db.findAll(TABLES.USERS, { tenant_id: tenantId }, { limit: 200 }),
+      this.db.findAll(TABLES.PROJECTS, { tenant_id: tenantId }, { limit: 200 }),
+    ]);
     const userMap = {};
     users.forEach(u => { userMap[String(u.ROWID)] = u; });
+    const projMap = {};
+    projects.forEach(p => { projMap[String(p.ROWID)] = p.name || ''; });
+
     const enriched = entries.map(e => {
       const u = userMap[String(e.user_id)] || {};
-      return { ...e, user_name: u.name || '', user_avatar_url: u.avatar_url || '' };
+      return {
+        ...e,
+        user_name:    u.name || '',
+        user_avatar_url: u.avatar_url || '',
+        project_name: projMap[String(e.project_id)] || '',
+      };
     });
 
     return ResponseHelper.success(res, enriched);
@@ -47,17 +58,27 @@ class TimeController {
 
   // GET /api/time/entries/my-week
   async myWeek(req, res) {
-    const today   = new Date();
-    const mon     = new Date(today); mon.setDate(today.getDate() - today.getDay() + 1);
-    const sun     = new Date(today); sun.setDate(mon.getDate() + 6);
+    // Use IST (UTC+5:30) for week boundaries so the week aligns with the user's calendar day
+    const istNow  = new Date(Date.now() + 5.5 * 3600000);
+    const dayOfWk = istNow.getUTCDay(); // 0=Sun … 6=Sat
+    const diffToMon = (dayOfWk === 0 ? -6 : 1 - dayOfWk); // offset to Monday
+    const mon     = new Date(istNow); mon.setUTCDate(istNow.getUTCDate() + diffToMon);
+    const sun     = new Date(mon);    sun.setUTCDate(mon.getUTCDate() + 6);
     const from    = mon.toISOString().split('T')[0];
     const to      = sun.toISOString().split('T')[0];
     const entries = await this.db.findWhere(TABLES.TIME_ENTRIES, req.tenantId,
       `user_id = '${req.currentUser.id}' AND entry_date >= '${from}' AND entry_date <= '${to}'`,
       { orderBy: 'entry_date ASC', limit: 100 });
+
+    // Enrich entries with project name
+    const projects = await this.db.findAll(TABLES.PROJECTS, { tenant_id: req.tenantId }, { limit: 200 });
+    const projMap = {};
+    projects.forEach(p => { projMap[String(p.ROWID)] = p.name || ''; });
+    const enrichedEntries = entries.map(e => ({ ...e, project_name: projMap[String(e.project_id)] || '' }));
+
     const total   = entries.reduce((s, e) => s + (parseFloat(e.hours) || 0), 0);
     const billable = entries.filter(e => e.is_billable === 'true').reduce((s, e) => s + (parseFloat(e.hours) || 0), 0);
-    return ResponseHelper.success(res, { entries, total_hours: total, billable_hours: billable, week_start: from, week_end: to });
+    return ResponseHelper.success(res, { entries: enrichedEntries, total_hours: total, billable_hours: billable, week_start: from, week_end: to });
   }
 
   // GET /api/time/entries/summary

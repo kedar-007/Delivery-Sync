@@ -94,32 +94,65 @@ class TeamController {
       const filters = { tenant_id: tenantId };
       if (projectId) filters.project_id = projectId;
 
-      const teams = await this.db.findAll(TABLES.TEAMS, filters, { limit: 100 });
+      let teams;
+      try {
+        teams = await this.db.findAll(TABLES.TEAMS, filters, { limit: 100 });
+      } catch (tableErr) {
+        console.warn('[TeamController.getTeams] teams table may not exist yet:', tableErr.message);
+        return ResponseHelper.success(res, { teams: [] });
+      }
 
-      // Enrich with member count and lead name
-      const result = await Promise.all(teams.map(async (t) => {
-        const members = await this.db.findAll(TABLES.TEAM_MEMBERS,
-          { tenant_id: tenantId, team_id: String(t.ROWID) }, { limit: 100 });
+      if (teams.length === 0) return ResponseHelper.success(res, { teams: [] });
 
-        let leadName = '';
-        if (t.lead_user_id) {
-          const lead = await this.db.findById(TABLES.USERS, t.lead_user_id, tenantId);
-          leadName = lead?.name || '';
-        }
+      // Fetch ALL team_members and ALL users in 2 bulk queries — avoids N concurrent
+      // queries that hit Catalyst's COMPONENT concurrency limit.
+      let allMembers = [];
+      try {
+        allMembers = await this.db.findWhere(TABLES.TEAM_MEMBERS, tenantId, '', { limit: 1000 });
+      } catch (_) {}
 
+      let allUsers = [];
+      try {
+        allUsers = await this.db.findAll(TABLES.USERS, { tenant_id: tenantId }, { limit: 500 });
+      } catch (_) {}
+
+      const userMap = {};
+      allUsers.forEach(u => { userMap[String(u.ROWID)] = u.name || u.email || ''; });
+
+      // Group member rows by team_id
+      const membersByTeam = {};
+      allMembers.forEach(m => {
+        const tid = String(m.team_id);
+        (membersByTeam[tid] = membersByTeam[tid] || []).push(m);
+      });
+
+      // Also build avatarUrl map
+      const avatarMap = {};
+      allUsers.forEach(u => {
+        avatarMap[String(u.ROWID)] = u.avatar_url || u.avtar_url || '';
+      });
+
+      const result = teams.map(t => {
+        const teamMembers = (membersByTeam[String(t.ROWID)] || []).map(m => ({
+          id: String(m.user_id),
+          name: userMap[String(m.user_id)] || '',
+          avatarUrl: avatarMap[String(m.user_id)] || '',
+          role: m.role || 'MEMBER',
+        }));
         return {
           id: String(t.ROWID),
           name: t.name,
           description: t.description || '',
           projectId: t.project_id,
           leadUserId: t.lead_user_id || null,
-          leadName,
-          memberCount: members.length,
+          leadName: t.lead_user_id ? (userMap[String(t.lead_user_id)] || '') : '',
+          memberCount: teamMembers.length,
+          members: teamMembers,
           standupTime: t.standup_time || null,
           eodTime: t.eod_time || null,
           timezone: t.timezone || null,
         };
-      }));
+      });
 
       return ResponseHelper.success(res, { teams: result });
     } catch (err) {

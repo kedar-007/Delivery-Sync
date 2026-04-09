@@ -6,7 +6,13 @@ export const PROJECTS_KEY = 'projects';
 export const useProjects = () =>
   useQuery({
     queryKey: [PROJECTS_KEY],
-    queryFn: () => projectsApi.list().then((d) => d.projects),
+    queryFn: () => projectsApi.list().then((d) => d.projects ?? d),
+  });
+
+export const useProjectsPaginated = (params: { page?: number; pageSize?: number; status?: string } = {}) =>
+  useQuery({
+    queryKey: [PROJECTS_KEY, 'paginated', params],
+    queryFn: () => projectsApi.list(params as Record<string, string | number>),
   });
 
 export const useProject = (id: string) =>

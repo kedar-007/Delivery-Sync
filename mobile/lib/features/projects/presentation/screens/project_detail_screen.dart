@@ -135,20 +135,19 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen>
               ),
               const SizedBox(width: 4),
             ],
+            title: Text(
+              project.name,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: ds.textPrimary,
+                letterSpacing: -0.3,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
             flexibleSpace: FlexibleSpaceBar(
               collapseMode: CollapseMode.parallax,
-              titlePadding: const EdgeInsets.fromLTRB(58, 0, 16, 56),
-              title: Text(
-                project.name,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: ds.textPrimary,
-                  letterSpacing: -0.3,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
               background: _ProjectHeader(project: project, ragColor: ragColor),
             ),
             bottom: PreferredSize(

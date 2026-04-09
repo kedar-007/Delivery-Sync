@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { Clock, LogIn, LogOut, Home, Users, BarChart2, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Clock, LogIn, LogOut, Home, Users, BarChart2, AlertTriangle } from 'lucide-react';
 import { useForm } from 'react-hook-form';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, startOfWeek, endOfWeek, addDays } from 'date-fns';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
@@ -24,6 +24,9 @@ import {
   useMarkWfh,
 } from '../hooks/usePeople';
 import { useAuth } from '../contexts/AuthContext';
+import { attendanceApi } from '../lib/api';
+import { useMyPermissions } from '../hooks/useAdmin';
+import { Download } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -103,6 +106,8 @@ const formatDate = (iso?: string) => {
 };
 
 const MANAGER_ROLES = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
+// Permissions that unlock manager-level attendance views
+const ATTENDANCE_MANAGER_PERMS = ['ATTENDANCE_ADMIN'];
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 
@@ -161,7 +166,7 @@ const MyAttendanceTab = () => {
   const handleCheckIn = async () => {
     try {
       setActionError('');
-      await checkIn.mutateAsync({});
+      await checkIn.mutateAsync({ client_time: new Date().toLocaleString('sv') });
     } catch (err: unknown) {
       setActionError((err as Error).message);
     }
@@ -170,7 +175,7 @@ const MyAttendanceTab = () => {
   const handleCheckOut = async () => {
     try {
       setActionError('');
-      await checkOut.mutateAsync({});
+      await checkOut.mutateAsync({ client_time: new Date().toLocaleString('sv') });
     } catch (err: unknown) {
       setActionError((err as Error).message);
     }
@@ -412,21 +417,72 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
     defaultValues: { date_from: monthAgo, date_to: today, name_filter: '' },
   });
 
+  // Server-side filter params (user_id drives scoped query)
   const [filterParams, setFilterParams] = useState<Record<string, string>>({
     date_from: monthAgo,
     date_to: today,
   });
-  const [nameFilter, setNameFilter] = useState('');
+  // Selected user for scoped filter
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [selectedUserName, setSelectedUserName] = useState('');
+  const [downloading, setDownloading] = useState(false);
 
   const { data, isLoading, error } = useAttendanceRecords(filterParams);
   const allRecords: AttendanceRecord[] = (data as AttendanceRecord[]) ?? [];
-  const records = nameFilter
-    ? allRecords.filter((r: any) => (r.name ?? '').toLowerCase().includes(nameFilter.toLowerCase()))
-    : allRecords;
+
+  // Build unique user list from loaded records for the dropdown
+  const userOptions = React.useMemo(() => {
+    const seen = new Map<string, string>();
+    allRecords.forEach((r: any) => {
+      if (r.user_id && r.name) seen.set(String(r.user_id), r.name);
+    });
+    return Array.from(seen.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  }, [allRecords]);
 
   const onFilter = (values: RecordsFilter) => {
-    setFilterParams({ date_from: values.date_from, date_to: values.date_to });
-    setNameFilter(values.name_filter?.trim() ?? '');
+    const params: Record<string, string> = {
+      date_from: values.date_from,
+      date_to: values.date_to,
+    };
+    if (selectedUserId) params.user_id = selectedUserId;
+    setFilterParams(params);
+  };
+
+  const handleUserSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const uid = e.target.value;
+    const uname = userOptions.find(([id]) => id === uid)?.[1] ?? '';
+    setSelectedUserId(uid);
+    setSelectedUserName(uname);
+    // Re-query immediately with new user filter
+    setFilterParams((prev) => {
+      const next = { ...prev };
+      if (uid) next.user_id = uid; else delete next.user_id;
+      return next;
+    });
+  };
+
+  const handleDownload = async () => {
+    try {
+      setDownloading(true);
+      const exportParams: Record<string, string> = { ...filterParams };
+      if (selectedUserId) exportParams.user_id = selectedUserId;
+
+      const blob = await attendanceApi.exportCsv(exportParams);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      // Filename: "{UserName}_attendance_{from}_to_{to}.csv" or "all_attendance_{from}_to_{to}.csv"
+      const nameSlug = selectedUserName
+        ? selectedUserName.replace(/\s+/g, '_')
+        : 'all_users';
+      a.download = `${nameSlug}_attendance_${filterParams.date_from || 'all'}_to_${filterParams.date_to || 'all'}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('Export failed: ' + (e as Error).message);
+    } finally {
+      setDownloading(false);
+    }
   };
 
   return (
@@ -447,10 +503,31 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
           {isManager && (
             <div>
               <label className="form-label">Team Member</label>
-              <input className="form-input" placeholder="Search by name…" {...register('name_filter')} />
+              <select
+                className="form-select"
+                value={selectedUserId}
+                onChange={handleUserSelect}
+              >
+                <option value="">All members</option>
+                {userOptions.map(([uid, uname]) => (
+                  <option key={uid} value={uid}>{uname}</option>
+                ))}
+              </select>
             </div>
           )}
           <Button type="submit" size="sm">Apply</Button>
+          {isManager && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              icon={<Download size={14} />}
+              onClick={handleDownload}
+              disabled={downloading}
+            >
+              {downloading ? 'Exporting…' : selectedUserId ? `Export ${selectedUserName}` : 'Export All CSV'}
+            </Button>
+          )}
         </form>
       </Card>
 
@@ -458,7 +535,7 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
       <Card padding={false}>
         {isLoading ? (
           <div className="p-6"><PageSkeleton /></div>
-        ) : records.length === 0 ? (
+        ) : allRecords.length === 0 ? (
           <EmptyState title="No records found" description="Try adjusting your date range or filters." />
         ) : (
           <div className="overflow-x-auto">
@@ -475,7 +552,7 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {records.map((rec) => (
+                {allRecords.map((rec) => (
                   <tr key={rec.id} className="hover:bg-gray-50">
                     {isManager && (
                       <td className="px-4 py-3">
@@ -506,27 +583,54 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
 
 // ── Summary Tab ───────────────────────────────────────────────────────────────
 
+type SummaryMode = 'weekly' | 'monthly';
+
 const SummaryTab = () => {
   const now = new Date();
+  const [mode, setMode] = useState<SummaryMode>('weekly');
+
+  // ── Monthly state ──────────────────────────────────────────────────────────
   const [month, setMonth] = useState(String(now.getMonth() + 1).padStart(2, '0'));
   const [year, setYear] = useState(String(now.getFullYear()));
+  const { data: monthData, isLoading: monthLoading, error: monthError } = useAttendanceSummary({ month, year });
 
-  const { data, isLoading, error } = useAttendanceSummary({ month, year });
-  // Backend returns { summary: { present, absent, wfh, late, total_hours }, records }
-  const rawSummary = (data as any)?.summary ?? data as any;
-  const summary = rawSummary ? {
-    presentCount:  rawSummary.present       ?? rawSummary.presentCount       ?? 0,
-    absentCount:   rawSummary.absent        ?? rawSummary.absentCount        ?? 0,
-    wfhCount:      rawSummary.wfh           ?? rawSummary.wfhCount           ?? 0,
-    lateCount:     rawSummary.late          ?? rawSummary.lateCount          ?? 0,
-    totalHours:    rawSummary.total_hours   ?? rawSummary.totalHours         ?? 0,
+  // ── Weekly state ───────────────────────────────────────────────────────────
+  const weekStart = startOfWeek(now, { weekStartsOn: 1 }); // Monday
+  const weekEnd   = endOfWeek(now, { weekStartsOn: 1 });   // Sunday
+  const weekFrom  = format(weekStart, 'yyyy-MM-dd');
+  const weekTo    = format(weekEnd, 'yyyy-MM-dd');
+  const { data: weekRecordsRaw, isLoading: weekLoading, error: weekError } = useAttendanceRecords({ date_from: weekFrom, date_to: weekTo });
+  const weekRecords = (weekRecordsRaw as AttendanceRecord[]) ?? [];
+
+  // Derive weekly stats from records
+  const weekSummary = {
+    presentCount: weekRecords.filter((r) => r.status === 'PRESENT').length,
+    absentCount:  weekRecords.filter((r) => r.status === 'ABSENT').length,
+    wfhCount:     weekRecords.filter((r) => r.status === 'WFH' || r.isWfh).length,
+    lateCount:    weekRecords.filter((r) => r.status === 'LATE').length,
+    totalHours:   weekRecords.reduce((sum, r) => sum + (r.hoursWorked ?? 0), 0),
+  };
+
+  // ── Monthly summary normalisation ──────────────────────────────────────────
+  const rawSummary = (monthData as any)?.summary ?? (monthData as any);
+  const monthlySummary = rawSummary ? {
+    presentCount: rawSummary.present     ?? rawSummary.presentCount ?? 0,
+    absentCount:  rawSummary.absent      ?? rawSummary.absentCount  ?? 0,
+    wfhCount:     rawSummary.wfh         ?? rawSummary.wfhCount     ?? 0,
+    lateCount:    rawSummary.late        ?? rawSummary.lateCount    ?? 0,
+    totalHours:   rawSummary.total_hours ?? rawSummary.totalHours   ?? 0,
   } : null;
 
+  const summary    = mode === 'weekly' ? weekSummary : monthlySummary;
+  const isLoading  = mode === 'weekly' ? weekLoading : monthLoading;
+  const error      = mode === 'weekly' ? weekError   : monthError;
+  const maxDays    = mode === 'weekly' ? 7 : 31;
+
   const stats = [
-    { label: 'Present', value: summary?.presentCount ?? 0, color: 'bg-green-500', max: 31 },
-    { label: 'Absent', value: summary?.absentCount ?? 0, color: 'bg-red-500', max: 31 },
-    { label: 'WFH', value: summary?.wfhCount ?? 0, color: 'bg-purple-500', max: 31 },
-    { label: 'Late', value: summary?.lateCount ?? 0, color: 'bg-yellow-500', max: 31 },
+    { label: 'Present', value: summary?.presentCount ?? 0, color: 'bg-green-500' },
+    { label: 'Absent',  value: summary?.absentCount  ?? 0, color: 'bg-red-500'   },
+    { label: 'WFH',     value: summary?.wfhCount     ?? 0, color: 'bg-purple-500' },
+    { label: 'Late',    value: summary?.lateCount    ?? 0, color: 'bg-yellow-500' },
   ];
 
   const months = [
@@ -537,28 +641,64 @@ const SummaryTab = () => {
     { value: '09', label: 'September' }, { value: '10', label: 'October' },
     { value: '11', label: 'November' }, { value: '12', label: 'December' },
   ];
-
   const years = Array.from({ length: 3 }, (_, i) => String(now.getFullYear() - i));
+
+  // 7 days of current week for daily breakdown
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = addDays(weekStart, i);
+    const dateStr = format(d, 'yyyy-MM-dd');
+    const rec = weekRecords.find((r) => r.date === dateStr);
+    return { label: format(d, 'EEE'), date: dateStr, rec };
+  });
 
   return (
     <div className="space-y-6">
       {error && <Alert type="error" message={(error as Error).message} />}
 
-      {/* Month / Year Selector */}
+      {/* Mode toggle + controls */}
       <Card>
-        <div className="flex items-center gap-3">
-          <div>
-            <label className="form-label">Month</label>
-            <select className="form-select" value={month} onChange={(e) => setMonth(e.target.value)}>
-              {months.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-            </select>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* Weekly / Monthly toggle */}
+          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+            {(['weekly', 'monthly'] as SummaryMode[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  mode === m
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {m === 'weekly' ? 'This Week' : 'Monthly'}
+              </button>
+            ))}
           </div>
-          <div>
-            <label className="form-label">Year</label>
-            <select className="form-select" value={year} onChange={(e) => setYear(e.target.value)}>
-              {years.map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
-          </div>
+
+          {/* Monthly controls */}
+          {mode === 'monthly' && (
+            <div className="flex items-center gap-3">
+              <div>
+                <label className="form-label">Month</label>
+                <select className="form-select" value={month} onChange={(e) => setMonth(e.target.value)}>
+                  {months.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="form-label">Year</label>
+                <select className="form-select" value={year} onChange={(e) => setYear(e.target.value)}>
+                  {years.map((y) => <option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Weekly label */}
+          {mode === 'weekly' && (
+            <p className="text-sm text-gray-500">
+              {format(weekStart, 'dd MMM')} – {format(weekEnd, 'dd MMM yyyy')}
+            </p>
+          )}
         </div>
       </Card>
 
@@ -577,34 +717,75 @@ const SummaryTab = () => {
             ))}
             <Card>
               <p className="text-xs text-gray-500 mb-1">Total Hours</p>
-              <p className="text-2xl font-bold text-blue-700">{summary?.totalHours?.toFixed(0) ?? 0}</p>
+              <p className="text-2xl font-bold text-blue-700">{summary?.totalHours?.toFixed(1) ?? 0}</p>
               <p className="text-xs text-gray-400">hrs</p>
             </Card>
           </div>
 
-          {/* Bar Chart Visual */}
-          <Card>
-            <h3 className="text-sm font-semibold text-gray-900 mb-5">Breakdown</h3>
-            <div className="space-y-4">
-              {stats.map((s) => {
-                const pct = Math.min(100, (s.value / s.max) * 100);
-                return (
-                  <div key={s.label}>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-sm text-gray-700">{s.label}</span>
-                      <span className="text-sm font-medium text-gray-900">{s.value} days</span>
+          {/* Weekly: day-by-day breakdown */}
+          {mode === 'weekly' && (
+            <Card>
+              <h3 className="text-sm font-semibold text-gray-900 mb-5">Day-by-Day Breakdown</h3>
+              <div className="space-y-3">
+                {weekDays.map(({ label, date, rec }) => {
+                  const isToday = date === format(now, 'yyyy-MM-dd');
+                  const hours = rec?.hoursWorked ?? 0;
+                  const pct = hours > 0 ? Math.min(100, (hours / 8) * 100) : 0;
+                  return (
+                    <div key={date}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-3">
+                          <span className={`text-sm font-medium w-8 ${isToday ? 'text-blue-600' : 'text-gray-700'}`}>{label}</span>
+                          <span className="text-xs text-gray-400">{format(parseISO(date), 'dd MMM')}</span>
+                          {isToday && <span className="text-[10px] font-semibold bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">Today</span>}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {rec?.status && <AttendanceStatusBadge status={rec.status} />}
+                          <span className="text-sm font-medium text-gray-900 w-12 text-right">
+                            {hours > 0 ? `${hours.toFixed(1)}h` : '—'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            hours >= 8 ? 'bg-green-500' : hours > 0 ? 'bg-blue-500' : 'bg-transparent'
+                          }`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-500 ${s.color}`}
-                        style={{ width: `${pct}%` }}
-                      />
+                  );
+                })}
+              </div>
+            </Card>
+          )}
+
+          {/* Monthly: bar chart */}
+          {mode === 'monthly' && (
+            <Card>
+              <h3 className="text-sm font-semibold text-gray-900 mb-5">Breakdown</h3>
+              <div className="space-y-4">
+                {stats.map((s) => {
+                  const pct = Math.min(100, (s.value / maxDays) * 100);
+                  return (
+                    <div key={s.label}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-sm text-gray-700">{s.label}</span>
+                        <span className="text-sm font-medium text-gray-900">{s.value} days</span>
+                      </div>
+                      <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${s.color}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
         </>
       )}
     </div>
@@ -616,7 +797,11 @@ const SummaryTab = () => {
 const AttendancePage = () => {
   useParams<{ tenantSlug: string }>();
   const { user } = useAuth();
-  const isManager = MANAGER_ROLES.includes(user?.role ?? '');
+  const { data: myPerms } = useMyPermissions();
+  const effectivePerms: string[] = myPerms?.permissions ?? [];
+  // Manager if role-based OR if explicitly granted ATTENDANCE_ADMIN
+  const isManager = MANAGER_ROLES.includes(user?.role ?? '') ||
+    ATTENDANCE_MANAGER_PERMS.some((p) => effectivePerms.includes(p));
   const [tab, setTab] = useState<Tab>('my');
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode; managerOnly?: boolean }[] = [

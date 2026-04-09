@@ -51,7 +51,7 @@ export const dashboardApi = {
 // ─── Projects ─────────────────────────────────────────────────────────────────
 
 export const projectsApi = {
-  list: () => api.get('/projects').then((r) => r.data.data),
+  list: (params?: Record<string, string | number>) => api.get('/projects', { params }).then((r) => r.data.data),
   get: (id: string) => api.get(`/projects/${id}`).then((r) => r.data.data),
   create: (data: unknown) => api.post('/projects', data).then((r) => r.data.data),
   update: (id: string, data: unknown) => api.put(`/projects/${id}`, data).then((r) => r.data.data),
@@ -189,6 +189,11 @@ export const adminApi = {
   getAuditLogs: (params?: Record<string, string>) =>
     api.get('/admin/audit-logs', { params }).then((r) => r.data.data),
   getModules: () => api.get('/admin/modules').then((r) => r.data.data),
+  getMyPermissions: () => api.get('/admin/my-permissions').then((r) => r.data.data),
+  getUserPermissions: (userId: string) =>
+    api.get(`/admin/users/${userId}/permissions`).then((r) => r.data.data),
+  setUserPermissions: (userId: string, data: { granted: string[]; revoked: string[] }) =>
+    api.put(`/admin/users/${userId}/permissions`, data).then((r) => r.data.data),
 };
 
 // ─── Super Admin ──────────────────────────────────────────────────────────────
@@ -404,6 +409,7 @@ export const attendanceApi = {
   override:  (recordId: string, data: unknown) => peopleClient.patch(`/attendance/${recordId}/override`, data).then((r) => r.data.data),
   anomalies: () => peopleClient.get('/attendance/anomalies').then((r) => r.data.data),
   summary:   (params?: Record<string, string>) => peopleClient.get('/attendance/summary', { params }).then((r) => r.data.data),
+  exportCsv: (params?: Record<string, string>) => peopleClient.get('/attendance/export', { params, responseType: 'blob' }).then((r) => r.data),
 };
 
 export const leaveApi = {
@@ -435,6 +441,17 @@ export const announcementsApi = {
   remove:     (id: string) => peopleClient.delete(`/announcements/${id}`).then((r) => r.data.data),
   markRead:   (id: string) => peopleClient.patch(`/announcements/${id}/read`).then((r) => r.data.data),
   readStatus: (id: string) => peopleClient.get(`/announcements/${id}/read-status`).then((r) => r.data.data),
+};
+
+export const dataSeedApi = {
+  stats: () => api.get('/data-seed/stats').then((r) => r.data.data),
+  run: (data: {
+    modules: { projects?: number; actions?: number; blockers?: number; standups?: number; eod?: number };
+    date_from: string;
+    date_to: string;
+  }) => api.post('/data-seed/run', data).then((r) => r.data.data),
+  clear: (data: { modules: string[]; confirm: true }) =>
+    api.delete('/data-seed/clear', { data }).then((r) => r.data.data),
 };
 
 export const orgApi = {

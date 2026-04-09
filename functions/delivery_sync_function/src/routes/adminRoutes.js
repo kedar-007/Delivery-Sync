@@ -22,4 +22,11 @@ router.get('/tenant', auth, can(PERMISSIONS.ADMIN_SETTINGS), asyncHandler((req, 
 router.get('/audit-logs', auth, can(PERMISSIONS.ADMIN_SETTINGS), asyncHandler((req, res) => ctrl(req).getAuditLogs(req, res)));
 router.get('/modules', auth, asyncHandler((req, res) => ctrl(req).getModulePermissions(req, res)));
 
+// Current user's own effective permissions (role defaults + overrides) — no admin required
+router.get('/my-permissions', auth, asyncHandler((req, res) => ctrl(req).getMyPermissions(req, res)));
+
+// Per-user permission overrides
+router.get('/users/:userId/permissions', auth, admin(), asyncHandler((req, res) => ctrl(req).getUserPermissions(req, res)));
+router.put('/users/:userId/permissions', auth, admin(), asyncHandler((req, res) => ctrl(req).setUserPermissions(req, res)));
+
 module.exports = router;

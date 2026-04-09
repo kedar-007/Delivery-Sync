@@ -41,6 +41,7 @@ import ProjectTasksPage from "./pages/ProjectTasksPage";
 import MyTasksPage from "./pages/MyTasksPage";
 import SprintsPage from "./pages/SprintsPage";
 import HelpPage from "./pages/HelpPage";
+import DataSeedPage from "./pages/DataSeedPage";
 
 // ── SDK loader ────────────────────────────────────────────────────────────────
 
@@ -113,6 +114,7 @@ const AppRoutes = () => {
         <Route path="cto-dashboard" element={<CtoDashboardPage />} />
         <Route path="admin" element={<AdminPage />} />
         <Route path="admin-config" element={<AdminConfigPage />} />
+        <Route path="data-seed" element={<DataSeedPage />} />
         <Route path="help" element={<HelpPage />} />
       </Route>
 

@@ -11,7 +11,8 @@ import Modal, { ModalActions } from '../components/ui/Modal';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
-import { useProjects, useCreateProject, useUpdateProject } from '../hooks/useProjects';
+import { useProjectsPaginated, useCreateProject, useUpdateProject } from '../hooks/useProjects';
+import Pagination from '../components/ui/Pagination';
 import { useAuth } from '../contexts/AuthContext';
 import { format } from 'date-fns';
 
@@ -34,12 +35,17 @@ const ProjectsPage = () => {
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState('');
   const [createError, setCreateError] = useState('');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 18;
 
   // Rename State
   const [renamingProject, setRenamingProject] = useState<{ id: string; name: string } | null>(null);
   const [renameError, setRenameError] = useState('');
 
-  const { data: projects = [], isLoading, error } = useProjects();
+  const { data: pagedData, isLoading, error } = useProjectsPaginated({ page, pageSize: PAGE_SIZE });
+  const projects = pagedData?.projects ?? [];
+  const total: number = pagedData?.total ?? 0;
+  const totalPages: number = pagedData?.totalPages ?? 1;
   const createProject = useCreateProject();
 
   // Updating the project
@@ -59,6 +65,7 @@ const ProjectsPage = () => {
   const filtered = projects.filter((p: { name: string }) =>
     p.name.toLowerCase().includes(search.toLowerCase())
   );
+  // Reset to page 1 when search changes - handled in the input onChange
 
   const onSubmit = async (data: ProjectForm) => {
     try {
@@ -98,7 +105,7 @@ const ProjectsPage = () => {
     <Layout>
       <Header
         title="Projects"
-        subtitle={`${projects.length} project${projects.length !== 1 ? 's' : ''}`}
+        subtitle={`${total} project${total !== 1 ? 's' : ''}`}
         actions={
           canCreateProject ? (
             <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>
@@ -118,7 +125,7 @@ const ProjectsPage = () => {
             className="form-input pl-9"
             placeholder="Search projects…"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
         </div>
 
@@ -169,6 +176,8 @@ const ProjectsPage = () => {
             ))}
           </div>
         )}
+
+        <Pagination page={page} totalPages={totalPages} total={total} pageSize={PAGE_SIZE} onPageChange={setPage} />
       </div>
 
       {/* Create Project Modal */}

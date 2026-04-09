@@ -12,7 +12,7 @@ const normaliseEntry = (r: any) => ({
   projectId:      r.project_id   ?? r.projectId,
   taskId:         r.task_id      ?? r.taskId      ?? null,
   userId:         r.user_id      ?? r.userId,
-  date:           r.entry_date   ?? r.date,        // reserved keyword fix
+  date:           ((r.entry_date ?? r.date ?? '') as string).split('T')[0].split(' ')[0], // strip time component
   hours:          parseFloat(r.hours ?? 0),
   startTime:      r.start_time   ?? r.startTime   ?? null,
   endTime:        r.end_time     ?? r.endTime     ?? null,
@@ -26,6 +26,7 @@ const normaliseEntry = (r: any) => ({
   updatedAt:      r.MODIFIEDTIME ?? r.updated_at  ?? r.updatedAt,
   userName:       r.user_name    ?? r.userName    ?? '',
   userAvatarUrl:  r.user_avatar_url ?? r.userAvatarUrl ?? '',
+  projectName:    r.project_name ?? r.projectName ?? '',
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -70,7 +71,66 @@ export const useTimeEntries = (params?: Record<string, string>) =>
 export const useMyWeek = () =>
   useQuery({
     queryKey: ['time', 'my-week'],
-    queryFn: () => timeEntriesApi.myWeek().then(applyNorm(normaliseEntry)),
+    queryFn: async () => {
+      // API returns { entries: [], total_hours, billable_hours, week_start, week_end }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const raw = await timeEntriesApi.myWeek() as any;
+
+      const entries: ReturnType<typeof normaliseEntry>[] = Array.isArray(raw)
+        ? raw.map(normaliseEntry)                        // fallback: bare array
+        : Array.isArray(raw?.entries)
+          ? raw.entries.map(normaliseEntry)              // normal shape
+          : [];
+
+      const totalHours    = parseFloat(raw?.total_hours   ?? raw?.totalHours   ?? 0);
+      const billableHours = parseFloat(raw?.billable_hours ?? raw?.billableHours ?? 0);
+      const weekStart: string = raw?.week_start ?? raw?.weekStart ?? '';
+      const weekEnd:   string = raw?.week_end   ?? raw?.weekEnd   ?? '';
+
+      // Group entries by date to build the per-day breakdown
+      const byDate: Record<string, typeof entries> = {};
+      for (const e of entries) {
+        const d = (e.date as string) ?? '';
+        if (!byDate[d]) byDate[d] = [];
+        byDate[d].push(e);
+      }
+
+      // Build 7-day window from week_start
+      const days = Array.from({ length: 7 }, (_, i) => {
+        const dt   = weekStart
+          ? new Date(new Date(weekStart).getTime() + i * 86400000).toISOString().split('T')[0]
+          : '';
+        const dayEntries = byDate[dt] ?? [];
+        const hours = dayEntries.reduce((s, e) => s + (parseFloat(String(e.hours)) || 0), 0);
+        return {
+          date:    dt,
+          label:   dt,
+          hours:   Math.round(hours * 100) / 100,
+          entries: dayEntries.map((e) => ({
+            projectName: (e as any).projectName ?? (e as any).project_name ?? (e as any).projectId ?? '',
+            hours:       parseFloat(String(e.hours)) || 0,
+            taskId:      (e as any).taskId ?? null,
+            description: (e as any).description ?? '',
+            status:      (e as any).status ?? '',
+            id:          e.id,
+          })),
+        };
+      });
+
+      const daysLogged  = days.filter((d) => d.hours > 0).length;
+      const nonBillable = Math.round((totalHours - billableHours) * 100) / 100;
+
+      return {
+        entries,
+        totalHours,
+        billableHours,
+        nonBillableHours: nonBillable,
+        daysLogged,
+        days,
+        weekStart,
+        weekEnd,
+      };
+    },
   });
 
 export const useTimeSummary = (params?: Record<string, string>) =>

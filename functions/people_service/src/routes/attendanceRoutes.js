@@ -14,4 +14,5 @@ router.post('/wfh',                        RBACMiddleware.require(PERMISSIONS.AT
 router.patch('/:recordId/override',        RBACMiddleware.require(PERMISSIONS.ATTENDANCE_ADMIN), (req, res) => ctrl(req).override(req, res));
 router.get('/anomalies',                   RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).anomalies(req, res));
 router.get('/summary',                     RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).summary(req, res));
+router.get('/export',                      RBACMiddleware.require(PERMISSIONS.ATTENDANCE_ADMIN), (req, res) => ctrl(req).exportCsv(req, res));
 module.exports = router;

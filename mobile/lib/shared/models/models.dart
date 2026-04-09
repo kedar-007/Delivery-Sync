@@ -331,7 +331,12 @@ class Announcement extends Equatable {
     required this.content,
     required this.createdAt,
     this.isRead = false,
+    this.isPinned = false,
+    this.priority = 'NORMAL',
+    this.type = 'GLOBAL',
+    this.subtype = 'GENERAL',
     this.authorName,
+    this.expiresAt,
   });
 
   final String id;
@@ -339,16 +344,47 @@ class Announcement extends Equatable {
   final String content;
   final String createdAt;
   final bool isRead;
+  final bool isPinned;
+  final String priority;
+  final String type;
+  final String subtype;
   final String? authorName;
+  final String? expiresAt;
 
-  factory Announcement.fromJson(Map<String, dynamic> j) => Announcement(
-        id:         j['id']?.toString() ?? '',
-        title:      j['title'] as String? ?? '',
-        content:    j['content'] as String? ?? '',
-        createdAt:  j['createdAt'] as String? ?? '',
-        isRead:     j['isRead'] as bool? ?? false,
-        authorName: j['authorName'] as String?,
-      );
+  /// Convert Catalyst CREATEDTIME (Unix ms number or ISO string) to ISO string.
+  static String _parseCreatedAt(dynamic raw) {
+    if (raw == null) return '';
+    final n = num.tryParse(raw.toString());
+    if (n != null && n > 946684800000) {
+      return DateTime.fromMillisecondsSinceEpoch(n.toInt()).toIso8601String();
+    }
+    return raw.toString();
+  }
+
+  factory Announcement.fromJson(Map<String, dynamic> j) {
+    // Backend returns raw Catalyst fields: ROWID, CREATEDTIME (Unix ms),
+    // is_read, is_pinned, announcement_priority, author_name, etc.
+    final rawId   = j['ROWID'] ?? j['id'];
+    final rawRead = j['is_read'] ?? j['isRead'];
+    final rawPin  = j['is_pinned'] ?? j['isPinned'];
+
+    return Announcement(
+      id:         rawId?.toString() ?? '',
+      title:      j['title'] as String? ?? '',
+      content:    j['content'] as String? ?? '',
+      createdAt:  _parseCreatedAt(j['CREATEDTIME'] ?? j['created_at'] ?? j['createdAt']),
+      isRead:     rawRead == true || rawRead == 'true',
+      isPinned:   rawPin  == true || rawPin  == 'true',
+      priority:   j['announcement_priority'] as String?
+                  ?? j['priority'] as String?
+                  ?? 'NORMAL',
+      type:       j['type'] as String? ?? 'GLOBAL',
+      subtype:    j['subtype'] as String? ?? 'GENERAL',
+      authorName: j['author_name'] as String?
+                  ?? j['authorName'] as String?,
+      expiresAt:  j['expires_at'] as String? ?? j['expiresAt'] as String?,
+    );
+  }
 
   @override
   List<Object?> get props => [id, title, createdAt];
