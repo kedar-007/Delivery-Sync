@@ -2,6 +2,8 @@
 /// API: ${AppConstants.basePeople}/announcements
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,6 +20,11 @@ import '../../../../shared/widgets/user_avatar.dart';
 
 final announcementsProvider =
     FutureProvider.autoDispose<List<Announcement>>((ref) async {
+  // Auto-refresh every 60 s so new/deleted announcements are picked up
+  // without requiring a manual pull-to-refresh.
+  final timer = Timer(const Duration(seconds: 30), ref.invalidateSelf);
+  ref.onDispose(timer.cancel);
+
   final raw = await ApiClient.instance.get<Map<String, dynamic>>(
     '${AppConstants.basePeople}/announcements',
     fromJson: (r) => r as Map<String, dynamic>,

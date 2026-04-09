@@ -7,26 +7,65 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../announcements/presentation/screens/announcements_screen.dart'
+    show announcementsProvider;
+import '../../../announcements/presentation/screens/festival_overlay.dart';
+import '../../../../shared/widgets/ambient_festival.dart';
 
 /// Root shell — hosts the bottom navigation bar and swaps between tabs.
-class ShellScreen extends ConsumerWidget {
+class ShellScreen extends ConsumerStatefulWidget {
   const ShellScreen({super.key, required this.navigationShell});
   final StatefulNavigationShell navigationShell;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ShellScreen> createState() => _ShellScreenState();
+}
+
+class _ShellScreenState extends ConsumerState<ShellScreen>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // Re-fetch announcements the moment the user returns to the app so that
+  // deleted/replaced festival announcements are picked up immediately.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.invalidate(announcementsProvider);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final ds = context.ds;
     return Scaffold(
       backgroundColor: ds.bgPage,
       extendBody: true,
-      body: navigationShell,
+      body: Stack(
+        children: [
+          widget.navigationShell,
+          // Ambient particles — always visible while festival is active, pointer-events:none
+          const Positioned.fill(child: AmbientFestival()),
+          // Full-screen overlay — shown once per unread festival announcement
+          const FestivalOverlay(),
+        ],
+      ),
       bottomNavigationBar: _PremiumNav(
-        currentIndex: navigationShell.currentIndex,
+        currentIndex: widget.navigationShell.currentIndex,
         onTap: (i) {
           HapticFeedback.selectionClick();
-          navigationShell.goBranch(
+          widget.navigationShell.goBranch(
             i,
-            initialLocation: i == navigationShell.currentIndex,
+            initialLocation: i == widget.navigationShell.currentIndex,
           );
         },
       ),

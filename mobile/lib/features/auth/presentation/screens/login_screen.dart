@@ -23,14 +23,35 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final success = await ref.read(authProvider.notifier).signIn();
     if (mounted) {
       setState(() => _signingIn = false);
-      if (success) context.go(Routes.shell);
+      if (success) context.go('/home');
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final error = ref.watch(authProvider).errorMessage;
-    final size  = MediaQuery.sizeOf(context);
+    final authState = ref.watch(authProvider);
+    final error     = authState.errorMessage;
+    final size      = MediaQuery.sizeOf(context);
+
+    // Show a loading screen while checking for an existing session so the
+    // login page never flashes after the user has already signed in.
+    if (authState.status == AuthStatus.checking ||
+        authState.status == AuthStatus.initial) {
+      return Scaffold(
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF050810), Color(0xFF0A0F1E), Color(0xFF0D1B35)],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+            ),
+          ),
+          child: const Center(
+            child: CircularProgressIndicator(color: Color(0xFF6366F1)),
+          ),
+        ),
+      );
+    }
 
     // Login page always uses dark gradient background regardless of theme
     return Scaffold(

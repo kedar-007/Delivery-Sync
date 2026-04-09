@@ -26,24 +26,30 @@ class DashboardController {
     try {
       const { tenantId, id: userId, role } = req.currentUser;
       const today = DataStoreService.today();
+      const isAdmin = role === 'TENANT_ADMIN' || role === 'PMO' || role === 'EXEC';
 
-      // ── My Projects ──────────────────────────────────────────────────────────
+      // ── My Projects (fetch up to 100 for list + RAG display) ─────────────────
       let projects = [];
-      if (role === 'TENANT_ADMIN' || role === 'PMO' || role === 'EXEC') {
-        projects = await this.db.findAll(TABLES.PROJECTS,
-          { tenant_id: tenantId, status: 'ACTIVE' },
-          { orderBy: 'CREATEDTIME DESC', limit: 50 });
+      let totalProjectsCount = 0;
+      if (isAdmin) {
+        [projects, totalProjectsCount] = await Promise.all([
+          this.db.findAll(TABLES.PROJECTS,
+            { tenant_id: tenantId, status: 'ACTIVE' },
+            { orderBy: 'CREATEDTIME DESC', limit: 100 }),
+          this.db.count(TABLES.PROJECTS, { tenant_id: tenantId, status: 'ACTIVE' }),
+        ]);
       } else {
         const memberships = await this.db.findAll(TABLES.PROJECT_MEMBERS,
           { tenant_id: tenantId, user_id: userId },
-          { limit: 50 });
+          { limit: 200 });
         if (memberships.length > 0) {
           const projectIds = memberships.map((m) => `'${m.project_id}'`).join(',');
           projects = await this.db.query(
             `SELECT * FROM ${TABLES.PROJECTS} WHERE tenant_id = '${tenantId}' ` +
-            `AND ROWID IN (${projectIds}) AND status = 'ACTIVE' LIMIT 50`
+            `AND ROWID IN (${projectIds}) AND status = 'ACTIVE' LIMIT 200`
           );
         }
+        totalProjectsCount = projects.length;
       }
 
       const ragCounts = { RED: 0, AMBER: 0, GREEN: 0 };
@@ -52,31 +58,31 @@ class DashboardController {
       // ── Missing Standups Today ────────────────────────────────────────────────
       const standupRows = await this.db.findAll(TABLES.STANDUP_ENTRIES,
         { tenant_id: tenantId, entry_date: today, user_id: userId },
-        { limit: 50 });
+        { limit: 200 });
       const submittedProjectIds = new Set(standupRows.map((s) => String(s.project_id)));
       const missingStandups = projects.filter((p) => !submittedProjectIds.has(String(p.ROWID)));
 
       // ── Missing EOD Today ─────────────────────────────────────────────────────
       const eodRows = await this.db.findAll(TABLES.EOD_ENTRIES,
         { tenant_id: tenantId, entry_date: today, user_id: userId },
-        { limit: 50 });
+        { limit: 200 });
       const eodProjectIds = new Set(eodRows.map((e) => String(e.project_id)));
       const missingEod = projects.filter((p) => !eodProjectIds.has(String(p.ROWID)));
 
-      // ── Overdue Actions ───────────────────────────────────────────────────────
-      const overdueActions = await this.db.findWhere(
-        TABLES.ACTIONS, tenantId,
-        `assigned_to = '${userId}' AND due_date < '${today}' ` +
-        `AND status != '${ACTION_STATUS.DONE}' AND status != '${ACTION_STATUS.CANCELLED}'`,
-        { orderBy: 'due_date ASC', limit: 20 }
-      );
+      // ── Overdue Actions + count ───────────────────────────────────────────────
+      const overdueWhere = `assigned_to = '${userId}' AND due_date < '${today}' ` +
+        `AND status != '${ACTION_STATUS.DONE}' AND status != '${ACTION_STATUS.CANCELLED}'`;
+      const [overdueActions, overdueActionsCount] = await Promise.all([
+        this.db.findWhere(TABLES.ACTIONS, tenantId, overdueWhere, { orderBy: 'due_date ASC', limit: 20 }),
+        this.db.countWhere(TABLES.ACTIONS, tenantId, overdueWhere),
+      ]);
 
-      // ── Critical Blockers ─────────────────────────────────────────────────────
-      const criticalBlockers = await this.db.findWhere(
-        TABLES.BLOCKERS, tenantId,
-        `severity = 'CRITICAL' AND status != '${BLOCKER_STATUS.RESOLVED}'`,
-        { orderBy: 'CREATEDTIME ASC', limit: 10 }
-      );
+      // ── Critical Blockers + count ─────────────────────────────────────────────
+      const blockersWhere = `severity = 'CRITICAL' AND status != '${BLOCKER_STATUS.RESOLVED}'`;
+      const [criticalBlockers, criticalBlockersCount] = await Promise.all([
+        this.db.findWhere(TABLES.BLOCKERS, tenantId, blockersWhere, { orderBy: 'CREATEDTIME ASC', limit: 20 }),
+        this.db.countWhere(TABLES.BLOCKERS, tenantId, blockersWhere),
+      ]);
 
       return ResponseHelper.success(res, {
         projects: projects.map((p) => ({
@@ -95,9 +101,9 @@ class DashboardController {
           status: b.status, projectId: b.project_id,
         })),
         stats: {
-          totalProjects: projects.length,
-          overdueActionsCount: overdueActions.length,
-          criticalBlockersCount: criticalBlockers.length,
+          totalProjects: totalProjectsCount,
+          overdueActionsCount,
+          criticalBlockersCount,
           missingStandupsCount: missingStandups.length,
           missingEodCount: missingEod.length,
         },

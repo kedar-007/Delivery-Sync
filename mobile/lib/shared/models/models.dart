@@ -335,6 +335,7 @@ class Announcement extends Equatable {
     this.priority = 'NORMAL',
     this.type = 'GLOBAL',
     this.subtype = 'GENERAL',
+    this.festivalKey,
     this.authorName,
     this.expiresAt,
   });
@@ -348,6 +349,7 @@ class Announcement extends Equatable {
   final String priority;
   final String type;
   final String subtype;
+  final String? festivalKey;
   final String? authorName;
   final String? expiresAt;
 
@@ -380,6 +382,7 @@ class Announcement extends Equatable {
                   ?? 'NORMAL',
       type:       j['type'] as String? ?? 'GLOBAL',
       subtype:    j['subtype'] as String? ?? 'GENERAL',
+      festivalKey: j['festival_key'] as String? ?? j['festivalKey'] as String?,
       authorName: j['author_name'] as String?
                   ?? j['authorName'] as String?,
       expiresAt:  j['expires_at'] as String? ?? j['expiresAt'] as String?,

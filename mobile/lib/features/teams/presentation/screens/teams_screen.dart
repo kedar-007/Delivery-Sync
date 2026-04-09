@@ -7,6 +7,7 @@ import '../../../../core/services/api_client.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/widgets/ds_metric_card.dart';
 import '../../../../shared/widgets/user_avatar.dart';
+import 'team_detail_screen.dart';
 
 // ── Providers ─────────────────────────────────────────────────────────────────
 
@@ -91,7 +92,21 @@ class _TeamsScreenState extends ConsumerState<TeamsScreen> {
                   return ListView.builder(
                     padding: const EdgeInsets.all(16),
                     itemCount: filtered.length,
-                    itemBuilder: (_, i) => _TeamCard(filtered[i] as Map<String, dynamic>),
+                    itemBuilder: (ctx, i) {
+                      final t = filtered[i] as Map<String, dynamic>;
+                      return GestureDetector(
+                        onTap: () => Navigator.push(
+                          ctx,
+                          MaterialPageRoute(
+                            builder: (_) => TeamDetailScreen(
+                              teamId:   t['id'] as String? ?? '',
+                              teamName: t['name'] as String? ?? 'Team',
+                            ),
+                          ),
+                        ),
+                        child: _TeamCard(t),
+                      );
+                    },
                   );
                 },
                 loading: () => ListView(
@@ -274,6 +289,8 @@ class _TeamCard extends StatelessWidget {
                 style: const TextStyle(
                     fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.info)),
           ),
+          const SizedBox(width: 6),
+          Icon(Icons.chevron_right_rounded, size: 18, color: ds.textMuted),
         ]),
 
         // Member avatars
