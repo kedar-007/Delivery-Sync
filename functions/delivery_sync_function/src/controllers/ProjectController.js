@@ -23,6 +23,8 @@ class ProjectController {
       const data = Validator.validateCreateProject(req.body);
       const { tenantId, id: userId } = req.currentUser;
 
+      const ownerUserId = data.owner_user_id || userId;
+
       const project = await this.db.insert(TABLES.PROJECTS, {
         tenant_id: tenantId,
         name: data.name,
@@ -31,12 +33,13 @@ class ProjectController {
         end_date: data.end_date,
         rag_status: data.rag_status,
         status: PROJECT_STATUS.ACTIVE,
+        owner_user_id: ownerUserId,
         created_by: userId,
       });
 
       const projectId = String(project.ROWID);
 
-      // Auto-add creator as project LEAD
+      // Auto-add creator as project DELIVERY_LEAD
       await this.db.insert(TABLES.PROJECT_MEMBERS, {
         tenant_id: tenantId,
         project_id: projectId,
@@ -44,6 +47,23 @@ class ProjectController {
         role: 'DELIVERY_LEAD',
         joined_date: DataStoreService.today(),
       });
+
+      // If a separate owner is specified, add them as DELIVERY_LEAD (gives TASK_WRITE permission)
+      if (data.owner_user_id && data.owner_user_id !== userId) {
+        const ownerExists = await this.db.query(
+          `SELECT ROWID FROM ${TABLES.PROJECT_MEMBERS} WHERE tenant_id = '${tenantId}' ` +
+          `AND project_id = '${projectId}' AND user_id = '${DataStoreService.escape(data.owner_user_id)}' LIMIT 1`
+        );
+        if (ownerExists.length === 0) {
+          await this.db.insert(TABLES.PROJECT_MEMBERS, {
+            tenant_id: tenantId,
+            project_id: projectId,
+            user_id: data.owner_user_id,
+            role: 'DELIVERY_LEAD',
+            joined_date: DataStoreService.today(),
+          });
+        }
+      }
 
       await this.audit.log({
         tenantId, entityType: 'project', entityId: projectId,

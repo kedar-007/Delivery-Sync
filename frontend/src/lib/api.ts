@@ -479,6 +479,7 @@ taskClient.interceptors.response.use(
 );
 
 export const sprintsApi = {
+  listAll:      () => taskClient.get('/sprints').then((r) => r.data.data),
   list:         (projectId: string) => taskClient.get(`/sprints?project_id=${projectId}`).then((r) => r.data.data),
   get:          (id: string) => taskClient.get(`/sprints/${id}`).then((r) => r.data.data),
   create:       (data: unknown) => taskClient.post('/sprints', data).then((r) => r.data.data),

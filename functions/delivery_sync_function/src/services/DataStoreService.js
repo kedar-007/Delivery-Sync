@@ -111,6 +111,27 @@ class DataStoreService {
   }
 
   /**
+   * Fetch ALL rows for a WHERE query by auto-paginating in 300-row pages.
+   * Use instead of findWhere/findAll when the result set could exceed 300 rows.
+   */
+  async fetchAll(tableName, tenantId, whereExtra, options = {}) {
+    const tenantClause = `tenant_id = '${tenantId}'`;
+    const fullWhere = whereExtra ? `${tenantClause} AND ${whereExtra}` : tenantClause;
+    const orderStr = options.orderBy ? `ORDER BY ${options.orderBy}` : 'ORDER BY CREATEDTIME DESC';
+    const all = [];
+    let offset = 0;
+    while (true) {
+      const page = await this.query(
+        `SELECT * FROM ${tableName} WHERE ${fullWhere} ${orderStr} LIMIT 300 OFFSET ${offset}`
+      );
+      all.push(...page);
+      if (page.length < 300) break;
+      offset += 300;
+    }
+    return all;
+  }
+
+  /**
    * Paginated query with total count.
    * Returns { rows, total, page, pageSize, totalPages }
    * ZCQL supports OFFSET natively.

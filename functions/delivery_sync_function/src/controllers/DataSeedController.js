@@ -178,7 +178,7 @@ class DataSeedController {
               tenant_id:  String(tenantId),
               name:       `${pick(PROJECT_NAMES, rand)} ${String(i + 1).padStart(3, '0')}`,
               description:`Seeded project #${i + 1} for testing purposes.`,
-              status:     pick(['ACTIVE','ACTIVE','ACTIVE'], rand),
+              status:     pick(['ACTIVE','ACTIVE','ACTIVE','PLANNING','ON_HOLD'], rand),
               rag_status: pick(RAG_STATUSES, rand),
               start_date: dateInRange(date_from, date_to, rand),
               end_date:   dateInRange(date_from, date_to, rand),

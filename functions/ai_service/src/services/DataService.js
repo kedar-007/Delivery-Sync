@@ -25,9 +25,32 @@ class DataService {
     this.zcql = catalystApp.zcql();
   }
 
+  // ─── ZCQL Concurrency Semaphore ────────────────────────────────────────────
+  // Catalyst dev environment enforces a hard concurrency limit on ZCQL queries.
+  // This semaphore ensures at most MAX_CONCURRENT queries are in-flight at once.
+  static _sem = { count: 0, max: 3, waiting: [] };
+
+  static async _acquire() {
+    if (DataService._sem.count < DataService._sem.max) {
+      DataService._sem.count++;
+      return;
+    }
+    await new Promise((resolve) => DataService._sem.waiting.push(resolve));
+    DataService._sem.count++;
+  }
+
+  static _release() {
+    DataService._sem.count--;
+    if (DataService._sem.waiting.length > 0) {
+      const next = DataService._sem.waiting.shift();
+      next();
+    }
+  }
+
   // ─── Internal ZCQL Helper ──────────────────────────────────────────────────
 
   async _query(sql) {
+    await DataService._acquire();
     try {
       const raw = await this.zcql.executeZCQLQuery(sql);
       if (!Array.isArray(raw)) return [];
@@ -42,6 +65,8 @@ class DataService {
     } catch (err) {
       console.error('[DataService] ZCQL error:', sql.substring(0, 120), err.message);
       return []; // Return empty rather than crash — partial data is still usable.
+    } finally {
+      DataService._release();
     }
   }
 
@@ -73,38 +98,33 @@ class DataService {
    * @returns {Promise<{ projects: object[], projectIds: string[] }>}
    */
   async resolveProjectScope(tenantId, userId, role, filterProjectId = null) {
+    // Fast path: when a specific project is requested, skip broad scope resolution
+    // and fetch just that one row directly. This avoids pulling 50 projects and
+    // then discarding 49 of them, dramatically reducing DB load and prompt size.
+    if (filterProjectId) {
+      const rows = await this._query(
+        `SELECT ROWID, name, rag_status, status, start_date, end_date, description
+         FROM ${TABLES.PROJECTS}
+         WHERE ROWID = '${DataService._esc(filterProjectId)}'
+           AND tenant_id = '${DataService._esc(tenantId)}'
+         LIMIT 1`
+      );
+      return { projects: rows, projectIds: rows.map((p) => String(p.ROWID)) };
+    }
+
     const scope = AI_SCOPE[role] ?? 'own';
     let projects = [];
 
     if (scope === 'all') {
-      // TENANT_ADMIN / PMO — all active projects in the tenant
+      // TENANT_ADMIN / PMO — cap at 10 for cross-project AI (no project selected)
       projects = await this._query(
         `SELECT ROWID, name, rag_status, status, start_date, end_date, description
          FROM ${TABLES.PROJECTS}
          WHERE tenant_id = '${DataService._esc(tenantId)}' AND status = 'ACTIVE'
-         LIMIT 50`
+         LIMIT 10`
       );
 
     } else if (scope === 'projects' || scope === 'summary') {
-      // DELIVERY_LEAD / EXEC — projects where they are a member
-      const memberships = await this._query(
-        `SELECT project_id FROM ${TABLES.PROJECT_MEMBERS}
-         WHERE tenant_id = '${DataService._esc(tenantId)}' AND user_id = '${DataService._esc(userId)}'
-         LIMIT 50`
-      );
-      const ids = memberships.map((m) => m.project_id).filter(Boolean);
-      if (ids.length > 0) {
-        const idList = ids.map((id) => `'${DataService._esc(id)}'`).join(',');
-        projects = await this._query(
-          `SELECT ROWID, name, rag_status, status, start_date, end_date, description
-           FROM ${TABLES.PROJECTS}
-           WHERE ROWID IN (${idList}) AND tenant_id = '${DataService._esc(tenantId)}' AND status = 'ACTIVE'
-           LIMIT 50`
-        );
-      }
-
-    } else {
-      // TEAM_MEMBER / CLIENT — projects they are explicitly a member of
       const memberships = await this._query(
         `SELECT project_id FROM ${TABLES.PROJECT_MEMBERS}
          WHERE tenant_id = '${DataService._esc(tenantId)}' AND user_id = '${DataService._esc(userId)}'
@@ -114,17 +134,30 @@ class DataService {
       if (ids.length > 0) {
         const idList = ids.map((id) => `'${DataService._esc(id)}'`).join(',');
         projects = await this._query(
+          `SELECT ROWID, name, rag_status, status, start_date, end_date, description
+           FROM ${TABLES.PROJECTS}
+           WHERE ROWID IN (${idList}) AND tenant_id = '${DataService._esc(tenantId)}' AND status = 'ACTIVE'
+           LIMIT 10`
+        );
+      }
+
+    } else {
+      // TEAM_MEMBER / CLIENT
+      const memberships = await this._query(
+        `SELECT project_id FROM ${TABLES.PROJECT_MEMBERS}
+         WHERE tenant_id = '${DataService._esc(tenantId)}' AND user_id = '${DataService._esc(userId)}'
+         LIMIT 10`
+      );
+      const ids = memberships.map((m) => m.project_id).filter(Boolean);
+      if (ids.length > 0) {
+        const idList = ids.map((id) => `'${DataService._esc(id)}'`).join(',');
+        projects = await this._query(
           `SELECT ROWID, name, rag_status, status, start_date, end_date
            FROM ${TABLES.PROJECTS}
            WHERE ROWID IN (${idList}) AND tenant_id = '${DataService._esc(tenantId)}'
-           LIMIT 20`
+           LIMIT 10`
         );
       }
-    }
-
-    // Apply optional single-project filter
-    if (filterProjectId) {
-      projects = projects.filter((p) => String(p.ROWID) === String(filterProjectId));
     }
 
     const projectIds = projects.map((p) => String(p.ROWID));
@@ -593,7 +626,7 @@ class DataService {
            FROM ${TABLES.TASKS}
            WHERE tenant_id = '${DataService._esc(tenantId)}'
              AND (status != 'DONE' OR due_date >= '${since}')
-           LIMIT 500`
+           LIMIT 300`
         ),
         this._query(
           `SELECT user_id, attendance_date, work_hours, is_wfh FROM ${TABLES.ATTENDANCE_RECORDS}
@@ -852,12 +885,12 @@ class DataService {
          WHERE tenant_id = '${DataService._esc(tenantId)}' AND project_id IN (${idList})
          LIMIT 100`
       ),
-      // Recent standup entry counts per project
+      // Recent standup entries per project — counted in JS (ZCQL has no GROUP BY)
       this._query(
-        `SELECT project_id, COUNT(ROWID) AS cnt FROM ${TABLES.STANDUP_ENTRIES}
+        `SELECT project_id FROM ${TABLES.STANDUP_ENTRIES}
          WHERE tenant_id = '${DataService._esc(tenantId)}' AND project_id IN (${idList})
            AND entry_date >= '${since7}'
-         LIMIT 100`
+         LIMIT 300`
       ),
       // Recent EOD mood data per project
       this._query(
@@ -900,8 +933,7 @@ class DataService {
         .filter((m) => String(m.project_id) === pid)
         .map((m) => ({ title: m.title, status: m.status, due: m.due_date || null }));
 
-      const standupRow = standups.find((s) => String(s.project_id) === pid);
-      const standupCount = parseInt(standupRow?.cnt ?? 0, 10);
+      const standupCount = standups.filter((s) => String(s.project_id) === pid).length;
 
       const projEods = eods.filter((e) => String(e.project_id) === pid);
       const moodCounts = {};

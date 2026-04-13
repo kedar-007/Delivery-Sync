@@ -39,17 +39,19 @@ class DashboardController {
           this.db.count(TABLES.PROJECTS, { tenant_id: tenantId, status: 'ACTIVE' }),
         ]);
       } else {
-        const memberships = await this.db.findAll(TABLES.PROJECT_MEMBERS,
-          { tenant_id: tenantId, user_id: userId },
-          { limit: 200 });
+        const memberships = await this.db.fetchAll(TABLES.PROJECT_MEMBERS, tenantId,
+          `user_id = '${userId}'`);
         if (memberships.length > 0) {
           const projectIds = memberships.map((m) => `'${m.project_id}'`).join(',');
-          projects = await this.db.query(
-            `SELECT * FROM ${TABLES.PROJECTS} WHERE tenant_id = '${tenantId}' ` +
-            `AND ROWID IN (${projectIds}) AND status = 'ACTIVE' LIMIT 200`
-          );
+          const activeWhere = `ROWID IN (${projectIds}) AND status = 'ACTIVE'`;
+          [projects, totalProjectsCount] = await Promise.all([
+            this.db.query(
+              `SELECT * FROM ${TABLES.PROJECTS} WHERE tenant_id = '${tenantId}' ` +
+              `AND ${activeWhere} ORDER BY CREATEDTIME DESC LIMIT 200`
+            ),
+            this.db.countWhere(TABLES.PROJECTS, tenantId, activeWhere),
+          ]);
         }
-        totalProjectsCount = projects.length;
       }
 
       const ragCounts = { RED: 0, AMBER: 0, GREEN: 0 };
@@ -129,7 +131,7 @@ class DashboardController {
       );
       if (!project) return ResponseHelper.notFound(res, 'Project not found');
 
-      const [standups, eods, actions, blockers, milestones, members] = await Promise.all([
+      const [standups, eods, actions, blockers, milestones, members, taskCount, timeEntries] = await Promise.all([
         this.db.findWhere(TABLES.STANDUP_ENTRIES, tenantId,
           `project_id = '${projectId}' AND entry_date >= '${sevenDaysAgo}'`,
           { orderBy: 'entry_date DESC', limit: 100 }),
@@ -148,6 +150,20 @@ class DashboardController {
         this.db.findAll(TABLES.PROJECT_MEMBERS,
           { tenant_id: tenantId, project_id: projectId },
           { limit: 50 }),
+        this.db.count(TABLES.TASKS, { tenant_id: tenantId, project_id: projectId }),
+        (async () => {
+          const entries = [];
+          let offset = 0;
+          while (true) {
+            const page = await this.db.query(
+              `SELECT hours, is_billable FROM ${TABLES.TIME_ENTRIES} WHERE tenant_id = '${tenantId}' AND project_id = '${projectId}' LIMIT 300 OFFSET ${offset}`
+            );
+            entries.push(...page);
+            if (page.length < 300) break;
+            offset += 300;
+          }
+          return entries;
+        })(),
       ]);
 
       const overdueActions = actions.filter(
@@ -157,6 +173,17 @@ class DashboardController {
       const delayedMilestones = milestones.filter(
         (m) => m.due_date < today && m.status !== 'COMPLETED'
       );
+
+      let billableHours = 0;
+      let nonBillableHours = 0;
+      timeEntries.forEach((e) => {
+        const h = parseFloat(e.hours) || 0;
+        if (e.is_billable === 'true') billableHours += h;
+        else nonBillableHours += h;
+      });
+      billableHours = parseFloat(billableHours.toFixed(1));
+      nonBillableHours = parseFloat(nonBillableHours.toFixed(1));
+      const totalHours = parseFloat((billableHours + nonBillableHours).toFixed(1));
 
       return ResponseHelper.success(res, {
         project: {
@@ -174,6 +201,10 @@ class DashboardController {
           totalMilestones: milestones.length,
           delayedMilestones: delayedMilestones.length,
           totalMembers: members.length,
+          taskCount,
+          billableHours,
+          nonBillableHours,
+          totalHours,
         },
         recentStandups: standups.slice(0, 10),
         recentEods: eods.slice(0, 10),
@@ -201,8 +232,9 @@ class DashboardController {
       const { tenantId } = req.currentUser;
       const today = DataStoreService.today();
 
-      const [projects, allBlockers, allMilestones, allActions] = await Promise.all([
-        this.db.findAll(TABLES.PROJECTS, { tenant_id: tenantId, status: 'ACTIVE' }, { limit: 100 }),
+      const [projects, totalProjectsCount, allBlockers, allMilestones, allActions] = await Promise.all([
+        this.db.findAll(TABLES.PROJECTS, { tenant_id: tenantId, status: 'ACTIVE' }, { limit: 200 }),
+        this.db.count(TABLES.PROJECTS, { tenant_id: tenantId, status: 'ACTIVE' }),
         this.db.findWhere(TABLES.BLOCKERS, tenantId, `status != 'RESOLVED'`, { limit: 100 }),
         this.db.findAll(TABLES.MILESTONES, { tenant_id: tenantId }, { orderBy: 'due_date ASC', limit: 200 }),
         this.db.findWhere(TABLES.ACTIONS, tenantId,
@@ -227,7 +259,7 @@ class DashboardController {
 
       return ResponseHelper.success(res, {
         summary: {
-          totalProjects: projects.length,
+          totalProjects: totalProjectsCount,
           redProjects: ragBreakdown.RED.length,
           amberProjects: ragBreakdown.AMBER.length,
           greenProjects: ragBreakdown.GREEN.length,

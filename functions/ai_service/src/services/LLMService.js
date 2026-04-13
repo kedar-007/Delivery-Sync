@@ -20,8 +20,15 @@ const { handleAPIError } = require('../utils/ErrorHelper');
  *   4. Return normalised { response, usage } or throw a structured error.
  */
 class LLMService {
-  static MAX_RETRIES = 2;
-  static RETRY_DELAY_MS = 1000;
+  static MAX_RETRIES = 3;
+  static RETRY_DELAY_MS = 1500;
+
+  /**
+   * Static promise chain that serialises all LLM calls across concurrent requests.
+   * The Zoho QuickML endpoint struggles with simultaneous requests in the dev
+   * environment, so we queue them rather than fire in parallel.
+   */
+  static _llmQueue = Promise.resolve();
 
   /**
    * @param {object} catalystApp  – Initialised Catalyst SDK instance (req.catalystApp)
@@ -105,7 +112,20 @@ class LLMService {
    * @returns {Promise<{ response: string, usage: object }>}
    */
   async call(prompt, systemPrompt, options = {}) {
-    return this._callWithRetry(prompt, systemPrompt, options, LLMService.MAX_RETRIES);
+    // Enqueue this call so at most one LLM request is in-flight at a time.
+    let releaseFn;
+    const slot = new Promise((resolve) => { releaseFn = resolve; });
+    const prevTail = LLMService._llmQueue;
+    LLMService._llmQueue = slot;
+
+    // Wait for all previously queued calls to finish before starting ours.
+    await prevTail;
+
+    try {
+      return await this._callWithRetry(prompt, systemPrompt, options, LLMService.MAX_RETRIES);
+    } finally {
+      releaseFn(); // Unblock the next queued call regardless of success/failure.
+    }
   }
 
   /**
@@ -119,6 +139,12 @@ class LLMService {
       throw tokenErr;
     }
 
+    // For this Zoho Qwen model, max_tokens is the TOTAL context window (input + output).
+    // Estimate input tokens at ~2.5 chars/token and add the desired output budget on top.
+    const desiredOutputTokens  = options.max_tokens ?? LLM_CONFIG.MAX_TOKENS;
+    const estimatedInputTokens = Math.ceil(prompt.length / 2.5);
+    const effectiveMaxTokens   = estimatedInputTokens + desiredOutputTokens;
+
     const payload = {
       prompt,
       model:         LLM_CONFIG.MODEL,
@@ -127,7 +153,7 @@ class LLMService {
       top_k:         options.top_k         ?? LLM_CONFIG.TOP_K,
       best_of:       options.best_of       ?? LLM_CONFIG.BEST_OF,
       temperature:   options.temperature   ?? LLM_CONFIG.TEMPERATURE,
-      max_tokens:    options.max_tokens    ?? LLM_CONFIG.MAX_TOKENS,
+      max_tokens:    effectiveMaxTokens,
     };
 
     const headers = {
@@ -139,7 +165,7 @@ class LLMService {
     console.log(`[LLMService] Calling LLM | model=${LLM_CONFIG.MODEL} | max_tokens=${payload.max_tokens} | prompt_len=${prompt.length}`);
 
     try {
-      const response = await axios.post(LLM_CONFIG.ENDPOINT, payload, { headers, timeout: 30000 });
+      const response = await axios.post(LLM_CONFIG.ENDPOINT, payload, { headers, timeout: 90000 });
       const { response: text, usage } = response.data;
 
       if (!text) throw new Error('LLM returned an empty response body.');
@@ -151,6 +177,16 @@ class LLMService {
       const isServerError = err.response?.status >= 500;
       const isTimeout     = err.code === 'ECONNABORTED';
 
+      // Token-limit errors are a 400 wrapped in a 500 — retrying won't help.
+      const innerCode = err.response?.data?.details?.error?.code;
+      const isTokenLimitError = innerCode === 400 &&
+        String(err.response?.data?.details?.error?.message ?? '').includes('token length');
+      if (isTokenLimitError) {
+        const structured = handleAPIError(err, 'LLM');
+        console.error('[LLMService] Token limit exceeded (non-retryable):', JSON.stringify(structured, null, 2));
+        throw Object.assign(new Error(structured.details?.error?.message || structured.message), { llmError: structured });
+      }
+
       if ((isServerError || isTimeout) && retriesLeft > 0) {
         const delay = LLMService.RETRY_DELAY_MS * (LLMService.MAX_RETRIES - retriesLeft + 1);
         console.warn(`[LLMService] Transient error (${err.message}), retrying in ${delay}ms… (${retriesLeft} left)`);
@@ -159,7 +195,11 @@ class LLMService {
       }
 
       const structured = handleAPIError(err, 'LLM');
-      console.error('[LLMService] LLM call failed:', structured);
+      console.error('[LLMService] LLM call failed:', JSON.stringify(structured, null, 2));
+      // Also log the raw Axios response body for deeper diagnosis
+      if (err.response?.data) {
+        console.error('[LLMService] Raw error body:', JSON.stringify(err.response.data, null, 2));
+      }
       throw Object.assign(new Error(structured.message), { llmError: structured });
     }
   }

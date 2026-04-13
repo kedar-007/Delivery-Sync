@@ -17,8 +17,15 @@ class CronController {
     const notif = new NotificationService(req.catalystApp, db);
     const today = DataStoreService.today();
 
-    // Get all active users
-    const users = await db.query(`SELECT ROWID, tenant_id, name, email FROM ${TABLES.USERS} WHERE status = 'ACTIVE' LIMIT 1000`);
+    // Get all active users (paginated — ZCQL hard cap is 300 rows)
+    const users = [];
+    let _offset = 0;
+    while (true) {
+      const page = await db.query(`SELECT ROWID, tenant_id, name, email FROM ${TABLES.USERS} WHERE status = 'ACTIVE' LIMIT 300 OFFSET ${_offset}`);
+      users.push(...page);
+      if (page.length < 300) break;
+      _offset += 300;
+    }
 
     let flagged = 0;
     for (const user of users) {

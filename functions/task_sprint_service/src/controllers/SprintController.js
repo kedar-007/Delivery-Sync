@@ -26,13 +26,32 @@ class SprintController {
         where = where ? `${where} AND ${sc}` : sc;
       }
 
-      const sprints = await this.db.findWhere(TABLES.SPRINTS, tenantId, where, { orderBy: 'CREATEDTIME DESC', limit: 50 });
+      const sprints = await this.db.findWhere(TABLES.SPRINTS, tenantId, where, { orderBy: 'CREATEDTIME DESC', limit: 300 });
 
-      for (const sprint of sprints) {
-        const total = await this.db.count(TABLES.TASKS, { tenant_id: tenantId, sprint_id: sprint.ROWID });
-        const done  = await this.db.count(TABLES.TASKS, { tenant_id: tenantId, sprint_id: sprint.ROWID, status: 'DONE' });
-        sprint.task_count      = total;
-        sprint.completed_count = done;
+      if (sprints.length > 0) {
+        // Batch fetch task counts in 2 queries instead of N*2 sequential queries
+        const sprintIds = sprints.map((s) => `'${DataStoreService.escape(String(s.ROWID))}'`).join(',');
+        const [allTasks, doneTasks] = await Promise.all([
+          this.db.fetchColumn(TABLES.TASKS, 'sprint_id', tenantId, `sprint_id IN (${sprintIds})`),
+          this.db.fetchColumn(TABLES.TASKS, 'sprint_id', tenantId, `sprint_id IN (${sprintIds}) AND status = 'DONE'`),
+        ]);
+
+        const totalBySprint = {};
+        allTasks.forEach((t) => {
+          const sid = String(t.sprint_id);
+          totalBySprint[sid] = (totalBySprint[sid] || 0) + 1;
+        });
+        const doneBySprint = {};
+        doneTasks.forEach((t) => {
+          const sid = String(t.sprint_id);
+          doneBySprint[sid] = (doneBySprint[sid] || 0) + 1;
+        });
+
+        for (const sprint of sprints) {
+          const sid = String(sprint.ROWID);
+          sprint.task_count      = totalBySprint[sid] || 0;
+          sprint.completed_count = doneBySprint[sid]  || 0;
+        }
       }
 
       return ResponseHelper.success(res, sprints);

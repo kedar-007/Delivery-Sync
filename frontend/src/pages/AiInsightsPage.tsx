@@ -10,13 +10,14 @@ import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import { PageLoader } from '../components/ui/Spinner';
 import Alert from '../components/ui/Alert';
+import ProjectPicker from '../components/ui/ProjectPicker';
 import { useProjects } from '../hooks/useProjects';
 import { useAuth } from '../contexts/AuthContext';
 import {
   useAiDailySummary, useAiProjectHealth,
   useAiPerformance, useAiReport, useAiSuggestions,
   useAiDetectBlockers, useAiTrends, useAiRetrospective, useAiNLQuery,
-  useAiHolisticPerformance, useAiSprintAnalysis,
+  useAiHolisticPerformance,
 } from '../hooks/useAiInsights';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -182,6 +183,83 @@ const SuggestionItem = ({ item }: { item: { suggestion: string; priority: string
   );
 };
 
+const SEVERITY_COLOR: Record<string, string> = {
+  high:   'bg-red-50 border-red-200 text-red-700',
+  medium: 'bg-amber-50 border-amber-200 text-amber-700',
+  low:    'bg-blue-50 border-blue-200 text-blue-700',
+};
+
+function MemberPerfCard({ member: m, severityColor }: { member: any; severityColor: Record<string, string> }) {
+  const [open, setOpen] = useState(false);
+  const score = m.score ?? 0;
+  const stars = m.starRating ?? Math.round(score / 20);
+  const scoreColor = score >= 90 ? 'text-emerald-600 bg-emerald-50' : score >= 75 ? 'text-blue-600 bg-blue-50' : score >= 60 ? 'text-amber-600 bg-amber-50' : score >= 40 ? 'text-orange-600 bg-orange-50' : 'text-red-600 bg-red-50';
+  const label = score >= 90 ? 'Exceptional' : score >= 75 ? 'Good' : score >= 60 ? 'Satisfactory' : score >= 40 ? 'Needs Improvement' : 'Poor';
+  return (
+    <div className="border border-gray-100 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center gap-2 px-4 py-3 hover:bg-gray-50 transition-colors"
+      >
+        <span className="font-semibold text-gray-800 text-xs truncate flex-1 text-left">{m.name}</span>
+        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${scoreColor}`}>{label}</span>
+        <span className="text-amber-400 text-xs shrink-0">{'★'.repeat(stars)}{'☆'.repeat(5 - stars)}</span>
+        <span className="text-xs font-bold text-gray-500 shrink-0">{score}/100</span>
+        {open ? <ChevronUp size={14} className="text-gray-400 shrink-0" /> : <ChevronDown size={14} className="text-gray-400 shrink-0" />}
+      </button>
+      {open && (
+        <div className="px-4 pb-4 pt-1 space-y-3 border-t border-gray-50">
+          {m.performanceSummary && (
+            <p className="text-xs text-gray-600 leading-relaxed bg-gray-50 rounded-lg p-2">{m.performanceSummary}</p>
+          )}
+          {(m.factors ?? []).length > 0 && (
+            <div className="grid grid-cols-1 gap-1.5">
+              {(m.factors as any[]).map((f: any, fi: number) => (
+                <div key={fi} className="flex items-center gap-2">
+                  <span className="text-[11px] text-gray-500 w-28 shrink-0">{f.name}</span>
+                  <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${f.score >= 75 ? 'bg-emerald-500' : f.score >= 50 ? 'bg-blue-500' : f.score >= 30 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${f.score}%` }} />
+                  </div>
+                  <span className="text-[10px] text-gray-500 w-8 text-right shrink-0">{f.score}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {(m.issues ?? []).length > 0 && (
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wider">Issues</p>
+              {(m.issues as any[]).map((iss: any, ii: number) => (
+                <div key={ii} className={`border rounded-lg px-2.5 py-1.5 text-xs ${severityColor[iss.severity] ?? severityColor.low}`}>
+                  <span className="font-semibold">{iss.problem}</span>
+                  {iss.evidence && <span className="ml-1 opacity-80">— {iss.evidence}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+          {(m.strengths ?? []).length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider mb-1">Strengths</p>
+              <BulletList items={m.strengths} icon={<CheckCircle size={11} className="text-emerald-500" />} />
+            </div>
+          )}
+          {(m.suggestions ?? []).length > 0 && (
+            <div className="bg-indigo-50 rounded-lg p-2">
+              <p className="text-[10px] font-semibold text-indigo-600 uppercase tracking-wider mb-1">Suggestions</p>
+              <ul className="space-y-0.5">
+                {(m.suggestions as string[]).map((s: string, si: number) => (
+                  <li key={si} className="text-xs text-indigo-800 flex items-start gap-1.5">
+                    <span className="font-bold text-indigo-400 shrink-0">{si + 1}.</span>{s}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const TrendArrow = ({ value }: { value: string }) => {
   if (!value) return <Minus size={14} className="text-gray-400" />;
   const v = value.toLowerCase();
@@ -231,15 +309,15 @@ const SeverityBadge = ({ severity }: { severity: string }) => {
 
 // ─── Role-based visibility ────────────────────────────────────────────────────
 
-type CardKey = 'summary' | 'health' | 'performance' | 'suggestions' | 'report' | 'blockers' | 'trends' | 'retro' | 'nlq' | 'holistic' | 'sprint';
+type CardKey = 'summary' | 'health' | 'performance' | 'suggestions' | 'report' | 'blockers' | 'trends' | 'retro' | 'nlq' | 'holistic';
 
 const ROLE_VISIBILITY: Record<string, Record<CardKey, boolean>> = {
-  TENANT_ADMIN:  { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true,  sprint: true  },
-  PMO:           { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true,  sprint: true  },
-  DELIVERY_LEAD: { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true,  sprint: true  },
-  EXEC:          { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true,  sprint: true  },
-  TEAM_MEMBER:   { summary: true,  health: false, performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true,  sprint: false },
-  CLIENT:        { summary: false, health: true,  performance: false, suggestions: true, report: true, blockers: true, trends: false, retro: false, nlq: true, holistic: false, sprint: false },
+  TENANT_ADMIN:  { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true  },
+  PMO:           { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true  },
+  DELIVERY_LEAD: { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true  },
+  EXEC:          { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true  },
+  TEAM_MEMBER:   { summary: true,  health: false, performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true  },
+  CLIENT:        { summary: false, health: true,  performance: false, suggestions: true, report: true, blockers: true, trends: false, retro: false, nlq: true, holistic: false },
 };
 
 const ROLE_BANNER: Record<string, { title: string; desc: string } | undefined> = {
@@ -281,11 +359,9 @@ const AiInsightsPage = () => {
   const retro         = useAiRetrospective();
   const nlq           = useAiNLQuery();
 
-  // AI hooks — holistic + sprint
+  // AI hook — holistic performance
   const [holisticDays, setHolisticDays] = useState<7 | 30 | 90>(30);
-  const [sprintId, setSprintId]         = useState('');
   const holistic = useAiHolisticPerformance();
-  const sprintAI = useAiSprintAnalysis();
 
   const params = { projectId: projectId || undefined };
 
@@ -299,7 +375,6 @@ const AiInsightsPage = () => {
   const runRetro         = useCallback(() => retro.mutate({ ...params, sprintStart, sprintEnd }),                [projectId, sprintStart, sprintEnd]);
   const runNLQuery       = () => { if (nlQuery.trim().length >= 3) nlq.mutate({ ...params, query: nlQuery.trim() }); };
   const runHolistic      = useCallback(() => holistic.mutate({ days: holisticDays }),                            [holisticDays]);
-  const runSprintAI      = useCallback(() => { if (sprintId.trim()) sprintAI.mutate({ sprintId: sprintId.trim() }); }, [sprintId]);
 
   const runAll = () => {
     if (canSee.summary)     runSummary();
@@ -322,8 +397,7 @@ const AiInsightsPage = () => {
     (canSee.blockers    && blockerDetect.isPending)  ||
     (canSee.trends      && trends.isPending)         ||
     (canSee.retro       && retro.isPending)          ||
-    (canSee.holistic    && holistic.isPending)       ||
-    (canSee.sprint      && sprintAI.isPending);
+    (canSee.holistic    && holistic.isPending);
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -332,17 +406,6 @@ const AiInsightsPage = () => {
       <Header
         title="AI Insights"
         subtitle="Powered by DSV AI — intelligent analysis of your team's activity"
-        actions={
-          <button
-            onClick={runAll}
-            disabled={isAnyLoading}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-lg text-sm font-semibold hover:from-violet-700 hover:to-indigo-700 disabled:opacity-60 shadow-sm transition-all"
-          >
-            {isAnyLoading
-              ? <><RefreshCw size={14} className="animate-spin" /> Generating…</>
-              : <><Sparkles size={14} /> Generate All Insights</>}
-          </button>
-        }
       />
 
       <div className="p-6 space-y-6">
@@ -358,19 +421,54 @@ const AiInsightsPage = () => {
           </div>
         )}
 
+        {/* ── Project required notice ── */}
+        {!projectId && (
+          <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <AlertTriangle size={16} className="text-amber-500 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-amber-800">Select a project for best results</p>
+              <p className="text-xs text-amber-600 mt-0.5">
+                Running insights without a project selected sends data from all your projects to the AI, which increases processing time significantly. Select a specific project below for faster, more focused insights.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* ── Filters ── */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4 flex items-center gap-1.5">
             <BarChart2 size={12} /> Filters
           </p>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            <div className="col-span-2">
-              <label className="form-label">Project</label>
-              <select className="form-select" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-                <option value="">All my projects</option>
-                {(projects as any[]).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+
+          {/* Project search + inline generate button */}
+          <div className="flex items-end gap-3 mb-4">
+            <div className="flex-1 min-w-0">
+              <label className="form-label">Project <span className="text-amber-500">*</span></label>
+              <ProjectPicker
+                projects={(projects as any[]).map((p) => ({
+                  id: p.id,
+                  name: p.name,
+                  ragStatus: p.ragStatus,
+                  status: p.status,
+                }))}
+                value={projectId}
+                onChange={setProjectId}
+                placeholder="Search and select a project…"
+              />
             </div>
+            <button
+              onClick={runAll}
+              disabled={isAnyLoading || !projectId}
+              title={!projectId ? 'Select a project first' : 'Generate all AI insights for this project'}
+              className="shrink-0 inline-flex items-center gap-2 px-4 py-2 h-[40px] bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-lg text-sm font-semibold hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-all whitespace-nowrap"
+            >
+              {isAnyLoading
+                ? <><RefreshCw size={14} className="animate-spin" /> Generating…</>
+                : <><Sparkles size={14} /> Generate Insights</>}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
             <div>
               <label className="form-label">Summary Date</label>
               <input type="date" className="form-input" value={date} onChange={(e) => setDate(e.target.value)} max={today()} />
@@ -1026,134 +1124,55 @@ const AiInsightsPage = () => {
           )}
           {holistic.data && (() => {
             const d = holistic.data?.data ?? holistic.data;
-            const score = d?.overallScore ?? d?.score;
-            const summary2 = d?.summary ?? d?.executiveSummary;
-            const strengths = d?.strengths ?? [];
-            const improvements = d?.areasForImprovement ?? d?.improvements ?? [];
-            const modules = d?.moduleBreakdown ?? d?.modules ?? [];
+            const members: any[] = d?.members ?? [];
+            const teamSummary: string = d?.teamSummary ?? '';
+            const topPerformer: string | null = d?.topPerformer ?? null;
+            const teamMorale: string = d?.teamMorale ?? '';
+            const alerts: string[] = d?.alerts ?? [];
+
+            if (members.length === 0) {
+              return <p className="text-sm text-gray-500 text-center py-6">No performance data found for this period.</p>;
+            }
+
+            const moraleColor = teamMorale === 'High' ? 'text-emerald-600' : teamMorale === 'Medium' ? 'text-amber-600' : 'text-red-600';
             return (
               <div className="space-y-4">
-                {score != null && (
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs text-gray-500 font-medium">Overall Score</span>
-                      <span className="text-lg font-bold text-violet-700">{score}<span className="text-xs text-gray-400">/100</span></span>
+                {/* Team overview */}
+                {(teamSummary || topPerformer || teamMorale) && (
+                  <div className="bg-violet-50 rounded-xl p-3 space-y-1">
+                    {teamSummary && <p className="text-sm text-gray-700 leading-relaxed">{teamSummary}</p>}
+                    <div className="flex items-center gap-4 flex-wrap mt-1">
+                      {topPerformer && (
+                        <span className="text-xs text-gray-600 flex items-center gap-1">
+                          <TrendingUp size={11} className="text-emerald-500" />
+                          Top performer: <strong className="ml-0.5">{topPerformer}</strong>
+                        </span>
+                      )}
+                      {teamMorale && (
+                        <span className={`text-xs font-medium flex items-center gap-1 ${moraleColor}`}>
+                          <Activity size={11} /> Morale: {teamMorale}
+                        </span>
+                      )}
                     </div>
-                    <ScoreBar score={Number(score)} />
                   </div>
                 )}
-                {summary2 && <p className="text-sm text-gray-700 leading-relaxed bg-gray-50 rounded-xl p-3">{summary2}</p>}
-                {strengths.length > 0 && (
-                  <Collapsible label={`Strengths (${strengths.length})`}>
-                    <BulletList items={strengths} icon={<CheckCircle size={12} className="text-green-500" />} />
-                  </Collapsible>
-                )}
-                {improvements.length > 0 && (
-                  <Collapsible label={`Areas for Improvement (${improvements.length})`}>
-                    <BulletList items={improvements} icon={<AlertTriangle size={12} className="text-amber-500" />} />
-                  </Collapsible>
-                )}
-                {modules.length > 0 && (
-                  <Collapsible label={`Module Breakdown (${modules.length})`}>
-                    <div className="space-y-2">
-                      {modules.map((m: any, i: number) => (
-                        <div key={i} className="flex items-center justify-between text-sm">
-                          <span className="text-gray-700 font-medium capitalize">{m.module ?? m.name}</span>
-                          {m.score != null && <ScoreBar score={Number(m.score)} />}
-                          {m.status && <span className="text-xs text-gray-500 ml-2">{m.status}</span>}
-                        </div>
-                      ))}
-                    </div>
-                  </Collapsible>
-                )}
-              </div>
-            );
-          })()}
-        </AiCard>
-        )}
 
-        {/* ── Sprint AI Analysis ── */}
-        {canSee.sprint && (
-        <AiCard
-          title="Sprint AI Analysis"
-          icon={<Zap size={14} className="text-white" />}
-          onDownload={sprintAI.data ? () => downloadJSON(sprintAI.data, 'sprint-analysis.json') : undefined}
-        >
-          <div className="flex items-center gap-3 mb-4 flex-wrap">
-            <input
-              type="text"
-              value={sprintId}
-              onChange={e => setSprintId(e.target.value)}
-              placeholder="Sprint ID…"
-              className="flex-1 min-w-0 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300"
-            />
-            <button
-              onClick={runSprintAI}
-              disabled={sprintAI.isPending || !sprintId.trim()}
-              className="inline-flex items-center gap-1.5 px-3 py-2 bg-violet-600 text-white rounded-lg text-xs font-medium hover:bg-violet-700 disabled:opacity-60 transition-colors">
-              {sprintAI.isPending ? <RefreshCw size={12} className="animate-spin" /> : <Zap size={12} />}
-              Analyse Sprint
-            </button>
-          </div>
-          {sprintAI.isPending && <AiLoadingState label="Analysing sprint velocity, completion and recommendations…" />}
-          {sprintAI.isError  && <p className="text-xs text-red-500">{String(sprintAI.error)}</p>}
-          {!sprintAI.data && !sprintAI.isPending && !sprintAI.isError && (
-            <AiEmptyState label="Enter a sprint ID to get velocity analysis, star rating, and recommendations." onGenerate={runSprintAI} loading={false} />
-          )}
-          {sprintAI.data && (() => {
-            const d = sprintAI.data?.data ?? sprintAI.data;
-            const rating = d?.starRating ?? d?.rating;
-            const velocity = d?.velocity ?? d?.completedPoints;
-            const completion = d?.completionRate ?? d?.completionPercentage;
-            const summary2 = d?.summary ?? d?.analysis;
-            const recs = d?.recommendations ?? [];
-            const went_well = d?.wentWell ?? [];
-            const went_wrong = d?.wentWrong ?? d?.challenges ?? [];
-            return (
-              <div className="space-y-4">
-                <div className="flex items-center gap-6 flex-wrap">
-                  {rating != null && (
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-violet-700">{typeof rating === 'number' ? '★'.repeat(Math.round(rating)) : rating}</div>
-                      <div className="text-xs text-gray-400">Rating</div>
-                    </div>
-                  )}
-                  {velocity != null && (
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-indigo-700">{velocity}</div>
-                      <div className="text-xs text-gray-400">Velocity (pts)</div>
-                    </div>
-                  )}
-                  {completion != null && (
-                    <div className="flex-1 min-w-[120px]">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs text-gray-500">Completion</span>
-                        <span className="text-xs font-bold text-gray-700">{Math.round(Number(completion))}%</span>
+                {/* Alerts */}
+                {alerts.length > 0 && (
+                  <div className="space-y-1">
+                    {alerts.map((a, i) => (
+                      <div key={i} className="flex items-start gap-2 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                        <AlertTriangle size={12} className="text-red-500 mt-0.5 shrink-0" />
+                        <p className="text-xs text-red-700">{a}</p>
                       </div>
-                      <ScoreBar score={Math.round(Number(completion))} />
-                    </div>
-                  )}
-                </div>
-                {summary2 && <p className="text-sm text-gray-700 leading-relaxed bg-gray-50 rounded-xl p-3">{summary2}</p>}
-                {went_well.length > 0 && (
-                  <Collapsible label={`Went Well (${went_well.length})`}>
-                    <BulletList items={went_well} icon={<CheckCircle size={12} className="text-green-500" />} />
-                  </Collapsible>
+                    ))}
+                  </div>
                 )}
-                {went_wrong.length > 0 && (
-                  <Collapsible label={`Challenges (${went_wrong.length})`}>
-                    <BulletList items={went_wrong} icon={<AlertTriangle size={12} className="text-amber-500" />} />
-                  </Collapsible>
-                )}
-                {recs.length > 0 && (
-                  <Collapsible label={`Recommendations (${recs.length})`}>
-                    <div className="space-y-2">
-                      {recs.map((r: any, i: number) => (
-                        <SuggestionItem key={i} item={typeof r === 'string' ? { suggestion: r, priority: 'medium', impact: '' } : r} />
-                      ))}
-                    </div>
-                  </Collapsible>
-                )}
+
+                {/* Per-member cards */}
+                {members.map((m: any, idx: number) => (
+                  <MemberPerfCard key={idx} member={m} severityColor={SEVERITY_COLOR} />
+                ))}
               </div>
             );
           })()}
@@ -1162,8 +1181,7 @@ const AiInsightsPage = () => {
 
         {/* ── Token usage footer ── */}
         {(summary.data || health.data || perf.data || report.data || suggests.data ||
-          blockerDetect.data || trends.data || retro.data || nlq.data ||
-          holistic.data || sprintAI.data) && (
+          blockerDetect.data || trends.data || retro.data || nlq.data || holistic.data) && (
           <div className="flex items-center justify-end gap-1.5 text-[11px] text-gray-400">
             <Brain size={11} />
             Powered by Qwen3-30B-A3B (Zoho Catalyst QuickML) ·
@@ -1174,7 +1192,6 @@ const AiInsightsPage = () => {
               suggests.data?.meta?.tokensUsed,    blockerDetect.data?.meta?.tokensUsed,
               trends.data?.meta?.tokensUsed,      retro.data?.meta?.tokensUsed,
               nlq.data?.meta?.tokensUsed,         holistic.data?.meta?.tokensUsed,
-              sprintAI.data?.meta?.tokensUsed,
             ].filter(Boolean).reduce((a: number, b: any) => a + Number(b), 0)}
           </div>
         )}

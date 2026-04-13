@@ -762,7 +762,7 @@ function DeliveryLeadKpiStrip({ summary, tenantSlug, tasks, userId }: { summary:
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
       <KpiCard
         label="My Projects"
-        value={summary?.projects?.length ?? 0}
+        value={summary?.stats?.totalProjects ?? 0}
         sub={`${summary?.ragSummary?.RED ?? 0} at risk`}
         icon={<Briefcase size={20} />}
         iconBg="bg-indigo-100 text-indigo-600"

@@ -44,6 +44,10 @@ app.use((req, res) => {
 // ─── Global Error Handler ─────────────────────────────────────────────────────
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
+  // Malformed JSON body — return 400 not 500
+  if (err.type === 'entity.parse.failed' || err instanceof SyntaxError) {
+    return ResponseHelper.validationError(res, 'Invalid JSON in request body');
+  }
   console.error('[DeliverySync Error]', err.message, err.stack);
   if (err.isValidation) {
     return ResponseHelper.validationError(res, err.message, err.details);
