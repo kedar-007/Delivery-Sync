@@ -58,6 +58,7 @@ class Validator {
       start_date: Joi.string().isoDate().required(),
       end_date: Joi.string().isoDate().required(),
       rag_status: Joi.string().valid(...Object.values(RAG_STATUS)).default(RAG_STATUS.GREEN),
+      owner_user_id: Joi.string().allow('').default(''),
     });
     return Validator._validate(schema, data);
   }

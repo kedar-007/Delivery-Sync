@@ -108,12 +108,12 @@ class TeamController {
       // queries that hit Catalyst's COMPONENT concurrency limit.
       let allMembers = [];
       try {
-        allMembers = await this.db.findWhere(TABLES.TEAM_MEMBERS, tenantId, '', { limit: 1000 });
+        allMembers = await this.db.fetchAll(TABLES.TEAM_MEMBERS, tenantId, null);
       } catch (_) {}
 
       let allUsers = [];
       try {
-        allUsers = await this.db.findAll(TABLES.USERS, { tenant_id: tenantId }, { limit: 500 });
+        allUsers = await this.db.fetchAll(TABLES.USERS, tenantId, null);
       } catch (_) {}
 
       const userMap = {};

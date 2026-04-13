@@ -270,10 +270,7 @@ class ReportController {
       let whereExtra = `attendance_date >= '${DataStoreService.escape(date_from)}' AND attendance_date <= '${DataStoreService.escape(date_to)}'`;
       if (user_id) whereExtra += ` AND user_id = '${DataStoreService.escape(user_id)}'`;
 
-      const records = await this.db.findWhere(
-        TABLES.ATTENDANCE_RECORDS, tenantId, whereExtra,
-        { limit: 2000 }
-      );
+      const records = await this.db.fetchAll(TABLES.ATTENDANCE_RECORDS, tenantId, whereExtra);
 
       // Aggregate per user
       const byUser = {};
@@ -342,10 +339,7 @@ class ReportController {
         `status = 'APPROVED' AND start_date >= '${bounds.from}' AND end_date <= '${bounds.to}'`;
       if (user_id) whereExtra += ` AND user_id = '${DataStoreService.escape(user_id)}'`;
 
-      const leaveRequests = await this.db.findWhere(
-        TABLES.LEAVE_REQUESTS, tenantId, whereExtra,
-        { limit: 2000 }
-      );
+      const leaveRequests = await this.db.fetchAll(TABLES.LEAVE_REQUESTS, tenantId, whereExtra);
 
       // Fetch balances
       let balanceWhere = null;
@@ -580,10 +574,7 @@ class ReportController {
     try {
       const tenantId = req.tenantId;
 
-      const assets = await this.db.findWhere(
-        TABLES.ASSETS, tenantId, null,
-        { limit: 2000 }
-      );
+      const assets = await this.db.fetchAll(TABLES.ASSETS, tenantId, null);
 
       // By status
       const byStatus = assets.reduce((acc, a) => {
@@ -693,10 +684,7 @@ class ReportController {
       );
 
       // ── Asset utilisation ────────────────────────────────────────────────────
-      const assets = await this.db.findWhere(
-        TABLES.ASSETS, tenantId, null,
-        { limit: 2000 }
-      );
+      const assets = await this.db.fetchAll(TABLES.ASSETS, tenantId, null);
       const totalAssets    = assets.length;
       const assignedAssets = assets.filter((a) => a.status === 'ASSIGNED').length;
       const assetUtilRate  = totalAssets > 0
@@ -786,7 +774,7 @@ class ReportController {
       }
 
       const whereExtra = clauses.length > 0 ? clauses.join(' AND ') : null;
-      const rows = await this.db.findWhere(table, tenantId, whereExtra, { limit: 1000 });
+      const rows = await this.db.fetchAll(table, tenantId, whereExtra);
 
       // ── Basic aggregation ──────────────────────────────────────────────────
       let aggregation = null;

@@ -18,13 +18,13 @@ class PromptService {
     return (
       'You are an AI system for a project management application called "DeliverSync". ' +
       'Your role is to analyze team activity data and generate intelligent, structured insights. ' +
-      'IMPORTANT RULES: ' +
-      'Always return structured JSON output. ' +
-      'Keep responses concise and actionable. ' +
-      'Do not add unnecessary explanations. ' +
-      'Prioritize clarity over verbosity. ' +
-      'Base insights only on provided data. ' +
-      'Respond ONLY with valid JSON — no markdown fences, no prose outside the JSON object.'
+      'CRITICAL OUTPUT RULE: Your entire response MUST be a single raw JSON object. ' +
+      'Do NOT include any text before or after the JSON. ' +
+      'Do NOT wrap the JSON in markdown code fences (no ```json or ```). ' +
+      'Do NOT add explanations, preamble, or commentary outside the JSON object. ' +
+      'Start your response with { and end with }. ' +
+      'Keep string values concise and actionable. ' +
+      'Base insights only on provided data.'
     );
   }
 
@@ -39,8 +39,8 @@ class PromptService {
    */
   static buildDailySummaryPrompt({ date, projects, standups, eodEntries }) {
     const projectNames = projects.map((p) => p.name).join(', ') || 'N/A';
-    const standupText  = PromptService._formatEntries(standups,   ['today', 'blockers'], 30);
-    const eodText      = PromptService._formatEntries(eodEntries, ['accomplishments', 'blockers', 'mood'], 30);
+    const standupText  = PromptService._formatEntries(standups,   ['today', 'blockers'], 10);
+    const eodText      = PromptService._formatEntries(eodEntries, ['accomplishments', 'blockers', 'mood'], 10);
 
     return `
 Analyse the following team activity for ${date} across project(s): ${projectNames}.
@@ -386,8 +386,8 @@ Rules:
    * @param {object[]} ctx.projects
    */
   static buildBlockerDetectionPrompt({ standups, eods, existingBlockers, projects }) {
-    const standupText = PromptService._formatEntries(standups, ['yesterday', 'today', 'blockers'], 30);
-    const eodText     = PromptService._formatEntries(eods,     ['accomplished', 'blockers'], 30);
+    const standupText = PromptService._formatEntries(standups, ['yesterday', 'today', 'blockers'], 10);
+    const eodText     = PromptService._formatEntries(eods,     ['accomplished', 'blockers'], 10);
     const known       = existingBlockers.slice(0, 20).map((b) => `- ${b.title} (${b.severity})`).join('\n');
 
     return `
@@ -580,42 +580,53 @@ Return ONLY a JSON object matching this schema:
    * @param {object[]} ctx.allMembers       – All unique workspace members
    */
   static buildNLQueryPrompt({ query, projectContexts = [], allMembers = [] }) {
-    // Keep per-project data within token budget: cap lists inside each project
-    const trimmed = projectContexts.map((proj) => ({
-      name:        proj.name,
-      status:      proj.status,
-      ragStatus:   proj.ragStatus,
-      endDate:     proj.endDate,
-      teamSize:    proj.teamSize,
-      teamMembers: proj.teamMembers,                             // full list — names are vital
-      openActions: proj.openActions.slice(0, 10),               // top 10
-      openBlockers: proj.openBlockers.slice(0, 10),
-      milestones:  proj.milestones.slice(0, 8),
-      recentActivity: proj.recentActivity,
-    }));
+    // Cap to 5 projects to keep prompt within LLM input limit
+    const projects = projectContexts.slice(0, 5);
 
-    return `
-You are answering a question about a project management workspace. Use ONLY the data below — do not guess or invent names.
+    // Build compact plain-text lines — avoids JSON pretty-print bloat
+    const projectLines = projects.map((proj) => {
+      const members = (proj.teamMembers ?? []).map((m) => m.name).slice(0, 10).join(', ') || 'none';
+      const actions = (proj.openActions ?? []).slice(0, 5)
+        .map((a) => `${a.title}(${a.status},${a.assignee})`).join('; ') || 'none';
+      const blockers = (proj.openBlockers ?? []).slice(0, 5)
+        .map((b) => `${b.title}[${b.severity}]`).join('; ') || 'none';
+      const milestones = (proj.milestones ?? []).slice(0, 5)
+        .map((m) => `${m.title}(${m.status},due:${m.due ?? 'N/A'})`).join('; ') || 'none';
+      const activity = proj.recentActivity ?? {};
+      return [
+        `Project: ${proj.name} | Status: ${proj.status} | RAG: ${proj.ragStatus} | End: ${proj.endDate ?? 'N/A'} | Team: ${proj.teamSize}`,
+        `  Members: ${members}`,
+        `  Actions(open): ${actions}`,
+        `  Blockers(open): ${blockers}`,
+        `  Milestones: ${milestones}`,
+        `  Activity(7d): standups=${activity.standups_last_7_days ?? 0}, eods=${activity.eods_last_7_days ?? 0}`,
+      ].join('\n');
+    }).join('\n\n');
 
-=== USER QUERY ===
-"${query}"
+    const memberList = allMembers.slice(0, 20).map((m) => m.name).join(', ') || 'none';
 
-=== WORKSPACE DATA (${projectContexts.length} project(s)) ===
-${JSON.stringify(trimmed, null, 2)}
+    // Hard cap at 12 000 chars to stay well within LLM input limit
+    const MAX_CHARS = 12000;
+    const body = [
+      `Query: "${query}"`,
+      '',
+      `Workspace (${projects.length} project(s)):`,
+      projectLines,
+      '',
+      `Members: ${memberList}`,
+    ].join('\n');
 
-=== ALL WORKSPACE MEMBERS (${allMembers.length}) ===
-${allMembers.map((m) => m.name).join(', ') || 'None'}
+    const truncatedBody = body.length > MAX_CHARS ? body.slice(0, MAX_CHARS) + '\n[data truncated]' : body;
 
-Return ONLY a JSON object matching this schema:
-{
-  "type": "nl_query",
-  "data": {
-    "answer": "direct, factual answer in 1-3 sentences using actual names and numbers from the data",
-    "confidence": "high | medium | low",
-    "supportingData": ["specific fact from the data that supports the answer"],
-    "followUpSuggestions": ["related question the user might want to ask next"]
-  }
-}`.trim();
+    return (
+      `You are answering a question about a project management workspace. ` +
+      `Use ONLY the data provided — do not invent names or numbers.\n\n` +
+      `${truncatedBody}\n\n` +
+      `Return ONLY valid JSON:\n` +
+      `{"type":"nl_query","data":{"answer":"1-3 sentence factual answer using real names/numbers",` +
+      `"confidence":"high|medium|low","supportingData":["fact from data"],` +
+      `"followUpSuggestions":["related question"]}}`
+    );
   }
 
   // ─── Holistic Performance ────────────────────────────────────────────────
@@ -737,13 +748,13 @@ Return ONLY a JSON object matching this schema:
    * Formats a list of DB rows into readable numbered entries.
    * Only includes the specified field names; caps at `limit` entries.
    */
-  static _formatEntries(rows, fields, limit = 20) {
+  static _formatEntries(rows, fields, limit = 10) {
     return rows
       .slice(0, limit)
       .map((row, i) => {
         const parts = fields
           .filter((f) => row[f])
-          .map((f) => `${f}: ${String(row[f]).substring(0, 200)}`);
+          .map((f) => `${f}: ${String(row[f]).substring(0, 80)}`);
         return parts.length > 0 ? `${i + 1}. ${parts.join(' | ')}` : null;
       })
       .filter(Boolean)

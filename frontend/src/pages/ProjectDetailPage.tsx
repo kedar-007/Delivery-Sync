@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Edit2, Users, CheckSquare, AlertTriangle, Milestone, BarChart2, UserPlus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Edit2, Users, CheckSquare, AlertTriangle, Milestone, BarChart2, UserPlus, Trash2, ListChecks, Clock } from 'lucide-react';
 import UserAvatar from '../components/ui/UserAvatar';
 import UserHoverCard from '../components/ui/UserHoverCard';
 import Layout from '../components/layout/Layout';
@@ -105,6 +105,10 @@ const ProjectDetailPage = () => {
           <StatCard label="Open Blockers" value={stats.openBlockers} icon={<AlertTriangle size={20} />} color={stats.criticalBlockers > 0 ? 'red' : 'amber'} sublabel={stats.criticalBlockers > 0 ? `${stats.criticalBlockers} critical` : ''} />
           <StatCard label="Milestones" value={stats.totalMilestones} icon={<Milestone size={20} />} color={stats.delayedMilestones > 0 ? 'red' : 'green'} sublabel={stats.delayedMilestones > 0 ? `${stats.delayedMilestones} delayed` : 'On track'} />
           <StatCard label="Standups (7d)" value={stats.totalStandups} icon={<BarChart2 size={20} />} color="purple" />
+          <StatCard label="Total Tasks" value={stats.taskCount ?? 0} icon={<ListChecks size={20} />} color="blue" />
+          <StatCard label="Billable Hours" value={stats.billableHours ?? 0} icon={<Clock size={20} />} color="green" sublabel="hrs logged" />
+          <StatCard label="Non-Billable Hrs" value={stats.nonBillableHours ?? 0} icon={<Clock size={20} />} color="amber" sublabel="hrs logged" />
+          <StatCard label="Total Hours" value={stats.totalHours ?? 0} icon={<Clock size={20} />} color="purple" sublabel="hrs logged" />
         </div>
 
         {/* Sub Navigation */}

@@ -46,6 +46,10 @@ app.use((req, res) => {
 // ─── Global Error Handler ─────────────────────────────────────────────────────
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
+  // Malformed JSON body — return 400 not 500
+  if (err.type === 'entity.parse.failed' || err instanceof SyntaxError) {
+    return ResponseHelper.validationError(res, 'Invalid JSON in request body');
+  }
   console.error('[AI Service Error]', err.message, err.stack);
   ResponseHelper.serverError(res, err.message);
 });

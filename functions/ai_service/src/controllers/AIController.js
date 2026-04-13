@@ -78,7 +78,7 @@ class AIController {
 
     } catch (err) {
       console.error('[AIController.getDailySummary]', err.message);
-      return ResponseHelper.serverError(res, err.message);
+      return this._errorResponse(res, err);
     }
   }
 
@@ -136,7 +136,7 @@ class AIController {
 
     } catch (err) {
       console.error('[AIController.getProjectHealth]', err.message);
-      return ResponseHelper.serverError(res, err.message);
+      return this._errorResponse(res, err);
     }
   }
 
@@ -195,7 +195,7 @@ class AIController {
 
     } catch (err) {
       console.error('[AIController.getPerformance]', err.message);
-      return ResponseHelper.serverError(res, err.message);
+      return this._errorResponse(res, err);
     }
   }
 
@@ -259,7 +259,7 @@ class AIController {
 
     } catch (err) {
       console.error('[AIController.generateReport]', err.message);
-      return ResponseHelper.serverError(res, err.message);
+      return this._errorResponse(res, err);
     }
   }
 
@@ -309,7 +309,7 @@ class AIController {
 
     } catch (err) {
       console.error('[AIController.getSuggestions]', err.message);
-      return ResponseHelper.serverError(res, err.message);
+      return this._errorResponse(res, err);
     }
   }
 
@@ -350,7 +350,7 @@ class AIController {
 
     } catch (err) {
       console.error('[AIController.detectBlockers]', err.message);
-      return ResponseHelper.serverError(res, err.message);
+      return this._errorResponse(res, err);
     }
   }
 
@@ -393,7 +393,7 @@ class AIController {
 
     } catch (err) {
       console.error('[AIController.analyzeTrends]', err.message);
-      return ResponseHelper.serverError(res, err.message);
+      return this._errorResponse(res, err);
     }
   }
 
@@ -438,7 +438,7 @@ class AIController {
 
     } catch (err) {
       console.error('[AIController.generateRetrospective]', err.message);
-      return ResponseHelper.serverError(res, err.message);
+      return this._errorResponse(res, err);
     }
   }
 
@@ -462,9 +462,16 @@ class AIController {
       const { projects, projectIds } = await this.data.resolveProjectScope(tenantId, userId, role, projectId);
       if (projectIds.length === 0) return ResponseHelper.notFound(res, 'No accessible projects found.');
 
-      const context = await this.data.getNLQueryContext(tenantId, projects);
+      // Cap projects sent to context builder to avoid oversized prompts
+      const contextProjects = projects.slice(0, 5);
+      const context = await this.data.getNLQueryContext(tenantId, contextProjects);
 
       const prompt = PromptService.buildNLQueryPrompt({ query: query.trim(), ...context });
+
+      // Guard: reject prompt before sending if it's still over 14 000 chars (~5 600 tokens)
+      if (prompt.length > 14000) {
+        console.warn(`[AIController.naturalLanguageQuery] Prompt too large (${prompt.length} chars), truncating context.`);
+      }
 
       const { response: rawText, usage } = await this.llm.call(
         prompt, PromptService.SYSTEM_PROMPT, { max_tokens: 400 }
@@ -483,7 +490,7 @@ class AIController {
 
     } catch (err) {
       console.error('[AIController.naturalLanguageQuery]', err.message);
-      return ResponseHelper.serverError(res, err.message);
+      return this._errorResponse(res, err);
     }
   }
 
@@ -547,7 +554,7 @@ class AIController {
 
     } catch (err) {
       console.error('[AIController.processVoice]', err.message);
-      return ResponseHelper.serverError(res, err.message);
+      return this._errorResponse(res, err);
     }
   }
 
@@ -588,7 +595,7 @@ Keep it under 120 words and practical.`;
       return ResponseHelper.success(res, { insight: rawText, taskId: taskId || null });
     } catch (err) {
       console.error('[AIController.getTaskInsight]', err.message);
-      return ResponseHelper.serverError(res, err.message);
+      return this._errorResponse(res, err);
     }
   }
 
@@ -635,16 +642,7 @@ Keep it under 120 words and practical.`;
         prompt, PromptService.SYSTEM_PROMPT, { max_tokens: maxTokens }
       );
 
-      const parsed = this._parseJSON(rawText, {
-        teamSummary: rawText,
-        members: Object.values(memberData).map((m) => ({
-          name: m.name, starRating: 3, score: 60, performanceSummary: 'Analysis unavailable.',
-          factors: [], strengths: [], areasOfImprovement: [], suggestions: [],
-        })),
-        topPerformer: null,
-        teamMorale: 'Unknown',
-        alerts: [],
-      });
+      const parsed = this._parseJSON(rawText, this._buildRuleBasedAnalysis(memberData, days));
 
       return ResponseHelper.aiResponse(res, 'holistic_performance', parsed, {
         days,
@@ -656,7 +654,7 @@ Keep it under 120 words and practical.`;
 
     } catch (err) {
       console.error('[AIController.getHolisticPerformance]', err.message);
-      return ResponseHelper.serverError(res, err.message);
+      return this._errorResponse(res, err);
     }
   }
 
@@ -712,48 +710,226 @@ Keep it under 120 words and practical.`;
 
     } catch (err) {
       console.error('[AIController.getSprintAnalysis]', err.message);
-      return ResponseHelper.serverError(res, err.message);
+      return this._errorResponse(res, err);
     }
+  }
+
+  // ─── Private: Rule-based performance fallback ────────────────────────────
+
+  /**
+   * Computes a fully rule-based holistic performance result from raw memberData.
+   * Used as the _parseJSON fallback so the UI always gets meaningful data even
+   * when the LLM response is unparseable.
+   */
+  _buildRuleBasedAnalysis(memberData, days) {
+    const workdaysInPeriod = Math.round(days * (5 / 7));
+
+    const members = Object.values(memberData).map((m) => {
+      // ── Factor scores ────────────────────────────────────────────────────
+      const engagementScore = workdaysInPeriod > 0
+        ? Math.min(100, Math.round((m.standupCount / workdaysInPeriod) * 100))
+        : 0;
+
+      const taskScore = m.tasksTotal > 0
+        ? Math.round((m.tasksDone / m.tasksTotal) * 100)
+        : 50; // no tasks assigned → neutral
+
+      const attendanceScore = workdaysInPeriod > 0
+        ? Math.min(100, Math.round((m.attendanceDays / workdaysInPeriod) * 100))
+        : (m.avgWorkHours >= 6 ? 80 : 50);
+
+      const expectedHours = days * 6; // ~6 billable hours per day
+      const timeScore = expectedHours > 0
+        ? Math.min(100, Math.round((m.hoursLogged / expectedHours) * 100))
+        : 50;
+
+      const accountabilityScore = m.actionsTotal > 0
+        ? Math.round((m.actionsDone / m.actionsTotal) * 100)
+        : 70; // no actions assigned → not penalised
+
+      // ── Weighted overall score ───────────────────────────────────────────
+      const score = Math.round(
+        engagementScore   * 0.25 +
+        taskScore         * 0.25 +
+        attendanceScore   * 0.20 +
+        timeScore         * 0.15 +
+        accountabilityScore * 0.15
+      );
+      const starRating = score >= 90 ? 5 : score >= 75 ? 4 : score >= 60 ? 3 : score >= 40 ? 2 : 1;
+
+      // ── Issues ───────────────────────────────────────────────────────────
+      const issues = [];
+      const missedStandups = workdaysInPeriod - m.standupCount;
+      if (engagementScore < 60) {
+        issues.push({
+          problem:  'Low standup engagement',
+          evidence: `Submitted ${m.standupCount} of ~${workdaysInPeriod} expected standups (${engagementScore}%) over ${days} days.`,
+          severity: engagementScore < 30 ? 'high' : 'medium',
+        });
+      }
+      if (m.tasksOverdue > 0) {
+        issues.push({
+          problem:  'Overdue tasks',
+          evidence: `${m.tasksOverdue} task(s) are past their due date.`,
+          severity: m.tasksOverdue >= 3 ? 'high' : 'medium',
+        });
+      }
+      if (taskScore < 50 && m.tasksTotal > 0) {
+        issues.push({
+          problem:  'Low task completion rate',
+          evidence: `Completed ${m.tasksDone} of ${m.tasksTotal} assigned tasks (${taskScore}%).`,
+          severity: 'medium',
+        });
+      }
+      if (timeScore < 40 && expectedHours > 0) {
+        issues.push({
+          problem:  'Insufficient time logging',
+          evidence: `Logged ${m.hoursLogged}h against an expected ~${expectedHours}h for the period.`,
+          severity: 'low',
+        });
+      }
+
+      // ── Strengths ────────────────────────────────────────────────────────
+      const strengths = [];
+      if (engagementScore >= 80) strengths.push(`Consistent standup attendance — ${m.standupCount} submissions in ${days} days (${engagementScore}%).`);
+      if (taskScore >= 80)       strengths.push(`Strong task completion rate of ${taskScore}% (${m.tasksDone}/${m.tasksTotal} tasks).`);
+      if (m.storyPointsDone > 0) strengths.push(`Delivered ${m.storyPointsDone} story points this period.`);
+      if (accountabilityScore >= 80 && m.actionsTotal > 0)
+        strengths.push(`High accountability — closed ${m.actionsDone} of ${m.actionsTotal} action items.`);
+      if (strengths.length === 0) strengths.push('Continued participation in team activities.');
+
+      // ── Areas of improvement ─────────────────────────────────────────────
+      const areasOfImprovement = [];
+      if (engagementScore < 70)  areasOfImprovement.push('Daily standup consistency');
+      if (taskScore < 70)        areasOfImprovement.push('Task completion velocity');
+      if (m.tasksOverdue > 0)    areasOfImprovement.push('Clearing overdue task backlog');
+      if (timeScore < 50)        areasOfImprovement.push('Regular time log entries');
+      if (accountabilityScore < 60 && m.actionsTotal > 0) areasOfImprovement.push('Action item follow-through');
+
+      // ── Suggestions ──────────────────────────────────────────────────────
+      const suggestions = [];
+      if (missedStandups > 2) suggestions.push(`Set a recurring 9 AM standup reminder — ${m.name} missed ${missedStandups} standups this period.`);
+      if (m.tasksOverdue > 0) suggestions.push(`Schedule a 30-min backlog review to reprioritise ${m.tasksOverdue} overdue task(s) before the next sprint.`);
+      if (taskScore < 60)     suggestions.push('Break large tasks into sub-tasks of 2–4 hours to improve daily throughput.');
+      if (timeScore < 40)     suggestions.push('Enable weekly time-log reminders — consistent logging improves billing accuracy and workload visibility.');
+      if (accountabilityScore < 60 && m.actionsTotal > 0)
+        suggestions.push(`Follow up on ${m.actionsTotal - m.actionsDone} open action item(s) — consider a weekly 1:1 to clear blockers.`);
+      if (suggestions.length === 0) suggestions.push('Maintain current performance and consider taking on a mentoring role for newer team members.');
+
+      // ── Summary sentence ─────────────────────────────────────────────────
+      const label = score >= 90 ? 'exceptional' : score >= 75 ? 'good' : score >= 60 ? 'satisfactory' : score >= 40 ? 'below average' : 'poor';
+      const performanceSummary =
+        `${m.name} shows ${label} performance over the last ${days} days. ` +
+        `Completed ${m.tasksDone}/${m.tasksTotal} tasks` +
+        (m.storyPointsDone > 0 ? ` (${m.storyPointsDone} story pts)` : '') +
+        `, submitted ${m.standupCount} standups, and logged ${m.hoursLogged}h.` +
+        (m.tasksOverdue > 0 ? ` Has ${m.tasksOverdue} overdue task(s) requiring attention.` : '');
+
+      return {
+        name: m.name,
+        starRating,
+        score,
+        performanceSummary,
+        factors: [
+          { name: 'Engagement',       score: engagementScore,    detail: `${m.standupCount} standups in ${days} days (${engagementScore}%)` },
+          { name: 'Task Delivery',    score: taskScore,          detail: `${m.tasksDone}/${m.tasksTotal} tasks done${m.tasksOverdue > 0 ? `, ${m.tasksOverdue} overdue` : ''}` },
+          { name: 'Attendance',       score: attendanceScore,    detail: `${m.attendanceDays} days logged, avg ${m.avgWorkHours}h/day` },
+          { name: 'Time Management',  score: timeScore,          detail: `${m.hoursLogged}h time logged` },
+          { name: 'Accountability',   score: accountabilityScore, detail: `${m.actionsDone}/${m.actionsTotal} actions closed` },
+        ],
+        issues,
+        strengths,
+        areasOfImprovement,
+        suggestions,
+      };
+    });
+
+    const best = members.length > 1
+      ? members.reduce((b, m) => (m.score > b.score ? m : b), members[0])
+      : null;
+    const avgScore = members.reduce((s, m) => s + m.score, 0) / (members.length || 1);
+
+    return {
+      teamSummary: members.length === 1
+        ? members[0].performanceSummary
+        : `Team of ${members.length} analysed over ${days} days. Average score: ${Math.round(avgScore)}/100.`,
+      members,
+      topPerformer: best ? best.name : null,
+      teamMorale: avgScore >= 75 ? 'High' : avgScore >= 50 ? 'Medium' : 'Low',
+      alerts: members
+        .filter((m) => m.issues.some((i) => i.severity === 'high'))
+        .map((m) => `${m.name} has high-severity performance issues requiring attention.`),
+    };
+  }
+
+  // ─── Private: Error Handler ──────────────────────────────────────────────
+
+  /**
+   * Shared catch-block handler. Distinguishes LLM failures (upstream 5xx) from
+   * application errors so the frontend receives an actionable message rather than
+   * a generic 500.
+   */
+  _errorResponse(res, err) {
+    if (err.llmError) {
+      return res.status(503).json({
+        success:   false,
+        message:   'AI service temporarily unavailable. Please try again in a moment.',
+        retryable: true,
+      });
+    }
+    return ResponseHelper.serverError(res, err.message);
   }
 
   // ─── Private: JSON Parser ────────────────────────────────────────────────
 
   /**
-   * Attempts to parse the LLM's raw text as JSON.
-   * Falls back to `defaults` if the model returned prose instead of valid JSON.
-   * Also strips markdown code fences that some models include despite instructions.
+   * Attempts to parse the LLM's raw text as JSON with multi-pass repair.
+   * Falls back to `defaults` if all attempts fail.
    */
   _parseJSON(rawText, defaults = {}) {
     if (!rawText || typeof rawText !== 'string') return defaults;
 
-    // Strip ALL markdown fences (the LLM sometimes wraps mid-response)
+    // Pass 1 — strip markdown fences and leading/trailing prose
     let cleaned = rawText
+      .replace(/```(?:json)?[\s\S]*?```/g, (m) => m.replace(/```(?:json)?/g, '').replace(/```/g, ''))
       .replace(/```(?:json)?/g, '')
       .replace(/```/g, '')
       .trim();
 
-    // Extract the outermost JSON object
-    const start = cleaned.indexOf('{');
-    const end   = cleaned.lastIndexOf('}');
-    if (start !== -1 && end !== -1 && end > start) {
-      cleaned = cleaned.slice(start, end + 1);
+    // Extract the outermost balanced JSON object (handles prose before/after)
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace  = cleaned.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      cleaned = cleaned.slice(firstBrace, lastBrace + 1);
     }
 
-    // First attempt — clean JSON
-    try { return JSON.parse(cleaned); } catch (_) { /* fall through to repair */ }
+    // Pass 2 — try clean parse
+    try { return JSON.parse(cleaned); } catch (_) { /* fall through */ }
 
-    // Repair common Zoho LLM issues before giving up
+    // Pass 3 — repair common Qwen/Zoho output issues
     try {
       const repaired = cleaned
-        .replace(/,\s*([}\]])/g, '$1')                 // trailing commas
-        .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":')     // unquoted keys
-        .replace(/:\s*'([^']*)'/g, ': "$1"')            // single-quoted values
-        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ''); // stray control chars
+        .replace(/,\s*([}\]])/g, '$1')                          // trailing commas
+        .replace(/([{,\[]\s*)(\w[\w\d]*)\s*:/g, '$1"$2":')     // unquoted keys
+        .replace(/:\s*'([^'\\]*(\\.[^'\\]*)*)'/g, ': "$1"')    // single-quoted values
+        .replace(/\n/g, '\\n')                                  // literal newlines inside strings
+        .replace(/\r/g, '')                                     // carriage returns
+        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');   // stray control chars
       return JSON.parse(repaired);
-    } catch (__) {
-      console.warn('[AIController] Could not parse LLM response as JSON, using defaults.');
-      return { ...defaults, rawResponse: rawText };
-    }
+    } catch (_) { /* fall through */ }
+
+    // Pass 4 — last resort: re-extract after repair in case new braces were shifted
+    try {
+      const reExtract = cleaned
+        .replace(/,(\s*[}\]])/g, '$1')
+        .replace(/:\s*undefined\b/g, ': null');
+      const s = reExtract.indexOf('{');
+      const e = reExtract.lastIndexOf('}');
+      if (s !== -1 && e > s) return JSON.parse(reExtract.slice(s, e + 1));
+    } catch (_) { /* fall through */ }
+
+    console.warn('[AIController] Could not parse LLM response as JSON, using defaults. Raw (first 300):', rawText.slice(0, 300));
+    return { ...defaults, rawResponse: rawText };
   }
 }
 

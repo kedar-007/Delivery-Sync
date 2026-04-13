@@ -19,6 +19,7 @@ import { useMyTasks, useUpdateTask, useCreateTask, useDeleteTask, useTask, useTa
 import { useProjects } from '../hooks/useProjects';
 import { useUsers, TenantUser } from '../hooks/useUsers';
 import { timeEntriesApi, tasksApi, aiApi } from '../lib/api';
+import { useQuery } from '@tanstack/react-query';
 import UserAvatar from '../components/ui/UserAvatar';
 
 // ── Safe date formatter (Catalyst returns non-ISO strings) ────────────────────
@@ -781,6 +782,24 @@ export default function MyTasksPage() {
     return arr as Task[];
   }, [rawTasks]);
 
+  // Fetch all time entries for the current user once and build a taskId → totalHours map
+  const { data: rawTimeEntries = [] } = useQuery({
+    queryKey: ['myTimeEntries'],
+    queryFn: () => timeEntriesApi.list(),
+    staleTime: 60_000,
+    retry: 1,
+  });
+  const taskHoursMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    const entries = Array.isArray(rawTimeEntries) ? rawTimeEntries : (rawTimeEntries as any)?.data ?? [];
+    for (const e of entries as any[]) {
+      const tid = String(e.task_id ?? '');
+      if (!tid || tid === '0') continue;
+      map[tid] = (map[tid] ?? 0) + (parseFloat(e.hours) || 0);
+    }
+    return map;
+  }, [rawTimeEntries]);
+
   // ── Pagination ──
   const PAGE_SIZE = 20;
   const [page, setPage] = useState(1);
@@ -1136,6 +1155,7 @@ export default function MyTasksPage() {
                   status={status}
                   tasks={list}
                   projects={projects}
+                  taskHoursMap={taskHoursMap}
                   onStatusChange={handleStatusChange}
                   onLogTime={(t) => {
                     setLogTimeTask(t);
@@ -1282,9 +1302,10 @@ export default function MyTasksPage() {
 // ── Status Group ──────────────────────────────────────────────────────────────
 
 function StatusGroup({
-  status, tasks, projects, onStatusChange, onLogTime, onEdit, onDelete, onOpen,
+  status, tasks, projects, taskHoursMap, onStatusChange, onLogTime, onEdit, onDelete, onOpen,
 }: {
   status: TaskStatus; tasks: Task[]; projects: Project[];
+  taskHoursMap: Record<string, number>;
   onStatusChange: (t: Task, s: string) => void;
   onLogTime:      (t: Task) => void;
   onEdit:         (t: Task) => void;
@@ -1315,6 +1336,7 @@ function StatusGroup({
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 hidden lg:table-cell">Project</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 hidden xl:table-cell">Due</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 hidden xl:table-cell">Pts</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 hidden xl:table-cell">Time Logged</th>
                 <th className="px-3 py-2 text-xs font-semibold text-gray-500 w-28">Status</th>
                 <th className="px-3 py-2 w-20"></th>
               </tr>
@@ -1325,6 +1347,7 @@ function StatusGroup({
                   key={t.id}
                   task={t}
                   projects={projects}
+                  hoursLogged={taskHoursMap[t.id] ?? 0}
                   onStatusChange={onStatusChange}
                   onLogTime={onLogTime}
                   onEdit={onEdit}
@@ -1343,9 +1366,10 @@ function StatusGroup({
 // ── Task Row ──────────────────────────────────────────────────────────────────
 
 function TaskRow({
-  task, projects, onStatusChange, onLogTime, onEdit, onDelete, onOpen,
+  task, projects, hoursLogged, onStatusChange, onLogTime, onEdit, onDelete, onOpen,
 }: {
   task: Task; projects: Project[];
+  hoursLogged: number;
   onStatusChange: (t: Task, s: string) => void;
   onLogTime:      (t: Task) => void;
   onEdit:         (t: Task) => void;
@@ -1401,6 +1425,17 @@ function TaskRow({
 
       <td className="px-3 py-3 hidden xl:table-cell text-xs text-indigo-600 font-semibold">
         {task.storyPoints ? `${task.storyPoints}` : <span className="text-gray-300">—</span>}
+      </td>
+
+      <td className="px-3 py-3 hidden xl:table-cell">
+        {hoursLogged > 0 ? (
+          <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5 font-medium">
+            <Timer size={10} />
+            {hoursLogged % 1 === 0 ? hoursLogged : hoursLogged.toFixed(1)}h
+          </span>
+        ) : (
+          <span className="text-xs text-gray-300">—</span>
+        )}
       </td>
 
       <td className="px-3 py-3">

@@ -9,11 +9,25 @@ import '../../../../shared/models/models.dart';
 import '../../../../shared/widgets/ds_metric_card.dart';
 import '../../../dashboard/providers/dashboard_provider.dart';
 
-class ProjectsScreen extends ConsumerWidget {
+class ProjectsScreen extends ConsumerStatefulWidget {
   const ProjectsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ProjectsScreen> createState() => _ProjectsScreenState();
+}
+
+class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final ds       = context.ds;
     final projects = ref.watch(projectsProvider);
 
@@ -34,7 +48,9 @@ class ProjectsScreen extends ConsumerWidget {
         onRefresh: () async => ref.invalidate(projectsProvider),
         color: AppColors.primaryLight,
         child: projects.when(
-          data: (list) => list.isEmpty
+          data: (list) {
+            final filtered = _filterProjects(list, _query);
+            return list.isEmpty
               ? Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -47,7 +63,19 @@ class ProjectsScreen extends ConsumerWidget {
                               color: ds.textMuted, fontSize: 15)),
                     ],
                   ))
-              : _ProjectList(list),
+              : _ProjectList(
+                  projects: filtered,
+                  query: _query,
+                  searchField: _SearchField(
+                    controller: _searchCtrl,
+                    onChanged: (value) => setState(() => _query = value.trim()),
+                    onClear: () => setState(() {
+                      _searchCtrl.clear();
+                      _query = '';
+                    }),
+                  ),
+                );
+          },
           loading: () => ListView(
             children: List.generate(5, (_) => const ShimmerCard()),
           ),
@@ -57,8 +85,11 @@ class ProjectsScreen extends ConsumerWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.error_outline_rounded,
-                      size: 48, color: AppColors.error),
+                  const Icon(
+                    Icons.error_outline_rounded,
+                    size: 48,
+                    color: AppColors.error,
+                  ),
                   const SizedBox(height: 12),
                   Text('Failed to load projects',
                       style: TextStyle(
@@ -66,7 +97,7 @@ class ProjectsScreen extends ConsumerWidget {
                           fontWeight: FontWeight.w600)),
                   const SizedBox(height: 4),
                   Text(e.toString(),
-                      style: TextStyle(
+                      style: const TextStyle(
                           color: AppColors.error, fontSize: 12),
                       textAlign: TextAlign.center),
                   const SizedBox(height: 16),
@@ -84,6 +115,21 @@ class ProjectsScreen extends ConsumerWidget {
     );
   }
 
+  List<Project> _filterProjects(List<Project> list, String query) {
+    if (query.isEmpty) return list;
+    final q = query.toLowerCase();
+    return list.where((p) {
+      final name = p.name.toLowerCase();
+      final desc = p.description?.toLowerCase() ?? '';
+      final status = p.status.toLowerCase();
+      final rag = p.ragStatus.toLowerCase();
+      return name.contains(q) ||
+          desc.contains(q) ||
+          status.contains(q) ||
+          rag.contains(q);
+    }).toList();
+  }
+
   void _showCreateProject(BuildContext context, WidgetRef ref) {
     showModalBottomSheet(
       context: context,
@@ -96,8 +142,15 @@ class ProjectsScreen extends ConsumerWidget {
 // ── Project list ──────────────────────────────────────────────────────────────
 
 class _ProjectList extends StatelessWidget {
-  const _ProjectList(this.projects);
+  const _ProjectList({
+    required this.projects,
+    required this.query,
+    required this.searchField,
+  });
+
   final List<Project> projects;
+  final String query;
+  final Widget searchField;
 
   @override
   Widget build(BuildContext context) {
@@ -109,6 +162,22 @@ class _ProjectList extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.only(bottom: 100),
       children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: searchField,
+        ),
+
+        if (projects.isEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
+            child: Center(
+              child: Text(
+                'No projects found for "$query"',
+                style: TextStyle(color: ds.textMuted, fontSize: 14),
+              ),
+            ),
+          )
+        else ...[
         // ── Summary bar ──────────────────────────────────────────────────
         Container(
           margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -130,19 +199,66 @@ class _ProjectList extends StatelessWidget {
           ),
         ),
 
-        if (red.isNotEmpty) ...[
-          _SectionLabel('At Risk', AppColors.ragRed, Icons.warning_rounded, ds),
-          ...red.map((p) => _ProjectCard(p)),
-        ],
-        if (amber.isNotEmpty) ...[
-          _SectionLabel('Needs Attention', AppColors.ragAmber, Icons.info_outline_rounded, ds),
-          ...amber.map((p) => _ProjectCard(p)),
-        ],
-        if (green.isNotEmpty) ...[
-          _SectionLabel('On Track', AppColors.ragGreen, Icons.check_circle_outline_rounded, ds),
-          ...green.map((p) => _ProjectCard(p)),
+          if (red.isNotEmpty) ...[
+            _SectionLabel('At Risk', AppColors.ragRed, Icons.warning_rounded, ds),
+            ...red.map((p) => _ProjectCard(p)),
+          ],
+          if (amber.isNotEmpty) ...[
+            _SectionLabel('Needs Attention', AppColors.ragAmber, Icons.info_outline_rounded, ds),
+            ...amber.map((p) => _ProjectCard(p)),
+          ],
+          if (green.isNotEmpty) ...[
+            _SectionLabel('On Track', AppColors.ragGreen, Icons.check_circle_outline_rounded, ds),
+            ...green.map((p) => _ProjectCard(p)),
+          ],
         ],
       ],
+    );
+  }
+}
+
+class _SearchField extends StatelessWidget {
+  const _SearchField({
+    required this.controller,
+    required this.onChanged,
+    required this.onClear,
+  });
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds = context.ds;
+    return TextField(
+      controller: controller,
+      onChanged: onChanged,
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        hintText: 'Search projects',
+        prefixIcon: const Icon(Icons.search_rounded),
+        suffixIcon: controller.text.isEmpty
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.close_rounded),
+                onPressed: onClear,
+              ),
+        filled: true,
+        fillColor: ds.bgCard,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: ds.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: ds.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: AppColors.primaryLight, width: 1.4),
+        ),
+      ),
     );
   }
 }
@@ -223,7 +339,8 @@ class _ProjectCard extends StatelessWidget {
         border: Border.all(color: ds.border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(
+            color: Colors.black.withValues(
+              alpha:
                 Theme.of(context).brightness == Brightness.dark ? 0.15 : 0.04),
             blurRadius: 8,
             offset: const Offset(0, 2),
