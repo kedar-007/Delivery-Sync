@@ -339,7 +339,7 @@ const DirectoryTab = () => {
 
   const [search, setSearch] = useState('');
   const [selectedProfile, setSelectedProfile] = useState<DirectoryProfile | null>(null);
-  const [analyzeTarget, setAnalyzeTarget] = useState<{ id: string; name: string } | null>(null);
+  const [analyzeTarget, setAnalyzeTarget] = useState<{ id: string; name: string; avatarUrl?: string } | null>(null);
 
   const { data, isLoading, error } = useDirectory();
   const profiles: DirectoryProfile[] = useMemo(() => {
@@ -458,7 +458,7 @@ const DirectoryTab = () => {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          setAnalyzeTarget({ id: profile.user_id, name: profile.name });
+                          setAnalyzeTarget({ id: profile.user_id, name: profile.name, avatarUrl: profile.avatar_url });
                         }}
                         className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium px-2 py-0.5 rounded-lg hover:bg-indigo-50 transition-colors"
                         title="Analyze performance"
@@ -490,6 +490,7 @@ const DirectoryTab = () => {
           onClose={() => setAnalyzeTarget(null)}
           targetUserId={analyzeTarget.id}
           targetName={analyzeTarget.name}
+          targetAvatarUrl={analyzeTarget.avatarUrl}
         />
       )}
     </div>

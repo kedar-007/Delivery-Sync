@@ -13,6 +13,7 @@ import {
   ChevronDown, ChevronUp, User, AlertTriangle,
 } from 'lucide-react';
 import Modal from './Modal';
+import UserAvatar from './UserAvatar';
 import { useAiHolisticPerformance } from '../../hooks/useAiInsights';
 import { useAuth } from '../../contexts/AuthContext';
 import { useUsers } from '../../hooks/useUsers';
@@ -57,6 +58,7 @@ export interface PerformanceModalProps {
   /** User ID to analyse. Defaults to the current logged-in user. */
   targetUserId?: string;
   targetName?: string;
+  targetAvatarUrl?: string;
 }
 
 // ── Star display ──────────────────────────────────────────────────────────────
@@ -356,6 +358,7 @@ export default function PerformanceModal({
   onClose,
   targetUserId,
   targetName,
+  targetAvatarUrl,
 }: PerformanceModalProps) {
   const { user } = useAuth();
   const [days, setDays] = useState<7 | 30 | 90>(7);
@@ -415,9 +418,23 @@ export default function PerformanceModal({
       <div className="-mt-2 -mx-1">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
-              <Sparkles size={18} className="text-white" />
-            </div>
+            {targetUserId && (targetAvatarUrl || targetName) ? (
+              <div className="relative shrink-0">
+                <UserAvatar
+                  name={targetName ?? ''}
+                  avatarUrl={targetAvatarUrl}
+                  size="md"
+                  className="ring-2 ring-indigo-200"
+                />
+                <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center ring-2 ring-white">
+                  <Sparkles size={10} className="text-white" />
+                </div>
+              </div>
+            ) : (
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
+                <Sparkles size={18} className="text-white" />
+              </div>
+            )}
             <div>
               <h2 className="text-base font-bold text-gray-900">
                 {displayName} Performance Analysis
