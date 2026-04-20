@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { Clock, LogIn, LogOut, Home, Users, BarChart2, AlertTriangle } from 'lucide-react';
+import { Clock, LogIn, LogOut, Home, Users, BarChart2, AlertTriangle, UtensilsCrossed, Coffee } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { format, parseISO, startOfWeek, endOfWeek, addDays } from 'date-fns';
 import Layout from '../components/layout/Layout';
@@ -22,11 +22,17 @@ import {
   useCheckIn,
   useCheckOut,
   useMarkWfh,
+  useBreakStart,
+  useBreakEnd,
+  useIpConfig,
+  useAddIpConfig,
+  useDeleteIpConfig,
 } from '../hooks/usePeople';
 import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { attendanceApi } from '../lib/api';
 import { useMyPermissions } from '../hooks/useAdmin';
-import { Download } from 'lucide-react';
+import { Download, Shield, Plus, Trash2 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -105,13 +111,78 @@ const formatDate = (iso?: string) => {
   }
 };
 
-const MANAGER_ROLES = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
 // Permissions that unlock manager-level attendance views
 const ATTENDANCE_MANAGER_PERMS = ['ATTENDANCE_ADMIN'];
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 
-type Tab = 'my' | 'live' | 'records' | 'summary';
+type Tab = 'my' | 'live' | 'records' | 'summary' | 'ip-config';
+
+// ── IP Config Tab ─────────────────────────────────────────────────────────────
+const IpConfigTab = () => {
+  const { data: ips = [], isLoading } = useIpConfig();
+  const addIp = useAddIpConfig();
+  const deleteIp = useDeleteIpConfig();
+  const [label, setLabel] = useState('');
+  const [ipAddr, setIpAddr] = useState('');
+  const [err, setErr] = useState('');
+
+  const handleAdd = async () => {
+    setErr('');
+    if (!label.trim() || !ipAddr.trim()) { setErr('Label and IP address are required'); return; }
+    try {
+      await addIp.mutateAsync({ label: label.trim(), ip_address: ipAddr.trim() });
+      setLabel(''); setIpAddr('');
+    } catch (e: any) { setErr(e?.message ?? 'Failed to add'); }
+  };
+
+  return (
+    <div className="space-y-5 max-w-xl">
+      <Card>
+        <div className="flex items-center gap-2 mb-4">
+          <Shield size={16} className="text-indigo-600" />
+          <h3 className="font-semibold text-gray-800 text-sm">Allowed IP Addresses</h3>
+        </div>
+        <p className="text-xs text-gray-500 mb-4">
+          When IPs are configured, employees must check in / out from one of these addresses.
+          Outside these networks only WFH check-in is allowed. Supports exact IPs and CIDR notation (e.g. <code>192.168.1.0/24</code>).
+        </p>
+
+        {err && <Alert type="error" message={err} />}
+
+        {/* Add form */}
+        <div className="flex gap-2 mb-4">
+          <input className="form-input flex-1 text-sm" placeholder="Label (e.g. Office)" value={label} onChange={e => setLabel(e.target.value)} />
+          <input className="form-input flex-1 text-sm" placeholder="192.168.1.0/24" value={ipAddr} onChange={e => setIpAddr(e.target.value)} />
+          <Button size="sm" icon={<Plus size={13} />} loading={addIp.isPending} onClick={handleAdd}>Add</Button>
+        </div>
+
+        {/* List */}
+        {isLoading ? <PageSkeleton /> : (ips as any[]).length === 0 ? (
+          <p className="text-xs text-gray-400 text-center py-4">No IP restrictions configured — all networks allowed.</p>
+        ) : (
+          <div className="space-y-2">
+            {(ips as any[]).map((ip: any) => (
+              <div key={ip.ROWID ?? ip.id} className="flex items-center justify-between px-3 py-2.5 bg-gray-50 rounded-xl border border-gray-100">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">{ip.label}</p>
+                  <p className="text-xs text-gray-400 font-mono">{ip.ip_address}</p>
+                </div>
+                <button
+                  onClick={() => deleteIp.mutate(String(ip.ROWID ?? ip.id))}
+                  disabled={deleteIp.isPending}
+                  className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+};
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -120,6 +191,38 @@ const AttendanceStatusBadge = ({ status }: { status: string }) => (
     {status.replace(/_/g, ' ')}
   </Badge>
 );
+
+const BreakCell = ({ rec }: { rec: any }) => {
+  const bs = rec.breakSummary ?? rec.break_summary ?? null;
+  const totalMins = parseFloat(rec.total_break_minutes ?? 0);
+
+  if (bs) {
+    const lunch = bs.lunch ?? {};
+    const short = bs.short ?? {};
+    const lunchMins = Math.round(lunch.used_minutes  ?? 0);
+    const shortMins = Math.round(short.used_minutes  ?? 0);
+    const lunchOver = Math.round(lunch.exceeded_minutes ?? 0);
+    const shortOver = Math.round(short.exceeded_minutes ?? 0);
+    if (lunchMins === 0 && shortMins === 0) return <span className="text-gray-300">—</span>;
+    return (
+      <div className="flex flex-col gap-0.5 text-xs">
+        {lunchMins > 0 && (
+          <span className={lunchOver > 0 ? 'text-red-600 font-medium' : 'text-gray-500'}>
+            🍴 {lunchMins}m{lunchOver > 0 ? ` (+${lunchOver}m over)` : ` / 60m`}
+          </span>
+        )}
+        {shortMins > 0 && (
+          <span className={shortOver > 0 ? 'text-red-600 font-medium' : 'text-gray-500'}>
+            ☕ {shortMins}m{shortOver > 0 ? ` (+${shortOver}m over)` : ` / 15m`}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  if (totalMins > 0) return <span className="text-xs text-gray-500">{Math.round(totalMins)}m total</span>;
+  return <span className="text-gray-300">—</span>;
+};
 
 // ── My Attendance Tab ─────────────────────────────────────────────────────────
 
@@ -149,19 +252,59 @@ function useElapsedTimer(startIso?: string) {
 
 // ── My Attendance Tab ─────────────────────────────────────────────────────────
 
+const BREAK_ALLOWANCES = { LUNCH: 60, SHORT: 15 };
+
 const MyAttendanceTab = () => {
   const [showWfhModal, setShowWfhModal] = useState(false);
   const [actionError, setActionError] = useState('');
 
   const { data: record, isLoading } = useMyAttendanceRecord();
-  const checkIn = useCheckIn();
+  const checkIn  = useCheckIn();
   const checkOut = useCheckOut();
-  const markWfh = useMarkWfh();
+  const markWfh  = useMarkWfh();
+  const breakStart = useBreakStart();
+  const breakEnd   = useBreakEnd();
 
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<WfhForm>();
 
-  const today = record?.today as AttendanceRecord | null | undefined;
+  const today   = record?.today as any;
   const history: AttendanceRecord[] = record?.history ?? [];
+
+  const breakSummary = (today as any)?.breakSummary ?? (today as any)?.break_summary ?? null;
+  const lunchInfo    = breakSummary?.lunch ?? { allowance_minutes: 60, used_minutes: 0, exceeded_minutes: 0, remaining_minutes: 60, active: null };
+  const shortInfo    = breakSummary?.short ?? { allowance_minutes: 15, used_minutes: 0, exceeded_minutes: 0, remaining_minutes: 15, active: null };
+  const activeBreak  = lunchInfo.active ?? shortInfo.active ?? null;
+  const onBreak      = !!activeBreak;
+
+  // Live break elapsed timer
+  const [breakSecs, setBreakSecs] = useState(0);
+  const breakTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (breakTimerRef.current) clearInterval(breakTimerRef.current);
+    if (!activeBreak?.break_start) { setBreakSecs(0); return; }
+    const tick = () => setBreakSecs(Math.max(0, Math.floor((Date.now() - new Date(activeBreak.break_start.replace(' ', 'T')).getTime()) / 1000)));
+    tick();
+    breakTimerRef.current = setInterval(tick, 1000);
+    return () => { if (breakTimerRef.current) clearInterval(breakTimerRef.current); };
+  }, [activeBreak?.break_start]);
+
+  const breakElapsedMins = Math.floor(breakSecs / 60);
+  const activeAllowance  = activeBreak ? (BREAK_ALLOWANCES[activeBreak.break_type as keyof typeof BREAK_ALLOWANCES] ?? 15) : 0;
+  const isOverBreak      = breakElapsedMins > activeAllowance;
+  const overMins         = Math.max(0, breakElapsedMins - activeAllowance);
+  const fmt2 = (n: number) => String(Math.max(0, Math.floor(n))).padStart(2, '0');
+
+  const clientTime = () => new Date().toLocaleString('sv');
+  const handleBreakStart = (type: 'LUNCH' | 'SHORT') => {
+    setActionError('');
+    breakStart.mutate({ client_time: clientTime(), break_type: type },
+      { onError: (e: any) => setActionError(e?.message ?? 'Failed to start break') });
+  };
+  const handleBreakEnd = () => {
+    setActionError('');
+    breakEnd.mutate({ client_time: clientTime() },
+      { onError: (e: any) => setActionError(e?.message ?? 'Failed to end break') });
+  };
 
   const handleCheckIn = async () => {
     try {
@@ -235,16 +378,87 @@ const MyAttendanceTab = () => {
         {isCheckedIn && !isCheckedOut && (
           <div className="space-y-4">
             <div className="flex flex-col items-center py-4 gap-2">
-              <div className="w-14 h-14 rounded-full bg-green-50 flex items-center justify-center">
-                <Clock size={26} className="text-green-600" />
+              <div className={`w-14 h-14 rounded-full flex items-center justify-center ${onBreak ? (isOverBreak ? 'bg-red-50' : 'bg-orange-50') : 'bg-green-50'}`}>
+                {onBreak
+                  ? (activeBreak?.break_type === 'LUNCH'
+                      ? <UtensilsCrossed size={26} className={isOverBreak ? 'text-red-500' : 'text-orange-500'} />
+                      : <Coffee size={26} className={isOverBreak ? 'text-red-500' : 'text-orange-500'} />)
+                  : <Clock size={26} className="text-green-600" />}
               </div>
-              <div className="text-center">
-                <p className="text-xs text-gray-500 mb-0.5">Time since check-in</p>
-                <p className="text-3xl font-bold text-green-600 font-mono tabular-nums tracking-widest">{elapsed}</p>
-                <p className="text-xs text-gray-400 mt-1">Checked in at {formatTime(today?.checkInTime)}</p>
-              </div>
+
+              {onBreak ? (
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 mb-0.5">
+                    {activeBreak?.break_type === 'LUNCH' ? 'Lunch break' : 'Short break'} in progress
+                    {` · ${activeAllowance}m allowance`}
+                  </p>
+                  <p className={`text-3xl font-bold font-mono tabular-nums tracking-widest ${isOverBreak ? 'text-red-600' : 'text-orange-500'}`}>
+                    {fmt2(Math.floor(breakSecs / 60))}:{fmt2(breakSecs % 60)}
+                  </p>
+                  {isOverBreak && (
+                    <p className="text-xs text-red-500 mt-1 font-medium flex items-center justify-center gap-1">
+                      <AlertTriangle size={11} /> Over by {overMins}m — please return to your desk
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 mb-0.5">Time since check-in</p>
+                  <p className="text-3xl font-bold text-green-600 font-mono tabular-nums tracking-widest">{elapsed}</p>
+                  <p className="text-xs text-gray-400 mt-1">Checked in at {formatTime(today?.checkInTime)}</p>
+                </div>
+              )}
             </div>
-            <div className="flex gap-3 justify-center">
+
+            {/* Break allowance pills */}
+            {!onBreak && (
+              <div className="flex items-center justify-center gap-4 text-xs text-gray-400">
+                <span className="flex items-center gap-1">
+                  <UtensilsCrossed size={11} />
+                  Lunch: {Math.round(lunchInfo.used_minutes)}m / {lunchInfo.allowance_minutes}m used
+                </span>
+                <span className="flex items-center gap-1">
+                  <Coffee size={11} />
+                  Break: {Math.round(shortInfo.used_minutes)}m / {shortInfo.allowance_minutes}m used
+                </span>
+              </div>
+            )}
+
+            <div className="flex gap-2 justify-center flex-wrap">
+              {onBreak ? (
+                <Button
+                  variant="outline"
+                  icon={activeBreak?.break_type === 'LUNCH' ? <UtensilsCrossed size={15} /> : <Coffee size={15} />}
+                  loading={breakEnd.isPending}
+                  onClick={handleBreakEnd}
+                  className={isOverBreak ? 'border-red-300 text-red-600 hover:bg-red-50' : 'border-orange-300 text-orange-600 hover:bg-orange-50'}
+                >
+                  End {activeBreak?.break_type === 'LUNCH' ? 'Lunch' : 'Short'} Break
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    variant="outline"
+                    icon={<UtensilsCrossed size={15} />}
+                    loading={breakStart.isPending}
+                    disabled={lunchInfo.remaining_minutes === 0}
+                    onClick={() => handleBreakStart('LUNCH')}
+                    className="border-orange-200 text-orange-600 hover:bg-orange-50"
+                  >
+                    Lunch Break {lunchInfo.remaining_minutes > 0 ? `· ${lunchInfo.remaining_minutes}m left` : '· Used'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    icon={<Coffee size={15} />}
+                    loading={breakStart.isPending}
+                    disabled={shortInfo.remaining_minutes === 0}
+                    onClick={() => handleBreakStart('SHORT')}
+                    className="border-orange-200 text-orange-600 hover:bg-orange-50"
+                  >
+                    Short Break {shortInfo.remaining_minutes > 0 ? `· ${shortInfo.remaining_minutes}m left` : '· Used'}
+                  </Button>
+                </>
+              )}
               <Button
                 variant="danger"
                 icon={<LogOut size={16} />}
@@ -253,13 +467,11 @@ const MyAttendanceTab = () => {
               >
                 Check Out
               </Button>
-              <Button
-                variant="outline"
-                icon={<Home size={16} />}
-                onClick={() => setShowWfhModal(true)}
-              >
-                Mark as WFH
-              </Button>
+              {!onBreak && (
+                <Button variant="outline" icon={<Home size={16} />} onClick={() => setShowWfhModal(true)}>
+                  Mark as WFH
+                </Button>
+              )}
             </div>
           </div>
         )}
@@ -296,6 +508,7 @@ const MyAttendanceTab = () => {
                   <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">Status</th>
                   <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">Check In</th>
                   <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">Check Out</th>
+                  <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">Breaks</th>
                   <th className="text-left py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Hours</th>
                 </tr>
               </thead>
@@ -311,6 +524,9 @@ const MyAttendanceTab = () => {
                     </td>
                     <td className="py-2.5 pr-4 text-gray-600">{formatTime(rec.checkInTime)}</td>
                     <td className="py-2.5 pr-4 text-gray-600">{formatTime(rec.checkOutTime)}</td>
+                    <td className="py-2.5 pr-4">
+                      <BreakCell rec={rec as any} />
+                    </td>
                     <td className="py-2.5 text-gray-600">{rec.hoursWorked?.toFixed(1) ?? '—'}h</td>
                   </tr>
                 ))}
@@ -799,19 +1015,24 @@ const AttendancePage = () => {
   const { user } = useAuth();
   const { data: myPerms } = useMyPermissions();
   const effectivePerms: string[] = myPerms?.permissions ?? [];
-  // Manager if role-based OR if explicitly granted ATTENDANCE_ADMIN
-  const isManager = MANAGER_ROLES.includes(user?.role ?? '') ||
+  const isManager   = hasPermission(user, PERMISSIONS.ATTENDANCE_ADMIN) ||
     ATTENDANCE_MANAGER_PERMS.some((p) => effectivePerms.includes(p));
+  const canManageIp = hasPermission(user, PERMISSIONS.IP_CONFIG_WRITE);
   const [tab, setTab] = useState<Tab>('my');
 
-  const tabs: { id: Tab; label: string; icon: React.ReactNode; managerOnly?: boolean }[] = [
-    { id: 'my', label: 'My Attendance', icon: <Clock size={15} /> },
-    { id: 'live', label: 'Team Live', icon: <Users size={15} />, managerOnly: true },
-    { id: 'records', label: 'Records', icon: <BarChart2 size={15} /> },
-    { id: 'summary', label: 'Summary', icon: <BarChart2 size={15} /> },
+  const tabs: { id: Tab; label: string; icon: React.ReactNode; managerOnly?: boolean; ipOnly?: boolean }[] = [
+    { id: 'my',        label: 'My Attendance',  icon: <Clock size={15} /> },
+    { id: 'live',      label: 'Team Live',       icon: <Users size={15} />,    managerOnly: true },
+    { id: 'records',   label: 'Records',         icon: <BarChart2 size={15} /> },
+    { id: 'summary',   label: 'Summary',         icon: <BarChart2 size={15} /> },
+    { id: 'ip-config', label: 'IP Restrictions', icon: <Shield size={15} />,   ipOnly: true },
   ];
 
-  const visibleTabs = tabs.filter((t) => !t.managerOnly || isManager);
+  const visibleTabs = tabs.filter((t) => {
+    if (t.managerOnly && !isManager) return false;
+    if (t.ipOnly && !canManageIp) return false;
+    return true;
+  });
 
   return (
     <Layout>
@@ -843,6 +1064,7 @@ const AttendancePage = () => {
         {tab === 'live' && isManager && <TeamLiveTab />}
         {tab === 'records' && <RecordsTab isManager={isManager} />}
         {tab === 'summary' && <SummaryTab />}
+        {tab === 'ip-config' && canManageIp && <IpConfigTab />}
       </div>
     </Layout>
   );

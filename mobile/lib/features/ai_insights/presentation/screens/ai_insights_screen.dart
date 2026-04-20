@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/services/api_client.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../auth/providers/auth_provider.dart';
 import '../../../projects/providers/projects_provider.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,6 +74,12 @@ final _aiTrendsProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref)
   return _aiPost('/trends', {'projectId': projectId, 'from': from, 'to': to});
 });
 
+final _aiHolisticPerfProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  final projectId = ref.watch(_selectedProjectIdProvider);
+  if (projectId == null) return {};
+  return _aiPost('/holistic-performance', {'projectId': projectId});
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Screen
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,6 +90,9 @@ class AiInsightsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final ds         = context.ds;
+    final user       = ref.watch(currentUserProvider);
+    final hasAccess  = user?.hasPermission(Permissions.aiInsights) == true
+        || user?.role == 'TENANT_ADMIN';
     final projects   = ref.watch(projectsListProvider);
     final selectedId = ref.watch(_selectedProjectIdProvider);
 
@@ -109,7 +119,34 @@ class AiInsightsScreen extends ConsumerWidget {
         backgroundColor: ds.bgPage,
         surfaceTintColor: Colors.transparent,
       ),
-      body: Column(
+      body: !hasAccess
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFA855F7).withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.auto_awesome_rounded,
+                        color: Color(0xFFA855F7), size: 40),
+                  ),
+                  const SizedBox(height: 20),
+                  Text('AI Insights Not Available',
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700,
+                          color: ds.textPrimary)),
+                  const SizedBox(height: 8),
+                  Text(
+                    'You need the AI_INSIGHTS permission to access this feature.\nContact your admin to enable it.',
+                    style: TextStyle(fontSize: 13, color: ds.textMuted, height: 1.5),
+                    textAlign: TextAlign.center,
+                  ),
+                ]),
+              ),
+            )
+          : Column(
         children: [
           // ── Project selector ───────────────────────────────────────────
           projects.when(
@@ -247,6 +284,8 @@ class _AiTabContent extends ConsumerWidget {
         _BlockersCard(),
         const SizedBox(height: 14),
         _TrendsCard(),
+        const SizedBox(height: 14),
+        _HolisticPerfCard(),
       ],
     );
   }
@@ -594,6 +633,337 @@ class _HealthBody extends StatelessWidget {
         )),
       ],
     ]);
+  }
+}
+
+class _HolisticPerfCard extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(_aiHolisticPerfProvider);
+    return _AiCard(
+      icon: Icons.people_alt_rounded,
+      title: 'Team Performance',
+      child: async.when(
+        data: (d) => d.isEmpty
+            ? const _AiEmpty(label: 'No performance data for this project yet')
+            : _HolisticPerfBody(data: d),
+        loading: () => const _AiLoading(label: 'Analysing team performance…'),
+        error: (e, _) => _AiError(message: e.toString()),
+      ),
+    );
+  }
+}
+
+class _HolisticPerfBody extends StatelessWidget {
+  const _HolisticPerfBody({required this.data});
+  final Map<String, dynamic> data;
+
+  static Color _severityColor(String? s) => switch (s?.toLowerCase()) {
+    'high'   => AppColors.ragRed,
+    'medium' => AppColors.ragAmber,
+    _        => AppColors.ragGreen,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final ds          = context.ds;
+    final teamSummary = data['teamSummary'] as String?;
+    final topPerf     = data['topPerformer'] as String?;
+    final teamMorale  = data['teamMorale'] as String?;
+    final alerts      = (data['alerts'] as List?)?.cast<String>() ?? [];
+    final members     = (data['members'] as List?) ?? [];
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      // Team summary
+      if (teamSummary != null) ...[
+        Text(teamSummary,
+            style: TextStyle(fontSize: 13, color: ds.textPrimary, height: 1.5)),
+        const SizedBox(height: 12),
+      ],
+
+      // Top performer + morale row
+      if (topPerf != null || teamMorale != null) ...[
+        Row(children: [
+          if (topPerf != null)
+            Expanded(child: _InfoChip(
+              icon: Icons.star_rounded,
+              color: AppColors.ragAmber,
+              label: 'Top Performer',
+              value: topPerf,
+            )),
+          if (topPerf != null && teamMorale != null) const SizedBox(width: 8),
+          if (teamMorale != null)
+            Expanded(child: _InfoChip(
+              icon: Icons.mood_rounded,
+              color: AppColors.primaryLight,
+              label: 'Team Morale',
+              value: teamMorale,
+            )),
+        ]),
+        const SizedBox(height: 12),
+      ],
+
+      // Alerts
+      if (alerts.isNotEmpty) ...[
+        Text('ALERTS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+            color: ds.textMuted, letterSpacing: 1)),
+        const SizedBox(height: 6),
+        ...alerts.map((a) => Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Padding(padding: EdgeInsets.only(top: 2),
+                child: Icon(Icons.warning_amber_rounded, size: 13, color: AppColors.ragAmber)),
+            const SizedBox(width: 6),
+            Expanded(child: Text(a, style: TextStyle(fontSize: 12, color: ds.textSecondary))),
+          ]),
+        )),
+        const SizedBox(height: 12),
+      ],
+
+      // Members
+      if (members.isNotEmpty) ...[
+        Text('TEAM MEMBERS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+            color: ds.textMuted, letterSpacing: 1)),
+        const SizedBox(height: 8),
+        ...members.map((m) => _MemberPerfTile(m as Map<String, dynamic>)),
+      ],
+    ]);
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({required this.icon, required this.color, required this.label, required this.value});
+  final IconData icon;
+  final Color color;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: color)),
+        ]),
+        const SizedBox(height: 4),
+        Text(value, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: context.ds.textPrimary),
+            maxLines: 2, overflow: TextOverflow.ellipsis),
+      ]),
+    );
+  }
+}
+
+class _MemberPerfTile extends StatefulWidget {
+  const _MemberPerfTile(this.member);
+  final Map<String, dynamic> member;
+
+  @override
+  State<_MemberPerfTile> createState() => _MemberPerfTileState();
+}
+
+class _MemberPerfTileState extends State<_MemberPerfTile> {
+  bool _expanded = false;
+
+  static Color _scoreColor(int score) => score >= 80
+      ? AppColors.ragGreen
+      : score >= 60
+          ? AppColors.ragAmber
+          : AppColors.ragRed;
+
+  static Color _severityColor(String? s) => switch (s?.toLowerCase()) {
+    'high'   => AppColors.ragRed,
+    'medium' => AppColors.ragAmber,
+    _        => AppColors.ragGreen,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final ds      = context.ds;
+    final m       = widget.member;
+    final name    = m['name'] as String? ?? 'Unknown';
+    final score   = (m['score'] as num?)?.toInt() ?? 0;
+    final stars   = (m['starRating'] as num?)?.toInt() ?? (score / 20).round().clamp(1, 5);
+    final summary = m['performanceSummary'] as String?;
+    final factors = (m['factors'] as List?) ?? [];
+    final issues  = (m['issues'] as List?) ?? [];
+    final strengths = (m['strengths'] as List?) ?? [];
+    final suggestions = (m['suggestions'] as List?) ?? [];
+    final color   = _scoreColor(score);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: ds.bgCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: ds.border),
+      ),
+      child: Column(children: [
+        // Header row — always visible
+        InkWell(
+          onTap: () => setState(() => _expanded = !_expanded),
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(children: [
+              // Score ring
+              SizedBox(
+                width: 44, height: 44,
+                child: Stack(alignment: Alignment.center, children: [
+                  CircularProgressIndicator(
+                    value: score / 100,
+                    strokeWidth: 4,
+                    backgroundColor: color.withOpacity(0.15),
+                    valueColor: AlwaysStoppedAnimation(color),
+                  ),
+                  Text('$score', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: color)),
+                ]),
+              ),
+              const SizedBox(width: 10),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(name, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: ds.textPrimary)),
+                const SizedBox(height: 2),
+                Row(children: List.generate(5, (i) => Icon(
+                  i < stars ? Icons.star_rounded : Icons.star_outline_rounded,
+                  size: 12,
+                  color: i < stars ? AppColors.ragAmber : ds.textMuted,
+                ))),
+              ])),
+              Icon(_expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                  size: 18, color: ds.textMuted),
+            ]),
+          ),
+        ),
+
+        // Expanded detail
+        if (_expanded) ...[
+          Divider(height: 1, color: ds.border),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              if (summary != null) ...[
+                Text(summary, style: TextStyle(fontSize: 12, color: ds.textSecondary, height: 1.4)),
+                const SizedBox(height: 10),
+              ],
+
+              // Factors
+              if (factors.isNotEmpty) ...[
+                Text('FACTORS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+                    color: ds.textMuted, letterSpacing: 1)),
+                const SizedBox(height: 6),
+                ...factors.map((f) {
+                  final fm = f as Map<String, dynamic>;
+                  final fs = (fm['score'] as num?)?.toInt() ?? 0;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [
+                        Expanded(child: Text(fm['name'] as String? ?? '',
+                            style: TextStyle(fontSize: 11, color: ds.textSecondary))),
+                        Text('$fs%', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
+                            color: _scoreColor(fs))),
+                      ]),
+                      const SizedBox(height: 3),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: fs / 100,
+                          minHeight: 5,
+                          backgroundColor: ds.border,
+                          valueColor: AlwaysStoppedAnimation(_scoreColor(fs)),
+                        ),
+                      ),
+                    ]),
+                  );
+                }),
+                const SizedBox(height: 8),
+              ],
+
+              // Issues
+              if (issues.isNotEmpty) ...[
+                Text('ISSUES', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+                    color: ds.textMuted, letterSpacing: 1)),
+                const SizedBox(height: 6),
+                ...issues.map((iss) {
+                  final im = iss as Map<String, dynamic>;
+                  final sev = im['severity'] as String?;
+                  final sc = _severityColor(sev);
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 5),
+                    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Container(
+                        margin: const EdgeInsets.only(top: 1),
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: sc.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text((sev ?? 'low').toUpperCase(),
+                            style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: sc)),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(child: Text(im['problem'] as String? ?? '',
+                          style: TextStyle(fontSize: 12, color: ds.textPrimary))),
+                    ]),
+                  );
+                }),
+                const SizedBox(height: 8),
+              ],
+
+              // Strengths
+              if (strengths.isNotEmpty) ...[
+                Text('STRENGTHS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+                    color: ds.textMuted, letterSpacing: 1)),
+                const SizedBox(height: 6),
+                ...strengths.map((s) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Icon(Icons.check_circle_outline_rounded, size: 13, color: AppColors.ragGreen),
+                    const SizedBox(width: 6),
+                    Expanded(child: Text(s.toString(),
+                        style: TextStyle(fontSize: 12, color: ds.textSecondary))),
+                  ]),
+                )),
+                const SizedBox(height: 8),
+              ],
+
+              // Suggestions
+              if (suggestions.isNotEmpty) ...[
+                Text('SUGGESTIONS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+                    color: ds.textMuted, letterSpacing: 1)),
+                const SizedBox(height: 6),
+                ...suggestions.asMap().entries.map((e) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Container(
+                      width: 16, height: 16,
+                      margin: const EdgeInsets.only(top: 1),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryLight.withOpacity(0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(child: Text('${e.key + 1}',
+                          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700,
+                              color: AppColors.primaryLight))),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(child: Text(e.value.toString(),
+                        style: TextStyle(fontSize: 12, color: ds.textSecondary))),
+                  ]),
+                )),
+              ],
+            ]),
+          ),
+        ],
+      ]),
+    );
   }
 }
 

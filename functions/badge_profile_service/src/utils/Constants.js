@@ -177,6 +177,11 @@ const TABLES = Object.freeze({
   PERMISSION_OVERRIDES: 'permission_overrides', FEATURE_FLAGS: 'feature_flags',
   PROJECT_PERMISSIONS: 'project_permissions',
   NOTIFICATION_PREFERENCES: 'notification_preferences',
+  // Org roles — for permission resolution in AuthMiddleware
+  ORG_ROLES: 'org_roles',
+  USER_ORG_ROLES: 'user_org_roles',
+  ORG_ROLE_PERMISSIONS: 'org_role_permissions',
+  ORG_SHARING_RULES: 'org_sharing_rules',
 });
 
 // ─── Status Enums ─────────────────────────────────────────────────────────────

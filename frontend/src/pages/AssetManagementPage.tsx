@@ -17,6 +17,7 @@ import Badge from '../components/ui/Badge';
 import EmptyState from '../components/ui/EmptyState';
 import { SkeletonTable, SkeletonCard } from '../components/ui/Skeleton';
 import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import UserAvatar from '../components/ui/UserAvatar';
 import {
   useAssetCategories, useCreateCategory, useAssetInventory, useAvailableAssets, useMyAssets,
@@ -117,7 +118,6 @@ interface MaintenanceFormData {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const ADMIN_ROLES = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
 
 const assetStatusVariant = (status: AssetStatus) => {
   const map: Record<AssetStatus, 'success' | 'default' | 'warning' | 'gray'> = {
@@ -1715,7 +1715,7 @@ const AssetManagementPage = () => {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const [activeTab, setActiveTab] = useState<Tab>('my-assets');
 
-  const isAdmin = user?.role ? ADMIN_ROLES.includes(user.role) : false;
+  const isAdmin = hasPermission(user, PERMISSIONS.ASSET_ADMIN);
 
   const { data: categories = [] } = useAssetCategories();
   const { data: availableAssets = [] } = useAvailableAssets();

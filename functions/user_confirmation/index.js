@@ -1,13 +1,18 @@
 /**
  * user_confirmation — Zoho Catalyst Event Function
  *
- * Triggered by the UserManagement event when a user confirms their account.
+ * Triggered by the UserManagement event (action: UserConfirmation) when a
+ * user confirms their account email.
  *
  * What it does:
- *  1. Validates the event payload (is_confirmed must be true)
+ *  1. Reads the Catalyst user ID from event.getSourceEntityId()
  *  2. Looks up the user row in the `users` table by catalyst_user_id
  *  3. Updates the user's status from INVITED → ACTIVE
  *  4. Writes a structured audit log entry to `audit_logs`
+ *
+ * NOTE: Catalyst UserManagement events do NOT populate event.getData() — the
+ * user payload is not in event.data. The only reliable identifier is the
+ * entity ID returned by event.getSourceEntityId().
  *
  * @param {import('./types/event').EventDetails} event
  * @param {import('./types/event').Context} context
@@ -17,41 +22,68 @@ const catalyst = require('zcatalyst-sdk-node');
 
 module.exports = async (event, context) => {
   try {
-    const app       = catalyst.initialize(context);
-    const datastore = app.datastore();
-    const zcql      = app.zcql();
+    const app = catalyst.initialize(context);
 
-	console.log("EVENT DATA ---",event);
+    // ── Unpack all available event fields for diagnostics ───────────────────
+    const source   = typeof event.getSource         === 'function' ? event.getSource()         : null;
+    const action   = typeof event.getAction         === 'function' ? event.getAction()         : null;
+    const entityId = typeof event.getSourceEntityId === 'function' ? event.getSourceEntityId() : null;
+    const rawData  = typeof event.getRawData        === 'function' ? event.getRawData()        : null;
+    const evtData  = typeof event.getData           === 'function' ? event.getData()           : null;
 
-    const userDetails = event.getData();
-    console.log('[user_confirmation] event data:', JSON.stringify(userDetails));
+    console.log('[user_confirmation] source:', source, '| action:', action, '| entityId:', entityId);
+    console.log('[user_confirmation] getData:', JSON.stringify(evtData));
+    console.log('[user_confirmation] getRawData:', JSON.stringify(rawData));
 
-    // ── 1. Guard: only proceed for confirmed users ───────────────────────────
-    if (!userDetails || userDetails.is_confirmed !== true) {
-      console.log('[user_confirmation] Not a confirmed-user event. Skipping.');
+    // ── 1. Guard: only proceed for UserConfirmation action ──────────────────
+    // Catalyst fires this function for all UserManagement events if configured
+    // broadly; skip anything that isn't a confirmation.
+    if (action && !String(action).toLowerCase().includes('confirm')) {
+      console.log(`[user_confirmation] Action "${action}" is not a confirmation event. Skipping.`);
       return context.closeWithSuccess();
     }
 
-    const { user_id, email_id } = userDetails;
+    // ── 2. Resolve catalyst user ID ─────────────────────────────────────────
+    // Priority:
+    //   a) getSourceEntityId() — the standard carrier for UserManagement events
+    //   b) getData().user_id   — populated in some SDK versions
+    //   c) getRawData().user_id — populated via Signals-style payloads
+    let catalystUserId =
+      entityId ||
+      (evtData  && evtData.user_id)  ||
+      (rawData  && rawData.user_id)  ||
+      null;
 
-    if (!user_id) {
-      console.warn('[user_confirmation] user_id missing in event payload. Skipping.');
+    if (!catalystUserId) {
+      console.warn('[user_confirmation] Could not determine catalyst_user_id from event. Skipping.');
       return context.closeWithSuccess();
     }
 
-    // ── 2. Fetch matching row from users table ───────────────────────────────
-    const fetchQuery = `
-      SELECT ROWID, status, tenant_id
-      FROM users
-      WHERE catalyst_user_id = ${user_id}
-      LIMIT 1
-    `;
+    catalystUserId = String(catalystUserId);
 
-    const result = await zcql.executeZCQLQuery(fetchQuery);
+    // ── 3. Try to get the user email for logging (best-effort via API) ──────
+    let userEmail = (evtData && evtData.email_id) || (rawData && rawData.email_id) || null;
+    if (!userEmail) {
+      try {
+        const umUser = await app.userManagement().getUserDetails(catalystUserId);
+        userEmail = umUser.email_id;
+      } catch (umErr) {
+        console.warn('[user_confirmation] Could not fetch user email from UserManagement:', umErr.message);
+      }
+    }
+
+    console.log(`[user_confirmation] Processing confirmation for catalystUserId=${catalystUserId} email=${userEmail}`);
+
+    // ── 4. Fetch matching row from users table ───────────────────────────────
+    const zcql   = app.zcql();
+    const result = await zcql.executeZCQLQuery(
+      `SELECT ROWID, status, tenant_id FROM users WHERE catalyst_user_id = ${catalystUserId} LIMIT 1`
+    );
+
     console.log('[user_confirmation] ZCQL result:', JSON.stringify(result));
 
     if (!result || result.length === 0) {
-      console.warn(`[user_confirmation] No user row found for catalyst_user_id=${user_id}. Skipping.`);
+      console.warn(`[user_confirmation] No user row found for catalyst_user_id=${catalystUserId}. Skipping.`);
       return context.closeWithSuccess();
     }
 
@@ -62,37 +94,32 @@ module.exports = async (event, context) => {
 
     // Avoid unnecessary write if already ACTIVE
     if (oldStatus === 'ACTIVE') {
-      console.log(`[user_confirmation] User ${email_id} is already ACTIVE. Skipping update.`);
+      console.log(`[user_confirmation] User ${userEmail} (ROWID=${rowId}) is already ACTIVE. Skipping.`);
       return context.closeWithSuccess();
     }
 
-    // ── 3. Update status → ACTIVE ────────────────────────────────────────────
+    // ── 5. Update status → ACTIVE ────────────────────────────────────────────
+    const datastore  = app.datastore();
     const usersTable = datastore.table('users');
 
-    const updated = await usersTable.updateRow({
-      ROWID:  rowId,
-      status: 'ACTIVE',
-    });
+    await usersTable.updateRow({ ROWID: rowId, status: 'ACTIVE' });
+    console.log(`[user_confirmation] User ${userEmail} (ROWID=${rowId}) status updated: ${oldStatus} → ACTIVE`);
 
-    console.log(`[user_confirmation] User ${email_id} status updated: ${oldStatus} → ACTIVE`, updated);
-
-    // ── 4. Write audit log ───────────────────────────────────────────────────
+    // ── 6. Write audit log ───────────────────────────────────────────────────
     try {
       const auditTable = datastore.table('audit_logs');
-
       await auditTable.insertRow({
-        tenant_id:   String(tenantId  ?? ''),
-        entity_type: 'USER',
-        entity_id:   String(rowId),
-        action:      'STATUS_CHANGE',
-        old_value:   JSON.stringify({ status: oldStatus ?? 'INVITED' }),
-        new_value:   JSON.stringify({ status: 'ACTIVE' }),
-        performed_by: String(rowId),   // system action performed in context of the user
+        tenant_id:    String(tenantId ?? ''),
+        entity_type:  'USER',
+        entity_id:    String(rowId),
+        action:       'STATUS_CHANGE',
+        old_value:    JSON.stringify({ status: oldStatus ?? 'INVITED' }),
+        new_value:    JSON.stringify({ status: 'ACTIVE' }),
+        performed_by: String(rowId),
       });
-
-      console.log(`[user_confirmation] Audit log written for user ${email_id} (ROWID=${rowId})`);
+      console.log(`[user_confirmation] Audit log written for user ${userEmail} (ROWID=${rowId})`);
     } catch (auditErr) {
-      // Audit failure must NOT prevent the status update from being considered successful
+      // Audit failure must NOT prevent the status update being considered successful
       console.error('[user_confirmation] Audit log insert failed (non-fatal):', auditErr.message);
     }
 

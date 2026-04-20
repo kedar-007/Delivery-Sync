@@ -18,6 +18,11 @@ import Modal, { ModalActions } from '../components/ui/Modal';
 import { useProjects } from '../hooks/useProjects';
 import { useCreateSprint } from '../hooks/useTaskSprint';
 import { sprintsApi } from '../lib/api';
+import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
+import { useUsers } from '../hooks/useUsers';
+import UserAvatar from '../components/ui/UserAvatar';
+import { X, Check } from 'lucide-react';
 
 interface Sprint {
   id: string;
@@ -219,6 +224,8 @@ function StatsBar({
 
 export default function SprintsPage() {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
+  const { user } = useAuth();
+  const isOrgWide = hasPermission(user, PERMISSIONS.ORG_ROLE_READ);
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [projectSearch, setProjectSearch] = useState('');
@@ -231,6 +238,10 @@ export default function SprintsPage() {
   const [createError, setCreateError] = useState('');
 
   const { data: rawProjects = [], isLoading: projectsLoading, error: projectsError } = useProjects();
+  const { data: usersData = [] } = useUsers();
+  const allUsers = usersData as Array<{ id: string; name: string; email: string; avatarUrl?: string }>;
+  const [memberSearch, setMemberSearch] = useState('');
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const createSprint = useCreateSprint();
   const {
     data: allSprints = [],
@@ -321,6 +332,8 @@ export default function SprintsPage() {
     if (createSprint.isPending) return;
     setShowCreate(false);
     setCreateError('');
+    setSelectedMembers([]);
+    setMemberSearch('');
   };
 
   const handleCreateSprint = async (e: FormEvent<HTMLFormElement>) => {
@@ -348,12 +361,15 @@ export default function SprintsPage() {
         start_date: startDate,
         end_date: endDate,
         capacity_points: Number(capacityPoints) || 0,
+        member_ids: selectedMembers,
       });
       setShowCreate(false);
       setProjectSearch('');
       setSelectedProjectId('');
       setName('');
       setGoal('');
+      setSelectedMembers([]);
+      setMemberSearch('');
       setStartDate(format(new Date(), 'yyyy-MM-dd'));
       setEndDate(format(addDays(new Date(), 14), 'yyyy-MM-dd'));
       setCapacityPoints('0');
@@ -410,10 +426,14 @@ export default function SprintsPage() {
 
         {projectsWithSprints.length === 0 ? (
           <EmptyState
-            title="No sprint boards yet"
-            description="Create a sprint for any project to start using Sprint Boards."
+            title={isOrgWide ? 'No sprint boards yet' : 'You are not part of any sprint'}
+            description={
+              isOrgWide
+                ? 'Create a sprint for any project to start using Sprint Boards.'
+                : 'Ask your team lead or admin to add you to a sprint. Sprints you are assigned to will appear here.'
+            }
             icon={<GitBranch size={32} className="text-gray-300" />}
-            action={<Button onClick={openCreate} icon={<Plus size={14} />}>Create Sprint</Button>}
+            action={isOrgWide ? <Button onClick={openCreate} icon={<Plus size={14} />}>Create Sprint</Button> : undefined}
           />
         ) : filteredProjects.length === 0 ? (
           <EmptyState
@@ -530,9 +550,53 @@ export default function SprintsPage() {
             </div>
           </div>
 
+          {/* Sprint Members */}
+          <div>
+            <label className="form-label">Sprint Members <span className="text-gray-400 font-normal">(optional)</span></label>
+            {selectedMembers.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {selectedMembers.map((uid) => {
+                  const u = allUsers.find((x) => String(x.id) === uid);
+                  return (
+                    <span key={uid} className="inline-flex items-center gap-1 text-xs bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-full pl-1 pr-1.5 py-0.5">
+                      <UserAvatar name={u?.name ?? uid} avatarUrl={u?.avatarUrl} size="xs" />
+                      {u?.name ?? uid}
+                      <button type="button" onClick={() => setSelectedMembers((s) => s.filter((x) => x !== uid))} className="ml-0.5 text-indigo-400 hover:text-indigo-700"><X size={10} /></button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+            <div className="relative mb-1.5">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input className="form-input pl-8 py-1.5 text-sm" placeholder="Search team members…"
+                value={memberSearch} onChange={(e) => setMemberSearch(e.target.value)} />
+            </div>
+            <div className="flex flex-wrap gap-1.5 p-2 bg-gray-50 border border-gray-200 rounded-lg max-h-32 overflow-y-auto">
+              {allUsers
+                .filter((u) => u.name.toLowerCase().includes(memberSearch.toLowerCase()) || u.email.toLowerCase().includes(memberSearch.toLowerCase()))
+                .slice(0, 30)
+                .map((u) => {
+                  const id = String(u.id);
+                  const sel = selectedMembers.includes(id);
+                  return (
+                    <button key={id} type="button"
+                      onClick={() => setSelectedMembers((s) => sel ? s.filter((x) => x !== id) : [...s, id])}
+                      className={`inline-flex items-center gap-1.5 text-xs rounded-full px-2 py-1 border transition-all ${sel ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-200 hover:border-indigo-400 hover:text-indigo-600'}`}>
+                      <UserAvatar name={u.name} avatarUrl={u.avatarUrl} size="xs" />
+                      {u.name}
+                      {sel && <Check size={9} />}
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+
           <ModalActions>
             <Button variant="outline" type="button" onClick={closeCreate}>Cancel</Button>
-            <Button type="submit" loading={createSprint.isPending}>Create Sprint</Button>
+            <Button type="submit" loading={createSprint.isPending}>
+              Create Sprint{selectedMembers.length > 0 ? ` & Add ${selectedMembers.length} Member${selectedMembers.length > 1 ? 's' : ''}` : ''}
+            </Button>
           </ModalActions>
         </form>
       </Modal>

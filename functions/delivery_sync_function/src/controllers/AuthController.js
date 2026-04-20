@@ -14,12 +14,43 @@ class AuthController {
 
   /**
    * GET /api/auth/me
-   * Returns the current authenticated user's DS profile.
+   * Returns the current authenticated user's DS profile with effective permissions.
+   * Permissions = base role defaults + org role permissions (org overrides loaded by AuthMiddleware).
+   * Individual per-user overrides are excluded here for speed; use /admin/my-permissions for the full set.
    */
   async getCurrentUser(req, res) {
-
     try {
-      return ResponseHelper.success(res, { user: req.currentUser });
+      const { ROLE_PERMISSIONS, TABLES } = require('../utils/Constants');
+      const user = req.currentUser;
+      // Permission resolution:
+      //   - TENANT_ADMIN / SUPER_ADMIN   → system role permissions (full access)
+      //   - Has org role assigned        → ONLY org role permissions (org role is the sole source)
+      //   - No org role (plain member)   → base TEAM_MEMBER system-role permissions
+      // Individual per-user grants/revokes are applied on top regardless.
+      const basePerms = user.orgRoleId
+        ? (user.orgRolePermissions || [])
+        : (ROLE_PERMISSIONS[user.role] || []);
+      const base = new Set(basePerms);
+      // Per-user additional grants / revokes (on top of org role)
+      try {
+        const overrides = await this.db.query(
+          `SELECT permissions FROM ${TABLES.PERMISSION_OVERRIDES} ` +
+          `WHERE tenant_id = '${user.tenantId}' AND user_id = '${user.id}' AND is_active = 'true' LIMIT 1`
+        );
+        if (overrides.length > 0) {
+          const parsed = JSON.parse(overrides[0].permissions || '{}');
+          (parsed.granted || []).forEach((p) => base.add(p));
+          (parsed.revoked || []).forEach((p) => base.delete(p));
+        }
+      } catch (_) {}
+      const permissionsArray = Array.from(base);
+      console.log(`[AuthController] /me user=${user.id} role=${user.role} orgRoleId=${user.orgRoleId} orgRoleName=${user.orgRoleName} orgPermsCount=${(user.orgRolePermissions||[]).length} totalPerms=${permissionsArray.length}`);
+      return ResponseHelper.success(res, {
+        user: {
+          ...user,
+          permissions: permissionsArray,
+        },
+      });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }

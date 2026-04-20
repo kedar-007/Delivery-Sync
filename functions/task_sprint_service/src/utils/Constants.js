@@ -50,6 +50,7 @@ const PERMISSIONS = Object.freeze({
   // Org & Config
   ORG_READ: 'ORG_READ', ORG_WRITE: 'ORG_WRITE',
   CONFIG_READ: 'CONFIG_READ', CONFIG_WRITE: 'CONFIG_WRITE',
+  ORG_ROLE_READ: 'ORG_ROLE_READ', ORG_ROLE_WRITE: 'ORG_ROLE_WRITE',
 });
 
 // ─── Role → Permission Matrix ─────────────────────────────────────────────────
@@ -177,6 +178,9 @@ const TABLES = Object.freeze({
   WORKFLOW_CONFIGS: 'workflow_configs', FORM_CONFIGS: 'form_configs',
   PERMISSION_OVERRIDES: 'permission_overrides', FEATURE_FLAGS: 'feature_flags',
   PROJECT_PERMISSIONS: 'project_permissions',
+  // RBAC
+  USER_ORG_ROLES: 'user_org_roles', ORG_ROLES: 'org_roles',
+  ORG_ROLE_PERMISSIONS: 'org_role_permissions', ORG_SHARING_RULES: 'org_sharing_rules',
   NOTIFICATION_PREFERENCES: 'notification_preferences',
 });
 

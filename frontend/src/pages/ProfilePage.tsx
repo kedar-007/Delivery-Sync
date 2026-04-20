@@ -3,12 +3,14 @@ import { useForm } from 'react-hook-form';
 import {
   Camera, Save, User, Mail, Shield, Check, CheckCircle, XCircle,
   Phone, Briefcase, BookOpen, Calendar, FileText, AlertTriangle, LogOut,
+  BarChart2,
 } from 'lucide-react';
-import { canDo, PERMISSIONS } from '../utils/permissions';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
 import Alert from '../components/ui/Alert';
+import PerformanceModal from '../components/ui/PerformanceModal';
 import {
   useMyProfile, useUpdateProfile, useUploadAvatar,
   useMyExtendedProfile, useUpdateExtendedProfile, useUploadProfileFile,
@@ -57,6 +59,7 @@ const ProfilePage = () => {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [emailError, setEmailError] = useState('');
   const [emailConfirmOpen, setEmailConfirmOpen] = useState(false);
+  const [showPerfModal, setShowPerfModal] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [extSaveSuccess, setExtSaveSuccess] = useState(false);
@@ -444,6 +447,14 @@ const ProfilePage = () => {
                 {profile?.status ?? 'ACTIVE'}
               </span>
             </div>
+            {authUser?.orgRoleName && (
+              <div className="flex items-center justify-between py-2 border-b border-gray-50">
+                <span className="text-sm text-gray-500">Org Role</span>
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                  {authUser.orgRoleName}
+                </span>
+              </div>
+            )}
             <div className="flex items-center justify-between py-2 border-b border-gray-50">
               <span className="text-sm text-gray-500">Authentication</span>
               <span className="text-xs text-gray-600 flex items-center gap-1">
@@ -460,12 +471,40 @@ const ProfilePage = () => {
           </div>
         </div>
 
+        {/* AI Performance Analysis */}
+        {hasPermission(authUser, PERMISSIONS.AI_PERFORMANCE) && (
+          <div className="bg-gradient-to-br from-indigo-50 to-violet-50 rounded-2xl border border-indigo-100 shadow-sm p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                  <BarChart2 size={15} className="text-indigo-500" /> AI Performance Analysis
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Get an AI-powered breakdown of your performance — star rating, factor scores, strengths, areas to improve, and personalised suggestions.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowPerfModal(true)}
+                className="shrink-0 inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors"
+              >
+                <BarChart2 size={13} /> Analyse My Performance
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Permissions */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
           <h3 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
             <Shield size={15} className="text-gray-400" /> My Permissions
           </h3>
-          <p className="text-xs text-gray-500 mb-4">Based on your <span className="font-medium text-gray-700">{(profile?.role ?? authUser?.role ?? '').replace(/_/g, ' ')}</span> role</p>
+          <p className="text-xs text-gray-500 mb-4">
+            Based on your{' '}
+            <span className="font-medium text-gray-700">
+              {authUser?.orgRoleName ?? (authUser?.role ?? '').replace(/_/g, ' ')}
+            </span>{' '}
+            role{authUser?.orgRoleName ? <span className="text-gray-400"> (via org role)</span> : null}
+          </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {[
               { label: 'View Projects', perm: PERMISSIONS.PROJECT_READ },
@@ -481,7 +520,7 @@ const ProfilePage = () => {
               { label: 'Invite Users', perm: PERMISSIONS.INVITE_USER },
               { label: 'Admin Panel', perm: PERMISSIONS.ADMIN_USERS },
             ].map(({ label, perm }) => {
-              const allowed = canDo(profile?.role ?? authUser?.role, perm);
+              const allowed = hasPermission(authUser, perm);
               return (
                 <div key={perm} className={`flex items-center gap-2 px-3 py-2 rounded-lg ${allowed ? 'bg-green-50' : 'bg-gray-50'}`}>
                   {allowed
@@ -495,6 +534,15 @@ const ProfilePage = () => {
         </div>
 
       </div>
+
+      {showPerfModal && authUser && (
+        <PerformanceModal
+          open={showPerfModal}
+          onClose={() => setShowPerfModal(false)}
+          targetUserId={authUser.id}
+          targetName={authUser.name}
+        />
+      )}
     </Layout>
   );
 };

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
@@ -8,6 +9,7 @@ import '../../../../core/services/api_client.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/widgets/ds_metric_card.dart';
 import '../../../../shared/widgets/user_avatar.dart';
+import '../../../auth/providers/auth_provider.dart';
 
 // ── Providers ─────────────────────────────────────────────────────────────────
 
@@ -190,54 +192,437 @@ class _DirectoryTab extends ConsumerWidget {
   }
 }
 
-class _PersonTile extends StatelessWidget {
+class _PersonTile extends ConsumerWidget {
   const _PersonTile(this.person);
   final Map<String, dynamic> person;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final ds       = context.ds;
-    final name   = person['name']      as String? ?? '—';
-    final email  = person['email']     as String? ?? '';
-    final role   = person['role']      as String? ?? '';
-    final avatar = person['avatarUrl'] as String?;
+    final name     = person['name']      as String? ?? '—';
+    final email    = person['email']     as String? ?? '';
+    final role     = person['role']      as String? ?? '';
+    final avatar   = person['avatarUrl'] as String?
+        ?? person['avatar_url'] as String?;
+    final userId   = (person['user_id'] ?? person['ROWID'] ?? person['id'] ?? '').toString();
+    final authUser = ref.watch(currentUserProvider);
+    // AI_TEAM_ANALYSIS = can analyze others; AI_PERFORMANCE alone = self-only via profile page
+    final canAnalyzeOthers = authUser?.hasPermission(Permissions.aiTeamAnalysis) ?? false;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: ds.bgCard,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: ds.border),
       ),
-      child: Row(
-        children: [
-          UserAvatar(name: name, avatarUrl: avatar, radius: 22),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name,
+      child: Column(children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              UserAvatar(name: name, avatarUrl: avatar, radius: 22),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name,
+                        style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                            color: ds.textPrimary)),
+                    const SizedBox(height: 2),
+                    Text(email,
+                        style: TextStyle(fontSize: 12, color: ds.textMuted),
+                        overflow: TextOverflow.ellipsis),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              _RoleChip(role),
+            ],
+          ),
+        ),
+        // Analyze Performance button — only visible to users with AI_PERFORMANCE permission
+        if (canAnalyzeOthers)
+          InkWell(
+            onTap: () => PerformanceSheet.show(
+              context,
+              userId: userId,
+              name: name,
+              avatarUrl: avatar,
+            ),
+            borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF7C3AED).withOpacity(0.06),
+                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
+                border: Border(top: BorderSide(color: ds.border)),
+              ),
+              child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(Icons.auto_awesome_rounded, size: 13, color: Color(0xFF7C3AED)),
+                SizedBox(width: 5),
+                Text('Analyse Performance',
                     style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                        color: ds.textPrimary)),
-                const SizedBox(height: 2),
-                Text(email,
-                    style: TextStyle(
-                        fontSize: 12, color: ds.textMuted),
-                    overflow: TextOverflow.ellipsis),
-              ],
+                        fontSize: 12, fontWeight: FontWeight.w600,
+                        color: Color(0xFF7C3AED))),
+              ]),
             ),
           ),
-          const SizedBox(width: 8),
-          _RoleChip(role),
-        ],
+      ]),
+    );
+  }
+}
+
+// ── Performance analysis bottom sheet ─────────────────────────────────────────
+
+class PerformanceSheet extends ConsumerStatefulWidget {
+  const PerformanceSheet({
+    super.key,
+    required this.userId,
+    required this.name,
+    this.avatarUrl,
+  });
+  final String userId;
+  final String name;
+  final String? avatarUrl;
+
+  static void show(BuildContext context, {
+    required String userId,
+    required String name,
+    String? avatarUrl,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ProviderScope(
+        child: PerformanceSheet(userId: userId, name: name, avatarUrl: avatarUrl),
       ),
     );
   }
 
+  @override
+  ConsumerState<PerformanceSheet> createState() => _PerformanceSheetState();
+}
+
+class _PerformanceSheetState extends ConsumerState<PerformanceSheet> {
+  late Future<Map<String, dynamic>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _fetchPerformance();
+  }
+
+  Future<Map<String, dynamic>> _fetchPerformance() async {
+    final raw = await ApiClient.instance.post<Map<String, dynamic>>(
+      '${AppConstants.baseAI}/performance',
+      data: {'userId': widget.userId},
+      fromJson: (r) => r as Map<String, dynamic>,
+    );
+    final d = raw['data'];
+    if (d is Map<String, dynamic>) return d;
+    return {};
+  }
+
+  static Color _scoreColor(int score) => score >= 80
+      ? AppColors.ragGreen
+      : score >= 60 ? AppColors.ragAmber : AppColors.ragRed;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds = context.ds;
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      maxChildSize: 0.95,
+      minChildSize: 0.4,
+      builder: (_, ctrl) => Container(
+        decoration: BoxDecoration(
+          color: ds.bgCard,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(children: [
+          // Drag handle
+          Center(
+            child: Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              width: 36, height: 4,
+              decoration: BoxDecoration(
+                color: ds.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+
+          // Header with avatar + sparkles badge
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+            child: Row(children: [
+              Stack(children: [
+                UserAvatar(name: widget.name, avatarUrl: widget.avatarUrl, radius: 24),
+                Positioned(
+                  bottom: 0, right: 0,
+                  child: Container(
+                    width: 18, height: 18,
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Color(0xFF7C3AED), Color(0xFF4F46E5)],
+                        begin: Alignment.topLeft, end: Alignment.bottomRight,
+                      ),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.auto_awesome_rounded,
+                        size: 10, color: Colors.white),
+                  ),
+                ),
+              ]),
+              const SizedBox(width: 12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(widget.name,
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: ds.textPrimary)),
+                Text('AI Performance Analysis',
+                    style: TextStyle(fontSize: 12, color: ds.textMuted)),
+              ])),
+            ]),
+          ),
+
+          Divider(height: 1, color: ds.border),
+
+          // Content
+          Expanded(
+            child: FutureBuilder<Map<String, dynamic>>(
+              future: _future,
+              builder: (_, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const Center(child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation(Color(0xFF7C3AED)),
+                      ),
+                      SizedBox(height: 12),
+                      Text('Analysing performance…', style: TextStyle(color: Colors.grey)),
+                    ],
+                  ));
+                }
+                if (snap.hasError) {
+                  return Center(child: Text('Error: ${snap.error}',
+                      style: const TextStyle(color: AppColors.error)));
+                }
+                final d = snap.data ?? {};
+                if (d.isEmpty) {
+                  return const Center(child: Text('No performance data available',
+                      style: TextStyle(color: Colors.grey)));
+                }
+                return _PerfContent(data: d, scoreColor: _scoreColor);
+              },
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+class _PerfContent extends StatelessWidget {
+  const _PerfContent({required this.data, required this.scoreColor});
+  final Map<String, dynamic> data;
+  final Color Function(int) scoreColor;
+
+  static Color _severityColor(String? s) => switch (s?.toLowerCase()) {
+    'high'   => AppColors.ragRed,
+    'medium' => AppColors.ragAmber,
+    _        => AppColors.ragGreen,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final ds          = context.ds;
+    final score       = (data['score'] as num?)?.toInt() ?? 0;
+    final stars       = (data['starRating'] as num?)?.toInt() ?? (score / 20).round().clamp(1, 5);
+    final summary     = data['performanceSummary'] as String?;
+    final factors     = (data['factors'] as List?) ?? [];
+    final issues      = (data['issues'] as List?) ?? [];
+    final strengths   = (data['strengths'] as List?) ?? [];
+    final suggestions = (data['suggestions'] as List?) ?? [];
+    final color       = scoreColor(score);
+
+    return ListView(
+      controller: null,
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+      children: [
+        // Score ring + stars
+        Center(
+          child: Column(children: [
+            SizedBox(
+              width: 80, height: 80,
+              child: Stack(alignment: Alignment.center, children: [
+                CircularProgressIndicator(
+                  value: score / 100,
+                  strokeWidth: 6,
+                  backgroundColor: color.withOpacity(0.15),
+                  valueColor: AlwaysStoppedAnimation(color),
+                ),
+                Column(mainAxisSize: MainAxisSize.min, children: [
+                  Text('$score', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: color)),
+                  Text('/100', style: TextStyle(fontSize: 9, color: ds.textMuted)),
+                ]),
+              ]),
+            ),
+            const SizedBox(height: 8),
+            Row(mainAxisSize: MainAxisSize.min, children: List.generate(5, (i) => Icon(
+              i < stars ? Icons.star_rounded : Icons.star_outline_rounded,
+              size: 20,
+              color: i < stars ? AppColors.ragAmber : ds.textMuted,
+            ))),
+            const SizedBox(height: 4),
+            Text('$stars / 5 stars', style: TextStyle(fontSize: 12, color: ds.textMuted)),
+          ]),
+        ).animate().fadeIn(duration: 400.ms).scale(begin: const Offset(0.9, 0.9)),
+
+        const SizedBox(height: 16),
+
+        if (summary != null) ...[
+          Text(summary, style: TextStyle(fontSize: 13, color: ds.textPrimary, height: 1.5),
+              textAlign: TextAlign.center),
+          const SizedBox(height: 16),
+        ],
+
+        // Factors
+        if (factors.isNotEmpty) ...[
+          _SectionLabel('PERFORMANCE FACTORS'),
+          const SizedBox(height: 8),
+          ...factors.map((f) {
+            final fm = f as Map<String, dynamic>;
+            final fs = (fm['score'] as num?)?.toInt() ?? 0;
+            final fc = scoreColor(fs);
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Expanded(child: Text(fm['name'] as String? ?? '',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: ds.textPrimary))),
+                  Text('$fs%', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: fc)),
+                ]),
+                const SizedBox(height: 4),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: fs / 100, minHeight: 6,
+                    backgroundColor: ds.border,
+                    valueColor: AlwaysStoppedAnimation(fc),
+                  ),
+                ),
+                if (fm['detail'] != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(fm['detail'] as String,
+                        style: TextStyle(fontSize: 10, color: ds.textMuted)),
+                  ),
+              ]),
+            );
+          }),
+          const SizedBox(height: 8),
+        ],
+
+        // Issues
+        if (issues.isNotEmpty) ...[
+          _SectionLabel('ISSUES'),
+          const SizedBox(height: 8),
+          ...issues.map((iss) {
+            final im  = iss as Map<String, dynamic>;
+            final sev = im['severity'] as String?;
+            final sc  = _severityColor(sev);
+            return Container(
+              margin: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: sc.withOpacity(0.07),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: sc.withOpacity(0.2)),
+              ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: sc.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text((sev ?? 'low').toUpperCase(),
+                        style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: sc)),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(child: Text(im['problem'] as String? ?? '',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: ds.textPrimary))),
+                ]),
+                if (im['evidence'] != null) ...[
+                  const SizedBox(height: 4),
+                  Text(im['evidence'] as String,
+                      style: TextStyle(fontSize: 11, color: ds.textSecondary)),
+                ],
+              ]),
+            );
+          }),
+          const SizedBox(height: 8),
+        ],
+
+        // Strengths
+        if (strengths.isNotEmpty) ...[
+          _SectionLabel('STRENGTHS'),
+          const SizedBox(height: 8),
+          ...strengths.map((s) => Padding(
+            padding: const EdgeInsets.only(bottom: 5),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Icon(Icons.check_circle_outline_rounded, size: 14, color: AppColors.ragGreen),
+              const SizedBox(width: 6),
+              Expanded(child: Text(s.toString(),
+                  style: TextStyle(fontSize: 12, color: ds.textPrimary))),
+            ]),
+          )),
+          const SizedBox(height: 8),
+        ],
+
+        // Suggestions
+        if (suggestions.isNotEmpty) ...[
+          _SectionLabel('SUGGESTIONS'),
+          const SizedBox(height: 8),
+          ...suggestions.asMap().entries.map((e) => Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Container(
+                width: 18, height: 18,
+                decoration: const BoxDecoration(
+                  color: Color(0x1F7C3AED),
+                  shape: BoxShape.circle,
+                ),
+                child: Center(child: Text('${e.key + 1}',
+                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+                        color: Color(0xFF7C3AED)))),
+              ),
+              const SizedBox(width: 8),
+              Expanded(child: Text(e.value.toString(),
+                  style: TextStyle(fontSize: 12, color: ds.textSecondary))),
+            ]),
+          )),
+        ],
+      ],
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Text(text,
+      style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+          color: context.ds.textMuted, letterSpacing: 1));
 }
 
 class _RoleChip extends StatelessWidget {

@@ -16,7 +16,7 @@ async function getUserOverrides(req) {
     const rows = await db.query(
       `SELECT permissions FROM ${TABLES.PERMISSION_OVERRIDES} ` +
       `WHERE tenant_id = '${req.currentUser.tenantId}' ` +
-      `AND user_id = '${req.currentUser.id}' AND is_active = true LIMIT 1`
+      `AND user_id = '${req.currentUser.id}' AND is_active = 'true' LIMIT 1`
     );
     if (rows.length === 0) {
       req._permOverrides = { granted: [], revoked: [] };
@@ -34,7 +34,13 @@ async function getUserOverrides(req) {
 }
 
 async function effectivePermissions(req) {
-  const base = new Set(ROLE_PERMISSIONS[req.currentUser.role] || []);
+  const user = req.currentUser;
+  if (Array.isArray(user.permissions) && user.permissions.length > 0) {
+    return new Set(user.permissions);
+  }
+  // Fallback: recompute when AuthMiddleware didn't populate permissions
+  const isFullAdmin = user.role === 'TENANT_ADMIN' || user.role === 'SUPER_ADMIN';
+  const base = new Set(isFullAdmin ? Object.values(require('../utils/Constants').PERMISSIONS || {}) : (ROLE_PERMISSIONS[user.role] || []));
   const { granted, revoked } = await getUserOverrides(req);
   granted.forEach((p) => base.add(p));
   revoked.forEach((p) => base.delete(p));

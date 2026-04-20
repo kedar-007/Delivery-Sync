@@ -30,6 +30,7 @@ const normaliseAttendance = (r: any) => ({
   name:                r.name              ?? '',
   email:               r.email             ?? '',
   avatarUrl:           r.avatar_url        ?? r.avatarUrl     ?? '',
+  breakSummary:        r.break_summary       ?? null,
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -217,6 +218,59 @@ export const useOverrideAttendance = () => {
   return useMutation({
     mutationFn: ({ recordId, data }: { recordId: string; data: unknown }) => attendanceApi.override(recordId, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['attendance'] }),
+  });
+};
+
+export const useBreakStart = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: unknown) => attendanceApi.breakStart(data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['attendance'] }),
+  });
+};
+
+export const useBreakEnd = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: unknown) => attendanceApi.breakEnd(data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['attendance'] }),
+  });
+};
+
+export const useBreakSummary = () =>
+  useQuery({
+    queryKey: ['attendance', 'break-summary'],
+    queryFn: () => attendanceApi.getBreakSummary(),
+    refetchInterval: 30000,
+  });
+
+export const useIpSettings = () =>
+  useQuery({ queryKey: ['attendance', 'ip-settings'], queryFn: () => attendanceApi.getIpSettings() });
+
+export const useUpdateIpSettings = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { enabled: boolean }) => attendanceApi.updateIpSettings(data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['attendance', 'ip-settings'] }),
+  });
+};
+
+export const useIpConfig = () =>
+  useQuery({ queryKey: ['attendance', 'ip-config'], queryFn: () => attendanceApi.getIpConfig() });
+
+export const useAddIpConfig = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: unknown) => attendanceApi.addIpConfig(data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['attendance', 'ip-config'] }),
+  });
+};
+
+export const useDeleteIpConfig = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (configId: string) => attendanceApi.deleteIpConfig(configId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['attendance', 'ip-config'] }),
   });
 };
 

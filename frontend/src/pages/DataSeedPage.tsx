@@ -91,20 +91,55 @@ const MODULE_GROUPS: ModuleGroup[] = [
       { key: 'badges', label: 'Badges & Awards', description: 'Creates 12 badge definitions (First Commit, Sprint Finisher, Blocker Buster, etc.) and awards them randomly to users.', defaultCount: 30, maxCount: 500 },
     ],
   },
+  {
+    label: 'Org Structure',
+    icon: <Shield size={16} />,
+    modules: [
+      {
+        key: 'org_roles',
+        label: 'Org Roles & Hierarchy Chart',
+        description: 'Seeds a 4-level tech company org chart: CEO → CTO → Managers → Engineers (15 roles with colour, description, permission sets, and user assignments). Re-running clears and re-creates cleanly.',
+        defaultCount: 15,
+        maxCount: 15,
+        noCount: true,
+      },
+    ],
+  },
 ];
 
-const ALL_CLEARABLE_KEYS = MODULE_GROUPS
-  .flatMap((g) => g.modules)
-  .filter((m) => m.key !== 'user_profiles')
-  .map((m) => m.key);
+const ALL_CLEARABLE_KEYS = [
+  ...MODULE_GROUPS
+    .flatMap((g) => g.modules)
+    .filter((m) => m.key !== 'user_profiles')
+    .map((m) => m.key),
+  // sub-tables cleared alongside org_roles
+  'org_role_perms',
+  'user_org_roles',
+  'org_sharing_rules',
+  'sprint_members',
+  'project_members',
+  // time & leave sub-tables not in MODULE_GROUPS
+  'time_approvals',
+  'leave_types',
+  'leave_requests',
+  'leave_balances',
+  // badge definitions are seeded by 'badges' module but cleared separately
+  'badge_defs',
+];
+
+// Keys safe to wipe for a clean permission/data-scope test run
+const SAFE_CLEAR_KEYS = ALL_CLEARABLE_KEYS.filter(
+  (k) => k !== 'user_profiles' && k !== 'org_roles' && k !== 'org_role_perms' && k !== 'user_org_roles' && k !== 'org_sharing_rules'
+);
 
 // ─── Stats display ────────────────────────────────────────────────────────────
 
 const STAT_KEYS: { key: string; label: string }[] = [
   { key: 'users',         label: 'Users' },
   { key: 'user_profiles', label: 'Profiles' },
-  { key: 'projects',      label: 'Projects' },
-  { key: 'milestones',    label: 'Milestones' },
+  { key: 'projects',        label: 'Projects' },
+  { key: 'project_members', label: 'Proj Mbrs' },
+  { key: 'milestones',      label: 'Milestones' },
   { key: 'actions',       label: 'Actions' },
   { key: 'blockers',      label: 'Blockers' },
   { key: 'decisions',     label: 'Decisions' },
@@ -115,6 +150,7 @@ const STAT_KEYS: { key: string; label: string }[] = [
   { key: 'standups',      label: 'Standups' },
   { key: 'eod',           label: 'EOD' },
   { key: 'sprints',       label: 'Sprints' },
+  { key: 'sprint_members', label: 'Sprint Mbrs' },
   { key: 'tasks',         label: 'Tasks' },
   { key: 'teams',         label: 'Teams' },
   { key: 'time_entries',  label: 'Time Entries' },
@@ -125,6 +161,10 @@ const STAT_KEYS: { key: string; label: string }[] = [
   { key: 'attendance',     label: 'Attendance' },
   { key: 'badge_defs',     label: 'Badge Defs' },
   { key: 'badges',         label: 'Badges' },
+  { key: 'org_roles',        label: 'Org Roles' },
+  { key: 'org_role_perms',   label: 'Role Perms' },
+  { key: 'user_org_roles',   label: 'Role Assigns' },
+  { key: 'org_sharing_rules', label: 'Sharing Rules' },
 ];
 
 // ─── Progress bar component ───────────────────────────────────────────────────
@@ -236,15 +276,18 @@ const DataSeedPage = () => {
   }, 0) + (enabledModules['user_profiles'] ? 5 : 0); // rough user_profiles estimate
 
   const runMutation = useMutation({
-    mutationFn: () => {
-      const modules: Record<string, number | boolean> = {};
-      MODULE_GROUPS.forEach((g) =>
-        g.modules.forEach((m) => {
-          if (!enabledModules[m.key]) return;
-          if (m.noCount) { modules[m.key] = true; }
-          else if ((counts[m.key] ?? 0) > 0) { modules[m.key] = counts[m.key]; }
-        })
-      );
+    mutationFn: (modulesOverride?: Record<string, number | boolean>) => {
+      const modules: Record<string, number | boolean> = modulesOverride ?? (() => {
+        const m: Record<string, number | boolean> = {};
+        MODULE_GROUPS.forEach((g) =>
+          g.modules.forEach((mod) => {
+            if (!enabledModules[mod.key]) return;
+            if (mod.noCount) { m[mod.key] = true; }
+            else if ((counts[mod.key] ?? 0) > 0) { m[mod.key] = counts[mod.key]; }
+          })
+        );
+        return m;
+      })();
       return dataSeedApi.run({ modules: modules as never, date_from: dateFrom, date_to: dateTo });
     },
     onSuccess: (data) => {
@@ -255,6 +298,7 @@ const DataSeedPage = () => {
           if (v.awarded !== undefined)      return `${k}: ${v.awarded} awarded (${v.definitions ?? 0} defs)`;
           if (v.leave_types !== undefined)  return `${k}: ${v.requests_created ?? 0} requests, ${v.balances_created ?? 0} balances, ${v.leave_types} types`;
           if (v.days_back !== undefined)    return `${k}: ${v.created ?? 0} records (${v.days_back}d × ${v.users} users)`;
+          if (v.permissions !== undefined)  return `${k}: ${v.created ?? 0} roles, ${v.permissions ?? 0} perms, ${v.users_assigned ?? 0} assigned${(v.failed ?? 0) > 0 ? ` (${v.failed} failed${(v as any).error ? ': ' + (v as any).error : ''})` : ''}`;
           return `${k}: ${v.created ?? 0}${(v.failed ?? 0) > 0 ? ` (${v.failed} failed)` : ''}`;
         })
         .join(' · ');
@@ -413,11 +457,29 @@ const DataSeedPage = () => {
           <div className="mt-5 flex items-center gap-3 flex-wrap">
             <Button
               icon={<Play size={14} />}
-              onClick={() => { setRunResult(null); setProgressDone(false); runMutation.mutate(); }}
+              onClick={() => { setRunResult(null); setProgressDone(false); runMutation.mutate(undefined); }}
               loading={runMutation.isPending}
               disabled={!hasAnythingToSeed}
             >
               {runMutation.isPending ? 'Seeding…' : 'Run Seed'}
+            </Button>
+            <Button
+              icon={<Play size={14} />}
+              onClick={() => {
+                const allMods: Record<string, number | boolean> = {};
+                MODULE_GROUPS.flatMap((g) => g.modules).forEach((m) => {
+                  if (m.noCount) { allMods[m.key] = true; }
+                  else { allMods[m.key] = counts[m.key] ?? m.defaultCount; }
+                });
+                setEnabled(Object.fromEntries(MODULE_GROUPS.flatMap((g) => g.modules.map((m) => [m.key, true]))));
+                setRunResult(null);
+                setProgressDone(false);
+                runMutation.mutate(allMods);
+              }}
+              loading={runMutation.isPending}
+              disabled={runMutation.isPending}
+            >
+              Seed All
             </Button>
             <Button variant="secondary" size="sm"
               onClick={() => setEnabled(Object.fromEntries(MODULE_GROUPS.flatMap((g) => g.modules.map((m) => [m.key, true]))))}
@@ -443,13 +505,36 @@ const DataSeedPage = () => {
             <Trash2 size={16} className="text-red-500" />
             Clear Module Data
           </h3>
-          <p className="text-sm text-[var(--ds-text-muted)] mb-4">
+          <p className="text-sm text-[var(--ds-text-muted)] mb-3">
             Permanently deletes <strong>all records</strong> in selected modules for this tenant.
           </p>
 
+          {/* Quick-select shortcuts */}
+          <div className="flex flex-wrap gap-2 mb-4">
+            <button type="button"
+              className="text-xs px-3 py-1.5 rounded-lg border border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100 font-medium"
+              onClick={() => setClearMods(Object.fromEntries(SAFE_CLEAR_KEYS.map((k) => [k, true])))}>
+              Select All Modules (Keep Users &amp; Org Config)
+            </button>
+            <button type="button"
+              className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 font-medium"
+              onClick={() => setClearMods({})}>
+              Deselect All
+            </button>
+          </div>
+
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mb-4">
             {ALL_CLEARABLE_KEYS.map((key) => {
-              const mod = MODULE_GROUPS.flatMap((g) => g.modules).find((m) => m.key === key)!;
+              const EXTRA_LABELS: Record<string, string> = {
+                org_role_perms: 'Role Perms', user_org_roles: 'Role Assigns',
+                org_sharing_rules: 'Sharing Rules', sprint_members: 'Sprint Mbrs',
+                project_members: 'Proj Mbrs',
+                time_approvals: 'Approvals', leave_types: 'Leave Types',
+                leave_requests: 'Leaves', leave_balances: 'Balances',
+                badge_defs: 'Badge Defs',
+              };
+              const mod = MODULE_GROUPS.flatMap((g) => g.modules).find((m) => m.key === key);
+              const label = mod?.label ?? EXTRA_LABELS[key] ?? key;
               return (
                 <label key={key} className="flex items-center gap-2 p-2.5 border border-[var(--ds-border)] rounded-lg cursor-pointer hover:bg-[var(--ds-surface-raised)] select-none">
                   <input
@@ -458,7 +543,7 @@ const DataSeedPage = () => {
                     checked={!!clearModules[key]}
                     onChange={(e) => setClearMods((prev) => ({ ...prev, [key]: e.target.checked }))}
                   />
-                  <span className="text-sm text-[var(--ds-text)]">{mod?.label ?? key}</span>
+                  <span className="text-sm text-[var(--ds-text)]">{label}</span>
                 </label>
               );
             })}
@@ -483,8 +568,16 @@ const DataSeedPage = () => {
               <span>
                 Permanently deletes all <strong>
                   {selectedClearKeys.map((k) => {
+                    const EXTRA: Record<string, string> = {
+                      org_role_perms: 'Role Perms', user_org_roles: 'Role Assigns',
+                      org_sharing_rules: 'Sharing Rules', sprint_members: 'Sprint Mbrs',
+                      project_members: 'Proj Mbrs',
+                      time_approvals: 'Approvals', leave_types: 'Leave Types',
+                      leave_requests: 'Leaves', leave_balances: 'Balances',
+                      badge_defs: 'Badge Defs',
+                    };
                     const m = MODULE_GROUPS.flatMap((g) => g.modules).find((x) => x.key === k);
-                    return m?.label ?? k;
+                    return m?.label ?? EXTRA[k] ?? k;
                   }).join(', ')}
                 </strong> records for this tenant.
               </span>

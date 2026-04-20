@@ -24,6 +24,7 @@ import {
 } from '../hooks/usePeople';
 import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -57,7 +58,6 @@ interface AnnouncementForm {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const AUTHOR_ROLES = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
 
 const ALL_ROLES = [
   { value: 'TENANT_ADMIN', label: 'Tenant Admin' },
@@ -496,7 +496,7 @@ const AnnouncementModal = ({ open, onClose, editing }: AnnouncementModalProps) =
 const AnnouncementsPage = () => {
   useParams<{ tenantSlug: string }>();
   const { user } = useAuth();
-  const canManage = AUTHOR_ROLES.includes(user?.role ?? '');
+  const canManage = hasPermission(user, PERMISSIONS.ANNOUNCEMENT_WRITE);
 
   const [showModal, setShowModal] = useState(false);
   const [editingAnnouncement, setEditingAnnouncement] = useState<Announcement | null>(null);

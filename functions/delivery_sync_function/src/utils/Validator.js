@@ -36,9 +36,9 @@ class Validator {
   // ─── User / Auth ─────────────────────────────────────────────────────────────
   static validateInviteUser(data) {
     const schema = Joi.object({
-      email: Joi.string().email().required(),
-      name: Joi.string().min(2).max(100).required(),
-      role: Joi.string().valid(...Object.values(ROLES)).required(),
+      email:     Joi.string().email().required(),
+      name:      Joi.string().min(2).max(100).required(),
+      orgRoleId: Joi.string().optional().allow('', null),
     });
     return Validator._validate(schema, data);
   }

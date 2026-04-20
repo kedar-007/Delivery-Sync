@@ -41,6 +41,7 @@ final auditLogsProvider = FutureProvider.autoDispose<List<AuditLog>>((ref) async
   return list.map((e) => AuditLog.fromJson(e as Map<String, dynamic>)).toList();
 });
 
+
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 class AdminScreen extends ConsumerStatefulWidget {
@@ -374,10 +375,7 @@ class _UserDetailSheetState extends ConsumerState<_UserDetailSheet> {
   late String _role;
   bool _loading = false;
 
-  static const _roles = [
-    'TENANT_ADMIN', 'DELIVERY_LEAD', 'PMO',
-    'TEAM_MEMBER', 'EXEC', 'CLIENT',
-  ];
+  static const _roles = ['TENANT_ADMIN', 'TEAM_MEMBER'];
 
   @override
   void initState() {

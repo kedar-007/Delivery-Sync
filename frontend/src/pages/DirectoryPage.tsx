@@ -16,6 +16,7 @@ import EmptyState from '../components/ui/EmptyState';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import UserAvatar from '../components/ui/UserAvatar';
 import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import PerformanceModal from '../components/ui/PerformanceModal';
 import {
   useMyProfile,
@@ -129,7 +130,6 @@ const parseSkills = (raw?: string | unknown): string[] => {
 const TABS = ['Directory', 'Leaderboard', 'Badges', 'My Profile'] as const;
 type Tab = (typeof TABS)[number];
 
-const ADMIN_ROLES = ['TENANT_ADMIN', 'PMO'];
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -331,11 +331,10 @@ const ProfileDetailModal = ({
 
 // ─── Directory Tab ────────────────────────────────────────────────────────────
 
-const PERF_ROLES = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
-
 const DirectoryTab = () => {
   const { user } = useAuth();
-  const isAdmin = PERF_ROLES.includes(user?.role ?? '');
+  // AI_TEAM_ANALYSIS = can analyze others; AI_PERFORMANCE alone = self-only via profile page
+  const canAnalyzeOthers = hasPermission(user, PERMISSIONS.AI_TEAM_ANALYSIS);
 
   const [search, setSearch] = useState('');
   const [selectedProfile, setSelectedProfile] = useState<DirectoryProfile | null>(null);
@@ -454,7 +453,7 @@ const DirectoryTab = () => {
                       <span>View profile</span>
                       <ChevronRight size={12} />
                     </div>
-                    {isAdmin && (
+                    {canAnalyzeOthers && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1279,8 +1278,8 @@ const DirectoryPage = () => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('Directory');
 
-  const isAdmin = ADMIN_ROLES.includes(user?.role ?? '');
-  const visibleTabs = TABS.filter((t) => t !== 'Badges' || isAdmin);
+  const canManageBadges = hasPermission(user, PERMISSIONS.BADGE_WRITE);
+  const visibleTabs = TABS.filter((t) => t !== 'Badges' || canManageBadges);
 
   return (
     <Layout>
@@ -1308,7 +1307,7 @@ const DirectoryPage = () => {
         {/* Tab content */}
         {activeTab === 'Directory' && <DirectoryTab />}
         {activeTab === 'Leaderboard' && <LeaderboardTab />}
-        {activeTab === 'Badges' && isAdmin && <BadgesTab />}
+        {activeTab === 'Badges' && canManageBadges && <BadgesTab />}
         {activeTab === 'My Profile' && <MyProfileTab />}
       </div>
     </Layout>

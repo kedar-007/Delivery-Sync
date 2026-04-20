@@ -75,8 +75,9 @@ class EodController {
       const { tenantId, id: currentUserId, role } = req.currentUser;
       const { projectId, date, userId, startDate, endDate } = req.query;
 
-      // TEAM_MEMBER can only see their own EODs
-      const effectiveUserId = role === 'TEAM_MEMBER' ? currentUserId : userId;
+      // TEAM_MEMBER can only see their own EODs (unless org role grants org-wide access)
+      const isLimitedToOwn = role === 'TEAM_MEMBER' && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
+      const effectiveUserId = isLimitedToOwn ? currentUserId : userId;
 
       let conditions = [];
       if (projectId) conditions.push(`project_id = '${DataStoreService.escape(projectId)}'`);
@@ -126,8 +127,9 @@ class EodController {
       const from = startDate || DataStoreService.daysAgo(7);
       const to = endDate || DataStoreService.today();
 
-      // TEAM_MEMBER only sees their own entries in rollup
-      const userFilter = role === 'TEAM_MEMBER' ? ` AND user_id = '${currentUserId}'` : '';
+      // TEAM_MEMBER only sees their own entries in rollup (unless org role grants org-wide access)
+      const isLimitedToOwn = role === 'TEAM_MEMBER' && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
+      const userFilter = isLimitedToOwn ? ` AND user_id = '${currentUserId}'` : '';
 
       const eods = await this.db.findWhere(
         TABLES.EOD_ENTRIES, tenantId,

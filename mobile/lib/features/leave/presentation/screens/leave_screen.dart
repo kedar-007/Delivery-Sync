@@ -12,6 +12,7 @@ import '../../../../core/services/api_client.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/models/models.dart';
 import '../../../../shared/widgets/ds_metric_card.dart';
+import '../../../auth/providers/auth_provider.dart';
 
 // ── Providers ─────────────────────────────────────────────────────────────────
 
@@ -19,6 +20,22 @@ final leaveRequestsProvider =
     FutureProvider.autoDispose<List<LeaveRequest>>((ref) async {
   final raw = await ApiClient.instance.get<Map<String, dynamic>>(
     '${AppConstants.basePeople}/leave/requests',
+    fromJson: (r) => r as Map<String, dynamic>,
+  );
+  final data = raw['data'];
+  final List<dynamic> list = data is List
+      ? data
+      : (data is Map ? (data['requests'] as List<dynamic>? ?? []) : []);
+  return list
+      .map((e) => LeaveRequest.fromJson(e as Map<String, dynamic>))
+      .toList();
+});
+
+final teamLeaveRequestsProvider =
+    FutureProvider.autoDispose<List<LeaveRequest>>((ref) async {
+  final raw = await ApiClient.instance.get<Map<String, dynamic>>(
+    '${AppConstants.basePeople}/leave/requests',
+    queryParameters: {'team': 'true'},
     fromJson: (r) => r as Map<String, dynamic>,
   );
   final data = raw['data'];
@@ -56,7 +73,18 @@ class LeaveScreen extends ConsumerStatefulWidget {
 
 class _LeaveScreenState extends ConsumerState<LeaveScreen>
     with SingleTickerProviderStateMixin {
-  late final _tabController = TabController(length: 2, vsync: this);
+  late TabController _tabController;
+  bool _isTeamVisible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final user = ref.read(currentUserProvider);
+    _isTeamVisible = UserRole.isAdmin(user?.role ?? '') ||
+        (user?.permissions.contains('LEAVE_ADMIN') ?? false) ||
+        (user?.permissions.contains('LEAVE_APPROVE') ?? false);
+    _tabController = TabController(length: _isTeamVisible ? 3 : 2, vsync: this);
+  }
 
   @override
   void dispose() {
@@ -74,11 +102,11 @@ class _LeaveScreenState extends ConsumerState<LeaveScreen>
         backgroundColor: ds.bgPage,
         bottom: TabBar(
           controller: _tabController,
-          tabs: const [
-            Tab(icon: Icon(Icons.list_alt_rounded, size: 18),
-                text: 'My Requests'),
-            Tab(icon: Icon(Icons.account_balance_wallet_rounded, size: 18),
-                text: 'Balance'),
+          tabs: [
+            const Tab(icon: Icon(Icons.list_alt_rounded, size: 18), text: 'My Requests'),
+            const Tab(icon: Icon(Icons.account_balance_wallet_rounded, size: 18), text: 'Balance'),
+            if (_isTeamVisible)
+              const Tab(icon: Icon(Icons.group_rounded, size: 18), text: 'Team'),
           ],
         ),
       ),
@@ -87,6 +115,7 @@ class _LeaveScreenState extends ConsumerState<LeaveScreen>
         children: [
           _RequestsTab(onRefresh: () => ref.invalidate(leaveRequestsProvider)),
           _BalanceTab(),
+          if (_isTeamVisible) _TeamRequestsTab(),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -94,8 +123,7 @@ class _LeaveScreenState extends ConsumerState<LeaveScreen>
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.event_available_rounded),
-        label: const Text('Apply Leave',
-            style: TextStyle(fontWeight: FontWeight.w700)),
+        label: const Text('Apply Leave', style: TextStyle(fontWeight: FontWeight.w700)),
       ),
     );
   }
@@ -163,6 +191,188 @@ class _RequestsTab extends ConsumerWidget {
       );
       ref.invalidate(leaveRequestsProvider);
     } catch (_) {}
+  }
+}
+
+// ── Team requests tab ─────────────────────────────────────────────────────────
+
+class _TeamRequestsTab extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final requests = ref.watch(teamLeaveRequestsProvider);
+    final ds = context.ds;
+
+    return RefreshIndicator(
+      onRefresh: () async => ref.invalidate(teamLeaveRequestsProvider),
+      color: AppColors.primaryLight,
+      child: requests.when(
+        data: (list) {
+          if (list.isEmpty) {
+            return Center(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.group_rounded, size: 56, color: ds.textMuted),
+                const SizedBox(height: 12),
+                Text('No team leave requests', style: TextStyle(color: ds.textMuted)),
+              ]),
+            );
+          }
+          return ListView.builder(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+            itemCount: list.length,
+            itemBuilder: (_, i) => _TeamLeaveCard(
+              list[i],
+              onApprove: list[i].status == 'PENDING'
+                  ? () => _updateStatus(ref, list[i].id, 'APPROVED')
+                  : null,
+              onReject: list[i].status == 'PENDING'
+                  ? () => _updateStatus(ref, list[i].id, 'REJECTED')
+                  : null,
+            ),
+          );
+        },
+        loading: () =>
+            ListView(children: List.generate(3, (_) => const ShimmerCard())),
+        error: (e, _) => Center(
+            child: Text('$e', style: const TextStyle(color: AppColors.error))),
+      ),
+    );
+  }
+
+  Future<void> _updateStatus(WidgetRef ref, String id, String status) async {
+    try {
+      await ApiClient.instance.patch(
+        '${AppConstants.basePeople}/leave/requests/$id',
+        data: {'status': status},
+      );
+      ref.invalidate(teamLeaveRequestsProvider);
+    } catch (_) {}
+  }
+}
+
+class _TeamLeaveCard extends StatelessWidget {
+  const _TeamLeaveCard(this.request, {this.onApprove, this.onReject});
+  final LeaveRequest request;
+  final VoidCallback? onApprove;
+  final VoidCallback? onReject;
+
+  Color get _statusColor => switch (request.status) {
+        'APPROVED'  => AppColors.ragGreen,
+        'REJECTED'  => AppColors.ragRed,
+        'CANCELLED' => AppColors.textMuted,
+        _           => AppColors.ragAmber,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final ds = context.ds;
+    DateTime? start, end;
+    try {
+      start = DateTime.parse(request.startDate);
+      end   = DateTime.parse(request.endDate);
+    } catch (_) {}
+    final days = start != null && end != null ? end.difference(start).inDays + 1 : null;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: ds.bgCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _statusColor.withOpacity(0.3)),
+      ),
+      child: Row(children: [
+        Container(
+          width: 4,
+          constraints: const BoxConstraints(minHeight: 80),
+          decoration: BoxDecoration(
+            color: _statusColor,
+            borderRadius: const BorderRadius.horizontal(left: Radius.circular(15)),
+          ),
+        ),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                // Employee name
+                Expanded(child: Text(request.employeeName ?? '—',
+                    style: TextStyle(fontWeight: FontWeight.w700,
+                        fontSize: 14, color: ds.textPrimary))),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: _statusColor.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(request.statusDisplay,
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
+                          color: _statusColor)),
+                ),
+              ]),
+              const SizedBox(height: 6),
+              Row(children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: Text(
+                      request.leaveType[0] + request.leaveType.substring(1).toLowerCase(),
+                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+                          color: AppColors.primaryLight)),
+                ),
+                const SizedBox(width: 8),
+                Icon(Icons.date_range_rounded, size: 12, color: ds.textMuted),
+                const SizedBox(width: 4),
+                Text(
+                  start != null && end != null
+                      ? '${DateFormat('d MMM').format(start)} – ${DateFormat('d MMM yyyy').format(end)}'
+                          '${days != null ? '  ($days d)' : ''}'
+                      : '${request.startDate} – ${request.endDate}',
+                  style: TextStyle(fontSize: 12, color: ds.textSecondary),
+                ),
+              ]),
+              if (request.reason != null && request.reason!.isNotEmpty) ...[
+                const SizedBox(height: 5),
+                Text(request.reason!,
+                    style: TextStyle(fontSize: 11, color: ds.textMuted),
+                    maxLines: 2, overflow: TextOverflow.ellipsis),
+              ],
+              if (onApprove != null || onReject != null) ...[
+                const SizedBox(height: 10),
+                Row(children: [
+                  if (onReject != null)
+                    Expanded(child: OutlinedButton.icon(
+                      icon: const Icon(Icons.close_rounded, size: 14),
+                      label: const Text('Reject', style: TextStyle(fontSize: 12)),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.ragRed,
+                        side: BorderSide(color: AppColors.ragRed.withOpacity(0.4)),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: onReject,
+                    )),
+                  if (onApprove != null && onReject != null) const SizedBox(width: 8),
+                  if (onApprove != null)
+                    Expanded(child: ElevatedButton.icon(
+                      icon: const Icon(Icons.check_rounded, size: 14),
+                      label: const Text('Approve', style: TextStyle(fontSize: 12)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.ragGreen,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: onApprove,
+                    )),
+                ]),
+              ],
+            ]),
+          ),
+        ),
+      ]),
+    ).animate().fadeIn(duration: 300.ms).slideX(begin: 0.04);
   }
 }
 

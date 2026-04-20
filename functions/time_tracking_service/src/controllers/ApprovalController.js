@@ -15,24 +15,66 @@ class ApprovalController {
 
   // GET /api/time/approvals — pending approvals for current RM
   async list(req, res) {
-    const { status } = req.query;
-    const where = `assigned_to = '${req.currentUser.id}'` + (status ? ` AND status = '${DataStoreService.escape(status)}'` : ` AND status = 'PENDING'`);
-    const approvals = await this.db.findWhere(TABLES.TIME_APPROVAL_REQUESTS, req.tenantId, where, { orderBy: 'CREATEDTIME ASC', limit: 100 });
+    try {
+      const { status } = req.query;
+      const where = `assigned_to = ${req.currentUser.id}` + (status ? ` AND status = '${DataStoreService.escape(status)}'` : ` AND status = 'PENDING'`);
+      const approvals = await this.db.findWhere(TABLES.TIME_APPROVAL_REQUESTS, req.tenantId, where, { orderBy: 'CREATEDTIME ASC', limit: 100 });
 
-    // Enrich with entry details
-    for (const a of approvals) {
-      const entry = await this.db.findById(TABLES.TIME_ENTRIES, a.time_entry_id, req.tenantId);
-      const userRows = await this.db.query(`SELECT name, email, avatar_url FROM ${TABLES.USERS} WHERE ROWID = '${a.requested_by}' LIMIT 1`);
-      a.entry      = entry;
-      a.requester  = userRows[0] || null;
+      // Enrich with entry + requester + project/task/sprint names
+      for (const a of approvals) {
+        const [entry, userRows] = await Promise.all([
+          this.db.findById(TABLES.TIME_ENTRIES, a.time_entry_id, req.tenantId),
+          this.db.query(`SELECT name, email, avatar_url FROM ${TABLES.USERS} WHERE ROWID = '${a.requested_by}' LIMIT 1`),
+        ]);
+
+        if (entry) {
+          // Project name
+          try {
+            const projRows = await this.db.query(
+              `SELECT name FROM ${TABLES.PROJECTS} WHERE ROWID = '${entry.project_id}' LIMIT 1`
+            );
+            entry.project_name = projRows[0]?.name || '';
+          } catch (_) { entry.project_name = ''; }
+
+          // Task name + sprint name — tables may not be accessible from this service
+          entry.task_name   = '';
+          entry.sprint_name = '';
+          const taskId = String(entry.task_id || '');
+          if (taskId && taskId !== '0') {
+            try {
+              const taskRows = await this.db.query(
+                `SELECT name, sprint_id FROM ${TABLES.TASKS} WHERE ROWID = '${taskId}' LIMIT 1`
+              );
+              if (taskRows[0]) {
+                entry.task_name = taskRows[0].name || '';
+                const sprintId = String(taskRows[0].sprint_id || '');
+                if (sprintId && sprintId !== '0') {
+                  try {
+                    const sprintRows = await this.db.query(
+                      `SELECT name FROM ${TABLES.SPRINTS} WHERE ROWID = '${sprintId}' LIMIT 1`
+                    );
+                    entry.sprint_name = sprintRows[0]?.name || '';
+                  } catch (_) {}
+                }
+              }
+            } catch (_) {}
+          }
+        }
+
+        a.entry     = entry;
+        a.requester = userRows[0] || null;
+      }
+
+      return ResponseHelper.success(res, approvals);
+    } catch (err) {
+      console.error('[ApprovalController] list error:', err.message);
+      return ResponseHelper.serverError(res, err.message);
     }
-
-    return ResponseHelper.success(res, approvals);
   }
 
   // GET /api/time/approvals/history
   async history(req, res) {
-    const where = `assigned_to = '${req.currentUser.id}' AND (status = 'APPROVED' OR status = 'REJECTED')`;
+    const where = `assigned_to = ${req.currentUser.id} AND (status = 'APPROVED' OR status = 'REJECTED')`;
     const approvals = await this.db.findWhere(TABLES.TIME_APPROVAL_REQUESTS, req.tenantId, where, { orderBy: 'CREATEDTIME DESC', limit: 100 });
     return ResponseHelper.success(res, approvals);
   }

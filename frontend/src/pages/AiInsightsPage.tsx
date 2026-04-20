@@ -13,6 +13,7 @@ import Alert from '../components/ui/Alert';
 import ProjectPicker from '../components/ui/ProjectPicker';
 import { useProjects } from '../hooks/useProjects';
 import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import {
   useAiDailySummary, useAiProjectHealth,
   useAiPerformance, useAiReport, useAiSuggestions,
@@ -307,18 +308,7 @@ const SeverityBadge = ({ severity }: { severity: string }) => {
   return <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${color}`}>{severity}</span>;
 };
 
-// ─── Role-based visibility ────────────────────────────────────────────────────
-
-type CardKey = 'summary' | 'health' | 'performance' | 'suggestions' | 'report' | 'blockers' | 'trends' | 'retro' | 'nlq' | 'holistic';
-
-const ROLE_VISIBILITY: Record<string, Record<CardKey, boolean>> = {
-  TENANT_ADMIN:  { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true  },
-  PMO:           { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true  },
-  DELIVERY_LEAD: { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true  },
-  EXEC:          { summary: true,  health: true,  performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true  },
-  TEAM_MEMBER:   { summary: true,  health: false, performance: true,  suggestions: true, report: true, blockers: true, trends: true, retro: true, nlq: true, holistic: true  },
-  CLIENT:        { summary: false, health: true,  performance: false, suggestions: true, report: true, blockers: true, trends: false, retro: false, nlq: true, holistic: false },
-};
+// ─── Permission-based visibility ─────────────────────────────────────────────
 
 const ROLE_BANNER: Record<string, { title: string; desc: string } | undefined> = {
   TEAM_MEMBER: { title: 'Personal View', desc: 'Insights are scoped to your own activity and assigned work.' },
@@ -331,7 +321,24 @@ const AiInsightsPage = () => {
   const { user } = useAuth();
   const { data: projects = [] } = useProjects();
   const role = (user?.role ?? 'TENANT_ADMIN') as string;
-  const canSee: Record<CardKey, boolean> = ROLE_VISIBILITY[role] ?? ROLE_VISIBILITY.TENANT_ADMIN;
+
+  const hasBasic    = hasPermission(user, PERMISSIONS.AI_INSIGHTS);
+  const hasPerf     = hasPermission(user, PERMISSIONS.AI_PERFORMANCE);
+  const hasTeam     = hasPermission(user, PERMISSIONS.AI_TEAM_ANALYSIS);
+
+  const canSee = {
+    summary:     hasBasic,
+    health:      hasTeam,
+    performance: hasPerf,
+    suggestions: hasBasic,
+    report:      hasBasic,
+    blockers:    hasBasic,
+    trends:      hasTeam,
+    retro:       hasTeam,
+    nlq:         hasBasic,
+    holistic:    hasTeam,
+  };
+
   const banner = ROLE_BANNER[role];
 
   // Filter controls

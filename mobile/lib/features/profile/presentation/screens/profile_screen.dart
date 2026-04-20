@@ -7,6 +7,7 @@ import '../../../../core/constants/app_constants.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/widgets/user_avatar.dart';
 import '../../../auth/providers/auth_provider.dart';
+import '../../../people/presentation/screens/people_screen.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -195,6 +196,19 @@ class ProfileScreen extends ConsumerWidget {
                   color: const Color(0xFFF59E0B),
                   onTap: () => context.push('/more/badges'),
                 ),
+                if (user.hasPermission(Permissions.aiPerformance))
+                  _ProfileTile(
+                    icon: Icons.auto_awesome_rounded,
+                    label: 'Analyse My Performance',
+                    subtitle: 'AI-powered breakdown of your work',
+                    color: const Color(0xFF7C3AED),
+                    onTap: () => PerformanceSheet.show(
+                      context,
+                      userId: user.id,
+                      name: user.name,
+                      avatarUrl: user.avatarUrl,
+                    ),
+                  ),
                 if (UserRole.isAdmin(user.role))
                   _ProfileTile(
                     icon: Icons.admin_panel_settings_rounded,

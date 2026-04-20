@@ -163,8 +163,9 @@ class ActionController {
       if (projectId) conditions.push(`project_id = '${DataStoreService.escape(projectId)}'`);
       if (status) conditions.push(`status = '${DataStoreService.escape(status)}'`);
       if (ownerId) conditions.push(`assigned_to = '${DataStoreService.escape(ownerId)}'`);
-      // TEAM_MEMBER only sees their own actions unless a specific project is given
-      if (role === 'TEAM_MEMBER' && !projectId) {
+      // TEAM_MEMBER only sees their own actions unless a specific project is given or org-wide access
+      const isLimitedToOwn = role === 'TEAM_MEMBER' && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
+      if (isLimitedToOwn && !projectId) {
         conditions.push(`assigned_to = '${userId}'`);
       }
 

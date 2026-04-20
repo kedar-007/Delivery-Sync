@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,7 +25,10 @@ Map<String, dynamic> _normaliseRecord(Map<String, dynamic> r) => {
   'name':             r['name'] as String?,
   'avatarUrl':        r['avatar_url'] as String? ?? r['avatarUrl'] as String?,
   'email':            r['email'] as String?,
+  'breakSummary':     r['break_summary'] as Map<String, dynamic>? ?? r['breakSummary'] as Map<String, dynamic>?,
 };
+
+String _clientTime() => DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Providers
@@ -77,7 +82,6 @@ final attendanceSummaryProvider = FutureProvider.autoDispose<Map<String, dynamic
   return {};
 });
 
-// Weekly records — current Mon→today
 final weeklyRecordsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   final now  = DateTime.now();
   final mon  = now.subtract(Duration(days: now.weekday - 1));
@@ -93,7 +97,6 @@ final weeklyRecordsProvider = FutureProvider.autoDispose<List<Map<String, dynami
   return list.whereType<Map<String, dynamic>>().map(_normaliseRecord).toList();
 });
 
-// Monthly summary — { summary: {present,absent,wfh,late,total_hours}, records: [...] }
 final monthlySummaryProvider =
     FutureProvider.autoDispose.family<Map<String, dynamic>, ({int year, int month})>((ref, p) async {
   final raw = await ApiClient.instance.get<Map<String, dynamic>>(
@@ -107,15 +110,11 @@ final monthlySummaryProvider =
         .whereType<Map<String, dynamic>>()
         .map(_normaliseRecord)
         .toList();
-    return {
-      'summary': d['summary'] ?? {},
-      'records': recs,
-    };
+    return {'summary': d['summary'] ?? {}, 'records': recs};
   }
   return {'summary': {}, 'records': <Map<String, dynamic>>[]};
 });
 
-// Admin: team records for a date range
 final teamRecordsProvider =
     FutureProvider.autoDispose.family<List<Map<String, dynamic>>, ({String from, String to})>((ref, p) async {
   final raw = await ApiClient.instance.get<Map<String, dynamic>>(
@@ -142,7 +141,6 @@ class AttendanceScreen extends ConsumerStatefulWidget {
 class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabCtrl;
-  bool _loading = false;
 
   @override
   void initState() {
@@ -156,67 +154,6 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
   void dispose() {
     _tabCtrl.dispose();
     super.dispose();
-  }
-
-  Future<void> _checkIn() async {
-    setState(() => _loading = true);
-    try {
-      await ApiClient.instance.post(
-        '${AppConstants.basePeople}/attendance/check-in',
-        data: {'client_time': DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())},
-      );
-      ref.invalidate(myAttendanceProvider);
-      ref.invalidate(liveAttendanceProvider);
-      ref.invalidate(attendanceSummaryProvider);
-      ref.invalidate(weeklyRecordsProvider);
-      if (mounted) _snack('Checked in successfully!', AppColors.success);
-    } catch (e) {
-      if (mounted) _snack('Check-in failed: $e', AppColors.error);
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _checkOut() async {
-    setState(() => _loading = true);
-    try {
-      await ApiClient.instance.post(
-        '${AppConstants.basePeople}/attendance/check-out',
-        data: {'client_time': DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())},
-      );
-      ref.invalidate(myAttendanceProvider);
-      ref.invalidate(liveAttendanceProvider);
-      ref.invalidate(attendanceSummaryProvider);
-      ref.invalidate(weeklyRecordsProvider);
-      if (mounted) _snack('Checked out successfully!', AppColors.success);
-    } catch (e) {
-      if (mounted) _snack('Check-out failed: $e', AppColors.error);
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _markWfh() async {
-    setState(() => _loading = true);
-    try {
-      await ApiClient.instance.post(
-        '${AppConstants.basePeople}/attendance/wfh',
-        data: {'date': DateFormat('yyyy-MM-dd').format(DateTime.now())},
-      );
-      ref.invalidate(myAttendanceProvider);
-      ref.invalidate(weeklyRecordsProvider);
-      if (mounted) _snack('Marked as Work From Home', AppColors.info);
-    } catch (e) {
-      if (mounted) _snack('Failed: $e', AppColors.error);
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  void _snack(String msg, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: color),
-    );
   }
 
   @override
@@ -256,7 +193,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
       body: TabBarView(
         controller: _tabCtrl,
         children: [
-          _TodayTab(loading: _loading, onCheckIn: _checkIn, onCheckOut: _checkOut, onWfh: _markWfh),
+          const _TodayTab(),
           const _WeeklyTab(),
           const _MonthlyTab(),
           if (isAdmin) const _TeamTab(),
@@ -271,22 +208,11 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen>
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _TodayTab extends ConsumerWidget {
-  const _TodayTab({
-    required this.loading,
-    required this.onCheckIn,
-    required this.onCheckOut,
-    required this.onWfh,
-  });
-  final bool loading;
-  final VoidCallback onCheckIn;
-  final VoidCallback onCheckOut;
-  final VoidCallback onWfh;
+  const _TodayTab();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final ds       = context.ds;
-    final myRecord = ref.watch(myAttendanceProvider);
-
+    final ds = context.ds;
     return RefreshIndicator(
       onRefresh: () async {
         ref.invalidate(myAttendanceProvider);
@@ -297,23 +223,7 @@ class _TodayTab extends ConsumerWidget {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          myRecord.when(
-            data: (record) => _TodayCard(
-              record: record,
-              loading: loading,
-              onCheckIn: onCheckIn,
-              onCheckOut: onCheckOut,
-              onWfh: onWfh,
-            ),
-            loading: () => const ShimmerCard(height: 200),
-            error: (e, _) => _TodayCard(
-              record: const {},
-              loading: loading,
-              onCheckIn: onCheckIn,
-              onCheckOut: onCheckOut,
-              onWfh: onWfh,
-            ),
-          ),
+          const _TodayCard(),
           const SizedBox(height: 16),
           _SummarySection(),
           const SizedBox(height: 20),
@@ -325,6 +235,600 @@ class _TodayTab extends ConsumerWidget {
         ],
       ),
     );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Today card (stateful — owns break timer + all check-in/out actions)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _TodayCard extends ConsumerStatefulWidget {
+  const _TodayCard();
+
+  @override
+  ConsumerState<_TodayCard> createState() => _TodayCardState();
+}
+
+class _TodayCardState extends ConsumerState<_TodayCard> {
+  static const _allowances = {'LUNCH': 60, 'SHORT': 15};
+
+  bool   _loading      = false;
+  bool   _breakLoading = false;
+  Timer? _breakTimer;
+  int    _breakSecs    = 0;
+  String? _trackedBreakStart;
+
+  @override
+  void dispose() {
+    _breakTimer?.cancel();
+    super.dispose();
+  }
+
+  static Map<String, dynamic>? _findActive(Map<String, dynamic>? bs) {
+    if (bs == null) return null;
+    return (bs['lunch'] as Map<String, dynamic>?)?['active'] as Map<String, dynamic>?
+        ?? (bs['short'] as Map<String, dynamic>?)?['active'] as Map<String, dynamic>?;
+  }
+
+  void _syncBreakTimer(Map<String, dynamic>? activeBreak) {
+    final start = activeBreak?['break_start'] as String?;
+    if (start == _trackedBreakStart) return;
+    _trackedBreakStart = start;
+    _breakTimer?.cancel();
+    _breakTimer = null;
+    _breakSecs  = 0;
+    if (start != null) {
+      // IST times stored without TZ — parse as local, no 'Z' suffix
+      final t = DateTime.parse(start.replaceFirst(' ', 'T'));
+      void tick() { _breakSecs = DateTime.now().difference(t).inSeconds.clamp(0, 86400); }
+      tick();
+      _breakTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(tick);
+      });
+    }
+  }
+
+  Future<void> _checkIn() async {
+    setState(() => _loading = true);
+    try {
+      await ApiClient.instance.post(
+        '${AppConstants.basePeople}/attendance/check-in',
+        data: {'client_time': _clientTime()},
+      );
+      _invalidateAll();
+      if (mounted) _snack('Checked in successfully!', AppColors.success);
+    } catch (e) {
+      if (mounted) _handleCheckInError(e);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _checkInWfh(String reason) async {
+    setState(() => _loading = true);
+    try {
+      await ApiClient.instance.post(
+        '${AppConstants.basePeople}/attendance/check-in',
+        data: {
+          'client_time': _clientTime(),
+          'is_wfh': true,
+          if (reason.isNotEmpty) 'wfh_reason': reason,
+        },
+      );
+      _invalidateAll();
+      if (mounted) _snack('Checked in as WFH', AppColors.info);
+    } catch (e) {
+      if (mounted) _snack('WFH check-in failed: $e', AppColors.error);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _checkOut() async {
+    setState(() => _loading = true);
+    try {
+      await ApiClient.instance.post(
+        '${AppConstants.basePeople}/attendance/check-out',
+        data: {'client_time': _clientTime()},
+      );
+      _invalidateAll();
+      if (mounted) _snack('Checked out!', AppColors.success);
+    } catch (e) {
+      if (mounted) _snack('Check-out failed: $e', AppColors.error);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _startBreak(String type) async {
+    setState(() => _breakLoading = true);
+    try {
+      await ApiClient.instance.post(
+        '${AppConstants.basePeople}/attendance/break-start',
+        data: {'client_time': _clientTime(), 'break_type': type},
+      );
+      ref.invalidate(myAttendanceProvider);
+    } catch (e) {
+      if (mounted) _snack('Break start failed: $e', AppColors.error);
+    } finally {
+      if (mounted) setState(() => _breakLoading = false);
+    }
+  }
+
+  Future<void> _endBreak() async {
+    setState(() => _breakLoading = true);
+    try {
+      await ApiClient.instance.post(
+        '${AppConstants.basePeople}/attendance/break-end',
+        data: {'client_time': _clientTime()},
+      );
+      ref.invalidate(myAttendanceProvider);
+    } catch (e) {
+      if (mounted) _snack('Break end failed: $e', AppColors.error);
+    } finally {
+      if (mounted) setState(() => _breakLoading = false);
+    }
+  }
+
+  void _invalidateAll() {
+    ref.invalidate(myAttendanceProvider);
+    ref.invalidate(liveAttendanceProvider);
+    ref.invalidate(attendanceSummaryProvider);
+    ref.invalidate(weeklyRecordsProvider);
+  }
+
+  void _handleCheckInError(Object e) {
+    final msg = e.toString().toLowerCase();
+    if (msg.contains('403') || msg.contains('not allowed') || msg.contains('ip')) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Check-in Blocked'),
+          content: const Text(
+            'Check-in is not allowed from this network.\n\nYou can still check in as Working From Home.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () { Navigator.pop(ctx); _showWfhDialog(); },
+              child: const Text('Check In WFH'),
+            ),
+          ],
+        ),
+      );
+    } else {
+      _snack('Check-in failed: $e', AppColors.error);
+    }
+  }
+
+  void _showWfhDialog() {
+    final ctrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(children: [
+          Icon(Icons.home_rounded, color: AppColors.info, size: 20),
+          SizedBox(width: 8),
+          Text('WFH Check-in'),
+        ]),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('A notification will be sent to your manager.',
+              style: TextStyle(fontSize: 13)),
+          const SizedBox(height: 12),
+          TextField(
+            controller: ctrl,
+            decoration: const InputDecoration(
+              labelText: 'Reason (optional)',
+              hintText: 'e.g. Doctor appointment…',
+            ),
+            maxLines: 2,
+            textCapitalization: TextCapitalization.sentences,
+          ),
+        ]),
+        actions: [
+          TextButton(
+            onPressed: () { Navigator.pop(ctx); ctrl.dispose(); },
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final reason = ctrl.text.trim();
+              Navigator.pop(ctx);
+              ctrl.dispose();
+              _checkInWfh(reason);
+            },
+            child: const Text('Check In WFH'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _snack(String msg, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: color),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ds       = context.ds;
+    final myRecord = ref.watch(myAttendanceProvider);
+
+    return myRecord.when(
+      loading: () => const ShimmerCard(height: 220),
+      error: (e, _) => Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: ds.bgCard,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: ds.border),
+        ),
+        child: Text('Failed to load attendance: $e',
+            style: const TextStyle(color: AppColors.error)),
+      ),
+      data: (record) {
+        final bs          = record['breakSummary'] as Map<String, dynamic>?;
+        final activeBreak = _findActive(bs);
+        _syncBreakTimer(activeBreak); // idempotent, safe in build
+        return _buildCard(ds, record, bs, activeBreak);
+      },
+    );
+  }
+
+  Widget _buildCard(
+    DsColors ds,
+    Map<String, dynamic> record,
+    Map<String, dynamic>? bs,
+    Map<String, dynamic>? activeBreak,
+  ) {
+    final status     = record['status'] as String? ?? 'ABSENT';
+    final checkedIn  = record['checkInTime']  as String?;
+    final checkedOut = record['checkOutTime'] as String?;
+    final hours      = (record['hoursWorked'] as num?)?.toDouble() ?? 0.0;
+    final isWfh      = record['isWfh'] as bool? ?? false;
+    final isWorking  = checkedIn != null && checkedOut == null;
+    final onBreak    = activeBreak != null;
+
+    final lunchInfo = bs?['lunch'] as Map<String, dynamic>? ?? {};
+    final shortInfo = bs?['short'] as Map<String, dynamic>? ?? {};
+    final breakType = activeBreak?['break_type'] as String? ?? 'SHORT';
+    final allowance = _allowances[breakType] ?? 15;
+    final breakMins = _breakSecs ~/ 60;
+    final isOverBreak = breakMins > allowance;
+    final overMins  = (breakMins - allowance).clamp(0, 9999);
+
+    final (statusColor, statusLabel, statusIcon) = _statusInfo(status);
+    final now = DateFormat('EEEE, d MMMM yyyy').format(DateTime.now());
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [statusColor.withOpacity(0.12), ds.bgCard],
+          begin: Alignment.topLeft, end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: statusColor.withOpacity(0.3)),
+      ),
+      child: Column(children: [
+        // ── Header ────────────────────────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: Row(children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: statusColor.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(statusIcon, color: statusColor, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(now, style: TextStyle(fontSize: 12, color: ds.textMuted)),
+              const SizedBox(height: 2),
+              Row(children: [
+                Text(statusLabel, style: TextStyle(fontSize: 18,
+                    fontWeight: FontWeight.w800, color: statusColor)),
+                if (isWfh) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.info.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: const Text('WFH', style: TextStyle(fontSize: 10,
+                        fontWeight: FontWeight.w700, color: AppColors.info)),
+                  ),
+                ],
+              ]),
+            ])),
+          ]),
+        ),
+
+        // ── Check-in / out time chips ─────────────────────────────────────────
+        if (checkedIn != null || hours > 0)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+            child: Row(children: [
+              if (checkedIn != null)
+                _TimeChip(icon: Icons.login_rounded, label: 'In',
+                    time: _formatTime(checkedIn), color: AppColors.success),
+              if (checkedIn != null && checkedOut != null) const SizedBox(width: 10),
+              if (checkedOut != null)
+                _TimeChip(icon: Icons.logout_rounded, label: 'Out',
+                    time: _formatTime(checkedOut), color: AppColors.error),
+              if (hours > 0) ...[
+                const SizedBox(width: 10),
+                _TimeChip(icon: Icons.schedule_rounded, label: 'Hours',
+                    time: '${hours.toStringAsFixed(1)}h', color: AppColors.primaryLight),
+              ],
+            ]),
+          ),
+
+        // ── Active break display ──────────────────────────────────────────────
+        if (onBreak) ...[
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: (isOverBreak ? AppColors.ragRed : AppColors.ragAmber).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                    color: (isOverBreak ? AppColors.ragRed : AppColors.ragAmber).withOpacity(0.3)),
+              ),
+              child: Row(children: [
+                Icon(
+                  breakType == 'LUNCH' ? Icons.restaurant_rounded : Icons.coffee_rounded,
+                  color: isOverBreak ? AppColors.ragRed : AppColors.ragAmber,
+                  size: 14,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '${breakType == 'LUNCH' ? 'Lunch' : 'Short'} Break  '
+                  '${(_breakSecs ~/ 60).toString().padLeft(2, '0')}:'
+                  '${(_breakSecs % 60).toString().padLeft(2, '0')}',
+                  style: TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w600,
+                    color: isOverBreak ? AppColors.ragRed : AppColors.ragAmber,
+                  ),
+                ),
+                if (isOverBreak) ...[
+                  const SizedBox(width: 6),
+                  Icon(Icons.warning_rounded, size: 12, color: AppColors.ragRed),
+                  Text('  +${overMins}m',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
+                          color: AppColors.ragRed)),
+                ],
+                const Spacer(),
+                GestureDetector(
+                  onTap: _breakLoading ? null : _endBreak,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.ragAmber.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      _breakLoading ? '…' : 'End Break',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
+                          color: AppColors.ragAmber),
+                    ),
+                  ),
+                ),
+              ]),
+            ),
+          ),
+        ],
+
+        // ── Break buttons — only when working and not on break ────────────────
+        if (isWorking && !onBreak) ...[
+          const SizedBox(height: 10),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(children: [
+              Expanded(child: _BreakButton(
+                icon: Icons.restaurant_rounded,
+                label: 'Lunch',
+                remaining: (lunchInfo['remaining_minutes'] as num?)?.toInt() ?? 60,
+                loading: _breakLoading,
+                onTap: () => _startBreak('LUNCH'),
+              )),
+              const SizedBox(width: 8),
+              Expanded(child: _BreakButton(
+                icon: Icons.coffee_rounded,
+                label: 'Short Break',
+                remaining: (shortInfo['remaining_minutes'] as num?)?.toInt() ?? 15,
+                loading: _breakLoading,
+                onTap: () => _startBreak('SHORT'),
+              )),
+            ]),
+          ),
+        ],
+
+        // ── Post-checkout break summary ───────────────────────────────────────
+        if (checkedOut != null && bs != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+            child: _BreakSummaryRow(bs: bs),
+          ),
+
+        // ── Action buttons ────────────────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: _loading
+              ? const Center(child: SizedBox(width: 24, height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2)))
+              : _buildActions(status, checkedIn, checkedOut),
+        ),
+      ]),
+    ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.05);
+  }
+
+  Widget _buildActions(String status, String? checkedIn, String? checkedOut) {
+    final canCheckIn  = checkedIn == null;
+    final canCheckOut = checkedIn != null && checkedOut == null;
+    final dayDone     = checkedIn != null && checkedOut != null;
+
+    if (dayDone) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.success.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(Icons.check_circle_rounded, color: AppColors.success, size: 16),
+          SizedBox(width: 8),
+          Text('Day Complete', style: TextStyle(color: AppColors.success, fontWeight: FontWeight.w600)),
+        ]),
+      );
+    }
+
+    return Row(children: [
+      if (canCheckIn) ...[
+        Expanded(child: _Btn(
+          icon: Icons.login_rounded, label: 'Check In',
+          color: AppColors.success, onTap: _checkIn,
+        )),
+        const SizedBox(width: 10),
+        Expanded(child: _Btn(
+          icon: Icons.home_rounded, label: 'WFH',
+          color: AppColors.info, onTap: _showWfhDialog,
+        )),
+      ],
+      if (canCheckOut)
+        Expanded(child: _Btn(
+          icon: Icons.logout_rounded, label: 'Check Out',
+          color: AppColors.ragRed, onTap: _checkOut,
+        )),
+    ]);
+  }
+
+  static (Color, String, IconData) _statusInfo(String status) => switch (status) {
+    'PRESENT' => (AppColors.success,   'Present',        Icons.check_circle_rounded),
+    'ABSENT'  => (AppColors.ragRed,    'Not Checked In', Icons.cancel_rounded),
+    'WFH'     => (AppColors.info,      'Work From Home', Icons.home_rounded),
+    'LATE'    => (AppColors.ragAmber,  'Late',           Icons.schedule_rounded),
+    _         => (AppColors.textMuted, status,           Icons.help_outline_rounded),
+  };
+
+  static String _formatTime(String iso) {
+    try {
+      final s = iso.contains('T') ? iso : iso.replaceFirst(' ', 'T');
+      return DateFormat('h:mm a').format(DateTime.parse(s).toLocal());
+    } catch (_) { return iso; }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Break widgets
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _BreakButton extends StatelessWidget {
+  const _BreakButton({
+    required this.icon,
+    required this.label,
+    required this.remaining,
+    required this.loading,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String label;
+  final int remaining;
+  final bool loading;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds        = context.ds;
+    final exhausted = remaining <= 0;
+    final Color color = exhausted ? ds.textMuted : AppColors.ragAmber;
+
+    return GestureDetector(
+      onTap: (loading || exhausted) ? null : onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+          color: exhausted ? ds.bgCard : AppColors.ragAmber.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+              color: exhausted ? ds.border : AppColors.ragAmber.withOpacity(0.3)),
+        ),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 5),
+          Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
+              color: color)),
+          const SizedBox(width: 4),
+          Text('${remaining}m',
+              style: TextStyle(fontSize: 11, color: color.withOpacity(0.65))),
+        ]),
+      ),
+    );
+  }
+}
+
+class _BreakSummaryRow extends StatelessWidget {
+  const _BreakSummaryRow({required this.bs});
+  final Map<String, dynamic> bs;
+
+  @override
+  Widget build(BuildContext context) {
+    final lunch = bs['lunch'] as Map<String, dynamic>?;
+    final short = bs['short'] as Map<String, dynamic>?;
+    final lunchUsed = (lunch?['used_minutes']     as num?)?.toInt() ?? 0;
+    final shortUsed = (short?['used_minutes']     as num?)?.toInt() ?? 0;
+    final lunchOver = (lunch?['exceeded_minutes'] as num?)?.toInt() ?? 0;
+    final shortOver = (short?['exceeded_minutes'] as num?)?.toInt() ?? 0;
+
+    if (lunchUsed == 0 && shortUsed == 0) return const SizedBox.shrink();
+
+    return Row(children: [
+      if (lunchUsed > 0)
+        _BreakChip(Icons.restaurant_rounded, lunchUsed, lunchOver),
+      if (lunchUsed > 0 && shortUsed > 0) const SizedBox(width: 6),
+      if (shortUsed > 0)
+        _BreakChip(Icons.coffee_rounded, shortUsed, shortOver),
+    ]);
+  }
+}
+
+class _BreakChip extends StatelessWidget {
+  const _BreakChip(this.icon, this.used, this.over);
+  final IconData icon;
+  final int used;
+  final int over;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = over > 0 ? AppColors.ragRed : AppColors.ragAmber;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 10, color: color),
+        const SizedBox(width: 3),
+        Text(_fmtMins(used),
+            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: color)),
+        if (over > 0)
+          Text(' +${over}m',
+              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+                  color: AppColors.ragRed)),
+      ]),
+    );
+  }
+
+  static String _fmtMins(int m) {
+    final h = m ~/ 60;
+    final rem = m % 60;
+    return h > 0 ? '${h}h ${rem}m' : '${m}m';
   }
 }
 
@@ -345,30 +849,22 @@ class _WeeklyTab extends ConsumerWidget {
       color: AppColors.primaryLight,
       child: records.when(
         data: (list) {
-          // Build a map of date → record
           final Map<String, Map<String, dynamic>> byDate = {};
           for (final r in list) {
             final d = r['attendanceDate'] as String?;
             if (d != null) byDate[d] = r;
           }
 
-          // Generate Mon → today
           final now = DateTime.now();
           final mon = now.subtract(Duration(days: now.weekday - 1));
-          final days = List.generate(
-            now.weekday, // weekday: Mon=1 … Sun=7
-            (i) => mon.add(Duration(days: i)),
-          );
+          final days = List.generate(now.weekday, (i) => mon.add(Duration(days: i)));
 
-          // Aggregate totals
           double totalHours = 0;
-          int presentDays   = 0;
-          int wfhDays       = 0;
-          int absentDays    = 0;
+          int presentDays = 0, wfhDays = 0, absentDays = 0;
 
           for (final day in days) {
-            final key = DateFormat('yyyy-MM-dd').format(day);
-            final r   = byDate[key];
+            final key    = DateFormat('yyyy-MM-dd').format(day);
+            final r      = byDate[key];
             final status = r?['status'] as String? ?? 'ABSENT';
             final hrs    = (r?['hoursWorked'] as num?)?.toDouble() ?? 0;
             totalHours += hrs;
@@ -380,7 +876,6 @@ class _WeeklyTab extends ConsumerWidget {
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              // ── Summary row ──────────────────────────────────────────────
               Row(children: [
                 Expanded(child: _StatMini('Present', '$presentDays/${days.length}', AppColors.success, Icons.check_circle_rounded)),
                 const SizedBox(width: 8),
@@ -439,24 +934,22 @@ class _MonthlyTabState extends ConsumerState<_MonthlyTab> {
   }
 
   void _prev() => setState(() {
-    if (_month == 1) { _month = 12; _year--; }
-    else _month--;
+    if (_month == 1) { _month = 12; _year--; } else _month--;
   });
 
   void _next() {
     final now = DateTime.now();
     if (_year > now.year || (_year == now.year && _month >= now.month)) return;
     setState(() {
-      if (_month == 12) { _month = 1; _year++; }
-      else _month++;
+      if (_month == 12) { _month = 1; _year++; } else _month++;
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final ds       = context.ds;
-    final key      = (year: _year, month: _month);
-    final summary  = ref.watch(monthlySummaryProvider(key));
+    final ds         = context.ds;
+    final key        = (year: _year, month: _month);
+    final summary    = ref.watch(monthlySummaryProvider(key));
     final monthLabel = DateFormat('MMMM yyyy').format(DateTime(_year, _month));
 
     return RefreshIndicator(
@@ -465,7 +958,6 @@ class _MonthlyTabState extends ConsumerState<_MonthlyTab> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // ── Month navigator ──────────────────────────────────────────────
           Container(
             decoration: BoxDecoration(
               color: ds.bgCard,
@@ -486,23 +978,21 @@ class _MonthlyTabState extends ConsumerState<_MonthlyTab> {
               IconButton(
                 icon: Icon(Icons.chevron_right_rounded,
                     color: (_year == DateTime.now().year && _month >= DateTime.now().month)
-                        ? ds.border
-                        : ds.textSecondary),
+                        ? ds.border : ds.textSecondary),
                 onPressed: _next,
               ),
             ]),
           ),
           const SizedBox(height: 16),
-
           summary.when(
             data: (data) {
               final s    = data['summary'] as Map<String, dynamic>? ?? {};
               final recs = data['records'] as List<Map<String, dynamic>>? ?? [];
 
-              final present    = (s['present'] as num?)?.toInt() ?? 0;
-              final absent     = (s['absent']  as num?)?.toInt() ?? 0;
-              final wfh        = (s['wfh']     as num?)?.toInt() ?? 0;
-              final late       = (s['late']    as num?)?.toInt() ?? 0;
+              final present    = (s['present']    as num?)?.toInt() ?? 0;
+              final absent     = (s['absent']     as num?)?.toInt() ?? 0;
+              final wfh        = (s['wfh']        as num?)?.toInt() ?? 0;
+              final late       = (s['late']       as num?)?.toInt() ?? 0;
               final totalHours = (s['total_hours'] as num?)?.toDouble() ?? 0;
 
               final Map<String, Map<String, dynamic>> byDate = {};
@@ -514,7 +1004,6 @@ class _MonthlyTabState extends ConsumerState<_MonthlyTab> {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Summary cards
                   GridView.count(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
@@ -584,7 +1073,7 @@ class _TeamTabState extends ConsumerState<_TeamTab> {
   void initState() {
     super.initState();
     final now = DateTime.now();
-    _from = now.subtract(Duration(days: now.weekday - 1)); // this Monday
+    _from = now.subtract(Duration(days: now.weekday - 1));
     _to   = now;
   }
 
@@ -610,32 +1099,23 @@ class _TeamTabState extends ConsumerState<_TeamTab> {
 
   @override
   Widget build(BuildContext context) {
-    final ds    = context.ds;
-    final fmtS  = DateFormat('yyyy-MM-dd');
-    final fmtD  = DateFormat('d MMM');
-    final key   = (from: fmtS.format(_from), to: fmtS.format(_to));
-    final recs  = ref.watch(teamRecordsProvider(key));
+    final ds   = context.ds;
+    final fmtS = DateFormat('yyyy-MM-dd');
+    final fmtD = DateFormat('d MMM');
+    final key  = (from: fmtS.format(_from), to: fmtS.format(_to));
+    final recs = ref.watch(teamRecordsProvider(key));
 
     return Column(
       children: [
-        // ── Date range picker bar ──────────────────────────────────────────
         Container(
           color: ds.bgCard,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(children: [
-            Expanded(child: _DateBtn(
-              label: 'From',
-              value: fmtD.format(_from),
-              onTap: _pickFrom,
-            )),
+            Expanded(child: _DateBtn(label: 'From', value: fmtD.format(_from), onTap: _pickFrom)),
             const SizedBox(width: 10),
             Icon(Icons.arrow_forward_rounded, size: 16, color: ds.textMuted),
             const SizedBox(width: 10),
-            Expanded(child: _DateBtn(
-              label: 'To',
-              value: fmtD.format(_to),
-              onTap: _pickTo,
-            )),
+            Expanded(child: _DateBtn(label: 'To', value: fmtD.format(_to), onTap: _pickTo)),
             const SizedBox(width: 12),
             FilledButton(
               style: FilledButton.styleFrom(
@@ -658,34 +1138,31 @@ class _TeamTabState extends ConsumerState<_TeamTab> {
                     style: TextStyle(color: ds.textMuted)));
               }
 
-              // Group by date descending
               final Map<String, List<Map<String, dynamic>>> grouped = {};
               for (final r in list) {
                 final d = r['attendanceDate'] as String? ?? 'Unknown';
                 grouped.putIfAbsent(d, () => []).add(r);
               }
-              final sortedDates = grouped.keys.toList()
-                ..sort((a, b) => b.compareTo(a));
+              final sortedDates = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
 
               return ListView.builder(
                 padding: const EdgeInsets.all(16),
                 itemCount: sortedDates.length,
                 itemBuilder: (_, i) {
-                  final dateStr   = sortedDates[i];
-                  final dayRecs   = grouped[dateStr]!;
+                  final dateStr = sortedDates[i];
+                  final dayRecs = grouped[dateStr]!;
                   DateTime? dt;
                   try { dt = DateTime.parse(dateStr); } catch (_) {}
                   final label = dt != null
                       ? DateFormat('EEE, d MMM yyyy').format(dt)
                       : dateStr;
 
-                  // Count stats
-                  int present = 0, absent = 0, wfh = 0, late = 0;
+                  int present = 0, absent = 0, wfh = 0;
                   for (final r in dayRecs) {
                     switch (r['status'] as String? ?? '') {
                       case 'PRESENT': present++; break;
                       case 'WFH':    wfh++; present++; break;
-                      case 'LATE':   late++; present++; break;
+                      case 'LATE':   present++; break;
                       case 'ABSENT': absent++; break;
                     }
                   }
@@ -693,21 +1170,18 @@ class _TeamTabState extends ConsumerState<_TeamTab> {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Date header with summary chips
                       Padding(
                         padding: const EdgeInsets.only(bottom: 8, top: 4),
                         child: Row(children: [
-                          Expanded(child: Text(label,
-                              style: TextStyle(fontWeight: FontWeight.w700,
-                                  fontSize: 13, color: ds.textPrimary))),
+                          Expanded(child: Text(label, style: TextStyle(
+                              fontWeight: FontWeight.w700, fontSize: 13, color: ds.textPrimary))),
                           _MiniChip('$present P', AppColors.success),
                           const SizedBox(width: 4),
                           if (wfh > 0) ...[
                             _MiniChip('$wfh W', AppColors.info),
                             const SizedBox(width: 4),
                           ],
-                          if (absent > 0)
-                            _MiniChip('$absent A', AppColors.ragRed),
+                          if (absent > 0) _MiniChip('$absent A', AppColors.ragRed),
                         ]),
                       ),
                       ...dayRecs.map((r) => _TeamMemberTile(r)),
@@ -742,17 +1216,18 @@ class _DayRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ds     = context.ds;
-    final status = record?['status'] as String? ?? 'ABSENT';
+    final ds      = context.ds;
+    final status  = record?['status']       as String? ?? 'ABSENT';
     final inTime  = record?['checkInTime']  as String?;
     final outTime = record?['checkOutTime'] as String?;
-    final hours  = (record?['hoursWorked'] as num?)?.toDouble() ?? 0;
-    final isWfh  = record?['isWfh'] as bool? ?? false;
+    final hours   = (record?['hoursWorked'] as num?)?.toDouble() ?? 0;
+    final isWfh   = record?['isWfh']        as bool? ?? false;
+    final bs      = record?['breakSummary'] as Map<String, dynamic>?;
 
     final (color, icon) = _statusStyle(status);
-    final dayLabel = day != null ? DateFormat('EEE').format(day!) : '—';
+    final dayLabel  = day != null ? DateFormat('EEE').format(day!)  : '—';
     final dateLabel = day != null ? DateFormat('d MMM').format(day!) : '';
-    final isToday = day != null &&
+    final isToday   = day != null &&
         DateFormat('yyyy-MM-dd').format(day!) ==
         DateFormat('yyyy-MM-dd').format(DateTime.now());
 
@@ -762,84 +1237,79 @@ class _DayRow extends StatelessWidget {
       decoration: BoxDecoration(
         color: isToday ? color.withOpacity(0.06) : ds.bgCard,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-            color: isToday ? color.withOpacity(0.35) : ds.border),
+        border: Border.all(color: isToday ? color.withOpacity(0.35) : ds.border),
       ),
-      child: Row(children: [
-        // Day column
-        SizedBox(
-          width: 44,
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Text(dayLabel,
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
-                    color: ds.textMuted)),
-            Text(dateLabel,
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800,
-                    color: isToday ? color : ds.textPrimary)),
-          ]),
-        ),
-        const SizedBox(width: 12),
-        // Status icon
-        Container(
-          width: 36, height: 36,
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(icon, size: 18, color: color),
-        ),
-        const SizedBox(width: 12),
-        // Times
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            _StatusPill(status, isWfh),
-          ]),
-          if (inTime != null) ...[
-            const SizedBox(height: 3),
-            Row(children: [
-              Icon(Icons.login_rounded, size: 11, color: ds.textMuted),
-              const SizedBox(width: 3),
-              Text(_fmt(inTime), style: TextStyle(fontSize: 11, color: ds.textMuted)),
-              if (outTime != null) ...[
-                const SizedBox(width: 8),
-                Icon(Icons.logout_rounded, size: 11, color: ds.textMuted),
-                const SizedBox(width: 3),
-                Text(_fmt(outTime), style: TextStyle(fontSize: 11, color: ds.textMuted)),
-              ],
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          SizedBox(
+            width: 44,
+            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Text(dayLabel, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: ds.textMuted)),
+              Text(dateLabel, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800,
+                  color: isToday ? color : ds.textPrimary)),
             ]),
-          ],
-        ])),
-        // Hours
-        if (hours > 0)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: AppColors.primaryLight.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(7),
-            ),
-            child: Text('${hours.toStringAsFixed(1)}h',
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700,
-                    color: AppColors.primaryLight)),
           ),
+          const SizedBox(width: 12),
+          Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 18, color: color),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            _StatusPill(status, isWfh),
+            if (inTime != null) ...[
+              const SizedBox(height: 3),
+              Row(children: [
+                Icon(Icons.login_rounded, size: 11, color: ds.textMuted),
+                const SizedBox(width: 3),
+                Text(_fmt(inTime), style: TextStyle(fontSize: 11, color: ds.textMuted)),
+                if (outTime != null) ...[
+                  const SizedBox(width: 8),
+                  Icon(Icons.logout_rounded, size: 11, color: ds.textMuted),
+                  const SizedBox(width: 3),
+                  Text(_fmt(outTime), style: TextStyle(fontSize: 11, color: ds.textMuted)),
+                ],
+              ]),
+            ],
+          ])),
+          if (hours > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.primaryLight.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(7),
+              ),
+              child: Text('${hours.toStringAsFixed(1)}h',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700,
+                      color: AppColors.primaryLight)),
+            ),
+        ]),
+        // Break summary chips (shown if data present)
+        if (bs != null) ...[
+          const SizedBox(height: 6),
+          _BreakSummaryRow(bs: bs),
+        ],
       ]),
     ).animate().fadeIn(duration: 300.ms);
   }
 
   static (Color, IconData) _statusStyle(String s) => switch (s) {
-    'PRESENT' => (AppColors.success,      Icons.check_circle_rounded),
-    'WFH'     => (AppColors.info,         Icons.home_rounded),
-    'LATE'    => (AppColors.ragAmber,     Icons.schedule_rounded),
-    'ABSENT'  => (AppColors.ragRed,       Icons.cancel_rounded),
-    _         => (AppColors.textMuted,    Icons.help_outline_rounded),
+    'PRESENT' => (AppColors.success,   Icons.check_circle_rounded),
+    'WFH'     => (AppColors.info,      Icons.home_rounded),
+    'LATE'    => (AppColors.ragAmber,  Icons.schedule_rounded),
+    'ABSENT'  => (AppColors.ragRed,    Icons.cancel_rounded),
+    _         => (AppColors.textMuted, Icons.help_outline_rounded),
   };
 
   static String _fmt(String iso) {
     try {
       final dt = DateTime.parse(iso.contains('T') ? iso : iso.replaceFirst(' ', 'T'));
       return DateFormat('h:mm a').format(dt.toLocal());
-    } catch (_) {
-      return iso;
-    }
+    } catch (_) { return iso; }
   }
 }
 
@@ -850,12 +1320,12 @@ class _TeamMemberTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ds      = context.ds;
-    final name    = record['name'] as String? ?? '—';
-    final status  = record['status'] as String? ?? 'ABSENT';
+    final name    = record['name']       as String? ?? '—';
+    final status  = record['status']     as String? ?? 'ABSENT';
     final inTime  = record['checkInTime']  as String?;
     final outTime = record['checkOutTime'] as String?;
     final hours   = (record['hoursWorked'] as num?)?.toDouble() ?? 0;
-    final isWfh   = record['isWfh'] as bool? ?? false;
+    final isWfh   = record['isWfh']      as bool? ?? false;
     final initials = name.trim().split(' ').where((s) => s.isNotEmpty)
         .take(2).map((s) => s[0].toUpperCase()).join();
 
@@ -872,30 +1342,23 @@ class _TeamMemberTile extends StatelessWidget {
       child: Row(children: [
         Container(
           width: 36, height: 36,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: AppColors.primaryGradient,
-          ),
+          decoration: BoxDecoration(shape: BoxShape.circle, gradient: AppColors.primaryGradient),
           child: Center(child: Text(initials,
-              style: const TextStyle(color: Colors.white,
-                  fontWeight: FontWeight.w700, fontSize: 12))),
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12))),
         ),
         const SizedBox(width: 10),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(name, style: TextStyle(fontWeight: FontWeight.w700,
-              fontSize: 13, color: ds.textPrimary)),
+          Text(name, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: ds.textPrimary)),
           if (inTime != null)
             Row(children: [
               Icon(Icons.login_rounded, size: 10, color: ds.textMuted),
               const SizedBox(width: 2),
-              Text(_DayRow._fmt(inTime),
-                  style: TextStyle(fontSize: 11, color: ds.textMuted)),
+              Text(_DayRow._fmt(inTime), style: TextStyle(fontSize: 11, color: ds.textMuted)),
               if (outTime != null) ...[
                 const SizedBox(width: 6),
                 Icon(Icons.logout_rounded, size: 10, color: ds.textMuted),
                 const SizedBox(width: 2),
-                Text(_DayRow._fmt(outTime),
-                    style: TextStyle(fontSize: 11, color: ds.textMuted)),
+                Text(_DayRow._fmt(outTime), style: TextStyle(fontSize: 11, color: ds.textMuted)),
               ],
             ]),
         ])),
@@ -921,11 +1384,11 @@ class _StatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (color, label) = switch (status) {
-      'PRESENT' => (AppColors.success,      'Present'),
-      'WFH'     => (AppColors.info,         'WFH'),
-      'LATE'    => (AppColors.ragAmber,     'Late'),
-      'ABSENT'  => (AppColors.ragRed,       'Absent'),
-      _         => (AppColors.textMuted,    status),
+      'PRESENT' => (AppColors.success,   'Present'),
+      'WFH'     => (AppColors.info,      'WFH'),
+      'LATE'    => (AppColors.ragAmber,  'Late'),
+      'ABSENT'  => (AppColors.ragRed,    'Absent'),
+      _         => (AppColors.textMuted, status),
     };
     final displayLabel = isWfh && status == 'PRESENT' ? 'WFH' : label;
     final displayColor = isWfh && status == 'PRESENT' ? AppColors.info : color;
@@ -938,8 +1401,7 @@ class _StatusPill extends StatelessWidget {
         border: Border.all(color: displayColor.withOpacity(0.3)),
       ),
       child: Text(displayLabel,
-          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
-              color: displayColor)),
+          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: displayColor)),
     );
   }
 }
@@ -984,8 +1446,7 @@ class _MiniChip extends StatelessWidget {
       color: color.withOpacity(0.12),
       borderRadius: BorderRadius.circular(5),
     ),
-    child: Text(label,
-        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: color)),
+    child: Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: color)),
   );
 }
 
@@ -1020,143 +1481,6 @@ class _DateBtn extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Today's card (unchanged logic, moved here)
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _TodayCard extends StatelessWidget {
-  const _TodayCard({
-    required this.record,
-    required this.loading,
-    required this.onCheckIn,
-    required this.onCheckOut,
-    required this.onWfh,
-  });
-  final Map<String, dynamic> record;
-  final bool loading;
-  final VoidCallback onCheckIn;
-  final VoidCallback onCheckOut;
-  final VoidCallback onWfh;
-
-  @override
-  Widget build(BuildContext context) {
-    final ds         = context.ds;
-    final status     = record['status'] as String? ?? 'ABSENT';
-    final checkedIn  = record['checkInTime']  as String?;
-    final checkedOut = record['checkOutTime'] as String?;
-    final hours      = (record['hoursWorked'] as num?)?.toDouble() ?? 0.0;
-    final isWfh      = record['isWfh'] as bool? ?? false;
-
-    final (statusColor, statusLabel, statusIcon) = _statusInfo(status);
-    final now = DateFormat('EEEE, d MMMM yyyy').format(DateTime.now());
-
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [statusColor.withOpacity(0.12), ds.bgCard],
-          begin: Alignment.topLeft, end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: statusColor.withOpacity(0.3)),
-      ),
-      child: Column(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-          child: Row(children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: statusColor.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(statusIcon, color: statusColor, size: 22),
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(now, style: TextStyle(fontSize: 12, color: ds.textMuted)),
-              const SizedBox(height: 2),
-              Row(children: [
-                Text(statusLabel, style: TextStyle(fontSize: 18,
-                    fontWeight: FontWeight.w800, color: statusColor)),
-                if (isWfh) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: AppColors.info.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                    child: const Text('WFH', style: TextStyle(fontSize: 10,
-                        fontWeight: FontWeight.w700, color: AppColors.info)),
-                  ),
-                ],
-              ]),
-            ])),
-          ]),
-        ),
-        if (checkedIn != null || hours > 0)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-            child: Row(children: [
-              if (checkedIn != null)
-                _TimeChip(icon: Icons.login_rounded, label: 'In',
-                    time: _formatTime(checkedIn), color: AppColors.success),
-              if (checkedIn != null && checkedOut != null)
-                const SizedBox(width: 10),
-              if (checkedOut != null)
-                _TimeChip(icon: Icons.logout_rounded, label: 'Out',
-                    time: _formatTime(checkedOut), color: AppColors.error),
-              if (hours > 0) ...[
-                const SizedBox(width: 10),
-                _TimeChip(icon: Icons.schedule_rounded, label: 'Hours',
-                    time: '${hours.toStringAsFixed(1)}h', color: AppColors.primaryLight),
-              ],
-            ]),
-          ),
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: loading
-              ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-              : _ActionButtons(
-                  status: status,
-                  checkedIn: checkedIn,
-                  checkedOut: checkedOut,
-                  onCheckIn: onCheckIn,
-                  onCheckOut: onCheckOut,
-                  onWfh: onWfh,
-                ),
-        ),
-      ]),
-    ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.05);
-  }
-
-  static (Color, String, IconData) _statusInfo(String status) => switch (status) {
-    'PRESENT' => (AppColors.success,   'Present',        Icons.check_circle_rounded),
-    'ABSENT'  => (AppColors.ragRed,    'Not Checked In', Icons.cancel_rounded),
-    'WFH'     => (AppColors.info,      'Work From Home', Icons.home_rounded),
-    'LATE'    => (AppColors.ragAmber,  'Late',           Icons.schedule_rounded),
-    _         => (AppColors.textMuted, status,           Icons.help_outline_rounded),
-  };
-
-  static DateTime _parseTime(String s) {
-    try {
-      return DateTime.parse(s).toLocal();
-    } catch (_) {
-      final today = DateTime.now();
-      final parts = s.split(':');
-      return DateTime(today.year, today.month, today.day,
-          int.tryParse(parts[0]) ?? 0,
-          int.tryParse(parts.length > 1 ? parts[1] : '0') ?? 0,
-          int.tryParse(parts.length > 2 ? parts[2] : '0') ?? 0);
-    }
-  }
-
-  static String _formatTime(String iso) {
-    try { return DateFormat('h:mm a').format(_parseTime(iso)); }
-    catch (_) { return iso; }
-  }
-}
-
 class _TimeChip extends StatelessWidget {
   const _TimeChip({required this.icon, required this.label, required this.time, required this.color});
   final IconData icon;
@@ -1176,63 +1500,11 @@ class _TimeChip extends StatelessWidget {
       Icon(icon, size: 13, color: color),
       const SizedBox(width: 5),
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: TextStyle(fontSize: 9, color: color.withOpacity(0.7),
-            fontWeight: FontWeight.w600)),
+        Text(label, style: TextStyle(fontSize: 9, color: color.withOpacity(0.7), fontWeight: FontWeight.w600)),
         Text(time, style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w700)),
       ]),
     ]),
   );
-}
-
-class _ActionButtons extends StatelessWidget {
-  const _ActionButtons({
-    required this.status,
-    required this.checkedIn,
-    required this.checkedOut,
-    required this.onCheckIn,
-    required this.onCheckOut,
-    required this.onWfh,
-  });
-  final String status;
-  final String? checkedIn;
-  final String? checkedOut;
-  final VoidCallback onCheckIn;
-  final VoidCallback onCheckOut;
-  final VoidCallback onWfh;
-
-  @override
-  Widget build(BuildContext context) {
-    final canCheckIn  = checkedIn == null && status != 'WFH';
-    final canCheckOut = checkedIn != null && checkedOut == null;
-    final canWfh      = checkedIn == null && status != 'WFH';
-
-    return Row(children: [
-      if (canCheckIn)
-        Expanded(child: _Btn(icon: Icons.login_rounded, label: 'Check In',
-            color: AppColors.success, onTap: onCheckIn)),
-      if (canCheckIn && canWfh) const SizedBox(width: 10),
-      if (canWfh)
-        Expanded(child: _Btn(icon: Icons.home_rounded, label: 'Work From Home',
-            color: AppColors.info, onTap: onWfh)),
-      if (canCheckOut)
-        Expanded(child: _Btn(icon: Icons.logout_rounded, label: 'Check Out',
-            color: AppColors.ragRed, onTap: onCheckOut)),
-      if (!canCheckIn && !canCheckOut && !canWfh)
-        Expanded(child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: AppColors.success.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Icon(Icons.check_circle_rounded, color: AppColors.success, size: 16),
-            SizedBox(width: 8),
-            Text('Day Complete', style: TextStyle(color: AppColors.success,
-                fontWeight: FontWeight.w600)),
-          ]),
-        )),
-    ]);
-  }
 }
 
 class _Btn extends StatelessWidget {
@@ -1257,7 +1529,7 @@ class _Btn extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Summary metrics (today overview — admin)
+//  Summary metrics (admin overview)
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _SummarySection extends ConsumerWidget {
@@ -1273,17 +1545,13 @@ class _SummarySection extends ConsumerWidget {
                   color: context.ds.textMuted, letterSpacing: 1.2)),
           const SizedBox(height: 10),
           Row(children: [
-            Expanded(child: _StatMini('Present', '${d['presentCount'] ?? 0}',
-                AppColors.success,  Icons.check_circle_rounded)),
+            Expanded(child: _StatMini('Present', '${d['presentCount'] ?? 0}', AppColors.success,  Icons.check_circle_rounded)),
             const SizedBox(width: 10),
-            Expanded(child: _StatMini('Absent', '${d['absentCount'] ?? 0}',
-                AppColors.ragRed,   Icons.cancel_rounded)),
+            Expanded(child: _StatMini('Absent',  '${d['absentCount']  ?? 0}', AppColors.ragRed,   Icons.cancel_rounded)),
             const SizedBox(width: 10),
-            Expanded(child: _StatMini('WFH', '${d['wfhCount'] ?? 0}',
-                AppColors.info,     Icons.home_rounded)),
+            Expanded(child: _StatMini('WFH',     '${d['wfhCount']     ?? 0}', AppColors.info,     Icons.home_rounded)),
             const SizedBox(width: 10),
-            Expanded(child: _StatMini('Late', '${d['lateCount'] ?? 0}',
-                AppColors.ragAmber, Icons.schedule_rounded)),
+            Expanded(child: _StatMini('Late',    '${d['lateCount']    ?? 0}', AppColors.ragAmber, Icons.schedule_rounded)),
           ]),
           const SizedBox(height: 16),
         ]);
@@ -1349,10 +1617,7 @@ class _LiveUserTile extends StatelessWidget {
       child: Row(children: [
         Container(
           width: 38, height: 38,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: AppColors.primaryGradient,
-          ),
+          decoration: BoxDecoration(shape: BoxShape.circle, gradient: AppColors.primaryGradient),
           child: Center(child: Text(initials, style: const TextStyle(
               color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13))),
         ),
@@ -1363,8 +1628,7 @@ class _LiveUserTile extends StatelessWidget {
           Row(mainAxisSize: MainAxisSize.min, children: [
             const Icon(Icons.login_rounded, size: 12, color: AppColors.success),
             const SizedBox(width: 4),
-            Text(_fmt(time), style: const TextStyle(
-                fontSize: 11, color: AppColors.success)),
+            Text(_fmt(time), style: const TextStyle(fontSize: 11, color: AppColors.success)),
           ]),
       ]),
     );

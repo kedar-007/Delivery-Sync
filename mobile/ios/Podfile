@@ -39,5 +39,25 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+    end
+  end
+
+  # ZohoPortalAuth binary has been patched with arm64-sim slice.
+  # Remove the arm64 exclusion CocoaPods sets so Flutter allows iOS 26 sim builds.
+  Dir.glob(installer.sandbox.root + "Target Support Files/**/*.xcconfig").each do |path|
+    text = File.read(path)
+    updated = text.lines.reject { |l| l =~ /EXCLUDED_ARCHS\[sdk=iphonesimulator\*\]/ && l.include?("arm64") }.join
+    File.write(path, updated) if updated != text
+  end
+
+  # Re-patch the ZohoPortalAuth binary to add arm64-sim slice if pod install reset it
+  framework_binary = installer.sandbox.root + "ZohoPortalAuth/ZohoPortalAuthKit.framework/ZohoPortalAuthKit"
+  if framework_binary.exist?
+    archs = `lipo -info "#{framework_binary}" 2>&1`
+    unless archs.include?("x86_64") && archs.include?("arm64")
+      system("cp /tmp/zoho_sim_fat.a '#{framework_binary}' 2>/dev/null")
+    end
   end
 end

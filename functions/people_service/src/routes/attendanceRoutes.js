@@ -11,6 +11,14 @@ router.get('/live',                        RBACMiddleware.require(PERMISSIONS.AT
 router.get('/my-record',                   RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).myRecord(req, res));
 router.get('/records',                     RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).records(req, res));
 router.post('/wfh',                        RBACMiddleware.require(PERMISSIONS.ATTENDANCE_WRITE), (req, res) => ctrl(req).markWfh(req, res));
+router.get('/breaks/today',                RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).getBreakSummary(req, res));
+router.post('/break-start',                RBACMiddleware.require(PERMISSIONS.ATTENDANCE_WRITE), (req, res) => ctrl(req).breakStart(req, res));
+router.post('/break-end',                  RBACMiddleware.require(PERMISSIONS.ATTENDANCE_WRITE), (req, res) => ctrl(req).breakEnd(req, res));
+router.get('/ip-config/settings',          RBACMiddleware.require(PERMISSIONS.IP_CONFIG_WRITE),   (req, res) => ctrl(req).getIpSettings(req, res));
+router.put('/ip-config/settings',          RBACMiddleware.require(PERMISSIONS.IP_CONFIG_WRITE),   (req, res) => ctrl(req).updateIpSettings(req, res));
+router.get('/ip-config',                   RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),    (req, res) => ctrl(req).getIpConfig(req, res));
+router.post('/ip-config',                  RBACMiddleware.require(PERMISSIONS.IP_CONFIG_WRITE),   (req, res) => ctrl(req).addIpConfig(req, res));
+router.delete('/ip-config/:configId',      RBACMiddleware.require(PERMISSIONS.IP_CONFIG_WRITE),   (req, res) => ctrl(req).deleteIpConfig(req, res));
 router.patch('/:recordId/override',        RBACMiddleware.require(PERMISSIONS.ATTENDANCE_ADMIN), (req, res) => ctrl(req).override(req, res));
 router.get('/anomalies',                   RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).anomalies(req, res));
 router.get('/summary',                     RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).summary(req, res));

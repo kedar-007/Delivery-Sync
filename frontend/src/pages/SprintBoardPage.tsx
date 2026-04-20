@@ -17,8 +17,10 @@ import {
   AlertCircle, CheckCircle2, PlayCircle, Layers, Clock,
   Filter, Search, User, Zap, BarChart2,
   ArrowRight, Trash2, Edit2, GitBranch, Users, X, Timer, Paperclip, History,
+  Send, DollarSign, Ban,
 } from 'lucide-react';
 import { timeEntriesApi, aiApi } from '../lib/api';
+import { useSubmitTimeEntry } from '../hooks/useTimeTracking';
 import { format, isPast, parseISO, differenceInDays } from 'date-fns';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
@@ -406,6 +408,10 @@ export default function SprintBoardPage() {
   const [logTimeDate, setLogTimeDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [logTimeBillable, setLogTimeBillable] = useState(true);
   const [logTimePending, setLogTimePending] = useState(false);
+  const [logTimeSubmitPending, setLogTimeSubmitPending] = useState(false);
+  const [submittingEntryId, setSubmittingEntryId] = useState<string | null>(null);
+  const [timeError, setTimeError] = useState<string | null>(null);
+  const [logTimeAutoSubmit, setLogTimeAutoSubmit] = useState(false);
   // task detail tabs / timer / AI
   const [detailTab, setDetailTab] = useState<'activity' | 'time' | 'ai'>('activity');
   const [taskTimeEntries, setTaskTimeEntries] = useState<any[]>([]);
@@ -427,6 +433,7 @@ export default function SprintBoardPage() {
   const { data: fullTask } = useTask(taskDetailId ?? '');
   const { data: comments } = useTaskComments(taskDetailId ?? '');
   const addComment = useAddTaskComment(taskDetailId ?? '');
+  const submitTimeEntry = useSubmitTimeEntry();
 
   const createSprint = useCreateSprint();
   const startSprint = useStartSprint();
@@ -613,6 +620,55 @@ export default function SprintBoardPage() {
       }
     } finally {
       setLogTimePending(false);
+    }
+  };
+
+  const handleLogTimeAndSubmit = async () => {
+    if (!detailTask || !logTimeHours) return;
+    setTimeError(null);
+    setLogTimeSubmitPending(true);
+    try {
+      const created = await timeEntriesApi.create({
+        project_id: detailTask.projectId ?? projectId,
+        task_id: detailTask.id,
+        entry_date: logTimeDate,
+        hours: parseFloat(logTimeHours),
+        description: logTimeDesc || detailTask.title,
+        is_billable: logTimeBillable,
+      }) as any;
+      const entryId = String(created?.ROWID ?? created?.id ?? '');
+      if (entryId) await submitTimeEntry.mutateAsync(entryId);
+      setLogTimeHours(''); setLogTimeDesc('');
+      if (taskDetailId) {
+        setTimeEntriesLoading(true);
+        timeEntriesApi.list({ task_id: taskDetailId })
+          .then((d: unknown) => setTaskTimeEntries(Array.isArray(d) ? d : []))
+          .catch(() => {}).finally(() => setTimeEntriesLoading(false));
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.message ?? err?.message ?? 'Failed to submit entry';
+      setTimeError(msg);
+    } finally {
+      setLogTimeSubmitPending(false);
+    }
+  };
+
+  const handleSubmitEntry = async (entryId: string) => {
+    setTimeError(null);
+    setSubmittingEntryId(entryId);
+    try {
+      await submitTimeEntry.mutateAsync(entryId);
+      if (taskDetailId) {
+        setTimeEntriesLoading(true);
+        timeEntriesApi.list({ task_id: taskDetailId })
+          .then((d: unknown) => setTaskTimeEntries(Array.isArray(d) ? d : []))
+          .catch(() => {}).finally(() => setTimeEntriesLoading(false));
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.message ?? err?.message ?? 'Failed to submit entry';
+      setTimeError(msg);
+    } finally {
+      setSubmittingEntryId(null);
     }
   };
 
@@ -1229,30 +1285,87 @@ export default function SprintBoardPage() {
                   {/* Time Logs Tab */}
                   {detailTab === 'time' && (
                     <div className="space-y-4">
+                      {/* Error banner */}
+                      {timeError && (
+                        <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 rounded-xl px-3 py-2.5 text-xs">
+                          <AlertCircle size={13} className="shrink-0 mt-0.5" />
+                          <span className="flex-1">{timeError}</span>
+                          <button onClick={() => setTimeError(null)} className="shrink-0 text-red-400 hover:text-red-600"><X size={12} /></button>
+                        </div>
+                      )}
+
                       {/* Entries list */}
                       {timeEntriesLoading ? (
                         <div className="flex items-center justify-center py-6 text-gray-400 text-xs gap-2">
                           <Clock size={14} className="animate-spin" /> Loading entries…
                         </div>
                       ) : taskTimeEntries.length > 0 ? (
-                        <div className="space-y-2 max-h-44 overflow-y-auto">
-                          {taskTimeEntries.map((e: any) => (
-                            <div key={e.ROWID ?? e.id} className="flex items-center gap-3 text-xs bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5">
-                              <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
-                                <Clock size={13} className="text-blue-600" />
+                        <div className="space-y-2.5 max-h-56 overflow-y-auto pr-0.5">
+                          {taskTimeEntries.map((e: any) => {
+                            const entryId = String(e.ROWID ?? e.id ?? '');
+                            const status: string = e.status ?? 'DRAFT';
+                            const isOwnEntry = String(e.user_id ?? e.userId ?? '') === String((user as any)?.id ?? '');
+                            const isDraft = (status === 'DRAFT' || status === 'REJECTED') && isOwnEntry;
+                            const isBillable = e.is_billable === true || e.is_billable === 'true';
+                            const statusLabel = status === 'DRAFT' ? 'Saved' : status === 'SUBMITTED' ? 'Approval Pending' : status === 'APPROVED' ? 'Approved' : status === 'REJECTED' ? 'Rejected' : status;
+                            const statusColor = status === 'APPROVED'
+                              ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                              : status === 'SUBMITTED'
+                              ? 'bg-amber-100 text-amber-700 border-amber-200'
+                              : status === 'REJECTED'
+                              ? 'bg-red-100 text-red-600 border-red-200'
+                              : 'bg-slate-100 text-slate-500 border-slate-200';
+                            const statusDot = status === 'APPROVED' ? 'bg-emerald-500' : status === 'SUBMITTED' ? 'bg-amber-500' : status === 'REJECTED' ? 'bg-red-500' : 'bg-slate-400';
+                            return (
+                              <div key={entryId} className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
+                                {/* Top row */}
+                                <div className="flex items-center gap-3 px-3.5 pt-3 pb-2">
+                                  {/* Hours pill */}
+                                  <div className="flex items-center justify-center bg-indigo-600 text-white rounded-xl px-3 py-1.5 shrink-0">
+                                    <Clock size={11} className="mr-1 opacity-80" />
+                                    <span className="text-sm font-bold">{parseFloat(e.hours ?? 0).toFixed(2)}h</span>
+                                  </div>
+                                  {/* Description + date */}
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-semibold text-gray-800 truncate leading-tight">{e.description || 'No description'}</p>
+                                    <p className="text-[10px] text-gray-400 mt-0.5">{e.entry_date ? format(parseISO(e.entry_date), 'MMM d, yyyy') : ''}</p>
+                                  </div>
+                                  {/* Billable badge */}
+                                  <span className={`shrink-0 flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-lg border ${isBillable ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
+                                    {isBillable ? <DollarSign size={9} /> : <Ban size={9} />}
+                                    {isBillable ? 'Billable' : 'Non-billable'}
+                                  </span>
+                                </div>
+                                {/* Bottom row — status + action */}
+                                <div className="flex items-center justify-between px-3.5 pb-3 gap-2">
+                                  <span className={`flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-lg border ${statusColor}`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot}`} />
+                                    {statusLabel}
+                                  </span>
+                                  {isDraft && entryId && (
+                                    <button
+                                      disabled={submittingEntryId === entryId}
+                                      onClick={() => handleSubmitEntry(entryId)}
+                                      className="flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+                                    >
+                                      {submittingEntryId === entryId
+                                        ? <><Clock size={10} className="animate-spin" /> Submitting…</>
+                                        : <><Send size={10} /> Submit for Approval</>}
+                                    </button>
+                                  )}
+                                  {status === 'SUBMITTED' && (
+                                    <span className="text-[10px] text-amber-600 font-medium">Awaiting manager review</span>
+                                  )}
+                                  {status === 'APPROVED' && (
+                                    <span className="flex items-center gap-1 text-[10px] text-emerald-600 font-medium"><CheckCircle2 size={10} /> Approved</span>
+                                  )}
+                                  {status === 'REJECTED' && (
+                                    <span className="text-[10px] text-red-500 font-medium">Re-submit after editing</span>
+                                  )}
+                                </div>
                               </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="font-semibold text-gray-800">{parseFloat(e.hours ?? 0).toFixed(2)}h</div>
-                                <div className="text-[10px] text-gray-400 truncate">{e.description || 'No description'}</div>
-                              </div>
-                              <div className="flex flex-col items-end gap-1">
-                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${(e.is_billable === true || e.is_billable === 'true') ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                                  {(e.is_billable === true || e.is_billable === 'true') ? '$ Billable' : 'Non-billable'}
-                                </span>
-                                <span className="text-[10px] text-gray-400">{e.entry_date ? format(parseISO(e.entry_date), 'MMM d') : ''}</span>
-                              </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       ) : (
                         <div className="text-center py-6 text-gray-400">
@@ -1262,9 +1375,9 @@ export default function SprintBoardPage() {
                       )}
 
                       {/* Log time form */}
-                      <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-100 rounded-2xl p-4 space-y-3">
+                      <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-200 rounded-2xl p-4 space-y-3">
                         <div className="text-xs font-bold text-indigo-700 flex items-center gap-1.5">
-                          <Timer size={13} /> Log Time Entry
+                          <Timer size={13} /> Log New Time Entry
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                           <div>
@@ -1293,8 +1406,34 @@ export default function SprintBoardPage() {
                             🔧 Non-billable
                           </label>
                         </div>
-                        <Button size="sm" variant="primary" loading={logTimePending} disabled={!logTimeHours || !logTimeDate} onClick={handleLogTime} className="w-full">
-                          Save Time Entry
+                        {/* Submit for approval toggle */}
+                        <button
+                          type="button"
+                          onClick={() => setLogTimeAutoSubmit(v => !v)}
+                          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border-2 transition-all ${logTimeAutoSubmit ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 bg-white'}`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Send size={12} className={logTimeAutoSubmit ? 'text-indigo-600' : 'text-gray-400'} />
+                            <div className="text-left">
+                              <p className={`text-xs font-semibold leading-tight ${logTimeAutoSubmit ? 'text-indigo-700' : 'text-gray-500'}`}>Send for Approval</p>
+                              <p className="text-[10px] text-gray-400 leading-tight">Notify your manager to review</p>
+                            </div>
+                          </div>
+                          {/* Toggle pill */}
+                          <div className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${logTimeAutoSubmit ? 'bg-indigo-500' : 'bg-gray-200'}`}>
+                            <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${logTimeAutoSubmit ? 'translate-x-4' : 'translate-x-0'}`} />
+                          </div>
+                        </button>
+
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          loading={logTimePending || logTimeSubmitPending}
+                          disabled={!logTimeHours || !logTimeDate}
+                          onClick={logTimeAutoSubmit ? handleLogTimeAndSubmit : handleLogTime}
+                          className="w-full"
+                        >
+                          {logTimeAutoSubmit ? 'Save & Send for Approval' : 'Save Time Entry'}
                         </Button>
                       </div>
                     </div>

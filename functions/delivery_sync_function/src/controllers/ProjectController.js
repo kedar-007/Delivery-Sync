@@ -90,7 +90,10 @@ class ProjectController {
       let paged;
       const statusClause = status ? `status = '${DataStoreService.escape(status)}'` : null;
 
-      if (role === 'TENANT_ADMIN' || role === 'PMO' || role === 'EXEC' || role === 'CLIENT') {
+      const hasOrgWideAccess = role === 'TENANT_ADMIN' || role === 'PMO' || role === 'EXEC' || role === 'CLIENT'
+        || req.currentUser.dataScope === 'ORG_WIDE' || req.currentUser.dataScope === 'SUBORDINATES';
+
+      if (hasOrgWideAccess) {
         paged = await this.db.findPaginated(
           TABLES.PROJECTS, tenantId, statusClause,
           { orderBy: 'CREATEDTIME DESC', page, pageSize }
