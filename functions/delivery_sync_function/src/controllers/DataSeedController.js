@@ -2,7 +2,7 @@
 
 const DataStoreService = require('../services/DataStoreService');
 const ResponseHelper   = require('../utils/ResponseHelper');
-const { TABLES }       = require('../utils/Constants');
+const { TABLES, PERMISSIONS } = require('../utils/Constants');
 
 // ─── Seed vocabulary ──────────────────────────────────────────────────────────
 
@@ -156,34 +156,66 @@ class DataSeedController {
       const report = {};
 
       // ── Resolve users ──────────────────────────────────────────────────────────
-      const users = await this.db.findWhere(TABLES.USERS, tenantId, '', { limit: 200 });
+      const users = await this.db.fetchAll(TABLES.USERS, tenantId, '');
       if (users.length === 0)
         return ResponseHelper.validationError(res, 'No users found in tenant — cannot seed relational data');
 
       // ── Helper: get/cache projects ─────────────────────────────────────────────
       let _projects = null;
       const getProjects = async () => {
-        if (!_projects) _projects = await this.db.findWhere(TABLES.PROJECTS, tenantId, '', { limit: 200 });
+        if (!_projects) _projects = await this.db.fetchAll(TABLES.PROJECTS, tenantId, '');
         return _projects;
-      };
+      }; 
 
       // ── Projects ───────────────────────────────────────────────────────────────
       if (modules.projects > 0) {
         const count = Math.min(MAX, modules.projects);
         let created = 0, failed = 0;
+        const today = new Date().toISOString().split('T')[0];
         for (let i = 0; i < count; i++) {
-          const rand = rng(Date.now() + i * 7919);
+          const rand    = rng(Date.now() + i * 7919);
+          const creator = pick(users, rand);
           try {
-            await this.db.insert(TABLES.PROJECTS, {
+            const proj = await this.db.insert(TABLES.PROJECTS, {
               tenant_id:  String(tenantId),
               name:       `${pick(PROJECT_NAMES, rand)} ${String(i + 1).padStart(3, '0')}`,
               description:`Seeded project #${i + 1} for testing purposes.`,
-              status:     pick(['ACTIVE','ACTIVE','ACTIVE','PLANNING','ON_HOLD'], rand),
+              status:     pick(['ACTIVE','ACTIVE','ACTIVE','ACTIVE','PLANNING','ON_HOLD'], rand),
               rag_status: pick(RAG_STATUSES, rand),
               start_date: dateInRange(date_from, date_to, rand),
               end_date:   dateInRange(date_from, date_to, rand),
-              created_by: String(pick(users, rand).ROWID),
+              created_by: String(creator.ROWID),
             });
+            const projId = String(proj.ROWID);
+
+            // Add creator as DELIVERY_LEAD
+            const memberSet = new Set([String(creator.ROWID)]);
+            try {
+              await this.db.insert(TABLES.PROJECT_MEMBERS, {
+                tenant_id:   String(tenantId),
+                project_id:  projId,
+                user_id:     String(creator.ROWID),
+                role:        'DELIVERY_LEAD',
+                joined_date: today,
+              });
+            } catch (_) {}
+
+            // Add 2-4 more random users as CONTRIBUTOR/VIEWER
+            const extraCount = 2 + Math.floor(rand() * 3);
+            for (let j = 0; j < extraCount && j < users.length; j++) {
+              const member = pick(users, rng(i * 1009 + j * 37));
+              if (memberSet.has(String(member.ROWID))) continue;
+              memberSet.add(String(member.ROWID));
+              try {
+                await this.db.insert(TABLES.PROJECT_MEMBERS, {
+                  tenant_id:   String(tenantId),
+                  project_id:  projId,
+                  user_id:     String(member.ROWID),
+                  role:        j === 0 ? 'CONTRIBUTOR' : 'VIEWER',
+                  joined_date: today,
+                });
+              } catch (_) {}
+            }
             created++;
           } catch (_) { failed++; }
         }
@@ -349,7 +381,7 @@ class DataSeedController {
       // ── Sprints ────────────────────────────────────────────────────────────────
       let _sprints = null;
       const getSprints = async () => {
-        if (!_sprints) _sprints = await this.db.findWhere(TABLES.SPRINTS, tenantId, '', { limit: 200 });
+        if (!_sprints) _sprints = await this.db.fetchAll(TABLES.SPRINTS, tenantId, '');
         return _sprints;
       };
 
@@ -384,6 +416,7 @@ class DataSeedController {
       const sprints = await getSprints();
 
       // ── Tasks ──────────────────────────────────────────────────────────────────
+      const sprintMembersSeeded = new Set(); // "sprintId:userId"
       if (modules.tasks > 0) {
         const count = Math.min(MAX, modules.tasks);
         let created = 0, failed = 0;
@@ -413,6 +446,21 @@ class DataSeedController {
               created_by:      String(owner.ROWID),
               due_date:        dateInRange(date_from, date_to, rand),
             });
+            // Auto-add assignee as sprint member so membership-based visibility works
+            if (sprint) {
+              const memberKey = `${sprint.ROWID}:${owner.ROWID}`;
+              if (!sprintMembersSeeded.has(memberKey)) {
+                sprintMembersSeeded.add(memberKey);
+                try {
+                  await this.db.insert(TABLES.SPRINT_MEMBERS, {
+                    tenant_id:      String(tenantId),
+                    sprint_id:      String(sprint.ROWID),
+                    user_id:        String(owner.ROWID),
+                    capacity_hours: 0,
+                  });
+                } catch (_) {} // ignore duplicate key errors
+              }
+            }
             created++;
           } catch (_) { failed++; }
         }
@@ -565,7 +613,7 @@ class DataSeedController {
         let created = 0, failed = 0, approvalsCreated = 0;
 
         // Fetch all tasks so we can link time entries to real task IDs
-        const allTasks = await this.db.findWhere(TABLES.TASKS, tenantId, '', { limit: 200 });
+        const allTasks = await this.db.fetchAll(TABLES.TASKS, tenantId, '');
         // Build index: projectId -> tasks in that project (for fast lookup)
         const tasksByProject = {};
         for (const t of allTasks) {
@@ -656,7 +704,7 @@ class DataSeedController {
         let created = 0, updated = 0, failed = 0;
 
         // Fetch existing profiles for upsert
-        const existingProfiles = await this.db.findWhere(TABLES.USER_PROFILES, tenantId, '', { limit: 200 });
+        const existingProfiles = await this.db.fetchAll(TABLES.USER_PROFILES, tenantId, '');
         const profileByUserId  = {};
         existingProfiles.forEach(p => { profileByUserId[String(p.user_id)] = p; });
 
@@ -717,6 +765,151 @@ class DataSeedController {
           }
         }
         report.user_profiles = { users: users.length, created, updated, failed };
+      }
+
+      // ── Org Roles + Permissions + User Assignments ────────────────────────────
+      if (modules.org_roles) {
+        let rolesCreated = 0, permsCreated = 0, assignmentsCreated = 0, orgFailed = 0;
+        const roleIdByName = {};
+
+        // Permission sets per role seniority
+        const ALL_PERMS_SEED = Object.values(PERMISSIONS).filter(
+          (p) => p !== 'DATA_SEED' && p !== 'ADMIN_USERS' && p !== 'ADMIN_SETTINGS'
+        );
+        const VP_PERMS_SEED  = ['PROJECT_READ','PROJECT_WRITE','STANDUP_READ','EOD_READ','ACTION_READ','ACTION_WRITE','BLOCKER_READ','BLOCKER_WRITE','RAID_READ','RAID_WRITE','DECISION_READ','DECISION_WRITE','MILESTONE_READ','MILESTONE_WRITE','REPORT_READ','REPORT_WRITE','DASHBOARD_READ','TEAM_READ','TEAM_WRITE','NOTIFICATION_READ','INVITE_USER'];
+        const MGR_PERMS_SEED = ['PROJECT_READ','STANDUP_SUBMIT','STANDUP_READ','EOD_SUBMIT','EOD_READ','ACTION_READ','ACTION_WRITE','BLOCKER_READ','BLOCKER_WRITE','RAID_READ','DECISION_READ','MILESTONE_READ','REPORT_READ','DASHBOARD_READ','TEAM_READ','NOTIFICATION_READ'];
+        const SR_PERMS_SEED  = ['PROJECT_READ','STANDUP_SUBMIT','STANDUP_READ','EOD_SUBMIT','EOD_READ','ACTION_READ','ACTION_WRITE','BLOCKER_READ','RAID_READ','DECISION_READ','MILESTONE_READ','REPORT_READ','DASHBOARD_READ','NOTIFICATION_READ','TEAM_READ'];
+        const IC_PERMS_SEED  = ['PROJECT_READ','STANDUP_SUBMIT','EOD_SUBMIT','ACTION_READ','BLOCKER_READ','MILESTONE_READ','REPORT_READ','DASHBOARD_READ','NOTIFICATION_READ'];
+        const PERM_SETS_SEED = { ALL: ALL_PERMS_SEED, VP: VP_PERMS_SEED, MGR: MGR_PERMS_SEED, SR: SR_PERMS_SEED, IC: IC_PERMS_SEED };
+
+        // Tech company org tree (15 roles) — parents always appear before children
+        const ORG_TREE = [
+          // ── Level 0 ──────────────────────────────────────────────────────────
+          { name:'CEO',                     desc:'Chief Executive Officer',              color:'#4F46E5', parent: null,               ps:'ALL' },
+          // ── Level 1 ──────────────────────────────────────────────────────────
+          { name:'CTO',                     desc:'Chief Technology Officer',             color:'#7C3AED', parent:'CEO',               ps:'ALL' },
+          { name:'VP Engineering',          desc:'VP of Software Engineering',           color:'#8B5CF6', parent:'CTO',               ps:'VP'  },
+          // ── Level 2 ──────────────────────────────────────────────────────────
+          { name:'Engineering Manager',     desc:'Engineering Team Manager',             color:'#6D28D9', parent:'VP Engineering',    ps:'MGR' },
+          { name:'Product Manager',         desc:'Product Manager',                      color:'#0EA5E9', parent:'VP Engineering',    ps:'MGR' },
+          { name:'QA Lead',                 desc:'Quality Assurance Lead',               color:'#A78BFA', parent:'VP Engineering',    ps:'MGR' },
+          // ── Level 3 ──────────────────────────────────────────────────────────
+          { name:'Principal Engineer',      desc:'Principal Software Engineer',          color:'#5B21B6', parent:'Engineering Manager', ps:'SR'  },
+          { name:'Senior Software Engineer',desc:'Senior Software Engineer',             color:'#C4B5FD', parent:'Engineering Manager', ps:'SR'  },
+          { name:'Senior QA Engineer',      desc:'Senior Quality Assurance Engineer',    color:'#DDD6FE', parent:'QA Lead',            ps:'SR'  },
+          { name:'DevOps Engineer',         desc:'DevOps / Site Reliability Engineer',   color:'#06B6D4', parent:'Engineering Manager', ps:'SR'  },
+          // ── Level 4 ──────────────────────────────────────────────────────────
+          { name:'Frontend Engineer',       desc:'Software Engineer (Frontend)',          color:'#EDE9FE', parent:'Senior Software Engineer', ps:'IC' },
+          { name:'Backend Engineer',        desc:'Software Engineer (Backend)',           color:'#EDE9FE', parent:'Senior Software Engineer', ps:'IC' },
+          { name:'Mobile Engineer',         desc:'Mobile Engineer (iOS / Android)',       color:'#E0E7FF', parent:'Senior Software Engineer', ps:'IC' },
+          { name:'QA Engineer',             desc:'Quality Assurance Engineer',            color:'#F5F3FF', parent:'Senior QA Engineer',      ps:'IC' },
+          { name:'Product Designer',        desc:'UI / UX Product Designer',             color:'#BAE6FD', parent:'Product Manager',          ps:'IC' },
+        ];
+
+        // Clear existing org-role data for this tenant so re-runs stay clean
+        try {
+          const existingRoles = await this.db.query(
+            `SELECT ROWID FROM ${TABLES.ORG_ROLES} WHERE tenant_id = '${tenantId}' LIMIT 300`
+          );
+          for (const r of existingRoles) {
+            try {
+              const ep = await this.db.query(`SELECT ROWID FROM ${TABLES.ORG_ROLE_PERMISSIONS} WHERE org_role_id = '${r.ROWID}' LIMIT 300`);
+              for (const p of ep) { try { await this.db.delete(TABLES.ORG_ROLE_PERMISSIONS, String(p.ROWID)); } catch (_) {} }
+              const ea = await this.db.query(`SELECT ROWID FROM ${TABLES.USER_ORG_ROLES} WHERE org_role_id = '${r.ROWID}' LIMIT 300`);
+              for (const a of ea) { try { await this.db.delete(TABLES.USER_ORG_ROLES, String(a.ROWID)); } catch (_) {} }
+              await this.db.delete(TABLES.ORG_ROLES, String(r.ROWID));
+            } catch (_) {}
+          }
+        } catch (_) {}
+
+        let orgFirstError = null;
+        // Insert roles in tree order (parents before children guarantees lookup hits)
+        for (const def of ORG_TREE) {
+          try {
+            const parentId = def.parent ? roleIdByName[def.parent] : null;
+            const payload = {
+              tenant_id:   String(tenantId),
+              name:        def.name,
+              description: def.desc,
+              color:       def.color,
+              level:       0,
+              is_active:   'true',
+            };
+            if (parentId) payload.parent_role_id = parentId;
+
+            const row    = await this.db.insert(TABLES.ORG_ROLES, payload);
+            const roleId = String(row.ROWID);
+            roleIdByName[def.name] = roleId;
+            rolesCreated++;
+
+            // Permissions for this role
+            const perms = PERM_SETS_SEED[def.ps] || IC_PERMS_SEED;
+            try {
+              await this.db.insert(TABLES.ORG_ROLE_PERMISSIONS, {
+                tenant_id:   String(tenantId),
+                org_role_id: roleId,
+                permissions: JSON.stringify(perms),
+              });
+              permsCreated++;
+            } catch (_) {}
+          } catch (e) { orgFailed++; if (!orgFirstError) orgFirstError = e.message; }
+        }
+
+        // Assign users to roles from level 3+ (more realistic distribution)
+        // Roles starting from index 6 are level-3 and below (Principal Engineer onward)
+        const assignableNames = ORG_TREE.slice(6).map((d) => d.name);
+        for (let i = 0; i < users.length; i++) {
+          const rand    = rng(i * 6271 + 42);
+          const name    = assignableNames[Math.floor(rand() * assignableNames.length)];
+          const roleId  = roleIdByName[name];
+          if (!roleId) continue;
+          try {
+            await this.db.insert(TABLES.USER_ORG_ROLES, {
+              tenant_id:   String(tenantId),
+              user_id:     String(users[i].ROWID),
+              org_role_id: roleId,
+              assigned_by: String(performedBy),
+              is_active:   'true',
+            });
+            assignmentsCreated++;
+          } catch (_) {}
+        }
+
+        // ── Seed default sharing rules based on role permission-set level ─────────
+        // C-suite / ALL → ORG_WIDE, VP → SUBORDINATES, MGR → SUBORDINATES,
+        // SR → ROLE_PEERS, IC → OWN_DATA
+        const SCOPE_BY_PS = { ALL: 'ORG_WIDE', VP: 'SUBORDINATES', MGR: 'SUBORDINATES', SR: 'ROLE_PEERS', IC: 'OWN_DATA' };
+        let sharingCreated = 0;
+
+        // Clear existing sharing rules for this tenant first
+        try {
+          const existingSharing = await this.db.query(
+            `SELECT ROWID FROM ${TABLES.ORG_SHARING_RULES} WHERE tenant_id = '${tenantId}' LIMIT 300`
+          );
+          for (const r of existingSharing) {
+            try { await this.db.delete(TABLES.ORG_SHARING_RULES, String(r.ROWID)); } catch (_) {}
+          }
+        } catch (_) {}
+
+        for (const def of ORG_TREE) {
+          const roleId = roleIdByName[def.name];
+          if (!roleId) continue;
+          const scope = SCOPE_BY_PS[def.ps] || 'OWN_DATA';
+          try {
+            await this.db.insert(TABLES.ORG_SHARING_RULES, {
+              tenant_id:        String(tenantId),
+              role_id:          roleId,
+              visibility_scope: scope,
+              access_level:     'READ',
+              record_types:     JSON.stringify(['ALL']),
+              is_active:        'true',
+            });
+            sharingCreated++;
+          } catch (_) {}
+        }
+
+        if (orgFirstError) console.error('[DataSeedController] org_roles first error:', orgFirstError);
+        report.org_roles = { created: rolesCreated, permissions: permsCreated, users_assigned: assignmentsCreated, sharing_rules: sharingCreated, failed: orgFailed, ...(orgFirstError ? { error: orgFirstError } : {}) };
       }
 
       // ── Badge Definitions + User Badge Awards ──────────────────────────────────
@@ -972,6 +1165,7 @@ class DataSeedController {
 
       const MODULE_TABLES = {
         projects:        TABLES.PROJECTS,
+        project_members: TABLES.PROJECT_MEMBERS,
         actions:         TABLES.ACTIONS,
         blockers:        TABLES.BLOCKERS,
         standups:        TABLES.STANDUP_ENTRIES,
@@ -983,6 +1177,7 @@ class DataSeedController {
         dependencies:    TABLES.DEPENDENCIES,
         assumptions:     TABLES.ASSUMPTIONS,
         sprints:         TABLES.SPRINTS,
+        sprint_members:  TABLES.SPRINT_MEMBERS,
         tasks:           TABLES.TASKS,
         teams:           TABLES.TEAMS,
         time_entries:    TABLES.TIME_ENTRIES,
@@ -994,21 +1189,30 @@ class DataSeedController {
         user_profiles:   TABLES.USER_PROFILES,
         badge_defs:      TABLES.BADGE_DEFINITIONS,
         badges:          TABLES.USER_BADGES,
+        org_roles:       TABLES.ORG_ROLES,
+        org_role_perms:  TABLES.ORG_ROLE_PERMISSIONS,
+        user_org_roles:  TABLES.USER_ORG_ROLES,
+        org_sharing_rules: TABLES.ORG_SHARING_RULES,
       };
 
       const report = {};
       for (const mod of modules) {
         const table = MODULE_TABLES[mod];
         if (!table) continue;
+        let deleted = 0;
         try {
-          const rows = await this.db.findWhere(table, tenantId, '', { limit: 200 });
-          let deleted = 0;
-          for (const row of rows) {
-            try { await this.db.delete(table, String(row.ROWID)); deleted++; } catch (_) {}
+          // Loop until no records remain — each pass fetches and deletes up to 200
+          let remaining = true;
+          while (remaining) {
+            const rows = await this.db.findWhere(table, tenantId, '', { limit: 200 });
+            if (!rows || rows.length === 0) { remaining = false; break; }
+            for (const row of rows) {
+              try { await this.db.delete(table, String(row.ROWID)); deleted++; } catch (_) {}
+            }
           }
           report[mod] = { deleted };
         } catch (e) {
-          report[mod] = { error: e.message };
+          report[mod] = { deleted, error: e.message };
         }
       }
 
@@ -1027,8 +1231,9 @@ class DataSeedController {
       const counts = {};
       const MODULE_TABLES = {
         users:          TABLES.USERS,
-        projects:       TABLES.PROJECTS,
-        milestones:     TABLES.MILESTONES,
+        projects:        TABLES.PROJECTS,
+        project_members: TABLES.PROJECT_MEMBERS,
+        milestones:      TABLES.MILESTONES,
         actions:        TABLES.ACTIONS,
         blockers:       TABLES.BLOCKERS,
         decisions:      TABLES.DECISIONS,
@@ -1039,6 +1244,7 @@ class DataSeedController {
         standups:       TABLES.STANDUP_ENTRIES,
         eod:            TABLES.EOD_ENTRIES,
         sprints:        TABLES.SPRINTS,
+        sprint_members: TABLES.SPRINT_MEMBERS,
         tasks:          TABLES.TASKS,
         teams:          TABLES.TEAMS,
         time_entries:   TABLES.TIME_ENTRIES,
@@ -1050,6 +1256,10 @@ class DataSeedController {
         user_profiles:  TABLES.USER_PROFILES,
         badge_defs:     TABLES.BADGE_DEFINITIONS,
         badges:         TABLES.USER_BADGES,
+        org_roles:        TABLES.ORG_ROLES,
+        org_role_perms:   TABLES.ORG_ROLE_PERMISSIONS,
+        user_org_roles:   TABLES.USER_ORG_ROLES,
+        org_sharing_rules: TABLES.ORG_SHARING_RULES,
       };
       for (const [key, table] of Object.entries(MODULE_TABLES)) {
         try { counts[key] = await this.db.countWhere(table, tenantId, ''); }

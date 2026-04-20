@@ -194,6 +194,27 @@ export const adminApi = {
     api.get(`/admin/users/${userId}/permissions`).then((r) => r.data.data),
   setUserPermissions: (userId: string, data: { granted: string[]; revoked: string[] }) =>
     api.put(`/admin/users/${userId}/permissions`, data).then((r) => r.data.data),
+  // Org Roles
+  listOrgRoles: () => api.get('/admin/org-roles').then((r) => r.data.data),
+  createOrgRole: (data: unknown) => api.post('/admin/org-roles', data).then((r) => r.data.data),
+  updateOrgRole: (id: string, data: unknown) => api.put(`/admin/org-roles/${id}`, data).then((r) => r.data.data),
+  deleteOrgRole: (id: string) => api.delete(`/admin/org-roles/${id}`).then((r) => r.data.data),
+  getOrgRolePermissions: (id: string) => api.get(`/admin/org-roles/${id}/permissions`).then((r) => r.data.data),
+  setOrgRolePermissions: (id: string, permissions: string[]) =>
+    api.put(`/admin/org-roles/${id}/permissions`, { permissions }).then((r) => r.data.data),
+  assignUserOrgRole: (userId: string, orgRoleId: string | null) =>
+    api.put(`/admin/users/${userId}/org-role`, { orgRoleId }).then((r) => r.data.data),
+  getOrgChart: () => api.get('/admin/org-chart').then((r) => r.data.data),
+  getAllPermissions: () => api.get('/admin/permissions/all').then((r) => r.data.data),
+  // Data Sharing Rules
+  getSharingRules: (roleId: string) =>
+    api.get(`/admin/org-roles/${roleId}/sharing`).then((r) => r.data.data),
+  setDefaultVisibility: (roleId: string, data: { visibilityScope: string; accessLevel?: string; recordTypes?: string[] }) =>
+    api.put(`/admin/org-roles/${roleId}/sharing/visibility`, data).then((r) => r.data.data),
+  addExplicitSharingRule: (roleId: string, data: { targetRoleId: string; accessLevel?: string; recordTypes?: string[] }) =>
+    api.post(`/admin/org-roles/${roleId}/sharing/rules`, data).then((r) => r.data.data),
+  deleteSharingRule: (ruleId: string) =>
+    api.delete(`/admin/sharing-rules/${ruleId}`).then((r) => r.data.data),
 };
 
 // ─── Super Admin ──────────────────────────────────────────────────────────────
@@ -400,16 +421,24 @@ peopleClient.interceptors.response.use(
 );
 
 export const attendanceApi = {
-  checkIn:   (data: unknown) => peopleClient.post('/attendance/check-in', data).then((r) => r.data.data),
-  checkOut:  (data: unknown) => peopleClient.post('/attendance/check-out', data).then((r) => r.data.data),
-  myRecord:  () => peopleClient.get('/attendance/my-record').then((r) => r.data.data),
-  live:      () => peopleClient.get('/attendance/live').then((r) => r.data.data),
-  records:   (params?: Record<string, string>) => peopleClient.get('/attendance/records', { params }).then((r) => r.data.data),
-  markWfh:   (data: unknown) => peopleClient.post('/attendance/wfh', data).then((r) => r.data.data),
-  override:  (recordId: string, data: unknown) => peopleClient.patch(`/attendance/${recordId}/override`, data).then((r) => r.data.data),
-  anomalies: () => peopleClient.get('/attendance/anomalies').then((r) => r.data.data),
-  summary:   (params?: Record<string, string>) => peopleClient.get('/attendance/summary', { params }).then((r) => r.data.data),
-  exportCsv: (params?: Record<string, string>) => peopleClient.get('/attendance/export', { params, responseType: 'blob' }).then((r) => r.data),
+  checkIn:        (data: unknown) => peopleClient.post('/attendance/check-in', data).then((r) => r.data.data),
+  checkOut:       (data: unknown) => peopleClient.post('/attendance/check-out', data).then((r) => r.data.data),
+  myRecord:       () => peopleClient.get('/attendance/my-record').then((r) => r.data.data),
+  live:           () => peopleClient.get('/attendance/live').then((r) => r.data.data),
+  records:        (params?: Record<string, string>) => peopleClient.get('/attendance/records', { params }).then((r) => r.data.data),
+  markWfh:        (data: unknown) => peopleClient.post('/attendance/wfh', data).then((r) => r.data.data),
+  breakStart:     (data: unknown) => peopleClient.post('/attendance/break-start', data).then((r) => r.data.data),
+  breakEnd:       (data: unknown) => peopleClient.post('/attendance/break-end', data).then((r) => r.data.data),
+  getBreakSummary: () => peopleClient.get('/attendance/breaks/today').then((r) => r.data.data),
+  getIpSettings:  () => peopleClient.get('/attendance/ip-config/settings').then((r) => r.data.data),
+  updateIpSettings: (data: { enabled: boolean }) => peopleClient.put('/attendance/ip-config/settings', data).then((r) => r.data.data),
+  getIpConfig:    () => peopleClient.get('/attendance/ip-config').then((r) => r.data.data),
+  addIpConfig:    (data: unknown) => peopleClient.post('/attendance/ip-config', data).then((r) => r.data.data),
+  deleteIpConfig: (configId: string) => peopleClient.delete(`/attendance/ip-config/${configId}`).then((r) => r.data.data),
+  override:       (recordId: string, data: unknown) => peopleClient.patch(`/attendance/${recordId}/override`, data).then((r) => r.data.data),
+  anomalies:      () => peopleClient.get('/attendance/anomalies').then((r) => r.data.data),
+  summary:        (params?: Record<string, string>) => peopleClient.get('/attendance/summary', { params }).then((r) => r.data.data),
+  exportCsv:      (params?: Record<string, string>) => peopleClient.get('/attendance/export', { params, responseType: 'blob' }).then((r) => r.data),
 };
 
 export const leaveApi = {

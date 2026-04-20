@@ -94,7 +94,7 @@ class LeaveController {
       const types = await this.db.findWhere(
         TABLES.LEAVE_TYPES,
         req.tenantId,
-        `is_active = true`,
+        `is_active = 'true'`,
         { limit: 50 }
       );
 
@@ -192,13 +192,26 @@ class LeaveController {
 
   // ── Leave Requests ────────────────────────────────────────────────────────────
   async listRequests(req, res) {
-    const { status, mine } = req.query;
+    const { status, mine, team } = req.query;
     const me = req.currentUser;
     let where = '';
-    // Filter to own leaves when: ?mine=true is set, OR role is TEAM_MEMBER
+
     if (mine === 'true' || me.role === 'TEAM_MEMBER') {
+      // My own leaves only
       where = `user_id = '${me.id}'`;
+    } else if (team === 'true') {
+      // Only requests from direct reports (users whose reporting_manager_id = me)
+      const reporteeProfiles = await this.db.findWhere(
+        TABLES.USER_PROFILES, req.tenantId,
+        `reporting_manager_id = '${me.id}'`, { limit: 200 }
+      );
+      if (reporteeProfiles.length === 0) {
+        return ResponseHelper.success(res, []);
+      }
+      const ids = reporteeProfiles.map(p => `'${p.user_id}'`).join(',');
+      where = `user_id IN (${ids})`;
     }
+
     if (status) where += (where ? ' AND ' : '') + `status = '${DataStoreService.escape(status)}'`;
     const requests = await this.db.findWhere(TABLES.LEAVE_REQUESTS, req.tenantId, where, { orderBy: 'CREATEDTIME DESC', limit: 100 });
 
@@ -251,14 +264,14 @@ class LeaveController {
         leaveTypeId = rawId; // keep as string 
 
         const typeRows = await this.db.findWhere(TABLES.LEAVE_TYPES, tenantId,
-          `ROWID = ${leaveTypeId} AND is_active = true`, { limit: 1 });
+          `ROWID = ${leaveTypeId} AND is_active = 'true'`, { limit: 1 });
         if (typeRows.length === 0)
           return ResponseHelper.validationError(res, `Leave type not found or inactive`);
         leaveTypeName = typeRows[0].name;
       } catch {
         // rawId is a name string — look up by name
         const typeRows = await this.db.findWhere(TABLES.LEAVE_TYPES, tenantId,
-          `name = '${DataStoreService.escape(rawId)}' AND is_active = true`, { limit: 1 });
+          `name = '${DataStoreService.escape(rawId)}' AND is_active = 'true'`, { limit: 1 });
         if (typeRows.length === 0)
           return ResponseHelper.validationError(res, `Leave type '${rawId}' not found`);
         leaveTypeId = String(typeRows[0].ROWID); // keep as string ✅

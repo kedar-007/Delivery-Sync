@@ -26,7 +26,8 @@ class DashboardController {
     try {
       const { tenantId, id: userId, role } = req.currentUser;
       const today = DataStoreService.today();
-      const isAdmin = role === 'TENANT_ADMIN' || role === 'PMO' || role === 'EXEC';
+      const isAdmin = role === 'TENANT_ADMIN' || role === 'PMO' || role === 'EXEC'
+        || req.currentUser.dataScope === 'ORG_WIDE' || req.currentUser.dataScope === 'SUBORDINATES';
 
       // ── My Projects (fetch up to 100 for list + RAG display) ─────────────────
       let projects = [];

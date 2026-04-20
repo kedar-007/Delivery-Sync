@@ -1,7 +1,7 @@
 'use strict';
 
 const ResponseHelper = require('../utils/ResponseHelper');
-const { ROLE_PERMISSIONS, TABLES } = require('../utils/Constants');
+const { ROLE_PERMISSIONS, PERMISSIONS, TABLES } = require('../utils/Constants');
 const DataStoreService = require('../services/DataStoreService');
 
 /**
@@ -28,7 +28,7 @@ async function getUserOverrides(req) {
     const rows = await db.query(
       `SELECT permissions FROM ${TABLES.PERMISSION_OVERRIDES} ` +
       `WHERE tenant_id = '${req.currentUser.tenantId}' ` +
-      `AND user_id = '${req.currentUser.id}' AND is_active = true LIMIT 1`
+      `AND user_id = '${req.currentUser.id}' AND is_active = 'true' LIMIT 1`
     );
     if (rows.length === 0) {
       req._permOverrides = { granted: [], revoked: [] };
@@ -45,12 +45,34 @@ async function getUserOverrides(req) {
   return req._permOverrides;
 }
 
-/** Compute effective permissions for the current user (role + overrides). */
+/** Compute effective permissions for the current user.
+ *
+ * Resolution order:
+ *   - TENANT_ADMIN / SUPER_ADMIN          → system role permissions (all)
+ *   - User has org role assigned          → ONLY org role permissions (sole source)
+ *   - User has NO org role (plain member) → base TEAM_MEMBER system-role permissions
+ *   + per-user grants/revokes on top in all cases
+ */
 async function effectivePermissions(req) {
-  const base = new Set(ROLE_PERMISSIONS[req.currentUser.role] || []);
+  const user = req.currentUser;
+  // AuthMiddleware already computed the full effective permissions (org role + individual
+  // overrides). Use them directly to avoid a second DB round-trip and any divergence.
+  if (Array.isArray(user.permissions) && user.permissions.length > 0) {
+    console.log(`[RBACMiddleware] effectivePermissions user=${user.id} role=${user.role} orgRoleId=${user.orgRoleId} precomputed=${user.permissions.length}`);
+    return new Set(user.permissions);
+  }
+  // Fallback for edge cases where AuthMiddleware didn't populate permissions
+  const isFullAdmin = user.role === 'TENANT_ADMIN' || user.role === 'SUPER_ADMIN';
+  const basePerms = isFullAdmin
+    ? Object.values(PERMISSIONS)
+    : user.orgRoleId
+      ? (user.orgRolePermissions || [])
+      : (ROLE_PERMISSIONS[user.role] || []);
+  const base = new Set(basePerms);
   const { granted, revoked } = await getUserOverrides(req);
   granted.forEach((p) => base.add(p));
   revoked.forEach((p) => base.delete(p));
+  console.log(`[RBACMiddleware] effectivePermissions user=${user.id} role=${user.role} orgRoleId=${user.orgRoleId} basePerms=${basePerms.length} totalEffective=${base.size}`);
   return base;
 }
 
@@ -109,8 +131,9 @@ class RBACMiddleware {
       const user = req.currentUser;
       if (!user) return ResponseHelper.unauthorized(res);
 
-      // Bypass for admin roles
-      if (user.role === 'TENANT_ADMIN' || user.role === 'PMO' || user.role === 'EXEC') {
+      // Bypass for admin roles and org-role users with org-wide data scope
+      if (user.role === 'TENANT_ADMIN' || user.role === 'PMO' || user.role === 'EXEC'
+          || user.dataScope === 'ORG_WIDE' || user.dataScope === 'SUBORDINATES') {
         return next();
       }
 
@@ -146,15 +169,20 @@ class RBACMiddleware {
   }
 
   /**
-   * Ensures the authenticated user is a TENANT_ADMIN.
+   * Ensures the authenticated user is a TENANT_ADMIN or has ADMIN_USERS permission
+   * (which org roles like CEO can grant).
    */
   static requireAdmin() {
-    return (req, res, next) => {
+    return async (req, res, next) => {
       if (!req.currentUser) return ResponseHelper.unauthorized(res);
-      if (req.currentUser.role !== 'TENANT_ADMIN') {
-        return ResponseHelper.forbidden(res, 'Admin access required');
+      if (req.currentUser.role === 'TENANT_ADMIN' || req.currentUser.role === 'SUPER_ADMIN') {
+        return next();
       }
-      next();
+      try {
+        const allowed = await effectivePermissions(req);
+        if (allowed.has(PERMISSIONS.ADMIN_USERS)) return next();
+      } catch (_) {}
+      return ResponseHelper.forbidden(res, 'Admin access required');
     };
   }
 }

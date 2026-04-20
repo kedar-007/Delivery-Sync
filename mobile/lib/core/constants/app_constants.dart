@@ -62,6 +62,36 @@ class UserRole {
   static bool isExec(String role) => role == exec;
 }
 
+/// Permission strings — mirrors backend Constants.js PERMISSIONS.
+class Permissions {
+  Permissions._();
+  static const String projectRead    = 'PROJECT_READ';
+  static const String projectWrite   = 'PROJECT_WRITE';
+  static const String standupSubmit  = 'STANDUP_SUBMIT';
+  static const String standupRead    = 'STANDUP_READ';
+  static const String eodSubmit      = 'EOD_SUBMIT';
+  static const String eodRead        = 'EOD_READ';
+  static const String taskRead       = 'TASK_READ';
+  static const String taskWrite      = 'TASK_WRITE';
+  static const String sprintRead     = 'SPRINT_READ';
+  static const String sprintWrite    = 'SPRINT_WRITE';
+  static const String reportRead     = 'REPORT_READ';
+  static const String reportWrite    = 'REPORT_WRITE';
+  static const String dashboardRead  = 'DASHBOARD_READ';
+  static const String adminUsers     = 'ADMIN_USERS';
+  static const String inviteUser     = 'INVITE_USER';
+  static const String orgRoleRead    = 'ORG_ROLE_READ';
+  static const String orgRoleWrite   = 'ORG_ROLE_WRITE';
+  static const String teamRead       = 'TEAM_READ';
+  static const String attendanceRead = 'ATTENDANCE_READ';
+  static const String leaveRead      = 'LEAVE_READ';
+  static const String assetRead      = 'ASSET_READ';
+  // ── AI ──────────────────────────────────────────────────────────────────────
+  static const String aiInsights     = 'AI_INSIGHTS';
+  static const String aiPerformance  = 'AI_PERFORMANCE';
+  static const String aiTeamAnalysis = 'AI_TEAM_ANALYSIS';
+}
+
 /// RAG status constants.
 class RagStatus {
   RagStatus._();

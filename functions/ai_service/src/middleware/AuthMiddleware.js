@@ -53,9 +53,7 @@ class AuthMiddleware {
       }
 
       // 3. Resolve role — prefer Catalyst role if it's a known DS role
-      const KNOWN_ROLES = ['TENANT_ADMIN', 'DELIVERY_LEAD', 'TEAM_MEMBER', 'PMO', 'EXEC', 'CLIENT'];
-      const catalystRole = catalystUser.role_details?.role_name;
-      const role = (catalystRole && KNOWN_ROLES.includes(catalystRole)) ? catalystRole : user.role;
+      const role = user.role;
 
       req.currentUser = {
         id:       String(user.ROWID),

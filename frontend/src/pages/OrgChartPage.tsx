@@ -12,6 +12,7 @@ import { PageSkeleton } from '../components/ui/Skeleton';
 import UserAvatar from '../components/ui/UserAvatar';
 import Badge from '../components/ui/Badge';
 import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { useOrgHierarchy, useSetManager } from '../hooks/usePeople';
 
 /* ─── Types ─────────────────────────────────────────────────────────────── */
@@ -59,7 +60,6 @@ interface TooltipState {
 
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 
-const ADMIN_ROLES = ['TENANT_ADMIN', 'PMO'];
 const MAX_DEPTH = 8;
 
 // Node dimensions
@@ -765,7 +765,7 @@ type ViewMode = 'chart' | 'list';
 const OrgChartPage = () => {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const { user } = useAuth();
-  const isAdmin = ADMIN_ROLES.includes(user?.role ?? '');
+  const isAdmin = hasPermission(user, PERMISSIONS.ORG_WRITE);
 
   const [view, setView] = useState<ViewMode>('chart');
   const [search, setSearch] = useState('');

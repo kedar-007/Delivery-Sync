@@ -16,6 +16,7 @@ import Modal from './Modal';
 import UserAvatar from './UserAvatar';
 import { useAiHolisticPerformance } from '../../hooks/useAiInsights';
 import { useAuth } from '../../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../../utils/permissions';
 import { useUsers } from '../../hooks/useUsers';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -351,7 +352,6 @@ const RANGE_LABELS: Record<7 | 30 | 90, string> = {
   90: 'Quarterly',
 };
 
-const ADMIN_ROLES = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
 
 export default function PerformanceModal({
   open,
@@ -367,7 +367,7 @@ export default function PerformanceModal({
   const [viewMode, setViewMode] = useState<'team' | 'individual'>('team');
   const [selectedUserId, setSelectedUserId] = useState<string>(targetUserId ?? '');
 
-  const isAdmin = ADMIN_ROLES.includes(user?.role ?? '');
+  const isAdmin = hasPermission(user, PERMISSIONS.AI_TEAM_ANALYSIS);
   const { data: usersData } = useUsers();
   const users = usersData ?? [];
 

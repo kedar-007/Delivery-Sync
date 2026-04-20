@@ -13,18 +13,22 @@ import { useMyProfile } from '../../hooks/useUsers';
 import { useSidebar } from '../../contexts/SidebarContext';
 import { useFestival } from '../../contexts/FestivalContext';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
+import { hasPermission, PERMISSIONS } from '../../utils/permissions';
+import type { CurrentUser } from '../../types';
 import UserAvatar from '../ui/UserAvatar';
 import BrandLogo from '../ui/BrandLogo';
 
 // ─── Nav item definition ──────────────────────────────────────────────────────
+// Gate nav items with `permission` (from user.permissions) — NOT hardcoded roles.
+// Only TENANT_ADMIN vs TEAM_MEMBER exists in Catalyst; all real access is via org roles.
 
 interface NavItem {
   label: string;
   to?: string;
   icon: React.ReactNode;
   children?: NavItem[];
-  roles?: string[];
-  moduleKey?: string; // gated by super-admin module permissions
+  permission?: string; // hide item unless user has this permission
+  moduleKey?: string;  // gated by super-admin module toggle
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -33,59 +37,61 @@ const NAV_ITEMS: NavItem[] = [
 
   // ── Projects ──────────────────────────────────────────────────────────────────
   {
-    label: 'Projects', icon: <FolderKanban size={18} />, moduleKey: 'projects',
+    label: 'Projects', icon: <FolderKanban size={18} />, permission: PERMISSIONS.PROJECT_READ, moduleKey: 'projects',
     children: [
-      { label: 'All Projects',  to: '/projects',    icon: <FolderKanban size={16} /> },
-      { label: 'My Tasks',      to: '/my-tasks',    icon: <CheckSquare size={16} /> },
-      { label: 'Sprint Boards', to: '/sprints',     icon: <GitBranch size={16} /> },
-      { label: 'Milestones',    to: '/milestones',  icon: <Milestone size={16} /> },
-      { label: 'Backlog',       to: '/backlog',     icon: <ClipboardList size={16} /> },
-      { label: 'Actions',       to: '/actions',     icon: <CheckSquare size={16} /> },
-      { label: 'Blockers',      to: '/blockers',    icon: <AlertTriangle size={16} /> },
-      { label: 'RAID Register', to: '/raid',        icon: <Shield size={16} /> },
-      { label: 'Decisions',     to: '/decisions',   icon: <BookOpen size={16} /> },
+      { label: 'All Projects',  to: '/projects',    icon: <FolderKanban size={16} />, permission: PERMISSIONS.PROJECT_READ },
+      { label: 'My Tasks',      to: '/my-tasks',    icon: <CheckSquare size={16} />,  permission: PERMISSIONS.TASK_READ },
+      { label: 'Sprint Boards', to: '/sprints',     icon: <GitBranch size={16} />,    permission: PERMISSIONS.SPRINT_READ },
+      { label: 'Milestones',    to: '/milestones',  icon: <Milestone size={16} />,    permission: PERMISSIONS.MILESTONE_READ },
+      { label: 'Backlog',       to: '/backlog',     icon: <ClipboardList size={16} />,permission: PERMISSIONS.TASK_READ },
+      { label: 'Actions',       to: '/actions',     icon: <CheckSquare size={16} />,  permission: PERMISSIONS.ACTION_READ },
+      { label: 'Blockers',      to: '/blockers',    icon: <AlertTriangle size={16} />,permission: PERMISSIONS.BLOCKER_READ },
+      { label: 'RAID Register', to: '/raid',        icon: <Shield size={16} />,       permission: PERMISSIONS.RAID_READ },
+      { label: 'Decisions',     to: '/decisions',   icon: <BookOpen size={16} />,     permission: PERMISSIONS.DECISION_READ },
     ],
   },
 
   // ── Daily Work ────────────────────────────────────────────────────────────────
   {
-    label: 'Daily Work', icon: <Clock size={18} />, moduleKey: 'projects',
+    label: 'Daily Work', icon: <Clock size={18} />, permission: PERMISSIONS.STANDUP_SUBMIT, moduleKey: 'projects',
     children: [
-      { label: 'Standup',       to: '/standup',       icon: <ClipboardList size={16} /> },
-      { label: 'EOD',           to: '/eod',           icon: <BookOpen size={16} /> },
-      { label: 'Time Tracking', to: '/time-tracking', icon: <Timer size={16} />, moduleKey: 'time' },
+      { label: 'Standup',       to: '/standup',       icon: <ClipboardList size={16} />, permission: PERMISSIONS.STANDUP_SUBMIT },
+      { label: 'EOD',           to: '/eod',           icon: <BookOpen size={16} />,      permission: PERMISSIONS.EOD_SUBMIT },
+      { label: 'Time Tracking', to: '/time-tracking', icon: <Timer size={16} />,         permission: PERMISSIONS.TIME_WRITE, moduleKey: 'time' },
     ],
   },
 
   // ── People ────────────────────────────────────────────────────────────────────
   {
-    label: 'People', icon: <Users size={18} />, moduleKey: 'people',
+    label: 'People', icon: <Users size={18} />, permission: PERMISSIONS.TEAM_READ, moduleKey: 'people',
     children: [
-      { label: 'Attendance',    to: '/attendance',    icon: <CalendarDays size={16} /> },
-      { label: 'Leave',         to: '/leave',         icon: <CalendarDays size={16} /> },
-      { label: 'Teams',         to: '/teams',         icon: <Users size={16} /> },
-      { label: 'Directory',     to: '/directory',     icon: <Users size={16} /> },
-      { label: 'Org Chart',     to: '/org-chart',     icon: <GitBranch size={16} /> },
-      { label: 'Announcements', to: '/announcements', icon: <Megaphone size={16} /> },
+      { label: 'Attendance',    to: '/attendance',    icon: <CalendarDays size={16} />, permission: PERMISSIONS.ATTENDANCE_READ },
+      { label: 'Leave',         to: '/leave',         icon: <CalendarDays size={16} />, permission: PERMISSIONS.LEAVE_READ },
+      { label: 'Teams',         to: '/teams',         icon: <Users size={16} />,        permission: PERMISSIONS.TEAM_READ },
+      { label: 'Directory',     to: '/directory',     icon: <Users size={16} />,        permission: PERMISSIONS.TEAM_READ },
+      { label: 'Org Chart',     to: '/org-chart',     icon: <GitBranch size={16} />,    permission: PERMISSIONS.ORG_READ },
+      { label: 'Announcements', to: '/announcements', icon: <Megaphone size={16} />,    permission: PERMISSIONS.ANNOUNCEMENT_READ },
+      { label: 'IP Restrictions', to: '/ip-config',  icon: <Shield size={16} />,       permission: PERMISSIONS.IP_CONFIG_WRITE },
     ],
   },
 
   // ── Assets ────────────────────────────────────────────────────────────────────
-  { label: 'Assets', to: '/assets', icon: <Package size={18} />, moduleKey: 'assets' },
+  { label: 'Assets', to: '/assets', icon: <Package size={18} />, permission: PERMISSIONS.ASSET_READ, moduleKey: 'assets' },
 
   // ── Reports & AI ──────────────────────────────────────────────────────────────
   {
-    label: 'Reports & AI', icon: <BarChart3 size={18} />, moduleKey: 'reports',
+    label: 'Reports & AI', icon: <BarChart3 size={18} />, permission: PERMISSIONS.REPORT_READ, moduleKey: 'reports',
     children: [
-      { label: 'Reports',            to: '/reports',            icon: <FileText size={16} /> },
-      { label: 'Enterprise Reports', to: '/enterprise-reports', icon: <BarChart3 size={16} />, roles: ['TENANT_ADMIN', 'PMO', 'EXEC', 'DELIVERY_LEAD'] },
-      { label: 'AI Insights',        to: '/ai-insights',        icon: <Sparkles size={16} />, moduleKey: 'ai' },
+      { label: 'Reports',            to: '/reports',            icon: <FileText size={16} />,  permission: PERMISSIONS.REPORT_READ },
+      { label: 'Enterprise Reports', to: '/enterprise-reports', icon: <BarChart3 size={16} />, permission: PERMISSIONS.ORG_ROLE_READ },
+      { label: 'AI Insights',        to: '/ai-insights',        icon: <Sparkles size={16} />,  permission: PERMISSIONS.REPORT_READ, moduleKey: 'ai' },
     ],
   },
 
   // ── Executive ─────────────────────────────────────────────────────────────────
+  // Visible to anyone whose org role grants ORG_ROLE_READ (EXEC, PMO, CEO, etc.)
   {
-    label: 'Executive', icon: <Briefcase size={18} />, roles: ['TENANT_ADMIN', 'PMO', 'EXEC', 'DELIVERY_LEAD'], moduleKey: 'exec',
+    label: 'Executive', icon: <Briefcase size={18} />, permission: PERMISSIONS.ORG_ROLE_READ, moduleKey: 'exec',
     children: [
       { label: 'Portfolio',     to: '/portfolio',     icon: <Briefcase size={16} /> },
       { label: 'CEO Dashboard', to: '/ceo-dashboard', icon: <Briefcase size={16} /> },
@@ -94,11 +100,13 @@ const NAV_ITEMS: NavItem[] = [
   },
 
   // ── Administration ────────────────────────────────────────────────────────────
+  // Visible to anyone whose org role grants ADMIN_USERS (TENANT_ADMIN or CEO-level org roles)
   {
-    label: 'Administration', icon: <Settings size={18} />, roles: ['TENANT_ADMIN', 'OWNER'],
+    label: 'Administration', icon: <Settings size={18} />, permission: PERMISSIONS.ADMIN_USERS,
     children: [
       { label: 'User Management',    to: '/admin',        icon: <Users size={16} /> },
       { label: 'Config & Workflows', to: '/admin-config', icon: <GitBranch size={16} /> },
+      { label: 'IP Restrictions',    to: '/ip-config',    icon: <Shield size={16} />, permission: PERMISSIONS.IP_CONFIG_WRITE },
       { label: 'Data Seeder',        to: '/data-seed',    icon: <FlaskConical size={16} /> },
     ],
   },
@@ -109,9 +117,9 @@ const NAV_ITEMS: NavItem[] = [
 // ─── Single nav item ──────────────────────────────────────────────────────────
 
 const SidebarNavItem = ({
-  item, collapsed, onClose, userRole, modules,
+  item, collapsed, onClose, user, modules,
 }: {
-  item: NavItem; collapsed: boolean; onClose?: () => void; userRole?: string; modules: Record<string, boolean>;
+  item: NavItem; collapsed: boolean; onClose?: () => void; user?: CurrentUser | null; modules: Record<string, boolean>;
 }) => {
   const location = useLocation();
   const [expanded, setExpanded] = useState(
@@ -119,9 +127,9 @@ const SidebarNavItem = ({
   );
 
   if (item.children) {
-    // Filter children by role and module key
+    // Filter children by permission and module key
     const visibleChildren = item.children.filter((c) => {
-      if (c.roles && !(userRole && c.roles.includes(userRole))) return false;
+      if (c.permission && !hasPermission(user, c.permission as any)) return false;
       if (c.moduleKey && !(modules as Record<string, boolean>)[c.moduleKey]) return false;
       return true;
     });
@@ -149,7 +157,7 @@ const SidebarNavItem = ({
           <div className="ml-3 mt-0.5 space-y-0.5 border-l pl-2"
             style={{ borderColor: 'rgba(var(--ds-sidebar-text), 0.1)' }}>
             {visibleChildren.map((child) => (
-              <SidebarNavItem key={child.to || child.label} item={child} collapsed={false} onClose={onClose} userRole={userRole} modules={modules} />
+              <SidebarNavItem key={child.to || child.label} item={child} collapsed={false} onClose={onClose} user={user} modules={modules} />
             ))}
           </div>
         )}
@@ -187,9 +195,10 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
   const { festival } = useFestival();
   const modules = useModulePermissions();
 
-  // Filter by role AND module permissions
+  // Filter nav items by permission and module toggle.
+  // No hardcoded role arrays — access is entirely driven by org role permissions.
   const visibleItems = NAV_ITEMS.filter((item) => {
-    if (item.roles && !(user && item.roles.includes(user.role))) return false;
+    if (item.permission && !hasPermission(user, item.permission as any)) return false;
     if (item.moduleKey && !(modules as Record<string, boolean>)[item.moduleKey]) return false;
     return true;
   });
@@ -328,7 +337,7 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
             item={item}
             collapsed={collapsed}
             onClose={onClose}
-            userRole={user?.role}
+            user={user}
             modules={modules as Record<string, boolean>}
           />
         ))}
@@ -373,7 +382,7 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
               </p>
               <p className="text-xs opacity-60 truncate"
                 style={{ color: `rgb(var(--ds-sidebar-text))` }}>
-                {user?.role?.replace(/_/g, ' ')}
+                {user?.orgRoleName ?? user?.role?.replace(/_/g, ' ')}
               </p>
             </div>
           )}

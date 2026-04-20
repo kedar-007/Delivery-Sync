@@ -45,9 +45,12 @@ const normaliseApproval = (r: any) => ({
   submittedByName:      r.requester?.name       ?? r.submittedByName       ?? '',
   submittedByAvatarUrl: r.requester?.avatar_url ?? r.submittedByAvatarUrl  ?? '',
   // Flatten nested time entry fields
-  projectId:            r.entry?.project_id ?? r.projectId ?? '',
-  description:          r.entry?.description ?? r.description ?? '',
-  date:                 r.entry?.entry_date ?? r.entry?.date ?? r.date ?? '',
+  projectId:            r.entry?.project_id  ?? r.projectId  ?? '',
+  projectName:          r.entry?.project_name ?? r.projectName ?? '',
+  taskName:             r.entry?.task_name    ?? r.taskName    ?? '',
+  sprintName:           r.entry?.sprint_name  ?? r.sprintName  ?? '',
+  description:          r.entry?.description  ?? r.description ?? '',
+  date:                 r.entry?.entry_date   ?? r.entry?.date ?? r.date ?? '',
   hours:                parseFloat(r.entry?.hours ?? r.hours ?? 0),
   isBillable:           r.entry?.is_billable === 'true' || r.entry?.is_billable === true || r.isBillable === true,
 });
@@ -183,10 +186,11 @@ export const useRetractTimeEntry = () => {
 };
 
 // ── Approvals ─────────────────────────────────────────────────────────────────
-export const useTimeApprovals = (params?: Record<string, string>) =>
+export const useTimeApprovals = (params?: Record<string, string>, enabled = true) =>
   useQuery({
     queryKey: ['time', 'approvals', params],
     queryFn: () => timeApprovalsApi.list(params).then(applyNorm(normaliseApproval)),
+    enabled,
   });
 
 export const useApproveTime = () => {

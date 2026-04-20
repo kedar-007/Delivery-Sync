@@ -113,7 +113,7 @@ function AssigneeMultiSelect({
             const label = u?.name ?? u?.email ?? id;
             return (
               <span key={id} className="inline-flex items-center gap-1 text-xs font-medium bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-full pl-1.5 pr-1 py-0.5">
-                <span className="w-4 h-4 rounded-full bg-indigo-500 text-white text-[9px] font-bold flex items-center justify-center">{label[0]?.toUpperCase()}</span>
+                <UserAvatar name={label} avatarUrl={u?.avatarUrl} size="xs" />
                 {label}
                 <button type="button" onClick={() => toggle(id)} className="ml-0.5 text-indigo-400 hover:text-indigo-700"><X size={10} /></button>
               </span>
@@ -130,9 +130,7 @@ function AssigneeMultiSelect({
               return (
                 <button key={id} type="button" onClick={() => toggle(id)}
                   className={`inline-flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-1.5 border transition-all ${selected ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-200 hover:border-indigo-400 hover:text-indigo-600'}`}>
-                  <span className={`w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center ${selected ? 'bg-indigo-400 text-white' : 'bg-indigo-200 text-indigo-700'}`}>
-                    {(u.name ?? u.email ?? id)[0]?.toUpperCase()}
-                  </span>
+                  <UserAvatar name={u.name ?? u.email ?? id} avatarUrl={u.avatarUrl} size="xs" />
                   {u.name ?? u.email}
                   {selected && <Check size={10} />}
                 </button>
@@ -350,7 +348,7 @@ function TaskDetailPanel({
   logTimeBillable, setLogTimeBillable,
   logTimeStartTime, setLogTimeStartTime,
   logTimeEndTime, setLogTimeEndTime,
-  logTimePending, logTimeError, onLogTime,
+  logTimePending, logTimeError, logTimeSendForApproval, setLogTimeSendForApproval, onLogTime,
   aiInsight, aiLoading,
   onEdit,
   taskAttachments,
@@ -383,6 +381,7 @@ function TaskDetailPanel({
   logTimeEndTime: string;    setLogTimeEndTime:    (v: string) => void;
   logTimePending: boolean;
   logTimeError: string;
+  logTimeSendForApproval: boolean; setLogTimeSendForApproval: (v: boolean) => void;
   onLogTime: () => void;
   aiInsight: string | null;
   aiLoading: boolean;
@@ -623,8 +622,28 @@ function TaskDetailPanel({
                       onChange={(e) => setLogTimeBillable(e.target.checked)} className="rounded" />
                     Billable
                   </label>
+                </div>
+
+                {/* Send for approval toggle */}
+                <div className="flex items-center justify-between rounded-lg bg-blue-50 border border-blue-100 px-3 py-2.5">
+                  <div>
+                    <p className="text-xs font-medium text-blue-900">Send for approval</p>
+                    <p className="text-[11px] text-blue-500 mt-0.5">Manager will be notified to review</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setLogTimeSendForApproval(!logTimeSendForApproval)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${logTimeSendForApproval ? 'bg-blue-600' : 'bg-gray-300'}`}
+                    role="switch"
+                    aria-checked={logTimeSendForApproval}
+                  >
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${logTimeSendForApproval ? 'translate-x-[18px]' : 'translate-x-[2px]'}`} />
+                  </button>
+                </div>
+
+                <div className="flex justify-end">
                   <Button size="sm" variant="primary" loading={logTimePending} disabled={!logTimeHours} onClick={onLogTime}>
-                    Save Entry
+                    {logTimeSendForApproval ? 'Log & Send for Approval' : 'Save Entry'}
                   </Button>
                 </div>
               </div>
@@ -890,6 +909,7 @@ export default function MyTasksPage() {
   const [logTimeEndTime, setLogTimeEndTime]       = useState('');
   const [logTimePending, setLogTimePending]       = useState(false);
   const [logTimeError, setLogTimeError]           = useState('');
+  const [logTimeSendForApproval, setLogTimeSendForApproval] = useState(false);
 
   const { data: fullTask }              = useTask(taskDetailId ?? '');
   const { data: taskComments = [] }     = useTaskComments(taskDetailId ?? '');
@@ -999,7 +1019,7 @@ export default function MyTasksPage() {
     if (!taskDetailId || !logTimeHours || !detailTask) return;
     setLogTimePending(true); setLogTimeError('');
     try {
-      await timeEntriesApi.create({
+      const created: any = await timeEntriesApi.create({
         project_id:  detailTask.projectId,
         task_id:     taskDetailId,
         entry_date:  logTimeDate,
@@ -1009,8 +1029,12 @@ export default function MyTasksPage() {
         ...(logTimeStartTime ? { start_time: logTimeStartTime } : {}),
         ...(logTimeEndTime   ? { end_time:   logTimeEndTime   } : {}),
       });
+      if (logTimeSendForApproval) {
+        const newId = String(created?.id ?? created?.ROWID ?? '');
+        if (newId) await timeEntriesApi.submit(newId);
+      }
       setLogTimeHours(''); setLogTimeDesc(''); setLogTimeBillable(false);
-      setLogTimeStartTime(''); setLogTimeEndTime('');
+      setLogTimeStartTime(''); setLogTimeEndTime(''); setLogTimeSendForApproval(false);
       const r: any = await timeEntriesApi.list({ task_id: taskDetailId });
       setTaskTimeEntries(Array.isArray(r) ? r : r?.data ?? []);
     } catch (e: unknown) { setLogTimeError((e as Error).message); }
@@ -1279,6 +1303,8 @@ export default function MyTasksPage() {
           setLogTimeEndTime={setLogTimeEndTime}
           logTimePending={logTimePending}
           logTimeError={logTimeError}
+          logTimeSendForApproval={logTimeSendForApproval}
+          setLogTimeSendForApproval={setLogTimeSendForApproval}
           onLogTime={handleDetailLogTime}
           aiInsight={aiInsight}
           aiLoading={aiLoading}

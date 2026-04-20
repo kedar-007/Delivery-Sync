@@ -29,9 +29,10 @@ class ReportController {
       const project = await this.db.findById(TABLES.PROJECTS, data.project_id, tenantId);
       if (!project) return ResponseHelper.notFound(res, 'Project not found');
 
-      // TEAM_MEMBER reports are scoped to their own standup/EOD activity only
-      const userFilter = role === 'TEAM_MEMBER' ? ` AND user_id = '${userId}'` : '';
-      const actionFilter = role === 'TEAM_MEMBER' ? ` AND assigned_to = '${userId}'` : '';
+      // TEAM_MEMBER reports are scoped to their own standup/EOD activity only (unless org-wide access)
+      const isLimitedToOwn = role === 'TEAM_MEMBER' && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
+      const userFilter = isLimitedToOwn ? ` AND user_id = '${userId}'` : '';
+      const actionFilter = isLimitedToOwn ? ` AND assigned_to = '${userId}'` : '';
 
       // Gather data for the period
       const [standups, eods, actions, blockers, milestones, decisions] = await Promise.all([
@@ -141,8 +142,9 @@ class ReportController {
       const conditions = [];
       if (projectId) conditions.push(`project_id = '${DataStoreService.escape(projectId)}'`);
       if (reportType) conditions.push(`report_type = '${DataStoreService.escape(reportType)}'`);
-      // TEAM_MEMBER only sees reports they generated
-      if (role === 'TEAM_MEMBER') conditions.push(`generated_by = '${DataStoreService.escape(currentUserId)}'`);
+      // TEAM_MEMBER only sees reports they generated (unless org-wide access)
+      const isLimitedToOwn = role === 'TEAM_MEMBER' && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
+      if (isLimitedToOwn) conditions.push(`generated_by = '${DataStoreService.escape(currentUserId)}'`);
 
       const reports = await this.db.findWhere(TABLES.REPORTS, tenantId,
         conditions.length > 0 ? conditions.join(' AND ') : null,
@@ -231,8 +233,9 @@ class ReportController {
       const { tenantId, id: currentUserId, role } = req.currentUser;
       const { projectId, userId, startDate, endDate } = req.query;
 
-      // TEAM_MEMBER can only see their own performance
-      const targetUserId = role === 'TEAM_MEMBER' ? currentUserId : (userId || currentUserId);
+      // TEAM_MEMBER can only see their own performance (unless org role grants org-wide access)
+      const isLimitedToOwn = role === 'TEAM_MEMBER' && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
+      const targetUserId = isLimitedToOwn ? currentUserId : (userId || currentUserId);
       const from = startDate || DataStoreService.daysAgo(30);
       const to = endDate || DataStoreService.today();
 

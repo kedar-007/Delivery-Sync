@@ -84,8 +84,20 @@ const PERMISSIONS = Object.freeze({
   // ── Admin / Config permissions ───────────────────────────────────────────────
   CONFIG_READ: 'CONFIG_READ',
   CONFIG_WRITE: 'CONFIG_WRITE',
+  // ── Org Roles & Chart permissions ────────────────────────────────────────────
+  ORG_ROLE_READ: 'ORG_ROLE_READ',
+  ORG_ROLE_WRITE: 'ORG_ROLE_WRITE',
+  // ── Attendance IP Whitelist ───────────────────────────────────────────────────
+  IP_CONFIG_WRITE: 'IP_CONFIG_WRITE',
   // ── Data Seeding (testing/demo only) ─────────────────────────────────────────
   DATA_SEED: 'DATA_SEED',
+  // ── AI Insights ───────────────────────────────────────────────────────────────
+  // AI_INSIGHTS      – basic AI page: daily summary, suggestions, NLQ, blocker detection
+  // AI_PERFORMANCE   – individual & team performance analysis cards
+  // AI_TEAM_ANALYSIS – org-wide analysis: holistic, health, trends, retrospective
+  AI_INSIGHTS:      'AI_INSIGHTS',
+  AI_PERFORMANCE:   'AI_PERFORMANCE',
+  AI_TEAM_ANALYSIS: 'AI_TEAM_ANALYSIS',
 });
 
 // ─── Role → Permission Matrix ─────────────────────────────────────────────────
@@ -117,6 +129,8 @@ const ROLE_PERMISSIONS = Object.freeze({
     PERMISSIONS.ANNOUNCEMENT_READ,
     PERMISSIONS.ORG_READ,
     PERMISSIONS.CONFIG_READ,
+    PERMISSIONS.ORG_ROLE_READ,
+    PERMISSIONS.AI_INSIGHTS, PERMISSIONS.AI_PERFORMANCE, PERMISSIONS.AI_TEAM_ANALYSIS,
   ],
   [ROLES.TEAM_MEMBER]: [
     PERMISSIONS.PROJECT_READ,
@@ -142,6 +156,7 @@ const ROLE_PERMISSIONS = Object.freeze({
     PERMISSIONS.PROFILE_READ, PERMISSIONS.PROFILE_WRITE,
     PERMISSIONS.ANNOUNCEMENT_READ,
     PERMISSIONS.ORG_READ,
+    // AI — not granted by default; admin must grant AI_INSIGHTS / AI_PERFORMANCE explicitly
   ],
   [ROLES.PMO]: [
     PERMISSIONS.PROJECT_READ, PERMISSIONS.PROJECT_WRITE,
@@ -169,6 +184,7 @@ const ROLE_PERMISSIONS = Object.freeze({
     PERMISSIONS.ANNOUNCEMENT_READ, PERMISSIONS.ANNOUNCEMENT_WRITE,
     PERMISSIONS.ORG_READ, PERMISSIONS.ORG_WRITE,
     PERMISSIONS.CONFIG_READ,
+    PERMISSIONS.AI_INSIGHTS, PERMISSIONS.AI_PERFORMANCE, PERMISSIONS.AI_TEAM_ANALYSIS,
   ],
   [ROLES.EXEC]: [
     PERMISSIONS.PROJECT_READ,
@@ -194,6 +210,8 @@ const ROLE_PERMISSIONS = Object.freeze({
     PERMISSIONS.PROFILE_READ,
     PERMISSIONS.ANNOUNCEMENT_READ,
     PERMISSIONS.ORG_READ,
+    PERMISSIONS.ORG_ROLE_READ,
+    PERMISSIONS.AI_INSIGHTS, PERMISSIONS.AI_PERFORMANCE, PERMISSIONS.AI_TEAM_ANALYSIS,
   ],
   [ROLES.CLIENT]: [
     PERMISSIONS.PROJECT_READ,
@@ -426,6 +444,11 @@ const TABLES = Object.freeze({
   FEATURE_FLAGS: 'feature_flags',
   PROJECT_PERMISSIONS: 'project_permissions',
   NOTIFICATION_PREFERENCES: 'notification_preferences',
+  // ── Org Roles & Chart tables ──────────────────────────────────────────────────
+  ORG_ROLES: 'org_roles',
+  ORG_ROLE_PERMISSIONS: 'org_role_permissions',
+  USER_ORG_ROLES: 'user_org_roles',
+  ORG_SHARING_RULES: 'org_sharing_rules',
   // ── Reporting tables ──────────────────────────────────────────────────────────
   REPORT_EXPORTS: 'report_exports',
 });

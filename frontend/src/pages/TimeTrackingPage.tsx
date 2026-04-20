@@ -17,6 +17,7 @@ import EmptyState from '../components/ui/EmptyState';
 import { PageSkeleton, SkeletonTable } from '../components/ui/Skeleton';
 import UserAvatar from '../components/ui/UserAvatar';
 import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import {
   useTimeEntries, useMyWeek,
   useCreateTimeEntry, useUpdateTimeEntry, useDeleteTimeEntry,
@@ -72,6 +73,8 @@ interface TimeApproval {
   timeEntryId: string;
   projectId: string;
   projectName?: string;
+  taskName?: string;
+  sprintName?: string;
   description: string;
   date: string;
   hours: number;
@@ -95,16 +98,25 @@ interface TimeEntryFormData {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const MANAGER_ROLES = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
 
 const statusVariant = (status: TimeEntryStatus) => {
   const map: Record<TimeEntryStatus, 'gray' | 'warning' | 'success' | 'danger'> = {
-    DRAFT: 'gray',
+    DRAFT:     'gray',
     SUBMITTED: 'warning',
-    APPROVED: 'success',
-    REJECTED: 'danger',
+    APPROVED:  'success',
+    REJECTED:  'danger',
   };
   return map[status] ?? 'gray';
+};
+
+const statusLabel = (status: TimeEntryStatus) => {
+  const map: Record<TimeEntryStatus, string> = {
+    DRAFT:     'Saved',
+    SUBMITTED: 'Approval Pending',
+    APPROVED:  'Approved',
+    REJECTED:  'Rejected',
+  };
+  return map[status] ?? status;
 };
 
 const todayStr = () => format(new Date(), 'yyyy-MM-dd');
@@ -129,8 +141,10 @@ interface LogTimeModalProps {
 
 const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => {
   const [error, setError] = useState('');
+  const [sendForApproval, setSendForApproval] = useState(false);
   const createEntry = useCreateTimeEntry();
   const updateEntry = useUpdateTimeEntry();
+  const submitEntry = useSubmitTimeEntry();
 
   const { register, handleSubmit, reset, control, setValue, watch: watchForm, formState: { isSubmitting, errors } } = useForm<TimeEntryFormData>({
     defaultValues: {
@@ -182,6 +196,7 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
         notes: entry?.notes ?? '',
       });
       setError('');
+      setSendForApproval(false);
     }
   }, [open, entry, reset]);
 
@@ -195,7 +210,11 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
       if (entry) {
         await updateEntry.mutateAsync({ id: entry.id, data: payload });
       } else {
-        await createEntry.mutateAsync(payload);
+        const created = await createEntry.mutateAsync(payload) as { id?: string; ROWID?: string };
+        if (sendForApproval) {
+          const newId = created?.id ?? String((created as any)?.ROWID ?? '');
+          if (newId) await submitEntry.mutateAsync(newId);
+        }
       }
       onClose();
     } catch (err: unknown) {
@@ -313,10 +332,29 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
           />
         </div>
 
+        {/* Send for approval toggle — only shown for new entries */}
+        {!entry && (
+          <div className="flex items-center justify-between rounded-lg bg-blue-50 border border-blue-100 px-4 py-3">
+            <div className="flex flex-col">
+              <span className="text-sm font-medium text-blue-900">Send for approval</span>
+              <span className="text-xs text-blue-600 mt-0.5">Your manager will be notified to review this entry</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSendForApproval((v) => !v)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${sendForApproval ? 'bg-blue-600' : 'bg-gray-300'}`}
+              role="switch"
+              aria-checked={sendForApproval}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${sendForApproval ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
+        )}
+
         <ModalActions>
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
-          <Button type="submit" loading={isSubmitting} icon={<Clock size={16} />}>
-            {entry ? 'Save Changes' : 'Log Time'}
+          <Button type="submit" loading={isSubmitting} icon={sendForApproval ? <Send size={16} /> : <Clock size={16} />}>
+            {entry ? 'Save Changes' : sendForApproval ? 'Log & Send for Approval' : 'Log Time'}
           </Button>
         </ModalActions>
       </form>
@@ -624,13 +662,13 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
                     </td>
                     <td className="px-4 py-3 text-center">
                       {entry.isBillable
-                        ? <DollarSign size={15} className="text-green-600 mx-auto" />
-                        : <span className="text-xs text-gray-400">—</span>
+                        ? <CheckCircle2 size={15} className="text-green-600 mx-auto" />
+                        : <XCircle size={15} className="text-gray-300 mx-auto" />
                       }
                     </td>
                     <td className="px-4 py-3">
                       <Badge variant={statusVariant(entry.status)}>
-                        {entry.status}
+                        {statusLabel(entry.status)}
                       </Badge>
                     </td>
                     <td className="px-4 py-3">
@@ -990,8 +1028,8 @@ const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
                     <td className="px-4 py-2.5 text-gray-700 whitespace-nowrap">{e.projectName || projectMap[e.projectId] || e.projectId}</td>
                     <td className="px-4 py-2.5 text-gray-600 max-w-xs truncate">{e.description}</td>
                     <td className="px-4 py-2.5 font-medium text-gray-900">{e.hours}h</td>
-                    <td className="px-4 py-2.5 text-center">{e.isBillable ? <DollarSign size={13} className="text-green-600 mx-auto" /> : <span className="text-gray-300">—</span>}</td>
-                    <td className="px-4 py-2.5"><Badge variant={statusVariant(e.status)}>{e.status}</Badge></td>
+                    <td className="px-4 py-2.5 text-center">{e.isBillable ? <CheckCircle2 size={13} className="text-green-600 mx-auto" /> : <XCircle size={13} className="text-gray-300 mx-auto" />}</td>
+                    <td className="px-4 py-2.5"><Badge variant={statusVariant(e.status)}>{statusLabel(e.status)}</Badge></td>
                   </tr>
                 ))}
               </tbody>
@@ -1009,7 +1047,7 @@ const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
 // ── Approvals Tab ─────────────────────────────────────────────────────────────
 
 const ApprovalsTab = () => {
-  const { data: approvals = [], isLoading, error } = useTimeApprovals({ status: 'SUBMITTED' });
+  const { data: approvals = [], isLoading, error } = useTimeApprovals({ status: 'PENDING' });
   const approveTime = useApproveTime();
   const rejectTime = useRejectTime();
 
@@ -1126,8 +1164,22 @@ const ApprovalsTab = () => {
                         </span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
-                      {approval.projectName ?? approval.projectId}
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <span className="text-sm font-medium text-gray-900 truncate">
+                          {approval.projectName || approval.projectId}
+                        </span>
+                        {approval.taskName && (
+                          <span className="text-xs text-gray-500 truncate">
+                            Task: {approval.taskName}
+                          </span>
+                        )}
+                        {approval.sprintName && (
+                          <span className="text-xs text-blue-500 truncate">
+                            Sprint: {approval.sprintName}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate" title={approval.description}>
                       {approval.description}
@@ -1140,8 +1192,8 @@ const ApprovalsTab = () => {
                     </td>
                     <td className="px-4 py-3 text-center">
                       {approval.isBillable
-                        ? <DollarSign size={15} className="text-green-600 mx-auto" />
-                        : <span className="text-xs text-gray-400">—</span>
+                        ? <CheckCircle2 size={15} className="text-green-600 mx-auto" />
+                        : <XCircle size={15} className="text-gray-300 mx-auto" />
                       }
                     </td>
                     <td className="px-4 py-3">
@@ -1194,14 +1246,16 @@ const TimeTrackingPage = () => {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const [activeTab, setActiveTab] = useState<Tab>('my-log');
 
-  const isManager = user?.role ? MANAGER_ROLES.includes(user.role) : false;
+  const isManager = hasPermission(user, PERMISSIONS.TIME_APPROVE);
 
   const { data: projects = [] } = useProjects();
+  const { data: pendingApprovals = [] } = useTimeApprovals({ status: 'SUBMITTED' }, isManager);
+  const pendingCount = (pendingApprovals as TimeApproval[]).length;
 
-  const tabs: Array<{ id: Tab; label: string; managerOnly?: boolean }> = [
+  const tabs: Array<{ id: Tab; label: string; managerOnly?: boolean; badge?: number }> = [
     { id: 'my-log', label: 'My Time Log' },
     { id: 'this-week', label: 'Analytics' },
-    { id: 'approvals', label: 'Approvals', managerOnly: true },
+    { id: 'approvals', label: 'Approvals', managerOnly: true, badge: pendingCount },
   ];
 
   const visibleTabs = tabs.filter((t) => !t.managerOnly || isManager);
@@ -1220,13 +1274,18 @@ const TimeTrackingPage = () => {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors ${
+              className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors flex items-center gap-2 ${
                 activeTab === tab.id
                   ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50'
                   : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
               }`}
             >
               {tab.label}
+              {tab.badge && tab.badge > 0 ? (
+                <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold rounded-full bg-red-500 text-white">
+                  {tab.badge > 99 ? '99+' : tab.badge}
+                </span>
+              ) : null}
             </button>
           ))}
         </div>

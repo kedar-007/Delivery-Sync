@@ -19,11 +19,28 @@ class SprintController {
     try {
       const { project_id, status } = req.query;
       const tenantId = req.tenantId;
+      const { id: userId, role, dataScope } = req.currentUser;
+
+      // Org-wide users (admins, elevated org roles) see all sprints.
+      // Everyone else is restricted to sprints they are explicitly members of.
+      const isOrgWide = role === 'SUPER_ADMIN' || role === 'TENANT_ADMIN'
+        || dataScope === 'ORG_WIDE' || dataScope === 'SUBORDINATES';
 
       let where = project_id ? `project_id = '${DataStoreService.escape(project_id)}'` : null;
       if (status) {
         const sc = `status = '${DataStoreService.escape(status)}'`;
         where = where ? `${where} AND ${sc}` : sc;
+      }
+
+      if (!isOrgWide) {
+        const memberships = await this.db.findWhere(TABLES.SPRINT_MEMBERS, tenantId,
+          `user_id = '${DataStoreService.escape(userId)}'`, { limit: 300 });
+        if (memberships.length === 0) {
+          return ResponseHelper.success(res, []);
+        }
+        const memberIds = memberships.map((m) => `'${DataStoreService.escape(String(m.sprint_id))}'`).join(',');
+        const memberFilter = `ROWID IN (${memberIds})`;
+        where = where ? `${where} AND ${memberFilter}` : memberFilter;
       }
 
       const sprints = await this.db.findWhere(TABLES.SPRINTS, tenantId, where, { orderBy: 'CREATEDTIME DESC', limit: 300 });
@@ -63,7 +80,7 @@ class SprintController {
   // POST /api/ts/sprints
   async create(req, res) {
     try {
-      const { project_id, name, goal, start_date, end_date, capacity_points } = req.body;
+      const { project_id, name, goal, start_date, end_date, capacity_points, member_ids } = req.body;
       const tenantId = req.tenantId;
       const userId   = req.currentUser.id;
 
@@ -76,8 +93,21 @@ class SprintController {
         capacity_points: capacity_points || 0,
       });
 
-      await this.audit.log({ tenantId, entityType: 'SPRINT', entityId: row.ROWID, action: AUDIT_ACTION.CREATE, newValue: row, performedBy: userId });
-      return ResponseHelper.created(res, row);
+      // Insert members in the same request — no extra round-trips needed
+      const members = Array.isArray(member_ids) ? member_ids : [];
+      for (const uid of members) {
+        try {
+          await this.db.insert(TABLES.SPRINT_MEMBERS, {
+            tenant_id:      String(tenantId),
+            sprint_id:      String(row.ROWID),
+            user_id:        String(uid),
+            capacity_hours: 0,
+          });
+        } catch (_) {} // skip duplicates
+      }
+
+      await this.audit.log({ tenantId, entityType: 'SPRINT', entityId: row.ROWID, action: AUDIT_ACTION.CREATE, newValue: { ...row, member_count: members.length }, performedBy: userId });
+      return ResponseHelper.created(res, { ...row, member_ids: members });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }
@@ -85,10 +115,21 @@ class SprintController {
 
   // GET /api/ts/sprints/:sprintId
   async getById(req, res) {
+    const { id: userId, role, dataScope } = req.currentUser;
     const sprint = await this.db.findById(TABLES.SPRINTS, req.params.sprintId, req.tenantId);
     if (!sprint) return ResponseHelper.notFound(res, 'Sprint not found');
 
-    // Full task list
+    // Membership gate — same rule as list()
+    const isOrgWide = role === 'SUPER_ADMIN' || role === 'TENANT_ADMIN'
+      || dataScope === 'ORG_WIDE' || dataScope === 'SUBORDINATES';
+    if (!isOrgWide) {
+      const membership = await this.db.findWhere(TABLES.SPRINT_MEMBERS, req.tenantId,
+        `sprint_id = '${sprint.ROWID}' AND user_id = '${DataStoreService.escape(userId)}'`, { limit: 1 });
+      if (membership.length === 0) {
+        return ResponseHelper.forbidden(res, 'You are not a member of this sprint');
+      }
+    }
+
     const tasks = await this.db.findWhere(TABLES.TASKS, req.tenantId,
       `sprint_id = '${sprint.ROWID}' AND parent_task_id = 0`, { orderBy: 'CREATEDTIME ASC', limit: 200 });
 

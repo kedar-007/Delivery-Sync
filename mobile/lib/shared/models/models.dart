@@ -17,6 +17,7 @@ class CurrentUser extends Equatable {
     this.tenantSlug,
     this.avatarUrl,
     this.status = 'ACTIVE',
+    this.permissions = const [],
   });
 
   final String id;
@@ -28,21 +29,33 @@ class CurrentUser extends Equatable {
   final String? tenantSlug;
   final String? avatarUrl;
   final String status;
+  /// Server-computed permissions array (from org role + per-user overrides).
+  final List<String> permissions;
 
-  factory CurrentUser.fromJson(Map<String, dynamic> j) => CurrentUser(
-        id:         j['id']?.toString() ?? '',
-        email:      j['email'] as String? ?? '',
-        name:       j['name'] as String? ?? '',
-        role:       j['role'] as String? ?? 'TEAM_MEMBER',
-        tenantId:   j['tenantId']?.toString() ?? '',
-        tenantName: j['tenantName'] as String?,
-        tenantSlug: j['tenantSlug'] as String?,
-        avatarUrl:  j['avatarUrl'] as String? ?? j['avatar_url'] as String? ?? j['photoUrl'] as String?,
-        status:     j['status'] as String? ?? 'ACTIVE',
-      );
+  /// Returns true if this user has the given permission string.
+  bool hasPermission(String permission) => permissions.contains(permission);
+
+  factory CurrentUser.fromJson(Map<String, dynamic> j) {
+    final rawPerms = j['permissions'];
+    final perms = rawPerms is List
+        ? rawPerms.map((e) => e.toString()).toList()
+        : <String>[];
+    return CurrentUser(
+      id:          j['id']?.toString() ?? '',
+      email:       j['email'] as String? ?? '',
+      name:        j['name'] as String? ?? '',
+      role:        j['role'] as String? ?? 'TEAM_MEMBER',
+      tenantId:    j['tenantId']?.toString() ?? '',
+      tenantName:  j['tenantName'] as String?,
+      tenantSlug:  j['tenantSlug'] as String?,
+      avatarUrl:   j['avatarUrl'] as String? ?? j['avatar_url'] as String? ?? j['photoUrl'] as String?,
+      status:      j['status'] as String? ?? 'ACTIVE',
+      permissions: perms,
+    );
+  }
 
   @override
-  List<Object?> get props => [id, email, role, tenantId];
+  List<Object?> get props => [id, email, role, tenantId, permissions];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -272,6 +285,9 @@ class SprintTask extends Equatable {
     required this.priority,
     this.type = 'TASK',
     this.assigneeId,
+    this.assigneeName,
+    this.assigneeAvatarUrl,
+    this.createdBy,
     this.sprintId,
     this.storyPoints,
   });
@@ -282,6 +298,9 @@ class SprintTask extends Equatable {
   final String priority;
   final String type;     // TASK | STORY | BUG | EPIC | SUBTASK
   final String? assigneeId;
+  final String? assigneeName;
+  final String? assigneeAvatarUrl;
+  final String? createdBy;
   final String? sprintId;
   final int? storyPoints;
 
@@ -299,25 +318,30 @@ class SprintTask extends Equatable {
     }
 
     return SprintTask(
-      id:          j['id']?.toString() ?? j['ROWID']?.toString() ?? '',
-      title:       j['title'] as String? ?? '',
-      status:      j['status'] as String? ?? 'TODO',
-      priority:    j['priority'] as String?
-                   ?? j['task_priority'] as String?
-                   ?? 'MEDIUM',
-      type:        j['type'] as String? ?? j['taskType'] as String? ?? 'TASK',
-      assigneeId:  j['assigneeId']?.toString()
-                   ?? (assigneeIds?.isNotEmpty == true
-                       ? assigneeIds!.first?.toString()
-                       : null),
-      sprintId:    j['sprintId']?.toString() ?? j['sprint_id']?.toString(),
-      storyPoints: (j['storyPoints'] as num?)?.toInt()
-                   ?? (j['story_points'] as num?)?.toInt(),
+      id:               j['id']?.toString() ?? j['ROWID']?.toString() ?? '',
+      title:            j['title'] as String? ?? '',
+      status:           j['status'] as String? ?? 'TODO',
+      priority:         j['priority'] as String?
+                        ?? j['task_priority'] as String?
+                        ?? 'MEDIUM',
+      type:             j['type'] as String? ?? j['taskType'] as String? ?? 'TASK',
+      assigneeId:       j['assigneeId']?.toString()
+                        ?? (assigneeIds?.isNotEmpty == true
+                            ? assigneeIds!.first?.toString()
+                            : null),
+      assigneeName:     j['assigneeName'] as String?
+                        ?? j['assignee_name'] as String?,
+      assigneeAvatarUrl: j['assigneeAvatarUrl'] as String?
+                        ?? j['assignee_avatar_url'] as String?,
+      createdBy:        j['createdBy']?.toString() ?? j['created_by']?.toString(),
+      sprintId:         j['sprintId']?.toString() ?? j['sprint_id']?.toString(),
+      storyPoints:      (j['storyPoints'] as num?)?.toInt()
+                        ?? (j['story_points'] as num?)?.toInt(),
     );
   }
 
   @override
-  List<Object?> get props => [id, title, status];
+  List<Object?> get props => [id, title, status, assigneeId];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -545,9 +569,10 @@ class LeaveRequest extends Equatable {
     required this.leaveType,
     required this.startDate,
     required this.endDate,
-    required this.reason,
+    this.reason,
     required this.status,
     this.createdAt,
+    this.employeeName,
   });
 
   final String id;
@@ -555,9 +580,10 @@ class LeaveRequest extends Equatable {
   final String leaveType;
   final String startDate;
   final String endDate;
-  final String reason;
+  final String? reason;
   final String status; // PENDING | APPROVED | REJECTED | CANCELLED
   final String? createdAt;
+  final String? employeeName;
 
   String get statusDisplay => switch (status) {
     'PENDING'   => 'Pending',
@@ -575,14 +601,16 @@ class LeaveRequest extends Equatable {
         ?? j['leaveType'] as String?
         ?? '';
     return LeaveRequest(
-      id:        j['ROWID']?.toString() ?? j['id']?.toString() ?? '',
-      userId:    j['user_id']?.toString() ?? j['userId']?.toString() ?? '',
-      leaveType: leaveTypeName,
-      startDate: j['start_date'] as String? ?? j['startDate'] as String? ?? '',
-      endDate:   j['end_date']   as String? ?? j['endDate']   as String? ?? '',
-      reason:    j['reason']     as String? ?? '',
-      status:    j['status']     as String? ?? 'PENDING',
-      createdAt: j['CREATEDTIME'] as String? ?? j['createdAt'] as String?,
+      id:           j['ROWID']?.toString() ?? j['id']?.toString() ?? '',
+      userId:       j['user_id']?.toString() ?? j['userId']?.toString() ?? '',
+      leaveType:    leaveTypeName,
+      startDate:    j['start_date'] as String? ?? j['startDate'] as String? ?? '',
+      endDate:      j['end_date']   as String? ?? j['endDate']   as String? ?? '',
+      reason:       j['reason']     as String? ?? '',
+      status:       j['status']     as String? ?? 'PENDING',
+      createdAt:    j['CREATEDTIME'] as String? ?? j['createdAt'] as String?,
+      employeeName: j['employee_name'] as String? ?? j['employeeName'] as String?
+                    ?? j['name'] as String?,
     );
   }
 

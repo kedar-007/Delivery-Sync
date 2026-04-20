@@ -12,6 +12,7 @@ import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
 import Modal, { ModalActions } from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
+import UserAvatar from '../components/ui/UserAvatar';
 import EmptyState from '../components/ui/EmptyState';
 import Alert from '../components/ui/Alert';
 import { PageSkeleton } from '../components/ui/Skeleton';
@@ -92,13 +93,9 @@ const TYPE_ICON: Record<TaskType, React.ReactNode> = {
 
 function Avatar({ userId, users }: { userId: string; users: User[] }) {
   const u = users.find((x) => String(x.id) === String(userId));
-  const initials = (u?.name ?? u?.email ?? userId)[0]?.toUpperCase() ?? '?';
   return (
-    <div
-      className="w-6 h-6 rounded-full bg-indigo-200 flex items-center justify-center text-[10px] font-bold text-indigo-700 border border-white"
-      title={u?.name ?? u?.email ?? userId}
-    >
-      {initials}
+    <div title={u?.name ?? u?.email ?? userId}>
+      <UserAvatar name={u?.name ?? u?.email ?? userId} avatarUrl={u?.avatarUrl} size="xs" />
     </div>
   );
 }
@@ -749,15 +746,12 @@ function AssigneeMultiSelect({
           {value.map((id) => {
             const u = users.find((x) => String(x.id) === String(id));
             const label = u?.name ?? u?.email ?? id;
-            const initials = label[0]?.toUpperCase() ?? '?';
             return (
               <span
                 key={id}
                 className="inline-flex items-center gap-1 text-xs font-medium bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-full pl-1.5 pr-1 py-0.5"
               >
-                <span className="w-4 h-4 rounded-full bg-indigo-500 text-white text-[9px] font-bold flex items-center justify-center flex-shrink-0">
-                  {initials}
-                </span>
+                <UserAvatar name={label} avatarUrl={u?.avatarUrl} size="xs" />
                 {label}
                 <button
                   type="button"
@@ -777,7 +771,6 @@ function AssigneeMultiSelect({
         {users.map((u) => {
           const id = String(u.id);
           const label = u.name ?? u.email ?? id;
-          const initials = label[0]?.toUpperCase() ?? '?';
           const selected = value.includes(id);
           return (
             <button
@@ -790,13 +783,7 @@ function AssigneeMultiSelect({
                   : 'bg-white text-gray-700 border-gray-200 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50'
               }`}
             >
-              <span
-                className={`w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center flex-shrink-0 ${
-                  selected ? 'bg-indigo-400 text-white' : 'bg-indigo-200 text-indigo-700'
-                }`}
-              >
-                {initials}
-              </span>
+              <UserAvatar name={label} avatarUrl={u.avatarUrl} size="xs" />
               {label}
               {selected && <Check size={10} className="ml-0.5 flex-shrink-0" />}
             </button>

@@ -18,15 +18,10 @@ const CATALYST_ROLE_MAP = {
   SUPER_ADMIN:   process.env.CATALYST_ROLE_SUPER_ADMIN   || '17682000001011209',
 };
 
-// Which roles each inviter role is allowed to create
-const INVITE_ALLOWED_ROLES = {
-  [ROLES.TENANT_ADMIN]: [ROLES.TENANT_ADMIN, ROLES.PMO, ROLES.DELIVERY_LEAD, ROLES.TEAM_MEMBER, ROLES.EXEC, ROLES.CLIENT],
-  [ROLES.PMO]:          [ROLES.DELIVERY_LEAD, ROLES.TEAM_MEMBER, ROLES.EXEC, ROLES.CLIENT],
-  [ROLES.DELIVERY_LEAD]: [ROLES.TEAM_MEMBER, ROLES.CLIENT],
-};
-
 /**
  * AdminController – tenant admin operations: user management, invites, settings.
+ * All new users are registered as TEAM_MEMBER in Catalyst; fine-grained permissions
+ * are managed via org roles and per-user overrides.
  */
 class AdminController {
   constructor(catalystApp) {
@@ -37,26 +32,14 @@ class AdminController {
 
   /**
    * POST /api/admin/users/invite
-   * Registers a new user in the Catalyst org and creates their DS profile.
-   * Uses Catalyst registerUser() so the invite email + account setup is handled by Catalyst.
-   * DB insert happens ONLY after Catalyst registration succeeds (fatal if it fails).
-   *
-   * Role-based invite permissions:
-   *   TENANT_ADMIN  → all roles
-   *   PMO           → DELIVERY_LEAD, TEAM_MEMBER, EXEC, CLIENT
-   *   DELIVERY_LEAD → TEAM_MEMBER, CLIENT
+   * Registers a new user in Catalyst as TEAM_MEMBER (lowest Catalyst privilege).
+   * Fine-grained app permissions are managed via org roles and per-user overrides.
+   * DB insert happens ONLY after Catalyst registration succeeds.
    */
   async inviteUserOrg(req, res) {
     try {
-      const { tenantId, id: invitedBy, name: inviterName, role: inviterRole, tenantName } = req.currentUser;
+      const { tenantId, id: invitedBy, name: inviterName, tenantName } = req.currentUser;
       const data = Validator.validateInviteUser(req.body);
-
-      // Role-based permission: check inviter can create the requested role
-      const allowedRoles = INVITE_ALLOWED_ROLES[inviterRole] || [];
-      if (!allowedRoles.includes(data.role)) {
-        return ResponseHelper.forbidden(res,
-          `Your role (${inviterRole}) cannot invite users with role ${data.role}`);
-      }
 
       // Duplicate email check within this tenant
       const existing = await this.db.query(
@@ -71,6 +54,15 @@ class AdminController {
       const firstName = nameParts[0];
       const lastName  = nameParts.slice(1).join(' ') || '';
 
+      // Look up org role name for the email (non-fatal if not found)
+      let orgRoleName = null;
+      if (data.orgRoleId) {
+        try {
+          const orgRole = await this.db.findById(TABLES.ORG_ROLES, data.orgRoleId, tenantId);
+          if (orgRole) orgRoleName = orgRole.name;
+        } catch (_) {}
+      }
+
       // Get the current user's Catalyst org_id — required by registerUser()
       const currentCatalystUser = await this.auth.getCurrentUser();
       const orgId = currentCatalystUser.org_id || '';
@@ -81,7 +73,7 @@ class AdminController {
         template_details: {
           senders_mail: process.env.FROM_EMAIL || 'noreply@deliverysync.app',
           subject: `${inviterName} invited you to join ${tenantName} on Delivery Sync`,
-          message: buildInviteEmailHtml({ firstName, lastName, inviterName, tenantName, role: data.role }),
+          message: buildInviteEmailHtml({ firstName, lastName, inviterName, tenantName, orgRoleName }),
         },
         redirect_url: `${process.env.APP_BASE_URL}`,
       };
@@ -91,7 +83,7 @@ class AdminController {
         first_name: firstName,
         last_name:  lastName,
         email_id:   data.email.toLowerCase(),
-        role_id:    CATALYST_ROLE_MAP[data.role] || CATALYST_ROLE_MAP.TEAM_MEMBER,
+        role_id:    CATALYST_ROLE_MAP.TEAM_MEMBER,
         org_id:     orgId,
       };
 
@@ -105,25 +97,41 @@ class AdminController {
         catalyst_org_id:  registeredUser.user_details.org_id || orgId,
         email:            registeredUser.user_details.email_id,
         name:             data.name,
-        role:             data.role,
+        role:             ROLES.TEAM_MEMBER,
         status:           USER_STATUS.INVITED,
         invited_by:       invitedBy,
       });
 
+      const userId = String(user.ROWID);
+
+      // Optional: assign to an org role immediately on invite
+      if (data.orgRoleId) {
+        try {
+          await this.db.insert(TABLES.USER_ORG_ROLES, {
+            tenant_id:   Number(tenantId),
+            user_id:     userId,
+            org_role_id: String(data.orgRoleId),
+            assigned_by: String(invitedBy),
+            is_active:   true,
+          });
+        } catch (_) { /* non-fatal — user is still invited */ }
+      }
+
       await this.audit.log({
         tenantId, entityType: 'user', entityId: String(user.ROWID),
         action: AUDIT_ACTION.CREATE,
-        newValue: { email: data.email, role: data.role, catalystUserId: registeredUser.user_details.user_id },
+        newValue: { email: data.email, role: ROLES.TEAM_MEMBER, catalystUserId: registeredUser.user_details.user_id },
         performedBy: invitedBy,
       });
 
       return ResponseHelper.created(res, {
         user: {
-          id:     String(user.ROWID),
-          email:  data.email,
-          name:   data.name,
-          role:   data.role,
-          status: USER_STATUS.INVITED,
+          id:        userId,
+          email:     data.email,
+          name:      data.name,
+          role:      ROLES.TEAM_MEMBER,
+          status:    USER_STATUS.INVITED,
+          orgRoleId: data.orgRoleId || null,
         },
       }, `Invitation sent to ${data.email}. They'll receive an email to set up their account.`);
     } catch (err) {
@@ -149,11 +157,21 @@ class AdminController {
         `SELECT * FROM ${TABLES.USERS} WHERE ${conditions.join(' AND ')} ORDER BY CREATEDTIME DESC LIMIT 200`
       );
 
+      // Fetch org role assignments for all users in one query
+      let orgRoleMap = {};
+      try {
+        const assignments = await this.db.query(
+          `SELECT user_id, org_role_id FROM ${TABLES.USER_ORG_ROLES} WHERE tenant_id = '${tenantId}' AND is_active = 'true' LIMIT 300`
+        );
+        assignments.forEach((a) => { orgRoleMap[String(a.user_id)] = String(a.org_role_id); });
+      } catch (_) {}
+
       return ResponseHelper.success(res, {
         users: users.map((u) => ({
           id: String(u.ROWID), name: u.name, email: u.email,
           role: u.role, status: u.status, avatarUrl: u.avatar_url || u.avtar_url || '',
           invitedBy: u.invited_by, createdAt: u.CREATEDTIME,
+          orgRoleId: orgRoleMap[String(u.ROWID)] || null,
         })),
       });
     } catch (err) {
@@ -300,7 +318,7 @@ class AdminController {
       try {
         const rows = await this.db.query(
           `SELECT permissions FROM ${TABLES.PERMISSION_OVERRIDES} ` +
-          `WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = true LIMIT 1`
+          `WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = 'true' LIMIT 1`
         );
         if (rows.length > 0) {
           const parsed = JSON.parse(rows[0].permissions || '{}');
@@ -345,7 +363,7 @@ class AdminController {
       try {
         const rows = await this.db.query(
           `SELECT permissions FROM ${TABLES.PERMISSION_OVERRIDES} ` +
-          `WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = true LIMIT 1`
+          `WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = 'true' LIMIT 1`
         );
         if (rows.length > 0) {
           const parsed = JSON.parse(rows[0].permissions || '{}');
@@ -503,13 +521,12 @@ const ROLE_FEATURES = {
   ],
 };
 
-function buildInviteEmailHtml({ firstName, lastName, inviterName, tenantName, role }) {
+function buildInviteEmailHtml({ firstName, lastName, inviterName, tenantName, orgRoleName }) {
   firstName = firstName || 'there';
   lastName  = lastName  || '';
-  const fullName      = lastName ? `${firstName} ${lastName}` : firstName;
-  const roleLabel     = (role || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const fullName        = lastName ? `${firstName} ${lastName}` : firstName;
   const inviterInitials = (inviterName || 'DS').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-  const features = ROLE_FEATURES[role] || ROLE_FEATURES.TEAM_MEMBER;
+  const features        = ROLE_FEATURES.TEAM_MEMBER;
   const featureRows = features.map(f =>
     `<tr><td style="padding:6px 0;vertical-align:top;font-size:20px;width:32px">${f.icon}</td>` +
     `<td style="padding:6px 0;font-size:14px;color:#475569;line-height:1.6">${f.text}</td></tr>`
@@ -582,7 +599,7 @@ function buildInviteEmailHtml({ firstName, lastName, inviterName, tenantName, ro
           You're invited to join<br/>${escapeHtml(tenantName)}
         </div>
         <div style="color:rgba(255,255,255,.7);font-size:15px;margin-top:10px;line-height:1.6">
-          ${escapeHtml(inviterName)} has added you as a team member on Delivery Sync.
+          ${orgRoleName ? `You've been assigned the role of <strong style="color:#fff">${escapeHtml(orgRoleName)}</strong>.` : `${escapeHtml(inviterName)} has added you as a team member on Delivery Sync.`}
         </div>
 
       </td>
@@ -595,10 +612,17 @@ function buildInviteEmailHtml({ firstName, lastName, inviterName, tenantName, ro
       <td style="background:#f8f5ff;border-bottom:1px solid #ede9fe;padding:16px 48px">
         <table cellpadding="0" cellspacing="0">
         <tr>
+          ${orgRoleName ? `
           <td style="color:#6d28d9;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding-right:12px">Your role</td>
           <td>
-            <span style="display:inline-block;background:#ede9fe;color:#5b21b6;border:1.5px solid #c4b5fd;border-radius:20px;padding:5px 16px;font-size:13px;font-weight:700;letter-spacing:.2px">${escapeHtml(roleLabel)}</span>
+            <span style="display:inline-block;background:#4f46e5;color:#fff;border-radius:20px;padding:5px 18px;font-size:13px;font-weight:700;letter-spacing:.2px">${escapeHtml(orgRoleName)}</span>
           </td>
+          ` : `
+          <td style="color:#6d28d9;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding-right:12px">Access</td>
+          <td>
+            <span style="display:inline-block;background:#ede9fe;color:#5b21b6;border:1.5px solid #c4b5fd;border-radius:20px;padding:5px 16px;font-size:13px;font-weight:700;letter-spacing:.2px">Team Member</span>
+          </td>
+          `}
         </tr>
         </table>
       </td>
@@ -616,8 +640,7 @@ function buildInviteEmailHtml({ firstName, lastName, inviterName, tenantName, ro
         </p>
         <p style="font-size:15px;color:#4b5563;margin:0 0 28px;line-height:1.7">
           <strong>${escapeHtml(inviterName)}</strong> has personally invited you to collaborate on the
-          <strong>${escapeHtml(tenantName)}</strong> delivery workspace. As a <strong>${escapeHtml(roleLabel)}</strong>,
-          here's what you'll be able to do:
+          <strong>${escapeHtml(tenantName)}</strong> delivery workspace${orgRoleName ? ` as <strong>${escapeHtml(orgRoleName)}</strong>` : ''}. Here's what you'll be able to do:
         </p>
 
         <!-- Role features -->

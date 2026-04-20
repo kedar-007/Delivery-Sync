@@ -143,8 +143,10 @@ class _TimeTrackingScreenState extends ConsumerState<TimeTrackingScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final role = ref.read(currentUserProvider)?.role ?? '';
-    final mgr  = role == 'TENANT_ADMIN' || role == 'DELIVERY_LEAD' || role == 'PMO';
+    final u = ref.read(currentUserProvider);
+    final mgr = u?.role == 'TENANT_ADMIN'
+        || u?.hasPermission(Permissions.orgRoleRead) == true
+        || u?.hasPermission('TIME_APPROVE') == true;
     if (mgr != _isManager) {
       _isManager = mgr;
       _tabController.dispose();
@@ -926,8 +928,9 @@ class _AddTimeEntrySheetState extends ConsumerState<_AddTimeEntrySheet> {
   final _descCtrl  = TextEditingController();
   DateTime _date   = DateTime.now();
   String? _projectId;
-  bool _billable   = false;
-  bool _loading    = false;
+  bool _billable          = false;
+  bool _sendForApproval   = false;
+  bool _loading           = false;
   String? _error;
 
   @override
@@ -1025,6 +1028,34 @@ class _AddTimeEntrySheetState extends ConsumerState<_AddTimeEntrySheet> {
               const SizedBox(width: 8),
               Text('Billable hours', style: TextStyle(color: ds.textPrimary, fontWeight: FontWeight.w600)),
             ]),
+            const SizedBox(height: 8),
+
+            // Send for approval toggle
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.info.withOpacity(0.07),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.info.withOpacity(0.2)),
+              ),
+              child: Row(children: [
+                Icon(Icons.send_rounded, size: 15, color: AppColors.info),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('Send for approval',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: ds.textPrimary)),
+                    Text('Manager will be notified to review',
+                        style: TextStyle(fontSize: 11, color: ds.textMuted)),
+                  ]),
+                ),
+                Switch(
+                  value: _sendForApproval,
+                  activeColor: AppColors.info,
+                  onChanged: (v) => setState(() => _sendForApproval = v),
+                ),
+              ]),
+            ),
 
             if (_error != null) ...[
               const SizedBox(height: 8),
@@ -1039,7 +1070,7 @@ class _AddTimeEntrySheetState extends ConsumerState<_AddTimeEntrySheet> {
                 child: _loading
                     ? const SizedBox(width: 20, height: 20,
                         child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                    : const Text('Log Time'),
+                    : Text(_sendForApproval ? 'Log & Send for Approval' : 'Save Entry'),
               ),
             ),
           ],
@@ -1066,7 +1097,7 @@ class _AddTimeEntrySheetState extends ConsumerState<_AddTimeEntrySheet> {
     }
     setState(() { _loading = true; _error = null; });
     try {
-      await ApiClient.instance.post(
+      final resp = await ApiClient.instance.post(
         '${AppConstants.baseTime}/entries',
         data: {
           'entry_date':  DateFormat('yyyy-MM-dd').format(_date),
@@ -1076,6 +1107,18 @@ class _AddTimeEntrySheetState extends ConsumerState<_AddTimeEntrySheet> {
           if (_descCtrl.text.trim().isNotEmpty) 'description': _descCtrl.text.trim(),
         },
       );
+      if (_sendForApproval) {
+        final d  = resp is Map ? (resp['data'] ?? resp) : null;
+        final id = d is Map ? (d['ROWID'] ?? d['id'])?.toString() : null;
+        if (id != null && id.isNotEmpty && id != 'null') {
+          try {
+            await ApiClient.instance.patch(
+              '${AppConstants.baseTime}/entries/$id/submit',
+              data: {},
+            );
+          } catch (_) {}
+        }
+      }
       widget.onAdded();
       if (mounted) Navigator.pop(context);
     } catch (e) {

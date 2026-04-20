@@ -12,6 +12,9 @@ export interface CurrentUser {
   tenantName?: string;
   tenantSlug?: string;
   status: UserStatus;
+  orgRoleId?: string | null;
+  orgRoleName?: string | null;
+  permissions?: string[];
 }
 
 export interface User {
@@ -23,6 +26,7 @@ export interface User {
   avatarUrl?: string;
   invitedBy?: string;
   createdAt?: string;
+  orgRoleId?: string | null;
 }
 
 // ─── Tenant ───────────────────────────────────────────────────────────────────

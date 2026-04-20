@@ -74,8 +74,9 @@ class StandupController {
       const { tenantId, id: currentUserId, role } = req.currentUser;
       const { projectId, date, userId, startDate, endDate } = req.query;
 
-      // TEAM_MEMBER can only see their own entries
-      const effectiveUserId = role === 'TEAM_MEMBER' ? currentUserId : userId;
+      // TEAM_MEMBER can only see their own entries (unless their org role grants org-wide access)
+      const isLimitedToOwn = role === 'TEAM_MEMBER' && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
+      const effectiveUserId = isLimitedToOwn ? currentUserId : userId;
 
       let whereExtra = ''; // default: fetch across all projects
       if (projectId) whereExtra = `project_id = '${DataStoreService.escape(projectId)}'`;
@@ -124,8 +125,9 @@ class StandupController {
       const from = startDate || DataStoreService.daysAgo(7);
       const to = endDate || today;
 
-      // TEAM_MEMBER only sees their own entries in rollup
-      const userFilter = role === 'TEAM_MEMBER' ? ` AND user_id = '${currentUserId}'` : '';
+      // TEAM_MEMBER only sees their own entries in rollup (unless org role grants org-wide access)
+      const isLimitedToOwn = role === 'TEAM_MEMBER' && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
+      const userFilter = isLimitedToOwn ? ` AND user_id = '${currentUserId}'` : '';
 
       const standups = await this.db.findWhere(
         TABLES.STANDUP_ENTRIES, tenantId,

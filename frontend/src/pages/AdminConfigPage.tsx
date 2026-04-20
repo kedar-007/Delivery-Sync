@@ -4,7 +4,7 @@ import {
   Settings, GitMerge, ToggleLeft, ToggleRight, Shield, FileText,
   CalendarDays, Award, Plus, Trash2, Edit2, CheckCircle2,
   AlertCircle, ChevronDown, ChevronRight, Zap, Flag, Users,
-  Lock, Unlock, RefreshCw, Info, Star, GripVertical,
+  Lock, Unlock, RefreshCw, Info, Star, GripVertical, Search,
 } from 'lucide-react';
 import {
   DndContext,
@@ -29,9 +29,9 @@ import {
   useWorkflows, useCreateWorkflow, useUpdateWorkflow, useDeleteWorkflow, useActivateWorkflow,
   useFeatureFlags, useCreateFeatureFlag, useUpdateFeatureFlag,
   useFormConfigs, useCreateFormConfig, useUpdateFormConfig,
-  usePermissionMatrix, useOverrideRolePermissions,
   useLeaveTypes, useCreateLeaveType, useUpdateLeaveType,
   useBadgeDefinitions, useCreateBadgeDefinition, useUpdateBadgeDefinition,
+  useOrgRoles, useAllPermissions, useSetOrgRolePermissions,
 } from '../hooks/useAdminConfig';
 import { adminConfigApi } from '../lib/api';
 
@@ -1017,122 +1017,188 @@ function FormConfigsTab() {
   );
 }
 
-// ── Permissions Tab ────────────────────────────────────────────────────────────
-
-const PERM_GROUPS = Array.from(new Set(PERMISSIONS.map((p) => p.group)));
+// ── Permissions Tab (Org Roles) ────────────────────────────────────────────────
 
 function PermissionsTab() {
-  const { data: matrix, isLoading } = usePermissionMatrix();
-  const overrideRole = useOverrideRolePermissions();
+  const { data: rolesData, isLoading: rolesLoading } = useOrgRoles();
+  const { data: permsData, isLoading: permsLoading } = useAllPermissions();
+  const setRolePerms = useSetOrgRolePermissions();
 
-  const [editRole, setEditRole]       = useState<string | null>(null);
-  const [checkedPerms, setCheckedPerms] = useState<Record<string, boolean>>({});
+  const [search, setSearch]         = useState('');
+  const [permSearch, setPermSearch] = useState('');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [editRole, setEditRole]     = useState<null | { id: string; name: string; color: string }>(null);
+  const [checked, setChecked]       = useState<Record<string, boolean>>({});
 
-  const matrixData = (matrix && typeof matrix === 'object') ? matrix as any : {};
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const roles: any[]                                        = (rolesData as any)?.roles ?? [];
+  const permGroups: { group: string; keys: string[] }[]    = (permsData as any)?.groups ?? [];
+  const totalPerms                                          = permGroups.reduce((n, g) => n + g.keys.length, 0);
 
-  const openEdit = (role: string) => {
-    const currentPerms: string[] = matrixData[role] ?? [];
+  const visibleRoles = search.trim()
+    ? roles.filter((r) => r.name.toLowerCase().includes(search.toLowerCase()))
+    : roles;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const openEdit = (role: any) => {
     const initial: Record<string, boolean> = {};
-    PERMISSIONS.forEach((p) => {
-      initial[p.key] = currentPerms.includes(p.key);
-    });
-    setCheckedPerms(initial);
-    setEditRole(role);
+    permGroups.forEach(({ keys }) => keys.forEach((k) => { initial[k] = (role.permissions ?? []).includes(k); }));
+    setChecked(initial);
+    setPermSearch('');
+    setEditRole({ id: role.id, name: role.name, color: role.color });
   };
 
-  const togglePerm = (key: string) => {
-    setCheckedPerms((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
+  const toggle = (key: string) => setChecked((prev) => ({ ...prev, [key]: !prev[key] }));
 
-  const saveOverride = () => {
+  const save = () => {
     if (!editRole) return;
-    const permissions: Record<string, boolean> = {};
-    PERMISSIONS.forEach((p) => {
-      permissions[p.key] = !!checkedPerms[p.key];
-    });
-    overrideRole.mutate(
-      { role: editRole, data: { permissions } },
-      { onSuccess: () => setEditRole(null) },
-    );
+    const permissions = Object.entries(checked).filter(([, v]) => v).map(([k]) => k);
+    setRolePerms.mutate({ roleId: editRole.id, permissions }, { onSuccess: () => setEditRole(null) });
   };
 
-  if (isLoading) return <PageSkeleton />;
+  // Permission groups filtered by modal search
+  const filteredGroups = permGroups
+    .map(({ group, keys }) => ({
+      group,
+      keys: permSearch.trim() ? keys.filter((k) => k.toLowerCase().includes(permSearch.toLowerCase())) : keys,
+    }))
+    .filter(({ keys }) => keys.length > 0);
+
+  if (rolesLoading || permsLoading) return <PageSkeleton />;
 
   return (
     <div>
-      <div className="mb-4">
-        <h3 className="text-base font-semibold text-gray-900">Permission Matrix</h3>
-        <p className="text-sm text-gray-500 mt-0.5">View and override role-based permissions for each role</p>
+      {/* Header + role search */}
+      <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h3 className="text-base font-semibold text-gray-900">Role Permissions</h3>
+          <p className="text-sm text-gray-500 mt-0.5">Set which permissions each org role has access to</p>
+        </div>
+        <div className="relative">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Search roles…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 w-48"
+          />
+        </div>
       </div>
 
-      <div className="space-y-3">
-        {ROLES.map((role) => {
-          const perms: string[] = matrixData[role] ?? [];
-          const enabledCount = PERMISSIONS.filter((p) => perms.includes(p.key)).length;
-          return (
-            <div key={role} className="bg-white border border-gray-200 rounded-xl px-4 py-3">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 bg-indigo-50 rounded-lg">
-                    <Users size={13} className="text-indigo-600" />
-                  </div>
-                  <span className="text-sm font-semibold text-gray-900">{role}</span>
-                  <span className="text-xs text-gray-400">{enabledCount}/{PERMISSIONS.length} permissions</span>
-                </div>
-                <Button size="sm" variant="ghost" icon={<Edit2 size={13} />} onClick={() => openEdit(role)}>
-                  Override
-                </Button>
-              </div>
-
-              {/* Mini matrix preview grouped by group */}
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
-                {PERM_GROUPS.map((group) => {
-                  const groupPerms = PERMISSIONS.filter((p) => p.group === group);
-                  const enabledInGroup = groupPerms.filter((p) => perms.includes(p.key)).length;
-                  return (
-                    <div key={group} className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-semibold text-gray-500 uppercase">{group}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                        enabledInGroup === groupPerms.length
-                          ? 'bg-green-100 text-green-700'
-                          : enabledInGroup === 0
-                          ? 'bg-gray-100 text-gray-400'
-                          : 'bg-amber-100 text-amber-700'
-                      }`}>
-                        {enabledInGroup}/{groupPerms.length}
+      {roles.length === 0 ? (
+        <div className="text-center py-12 text-gray-400 text-sm">
+          No org roles found. Create roles in Administration → User Management.
+        </div>
+      ) : visibleRoles.length === 0 ? (
+        <div className="text-center py-8 text-gray-400 text-sm">No roles match "{search}"</div>
+      ) : (
+        <div className="space-y-3">
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          {visibleRoles.map((role: any) => {
+            const perms: string[] = role.permissions ?? [];
+            return (
+              <div key={role.id} className="bg-white border border-gray-200 rounded-xl px-4 py-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: role.color }} />
+                    <span className="text-sm font-semibold text-gray-900">{role.name}</span>
+                    <span className="text-xs text-gray-400">{perms.length}/{totalPerms} permissions</span>
+                    {role.userCount > 0 && (
+                      <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">
+                        {role.userCount} user{role.userCount !== 1 ? 's' : ''}
                       </span>
-                    </div>
-                  );
-                })}
+                    )}
+                  </div>
+                  <Button size="sm" variant="ghost" icon={<Edit2 size={13} />} onClick={() => openEdit(role)}>
+                    Edit Permissions
+                  </Button>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  {permGroups.map(({ group, keys }) => {
+                    const enabled = keys.filter((k) => perms.includes(k)).length;
+                    return (
+                      <div key={group} className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">{group}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                          enabled === keys.length ? 'bg-green-100 text-green-700'
+                          : enabled === 0         ? 'bg-gray-100 text-gray-400'
+                          : 'bg-amber-100 text-amber-700'
+                        }`}>
+                          {enabled}/{keys.length}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
+      {/* Edit permissions modal */}
       <Modal
         open={!!editRole}
         onClose={() => setEditRole(null)}
-        title={`Override Permissions — ${editRole}`}
+        title={`Permissions — ${editRole?.name ?? ''}`}
         size="lg"
       >
-        <div className="space-y-4">
-          <Alert type="warning" message="Overriding permissions affects all users with this role in this tenant." />
+        <div className="space-y-3">
+          {/* Permission search */}
+          <div className="relative">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search permissions…"
+              value={permSearch}
+              onChange={(e) => setPermSearch(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              autoFocus
+            />
+          </div>
 
-          {/* Permission matrix table */}
-          <div className="space-y-4">
-            {PERM_GROUPS.map((group) => (
+          {/* Select / deselect helpers */}
+          <div className="flex items-center gap-3 text-xs">
+            <button className="text-indigo-600 hover:text-indigo-800" onClick={() => {
+              setChecked((prev) => {
+                const next = { ...prev };
+                filteredGroups.forEach(({ keys }) => keys.forEach((k) => { next[k] = true; }));
+                return next;
+              });
+            }}>Select all visible</button>
+            <span className="text-gray-300">·</span>
+            <button className="text-gray-500 hover:text-gray-700" onClick={() => {
+              setChecked((prev) => {
+                const next = { ...prev };
+                filteredGroups.forEach(({ keys }) => keys.forEach((k) => { next[k] = false; }));
+                return next;
+              });
+            }}>Deselect all visible</button>
+            <span className="ml-auto text-gray-400">
+              {Object.values(checked).filter(Boolean).length} selected
+            </span>
+          </div>
+
+          {/* Groups + checkboxes */}
+          <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
+            {filteredGroups.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-6">No permissions match "{permSearch}"</p>
+            ) : filteredGroups.map(({ group, keys }) => (
               <div key={group}>
                 <div className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-2">
                   <span>{group}</span>
                   <div className="flex-1 h-px bg-gray-100" />
+                  <span className="normal-case font-normal text-gray-400">
+                    {keys.filter((k) => checked[k]).length}/{keys.length}
+                  </span>
                 </div>
                 <div className="grid grid-cols-2 gap-1.5">
-                  {PERMISSIONS.filter((p) => p.group === group).map((perm) => (
+                  {keys.map((key) => (
                     <label
-                      key={perm.key}
+                      key={key}
                       className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors text-sm ${
-                        checkedPerms[perm.key]
+                        checked[key]
                           ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
                           : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
                       }`}
@@ -1140,12 +1206,12 @@ function PermissionsTab() {
                       <input
                         type="checkbox"
                         className="w-4 h-4 accent-indigo-600 flex-shrink-0"
-                        checked={!!checkedPerms[perm.key]}
-                        onChange={() => togglePerm(perm.key)}
+                        checked={!!checked[key]}
+                        onChange={() => toggle(key)}
                       />
-                      <div>
-                        <div className="font-medium">{perm.label}</div>
-                        <div className="text-[10px] font-mono text-gray-400">{perm.key}</div>
+                      <div className="min-w-0">
+                        <div className="font-medium truncate">{key.replace(/_/g, ' ')}</div>
+                        <div className="text-[10px] font-mono text-gray-400 truncate">{key}</div>
                       </div>
                     </label>
                   ))}
@@ -1156,8 +1222,8 @@ function PermissionsTab() {
 
           <ModalActions>
             <Button variant="secondary" onClick={() => setEditRole(null)}>Cancel</Button>
-            <Button variant="primary" onClick={saveOverride} loading={overrideRole.isPending} icon={<Lock size={13} />}>
-              Save Override
+            <Button variant="primary" onClick={save} loading={setRolePerms.isPending} icon={<Lock size={13} />}>
+              Save Permissions
             </Button>
           </ModalActions>
         </div>

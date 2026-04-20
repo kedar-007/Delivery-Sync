@@ -25,8 +25,8 @@ const DEFAULTS: ModulePermissions = {
 
 export function useModulePermissions() {
   const { user } = useAuth();
-  // SUPER_ADMIN bypasses module checks — always has full access
-  const skip = !user || user.role === 'SUPER_ADMIN';
+  // SUPER_ADMIN and TENANT_ADMIN bypass module checks — always have full access
+  const skip = !user || user.role === 'SUPER_ADMIN' || user.role === 'TENANT_ADMIN';
 
   const { data } = useQuery({
     queryKey: ['module-permissions'],

@@ -86,10 +86,7 @@ class AuthMiddleware {
       // 3. Attach to request context
       // SUPER_ADMIN always wins regardless of DB row value.
       // For other roles: only use Catalyst role if it matches a known app role.
-      const KNOWN_ROLES = ['TENANT_ADMIN', 'DELIVERY_LEAD', 'TEAM_MEMBER', 'PMO', 'EXEC', 'CLIENT'];
-      const resolvedRole = isSuperAdmin
-        ? 'SUPER_ADMIN'
-        : (catalystRoleName && KNOWN_ROLES.includes(catalystRoleName)) ? catalystRoleName : user.role;
+      const resolvedRole = isSuperAdmin ? 'SUPER_ADMIN' : user.role;
 
       // Fetch tenant info for sidebar display + suspension check
       // Split into two queries: first get lightweight columns (name/domain/status),
@@ -148,6 +145,95 @@ class AuthMiddleware {
         avatarUrl: user.avatar_url || user.avtar_url || '',
       };
       req.tenantId = String(user.tenant_id);
+
+      // 4. Load org role assignment, permissions, and individual overrides
+      const { ROLE_PERMISSIONS, PERMISSIONS } = require('../utils/Constants');
+      let orgRoleId = null;
+      let orgRoleName = null;
+      let orgRolePermissions = [];
+      let dataScope = null;
+      if (!isSuperAdmin && user.tenant_id) {
+        try {
+          const userId = String(user.ROWID);
+          const tenantId = String(user.tenant_id);
+
+          const assignment = await db.query(
+            `SELECT org_role_id FROM ${TABLES.USER_ORG_ROLES} WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = 'true' LIMIT 1`
+          );
+          console.log(`[AuthMiddleware] org role lookup for user=${userId} tenant=${tenantId}: found=${assignment.length} rows`, assignment.length > 0 ? assignment[0] : 'none');
+
+          if (assignment.length > 0) {
+            orgRoleId = String(assignment[0].org_role_id);
+
+            const orgRoleRows = await db.query(
+              `SELECT name FROM ${TABLES.ORG_ROLES} WHERE ROWID = '${orgRoleId}' LIMIT 1`
+            );
+            console.log(`[AuthMiddleware] org_roles lookup for roleId=${orgRoleId}: found=${orgRoleRows.length}`, orgRoleRows.length > 0 ? { name: orgRoleRows[0].name } : 'none');
+            if (orgRoleRows.length > 0) orgRoleName = orgRoleRows[0].name;
+
+            const permsRows = await db.query(
+              `SELECT permissions FROM ${TABLES.ORG_ROLE_PERMISSIONS} WHERE tenant_id = '${tenantId}' AND org_role_id = '${orgRoleId}' LIMIT 1`
+            );
+            console.log(`[AuthMiddleware] org_role_permissions lookup for roleId=${orgRoleId}: found=${permsRows.length}`, permsRows.length > 0 ? { raw: permsRows[0].permissions } : 'none');
+            if (permsRows.length > 0) {
+              orgRolePermissions = JSON.parse(permsRows[0].permissions || '[]');
+              console.log(`[AuthMiddleware] parsed orgRolePermissions (${orgRolePermissions.length}):`, orgRolePermissions);
+            }
+
+            // Load default data visibility scope (ORG_WIDE / OWN_DATA / ROLE_PEERS / SUBORDINATES)
+            const scopeRows = await db.query(
+              `SELECT visibility_scope FROM ${TABLES.ORG_SHARING_RULES} WHERE tenant_id = '${tenantId}' AND role_id = '${orgRoleId}' AND visibility_scope != 'EXPLICIT' AND is_active = 'true' LIMIT 1`
+            );
+            if (scopeRows.length > 0) {
+              dataScope = scopeRows[0].visibility_scope;
+            }
+            console.log(`[AuthMiddleware] dataScope for roleId=${orgRoleId}: ${dataScope || 'none (defaults to OWN_DATA)'}`);
+          }
+        } catch (orgErr) {
+          console.error('[AuthMiddleware] org role lookup failed:', orgErr.message);
+        }
+      }
+
+      // 5. Build effective permissions = base (org role or system role) + individual overrides
+      //    Then auto-derive dataScope from permissions when no explicit sharing rule exists.
+      let effectivePermissions = [];
+      try {
+        const userId = String(user.ROWID);
+        const tenantId = String(user.tenant_id);
+        const isFullAdmin = isSuperAdmin || resolvedRole === 'TENANT_ADMIN';
+        const base = new Set(
+          isFullAdmin ? Object.values(PERMISSIONS)
+          : orgRoleId ? orgRolePermissions
+          :             (ROLE_PERMISSIONS[resolvedRole] || [])
+        );
+        // Apply individual grants / revokes on top
+        const overrideRows = await db.query(
+          `SELECT permissions FROM ${TABLES.PERMISSION_OVERRIDES} WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = 'true' LIMIT 1`
+        );
+        if (overrideRows.length > 0) {
+          const parsed = JSON.parse(overrideRows[0].permissions || '{}');
+          (parsed.granted || []).forEach((p) => base.add(p));
+          (parsed.revoked || []).forEach((p) => base.delete(p));
+        }
+        effectivePermissions = Array.from(base);
+
+        // TENANT_ADMIN always gets ORG_WIDE data scope regardless of org role assignment
+        if (isFullAdmin) {
+          dataScope = 'ORG_WIDE';
+        } else if (!dataScope && base.has(PERMISSIONS.ORG_ROLE_READ)) {
+          dataScope = 'ORG_WIDE';
+          console.log(`[AuthMiddleware] auto-derived dataScope=ORG_WIDE from ORG_ROLE_READ permission`);
+        }
+      } catch (permErr) {
+        console.error('[AuthMiddleware] effective permissions build failed:', permErr.message);
+      }
+
+      console.log(`[AuthMiddleware] final currentUser: id=${String(user.ROWID)} role=${resolvedRole} orgRoleId=${orgRoleId} orgRoleName=${orgRoleName} effectivePerms=${effectivePermissions.length} dataScope=${dataScope}`);
+      req.currentUser.orgRoleId = orgRoleId;
+      req.currentUser.orgRoleName = orgRoleName;
+      req.currentUser.orgRolePermissions = orgRolePermissions;
+      req.currentUser.permissions = effectivePermissions; // full effective permissions for this request
+      req.currentUser.dataScope = dataScope; // ORG_WIDE | OWN_DATA | ROLE_PEERS | SUBORDINATES | null
 
       next();
     } catch (err) {

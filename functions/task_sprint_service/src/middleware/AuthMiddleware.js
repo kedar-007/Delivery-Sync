@@ -2,7 +2,7 @@
 
 const DataStoreService = require('../services/DataStoreService');
 const ResponseHelper = require('../utils/ResponseHelper');
-const { TABLES, USER_STATUS } = require('../utils/Constants');
+const { TABLES, USER_STATUS, PERMISSIONS, ROLE_PERMISSIONS } = require('../utils/Constants');
 
 /**
  * AuthMiddleware – resolves the Catalyst Auth session to a Delivery Sync user
@@ -65,9 +65,7 @@ class AuthMiddleware {
       // 3. Attach to request context
       // Only use Catalyst role if it matches one of our known app roles.
       // "App Administrator" / "App User" are Catalyst system roles — fall back to DB role.
-      const KNOWN_ROLES = ['TENANT_ADMIN', 'DELIVERY_LEAD', 'TEAM_MEMBER', 'PMO', 'EXEC', 'CLIENT'];
-      const catalystRole = catalystUser.role_details && catalystUser.role_details.role_name;
-      const resolvedRole = (catalystRole && KNOWN_ROLES.includes(catalystRole)) ? catalystRole : user.role;
+      const resolvedRole = user.role;
 
       // Fetch tenant name for sidebar display
       let tenantName = '';
@@ -93,6 +91,58 @@ class AuthMiddleware {
         status: user.status,
       };
       req.tenantId = String(user.tenant_id);
+
+      // 4. Load org role + dataScope (mirrors delivery_sync_function AuthMiddleware)
+      const isSuperAdmin = resolvedRole === 'SUPER_ADMIN';
+      let orgRoleId = null;
+      let orgRolePermissions = [];
+      let dataScope = null;
+      const userId = String(user.ROWID);
+      const tenantId = String(user.tenant_id);
+
+      if (!isSuperAdmin && user.tenant_id) {
+        try {
+          const assignment = await db.query(
+            `SELECT org_role_id FROM ${TABLES.USER_ORG_ROLES} WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = 'true' LIMIT 1`
+          );
+          if (assignment.length > 0) {
+            orgRoleId = String(assignment[0].org_role_id);
+            const permsRows = await db.query(
+              `SELECT permissions FROM ${TABLES.ORG_ROLE_PERMISSIONS} WHERE tenant_id = '${tenantId}' AND org_role_id = '${orgRoleId}' LIMIT 1`
+            );
+            if (permsRows.length > 0) orgRolePermissions = JSON.parse(permsRows[0].permissions || '[]');
+
+            const scopeRows = await db.query(
+              `SELECT visibility_scope FROM ${TABLES.ORG_SHARING_RULES} WHERE tenant_id = '${tenantId}' AND role_id = '${orgRoleId}' AND visibility_scope != 'EXPLICIT' AND is_active = 'true' LIMIT 1`
+            );
+            if (scopeRows.length > 0) dataScope = scopeRows[0].visibility_scope;
+          }
+        } catch (_) {}
+      }
+
+      // Build effective permissions and auto-derive dataScope if needed
+      try {
+        const base = new Set(
+          isSuperAdmin ? Object.values(PERMISSIONS || {})
+          : orgRoleId  ? orgRolePermissions
+          :              (ROLE_PERMISSIONS ? (ROLE_PERMISSIONS[resolvedRole] || []) : [])
+        );
+        const overrideRows = await db.query(
+          `SELECT permissions FROM ${TABLES.PERMISSION_OVERRIDES} WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = 'true' LIMIT 1`
+        );
+        if (overrideRows.length > 0) {
+          const parsed = JSON.parse(overrideRows[0].permissions || '{}');
+          (parsed.granted || []).forEach((p) => base.add(p));
+          (parsed.revoked || []).forEach((p) => base.delete(p));
+        }
+        if (!dataScope && PERMISSIONS && base.has(PERMISSIONS.ORG_ROLE_READ)) {
+          dataScope = 'ORG_WIDE';
+        }
+        req.currentUser.permissions = Array.from(base);
+      } catch (_) {}
+
+      req.currentUser.orgRoleId = orgRoleId;
+      req.currentUser.dataScope = dataScope;
 
       next();
     } catch (err) {

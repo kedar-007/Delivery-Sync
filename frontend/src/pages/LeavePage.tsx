@@ -29,6 +29,7 @@ import {
   useSetLeaveBalance,
 } from '../hooks/usePeople';
 import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { useUsers } from '../hooks/useUsers';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -108,8 +109,6 @@ const calcDays = (start: string, end: string) => {
   }
 };
 
-const MANAGER_ROLES = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
-const ADMIN_ROLES = ['TENANT_ADMIN', 'PMO'];
 
 type Tab = 'my' | 'apply' | 'team' | 'calendar' | 'balance' | 'company-calendar' | 'leave-balances';
 
@@ -400,7 +399,7 @@ const TeamRequestsTab = () => {
   const [actionError, setActionError] = useState('');
   const [statusFilter, setStatusFilter] = useState('PENDING');
 
-  const params: Record<string, string> = statusFilter ? { status: statusFilter } : {};
+  const params: Record<string, string> = { team: 'true', ...(statusFilter ? { status: statusFilter } : {}) };
   const { data, isLoading, error } = useLeaveRequests(params);
   const requests: LeaveRequest[] = (data as LeaveRequest[]) ?? [];
 
@@ -1340,8 +1339,8 @@ const LeaveBalancesTab = () => {
 const LeavePage = () => {
   useParams<{ tenantSlug: string }>();
   const { user } = useAuth();
-  const isManager = MANAGER_ROLES.includes(user?.role ?? '');
-  const isAdmin = ADMIN_ROLES.includes(user?.role ?? '');
+  const isManager = hasPermission(user, PERMISSIONS.LEAVE_APPROVE);
+  const isAdmin   = hasPermission(user, PERMISSIONS.LEAVE_ADMIN);
   const [tab, setTab] = useState<Tab>('my');
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode; managerOnly?: boolean; adminOnly?: boolean }[] = [

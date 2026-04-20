@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { adminConfigApi, leaveApi, attendanceApi, badgesApi } from '../lib/api';
+import { adminApi, adminConfigApi, leaveApi, attendanceApi, badgesApi } from '../lib/api';
 
 // ── Field Normalisers ─────────────────────────────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -223,5 +223,28 @@ export const useUpdateBadgeDefinition = () => {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: unknown }) => badgesApi.update(id, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['config', 'badge-defs'] }),
+  });
+};
+
+// ── Org Role Permission Hooks ─────────────────────────────────────────────────
+export const useOrgRoles = () =>
+  useQuery({
+    queryKey: ['admin', 'org-roles'],
+    queryFn: () => adminApi.listOrgRoles(),
+  });
+
+export const useAllPermissions = () =>
+  useQuery({
+    queryKey: ['admin', 'permissions', 'all'],
+    queryFn: () => adminApi.getAllPermissions(),
+    staleTime: Infinity,
+  });
+
+export const useSetOrgRolePermissions = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ roleId, permissions }: { roleId: string; permissions: string[] }) =>
+      adminApi.setOrgRolePermissions(roleId, permissions),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'org-roles'] }),
   });
 };

@@ -18,6 +18,7 @@ import Button from '../components/ui/Button';
 import EmptyState from '../components/ui/EmptyState';
 import { useDashboardSummary } from '../hooks/useDashboard';
 import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import {
   useMyAttendanceRecord, useCheckIn, useCheckOut,
   useLeaveBalance, useLeaveRequests, useAttendanceSummary,
@@ -199,7 +200,7 @@ function MyTasksWidget({ userId, tenantSlug }: { userId: string; tenantSlug: str
     const arr = Array.isArray(rawTasks) ? rawTasks : (rawTasks as { data?: unknown[] })?.data ?? [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (arr as any[]).filter((t) =>
-      t.assigneeIds?.includes(String(userId)) || String(t.assigneeId) === String(userId)
+      t.assigneeIds?.includes(String(userId)) || String(t.assigneeId) === String(userId) || String(t.createdBy) === String(userId)
     );
   }, [rawTasks, userId]);
 
@@ -297,7 +298,7 @@ function MyTasksWidget({ userId, tenantSlug }: { userId: string; tenantSlug: str
 
 // ── Quick Actions ─────────────────────────────────────────────────────────────
 
-function QuickActions({ tenantSlug, role }: { tenantSlug: string; role: string }) {
+function QuickActions({ tenantSlug, isManager }: { tenantSlug: string; isManager: boolean }) {
   const baseActions = [
     { label: 'Submit Standup', to: `/${tenantSlug}/standup`,       icon: <Clock size={15} />,        bg: 'bg-blue-50 text-blue-700 hover:bg-blue-100' },
     { label: 'Submit EOD',     to: `/${tenantSlug}/eod`,           icon: <CheckSquare size={15} />,  bg: 'bg-green-50 text-green-700 hover:bg-green-100' },
@@ -314,7 +315,7 @@ function QuickActions({ tenantSlug, role }: { tenantSlug: string; role: string }
     { label: 'Sprints',       to: `/${tenantSlug}/sprints`,      icon: <Activity size={15} />,      bg: 'bg-violet-50 text-violet-700 hover:bg-violet-100' },
   ];
 
-  const actions = ['PMO', 'TENANT_ADMIN', 'DELIVERY_LEAD'].includes(role)
+  const actions = isManager
     ? [...baseActions.slice(0, 6), ...managerExtras]
     : baseActions;
 
@@ -750,9 +751,9 @@ function PmoKpiStrip({ summary, tenantSlug, tasks }: { summary: any; tenantSlug:
 
 function DeliveryLeadKpiStrip({ summary, tenantSlug, tasks, userId }: { summary: any; tenantSlug: string; tasks: any[]; userId: string }) {
   const myTasks = tasks.filter((t: any) =>
-    t.assigneeIds?.includes(String(userId)) || String(t.assigneeId) === String(userId)
+    t.assigneeIds?.includes(String(userId)) || String(t.assigneeId) === String(userId) || String(t.createdBy) === String(userId)
   );
-  const myInProgress = myTasks.filter((t: any) => t.status === 'IN_PROGRESS').length;
+  const myActive = myTasks.filter((t: any) => t.status !== 'DONE' && t.status !== 'CANCELLED').length;
   const myOverdue    = myTasks.filter((t: any) => {
     if (!t.dueDate || t.status === 'DONE') return false;
     try { return isPast(parseISO(t.dueDate)); } catch { return false; }
@@ -771,7 +772,7 @@ function DeliveryLeadKpiStrip({ summary, tenantSlug, tasks, userId }: { summary:
       />
       <KpiCard
         label="My Tasks"
-        value={myInProgress}
+        value={myActive}
         sub={myOverdue > 0 ? `${myOverdue} overdue` : 'On track'}
         icon={<CheckSquare size={20} />}
         iconBg={myOverdue > 0 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}
@@ -808,9 +809,9 @@ function TeamMemberKpiStrip({ tenantSlug, tasks, userId }: { tenantSlug: string;
   const totalLeaveLeft = balances.reduce((sum: number, b: any) => sum + (Number(b.remaining) || 0), 0);
 
   const myTasks = tasks.filter((t: any) =>
-    t.assigneeIds?.includes(String(userId)) || String(t.assigneeId) === String(userId)
+    t.assigneeIds?.includes(String(userId)) || String(t.assigneeId) === String(userId) || String(t.createdBy) === String(userId)
   );
-  const inProgress = myTasks.filter((t: any) => t.status === 'IN_PROGRESS').length;
+  const active     = myTasks.filter((t: any) => t.status !== 'DONE' && t.status !== 'CANCELLED').length;
   const done       = myTasks.filter((t: any) => t.status === 'DONE').length;
   const overdue    = myTasks.filter((t: any) => {
     if (!t.dueDate || t.status === 'DONE') return false;
@@ -821,9 +822,9 @@ function TeamMemberKpiStrip({ tenantSlug, tasks, userId }: { tenantSlug: string;
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
       <KpiCard
-        label="In Progress"
-        value={inProgress}
-        sub={`${myTasks.length} total tasks`}
+        label="My Tasks"
+        value={active}
+        sub={`${done} completed`}
         icon={<Activity size={20} />}
         iconBg="bg-blue-100 text-blue-600"
         valueCls="text-blue-700"
@@ -863,15 +864,12 @@ function TeamMemberKpiStrip({ tenantSlug, tasks, userId }: { tenantSlug: string;
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 
-const MANAGER_ROLES = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
-
 const DashboardPage = () => {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const slug = tenantSlug ?? '';
   const { user } = useAuth();
-  const role = user?.role ?? 'TEAM_MEMBER';
-  const isManager = MANAGER_ROLES.includes(role);
-  const isPmo = role === 'PMO' || role === 'TENANT_ADMIN';
+  const isManager = hasPermission(user, PERMISSIONS.ORG_ROLE_READ);
+  const isPmo = hasPermission(user, PERMISSIONS.ADMIN_USERS);
   const [showPerformance, setShowPerformance] = useState(false);
   const { data, isLoading, error } = useDashboardSummary();
   const { data: rawTasks = [] } = useTasks();
@@ -916,7 +914,7 @@ const DashboardPage = () => {
         {isPmo && (
           <PmoKpiStrip summary={summary} tenantSlug={slug} tasks={allTasks} />
         )}
-        {role === 'DELIVERY_LEAD' && (
+        {isManager && !isPmo && (
           <DeliveryLeadKpiStrip summary={summary} tenantSlug={slug} tasks={allTasks} userId={String(user?.id ?? '')} />
         )}
         {!isManager && (
@@ -929,7 +927,7 @@ const DashboardPage = () => {
             <CheckInWidget />
           </div>
           <div className="lg:col-span-2">
-            <QuickActions tenantSlug={slug} role={role} />
+            <QuickActions tenantSlug={slug} isManager={isPmo || isManager} />
           </div>
         </div>
 

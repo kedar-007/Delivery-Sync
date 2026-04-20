@@ -195,18 +195,43 @@ class DashboardScreen extends ConsumerWidget {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 24, 16, 10),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('My Tasks', style: TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w700, color: ds.textPrimary)),
-                  GestureDetector(
-                    onTap: () => context.go('/sprints'),
-                    child: const Text('See all', style: TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w600,
-                      color: AppColors.primaryLight)),
-                  ),
-                ],
+              child: Consumer(
+                builder: (ctx, ref, _) {
+                  final tasks = ref.watch(myTasksProvider);
+                  final activeCount = tasks.whenOrNull(
+                    data: (list) => list
+                        .where((t) => t.status != 'DONE' && t.status != 'CANCELLED')
+                        .length,
+                  );
+                  return Row(
+                    children: [
+                      Text('My Tasks', style: TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w700, color: ds.textPrimary)),
+                      if (activeCount != null && activeCount > 0) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryLight.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text('$activeCount active',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.primaryLight)),
+                        ),
+                      ],
+                      const Spacer(),
+                      GestureDetector(
+                        onTap: () => context.go('/sprints'),
+                        child: const Text('See all', style: TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.w600,
+                          color: AppColors.primaryLight)),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
           ),
@@ -300,13 +325,15 @@ class _AttendanceWidget extends ConsumerStatefulWidget {
 }
 
 class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
-  Timer? _timer;
-  Timer? _breakTimer;
-  Duration _elapsed      = Duration.zero;
-  Duration _breakElapsed = Duration.zero;
-  bool _onLunchBreak = false;
-  bool _onShortBreak = false;
-  bool _actionLoading = false;
+  static const _allowances = {'LUNCH': 60, 'SHORT': 15};
+
+  Timer?  _timer;
+  Timer?  _breakTimer;
+  Duration _elapsed     = Duration.zero;
+  int      _breakSecs   = 0;
+  String?  _trackedBreakStart;
+  bool     _actionLoading = false;
+  bool     _breakLoading  = false;
 
   @override
   void dispose() {
@@ -315,12 +342,11 @@ class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
     super.dispose();
   }
 
-  /// Parse either a full ISO datetime OR a bare time "HH:mm:ss" string.
   static DateTime _parseTime(String s) {
     try {
-      return DateTime.parse(s).toLocal();
+      // IST times stored without TZ suffix — parse as local
+      return DateTime.parse(s.contains('T') ? s : s.replaceFirst(' ', 'T'));
     } catch (_) {
-      // Bare time "HH:mm:ss" — combine with today's date
       final today = DateTime.now();
       final parts = s.split(':');
       return DateTime(today.year, today.month, today.day,
@@ -330,7 +356,7 @@ class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
     }
   }
 
-  void _startTimer(String checkInTimeStr) {
+  void _startWorkTimer(String checkInTimeStr) {
     _timer?.cancel();
     try {
       final checkInTime = _parseTime(checkInTimeStr);
@@ -343,23 +369,32 @@ class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
     }
   }
 
-  void _toggleBreak({required bool isLunch}) {
-    setState(() {
-      final wasActive = isLunch ? _onLunchBreak : _onShortBreak;
-      _onLunchBreak = false;
-      _onShortBreak = false;
-      _breakTimer?.cancel();
-      _breakElapsed = Duration.zero;
-      if (!wasActive) {
-        if (isLunch) _onLunchBreak = true; else _onShortBreak = true;
-        _breakTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-          if (mounted) setState(() => _breakElapsed += const Duration(seconds: 1));
-        });
-      }
-    });
+  void _syncBreakTimer(Map<String, dynamic>? activeBreak) {
+    final start = activeBreak?['break_start'] as String?;
+    if (start == _trackedBreakStart) return;
+    _trackedBreakStart = start;
+    _breakTimer?.cancel();
+    _breakTimer = null;
+    _breakSecs  = 0;
+    if (start != null) {
+      final t = _parseTime(start);
+      void tick() { _breakSecs = DateTime.now().difference(t).inSeconds.clamp(0, 86400); }
+      tick();
+      _breakTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(tick);
+      });
+    }
   }
 
-  String _fmt(Duration d) {
+  static Map<String, dynamic>? _findActive(Map<String, dynamic>? bs) {
+    if (bs == null) return null;
+    return (bs['lunch'] as Map<String, dynamic>?)?['active'] as Map<String, dynamic>?
+        ?? (bs['short'] as Map<String, dynamic>?)?['active'] as Map<String, dynamic>?;
+  }
+
+  static String _clientTime() => DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+
+  String _fmtElapsed(Duration d) {
     final h = d.inHours;
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
@@ -367,9 +402,8 @@ class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
   }
 
   String _fmtTime(String iso) {
-    try {
-      return DateFormat('h:mm a').format(_parseTime(iso));
-    } catch (_) { return iso; }
+    try { return DateFormat('h:mm a').format(_parseTime(iso)); }
+    catch (_) { return iso; }
   }
 
   Future<void> _checkIn() async {
@@ -377,16 +411,33 @@ class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
     try {
       await ApiClient.instance.post(
         '${AppConstants.basePeople}/attendance/check-in',
-        data: {},
+        data: {'client_time': _clientTime()},
       );
       ref.invalidate(_dashAttendanceProvider);
       ref.invalidate(myAttendanceProvider);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Check-in failed: $e'), backgroundColor: AppColors.error),
-        );
-      }
+      if (mounted) _handleCheckInError(e);
+    } finally {
+      if (mounted) setState(() => _actionLoading = false);
+    }
+  }
+
+  Future<void> _checkInWfh(String reason) async {
+    setState(() => _actionLoading = true);
+    try {
+      await ApiClient.instance.post(
+        '${AppConstants.basePeople}/attendance/check-in',
+        data: {
+          'client_time': _clientTime(),
+          'is_wfh': true,
+          if (reason.isNotEmpty) 'wfh_reason': reason,
+        },
+      );
+      ref.invalidate(_dashAttendanceProvider);
+      ref.invalidate(myAttendanceProvider);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('WFH check-in failed: $e'), backgroundColor: AppColors.error));
     } finally {
       if (mounted) setState(() => _actionLoading = false);
     }
@@ -397,42 +448,116 @@ class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
     try {
       await ApiClient.instance.post(
         '${AppConstants.basePeople}/attendance/check-out',
-        data: {},
+        data: {'client_time': _clientTime()},
       );
       _timer?.cancel();
-      _breakTimer?.cancel();
-      setState(() { _onLunchBreak = false; _onShortBreak = false; });
+      _timer = null;
       ref.invalidate(_dashAttendanceProvider);
       ref.invalidate(myAttendanceProvider);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Check-out failed: $e'), backgroundColor: AppColors.error),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Check-out failed: $e'), backgroundColor: AppColors.error));
     } finally {
       if (mounted) setState(() => _actionLoading = false);
     }
   }
 
-  Future<void> _markWfh() async {
-    setState(() => _actionLoading = true);
+  Future<void> _startBreak(String type) async {
+    setState(() => _breakLoading = true);
     try {
       await ApiClient.instance.post(
-        '${AppConstants.basePeople}/attendance/wfh',
-        data: {},
+        '${AppConstants.basePeople}/attendance/break-start',
+        data: {'client_time': _clientTime(), 'break_type': type},
       );
       ref.invalidate(_dashAttendanceProvider);
       ref.invalidate(myAttendanceProvider);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed: $e'), backgroundColor: AppColors.error),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Break failed: $e'), backgroundColor: AppColors.error));
     } finally {
-      if (mounted) setState(() => _actionLoading = false);
+      if (mounted) setState(() => _breakLoading = false);
     }
+  }
+
+  Future<void> _endBreak() async {
+    setState(() => _breakLoading = true);
+    try {
+      await ApiClient.instance.post(
+        '${AppConstants.basePeople}/attendance/break-end',
+        data: {'client_time': _clientTime()},
+      );
+      ref.invalidate(_dashAttendanceProvider);
+      ref.invalidate(myAttendanceProvider);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Break end failed: $e'), backgroundColor: AppColors.error));
+    } finally {
+      if (mounted) setState(() => _breakLoading = false);
+    }
+  }
+
+  void _handleCheckInError(Object e) {
+    final msg = e.toString().toLowerCase();
+    if (msg.contains('403') || msg.contains('not allowed') || msg.contains('ip')) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Check-in Blocked'),
+          content: const Text(
+              'Check-in is not allowed from this network.\nYou can still check in as WFH.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () { Navigator.pop(ctx); _showWfhDialog(); },
+              child: const Text('Check In WFH'),
+            ),
+          ],
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Check-in failed: $e'), backgroundColor: AppColors.error));
+    }
+  }
+
+  void _showWfhDialog() {
+    final ctrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(children: [
+          Icon(Icons.home_rounded, color: AppColors.info, size: 20),
+          SizedBox(width: 8),
+          Text('WFH Check-in'),
+        ]),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('A notification will be sent to your manager.',
+              style: TextStyle(fontSize: 13)),
+          const SizedBox(height: 12),
+          TextField(
+            controller: ctrl,
+            decoration: const InputDecoration(
+              labelText: 'Reason (optional)',
+              hintText: 'e.g. Doctor appointment…',
+            ),
+            maxLines: 2,
+            textCapitalization: TextCapitalization.sentences,
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () { Navigator.pop(ctx); ctrl.dispose(); }, child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              final reason = ctrl.text.trim();
+              Navigator.pop(ctx);
+              ctrl.dispose();
+              _checkInWfh(reason);
+            },
+            child: const Text('Check In WFH'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -442,41 +567,44 @@ class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
 
     return record.when(
       data: (r) {
-        final status       = r['status'] as String? ?? 'ABSENT';
+        final status       = r['status']      as String? ?? 'ABSENT';
         final checkInTime  = r['checkInTime']  as String?;
         final checkOutTime = r['checkOutTime'] as String?;
         final checkedIn    = checkInTime != null && checkOutTime == null;
-        final isWfh        = r['isWfh'] as bool? ?? false;
+        final isWfh        = r['isWfh']       as bool? ?? false;
         final dayComplete  = checkInTime != null && checkOutTime != null;
+        final bs           = r['breakSummary'] as Map<String, dynamic>?;
+        final activeBreak  = _findActive(bs);
+        final onBreak      = activeBreak != null;
 
+        // Sync work-elapsed timer
         if (checkedIn && _timer == null) {
           SchedulerBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _startTimer(checkInTime);
+            if (mounted) _startWorkTimer(checkInTime);
           });
         } else if (!checkedIn && _timer != null) {
-          // Checked out (possibly from attendance screen) — stop timer
           SchedulerBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              _timer?.cancel();
-              _timer = null;
-              _breakTimer?.cancel();
-              setState(() {
-                _elapsed = Duration.zero;
-                _breakElapsed = Duration.zero;
-                _onLunchBreak = false;
-                _onShortBreak = false;
-              });
-            }
+            if (mounted) { _timer?.cancel(); _timer = null; setState(() => _elapsed = Duration.zero); }
           });
         }
+
+        // Sync break timer from server data
+        _syncBreakTimer(activeBreak);
+
+        final breakType  = activeBreak?['break_type'] as String? ?? 'SHORT';
+        final allowance  = _allowances[breakType] ?? 15;
+        final breakMins  = _breakSecs ~/ 60;
+        final isOverBreak = breakMins > allowance;
+        final lunchInfo  = bs?['lunch'] as Map<String, dynamic>? ?? {};
+        final shortInfo  = bs?['short'] as Map<String, dynamic>? ?? {};
 
         final (color, icon, label) = switch (status) {
           'PRESENT' => (AppColors.success,  Icons.check_circle_rounded, 'Checked In'),
           'WFH'     => (AppColors.info,     Icons.home_rounded,         'Working From Home'),
           'LATE'    => (AppColors.ragAmber, Icons.schedule_rounded,     'Late'),
           _         => dayComplete
-                         ? (AppColors.success, Icons.task_alt_rounded, 'Day Complete')
-                         : (AppColors.ragRed, Icons.circle_outlined,    'Not Checked In'),
+                         ? (AppColors.success, Icons.task_alt_rounded,  'Day Complete')
+                         : (AppColors.ragRed,  Icons.circle_outlined,   'Not Checked In'),
         };
 
         return Container(
@@ -486,131 +614,145 @@ class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: color.withOpacity(0.3)),
           ),
-          child: Column(
-            children: [
-              // ── Header row ────────────────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
-                child: Row(children: [
-                  Container(
-                    width: 38, height: 38,
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(icon, color: color, size: 20),
+          child: Column(children: [
+            // ── Header row ────────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+              child: Row(children: [
+                Container(
+                  width: 38, height: 38,
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(label, style: TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.w700, color: ds.textPrimary)),
-                      if (checkedIn)
-                        Text(_fmt(_elapsed),
-                            style: TextStyle(
-                                fontSize: 20, fontWeight: FontWeight.w800,
-                                color: color, fontFeatures: const [FontFeature.tabularFigures()]))
-                      else if (isWfh || dayComplete)
-                        Text('Have a great day!',
-                            style: TextStyle(fontSize: 12, color: ds.textMuted))
-                      else
-                        Text(DateFormat('EEEE, d MMMM').format(DateTime.now()),
-                            style: TextStyle(fontSize: 12, color: ds.textMuted)),
-                    ],
-                  )),
+                  child: Icon(icon, color: color, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: ds.textPrimary)),
+                  if (checkedIn && !onBreak)
+                    Text(_fmtElapsed(_elapsed),
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800,
+                            color: color, fontFeatures: const [FontFeature.tabularFigures()]))
+                  else if (isWfh || dayComplete)
+                    Text('Have a great day!', style: TextStyle(fontSize: 12, color: ds.textMuted))
+                  else
+                    Text(DateFormat('EEEE, d MMMM').format(DateTime.now()),
+                        style: TextStyle(fontSize: 12, color: ds.textMuted)),
+                ])),
+                GestureDetector(
+                  onTap: () => context.push('/more/attendance'),
+                  child: Text('Details →', style: TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.primaryLight)),
+                ),
+              ]),
+            ),
+
+            // ── Check-in / check-out times ────────────────────────────
+            if (checkInTime != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+                child: Row(children: [
+                  _TimeChipSmall(icon: Icons.login_rounded,
+                      label: 'In: ${_fmtTime(checkInTime)}', color: AppColors.success),
+                  if (checkOutTime != null) ...[
+                    const SizedBox(width: 8),
+                    _TimeChipSmall(icon: Icons.logout_rounded,
+                        label: 'Out: ${_fmtTime(checkOutTime)}', color: AppColors.error),
+                  ],
+                ]),
+              ),
+
+            // ── Active break display ──────────────────────────────────
+            if (onBreak)
+              Container(
+                margin: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: (isOverBreak ? AppColors.ragRed : AppColors.ragAmber).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                      color: (isOverBreak ? AppColors.ragRed : AppColors.ragAmber).withOpacity(0.3)),
+                ),
+                child: Row(children: [
+                  Icon(breakType == 'LUNCH' ? Icons.restaurant_rounded : Icons.coffee_rounded,
+                      color: isOverBreak ? AppColors.ragRed : AppColors.ragAmber, size: 14),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${breakType == 'LUNCH' ? 'Lunch' : 'Short'} '
+                    '${(_breakSecs ~/ 60).toString().padLeft(2, '0')}:'
+                    '${(_breakSecs % 60).toString().padLeft(2, '0')}',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
+                        color: isOverBreak ? AppColors.ragRed : AppColors.ragAmber),
+                  ),
+                  if (isOverBreak) ...[
+                    const SizedBox(width: 4),
+                    Icon(Icons.warning_rounded, size: 11, color: AppColors.ragRed),
+                    Text(' +${breakMins - allowance}m',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
+                            color: AppColors.ragRed)),
+                  ],
+                  const Spacer(),
                   GestureDetector(
-                    onTap: () => context.push('/more/attendance'),
-                    child: Text('Details →', style: TextStyle(
-                        fontSize: 12, fontWeight: FontWeight.w600,
-                        color: AppColors.primaryLight)),
+                    onTap: _breakLoading ? null : _endBreak,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppColors.ragAmber.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(_breakLoading ? '…' : 'End',
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
+                              color: AppColors.ragAmber)),
+                    ),
                   ),
                 ]),
               ),
 
-              // ── Check-in / check-out times ────────────────────────────
-              if (checkInTime != null)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
-                  child: Row(children: [
-                    _TimeChipSmall(icon: Icons.login_rounded,
-                        label: 'In: ${_fmtTime(checkInTime)}', color: AppColors.success),
-                    if (checkOutTime != null) ...[
-                      const SizedBox(width: 8),
-                      _TimeChipSmall(icon: Icons.logout_rounded,
-                          label: 'Out: ${_fmtTime(checkOutTime)}', color: AppColors.error),
-                    ],
-                  ]),
-                ),
-
-              // ── Break timers (while checked in) ───────────────────────
-              if (checkedIn && (_onLunchBreak || _onShortBreak))
-                Container(
-                  margin: const EdgeInsets.fromLTRB(14, 0, 14, 10),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: AppColors.ragAmber.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.ragAmber.withOpacity(0.3)),
-                  ),
-                  child: Row(children: [
-                    Icon(Icons.coffee_rounded, color: AppColors.ragAmber, size: 14),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${_onLunchBreak ? 'Lunch' : 'Short'} break: ${_fmt(_breakElapsed)}',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
-                          color: AppColors.ragAmber),
-                    ),
-                  ]),
-                ),
-
-              // ── Action buttons ────────────────────────────────────────
-              if (!dayComplete)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                  child: _actionLoading
-                      ? const Center(child: SizedBox(width: 24, height: 24,
-                            child: CircularProgressIndicator(strokeWidth: 2)))
-                      : Column(children: [
-                          // Primary action row
-                          Row(children: [
-                            if (!checkedIn && !isWfh) ...[
-                              Expanded(child: _AttBtn(
+            // ── Action buttons ────────────────────────────────────────
+            if (!dayComplete)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                child: (_actionLoading || _breakLoading)
+                    ? const Center(child: SizedBox(width: 24, height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2)))
+                    : Column(children: [
+                        Row(children: [
+                          if (!checkedIn && !isWfh) ...[
+                            Expanded(child: _AttBtn(
                                 icon: Icons.login_rounded, label: 'Check In',
                                 color: AppColors.success, onTap: _checkIn)),
-                              const SizedBox(width: 8),
-                              Expanded(child: _AttBtn(
+                            const SizedBox(width: 8),
+                            Expanded(child: _AttBtn(
                                 icon: Icons.home_rounded, label: 'WFH',
-                                color: AppColors.info, onTap: _markWfh)),
-                            ],
-                            if (checkedIn)
-                              Expanded(child: _AttBtn(
+                                color: AppColors.info, onTap: _showWfhDialog)),
+                          ],
+                          if (checkedIn)
+                            Expanded(child: _AttBtn(
                                 icon: Icons.logout_rounded, label: 'Check Out',
                                 color: AppColors.ragRed, onTap: _checkOut)),
-                          ]),
-                          // Break buttons row (only when checked in)
-                          if (checkedIn) ...[
-                            const SizedBox(height: 8),
-                            Row(children: [
-                              Expanded(child: _BreakBtn(
-                                icon: Icons.restaurant_rounded,
-                                label: _onLunchBreak ? 'End Lunch' : 'Lunch Break',
-                                active: _onLunchBreak,
-                                onTap: () => _toggleBreak(isLunch: true),
-                              )),
-                              const SizedBox(width: 8),
-                              Expanded(child: _BreakBtn(
-                                icon: Icons.coffee_rounded,
-                                label: _onShortBreak ? 'End Break' : 'Short Break',
-                                active: _onShortBreak,
-                                onTap: () => _toggleBreak(isLunch: false),
-                              )),
-                            ]),
-                          ],
                         ]),
-                ),
-            ],
-          ),
+                        if (checkedIn && !onBreak) ...[
+                          const SizedBox(height: 8),
+                          Row(children: [
+                            Expanded(child: _BreakBtn(
+                              icon: Icons.restaurant_rounded,
+                              label: 'Lunch  ${(lunchInfo['remaining_minutes'] as num?)?.toInt() ?? 60}m',
+                              active: false,
+                              onTap: () => _startBreak('LUNCH'),
+                            )),
+                            const SizedBox(width: 8),
+                            Expanded(child: _BreakBtn(
+                              icon: Icons.coffee_rounded,
+                              label: 'Break  ${(shortInfo['remaining_minutes'] as num?)?.toInt() ?? 15}m',
+                              active: false,
+                              onTap: () => _startBreak('SHORT'),
+                            )),
+                          ]),
+                        ],
+                      ]),
+              ),
+          ]),
         ).animate().fadeIn(duration: 350.ms);
       },
       loading: () => const SizedBox.shrink(),

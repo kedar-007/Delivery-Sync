@@ -19,11 +19,18 @@ import UIKit
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
 
-    // Set up MethodChannel so Flutter can request the push token
-    let controller = engineBridge.pluginRegistry as! FlutterViewController
+    // pluginRegistry is FlutterEngine in Flutter 3.x, not FlutterViewController
+    let messenger: FlutterBinaryMessenger
+    if let engine = engineBridge.pluginRegistry as? FlutterEngine {
+      messenger = engine.binaryMessenger
+    } else if let vc = engineBridge.pluginRegistry as? FlutterViewController {
+      messenger = vc.binaryMessenger
+    } else {
+      return
+    }
     let channel = FlutterMethodChannel(
       name: "ds/notifications",
-      binaryMessenger: controller.binaryMessenger
+      binaryMessenger: messenger
     )
     channel.setMethodCallHandler { [weak self] call, result in
       if call.method == "getDeviceToken" {

@@ -1,8 +1,10 @@
 import React, { useEffect, useCallback, useState } from "react";
-import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
+import { HashRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/layout/ProtectedRoute";
 import AppLoader from "./components/ui/AppLoader";
+import { hasPermission } from "./utils/permissions";
+import type { Permission } from "./utils/permissions";
 
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
@@ -42,6 +44,19 @@ import MyTasksPage from "./pages/MyTasksPage";
 import SprintsPage from "./pages/SprintsPage";
 import HelpPage from "./pages/HelpPage";
 import DataSeedPage from "./pages/DataSeedPage";
+import IpConfigPage from "./pages/IpConfigPage";
+
+// ── Permission-gated route wrapper ───────────────────────────────────────────
+// Redirects to /:tenantSlug/dashboard if the current user lacks `permission`.
+// Must be rendered inside /:tenantSlug so useParams can read the slug.
+const PermRoute = ({ permission, children }: { permission: Permission; children: React.ReactNode }) => {
+  const { user } = useAuth();
+  const { tenantSlug } = useParams<{ tenantSlug: string }>();
+  if (!hasPermission(user, permission)) {
+    return <Navigate to={`/${tenantSlug}/dashboard`} replace />;
+  }
+  return <>{children}</>;
+};
 
 // ── SDK loader ────────────────────────────────────────────────────────────────
 
@@ -80,42 +95,59 @@ const AppRoutes = () => {
         element={mustLogin ? <Navigate to="/login" replace /> : <ProtectedRoute />}
       >
         <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<DashboardPage />} />
-        <Route path="portfolio" element={<PortfolioDashboard />} />
-        <Route path="projects" element={<ProjectsPage />} />
-        <Route path="projects/:projectId" element={<ProjectDetailPage />} />
-        <Route path="projects/:projectId/sprints" element={<SprintBoardPage />} />
-        <Route path="projects/:projectId/backlog" element={<BacklogPage />} />
-        <Route path="backlog" element={<BacklogPage />} />
-        <Route path="projects/:projectId/tasks" element={<ProjectTasksPage />} />
-        <Route path="my-tasks" element={<MyTasksPage />} />
-        <Route path="sprints" element={<SprintsPage />} />
-        <Route path="milestones" element={<MilestonesPage />} />
-        <Route path="standup" element={<StandupPage />} />
-        <Route path="eod" element={<EodPage />} />
-        <Route path="actions" element={<ActionsPage />} />
-        <Route path="blockers" element={<BlockersPage />} />
-        <Route path="raid" element={<RaidPage />} />
-        <Route path="decisions" element={<DecisionsPage />} />
-        <Route path="teams" element={<TeamsPage />} />
-        <Route path="attendance" element={<AttendancePage />} />
-        <Route path="leave" element={<LeavePage />} />
-        <Route path="announcements" element={<AnnouncementsPage />} />
-        <Route path="org-chart" element={<OrgChartPage />} />
-        <Route path="directory" element={<DirectoryPage />} />
-        <Route path="time-tracking" element={<TimeTrackingPage />} />
-        <Route path="assets" element={<AssetManagementPage />} />
-        <Route path="reports" element={<ReportsPage />} />
-        <Route path="enterprise-reports" element={<EnterpriseReportsPage />} />
-        <Route path="profile" element={<ProfilePage />} />
-        <Route path="settings" element={<SettingsPage />} />
-        <Route path="ai-insights" element={<AiInsightsPage />} />
-        <Route path="ceo-dashboard" element={<CeoDashboardPage />} />
-        <Route path="cto-dashboard" element={<CtoDashboardPage />} />
-        <Route path="admin" element={<AdminPage />} />
-        <Route path="admin-config" element={<AdminConfigPage />} />
-        <Route path="data-seed" element={<DataSeedPage />} />
-        <Route path="help" element={<HelpPage />} />
+
+        {/* ── Always accessible ── */}
+        <Route path="dashboard"  element={<DashboardPage />} />
+        <Route path="profile"    element={<ProfilePage />} />
+        <Route path="settings"   element={<SettingsPage />} />
+        <Route path="help"       element={<HelpPage />} />
+
+        {/* ── Projects module ── */}
+        <Route path="projects"                      element={<PermRoute permission="PROJECT_READ"><ProjectsPage /></PermRoute>} />
+        <Route path="projects/:projectId"           element={<PermRoute permission="PROJECT_READ"><ProjectDetailPage /></PermRoute>} />
+        <Route path="projects/:projectId/sprints"   element={<PermRoute permission="SPRINT_READ"><SprintBoardPage /></PermRoute>} />
+        <Route path="projects/:projectId/backlog"   element={<PermRoute permission="TASK_READ"><BacklogPage /></PermRoute>} />
+        <Route path="projects/:projectId/tasks"     element={<PermRoute permission="TASK_READ"><ProjectTasksPage /></PermRoute>} />
+        <Route path="backlog"    element={<PermRoute permission="TASK_READ"><BacklogPage /></PermRoute>} />
+        <Route path="my-tasks"   element={<PermRoute permission="TASK_READ"><MyTasksPage /></PermRoute>} />
+        <Route path="sprints"    element={<PermRoute permission="SPRINT_READ"><SprintsPage /></PermRoute>} />
+        <Route path="milestones" element={<PermRoute permission="MILESTONE_READ"><MilestonesPage /></PermRoute>} />
+        <Route path="actions"    element={<PermRoute permission="ACTION_READ"><ActionsPage /></PermRoute>} />
+        <Route path="blockers"   element={<PermRoute permission="BLOCKER_READ"><BlockersPage /></PermRoute>} />
+        <Route path="raid"       element={<PermRoute permission="RAID_READ"><RaidPage /></PermRoute>} />
+        <Route path="decisions"  element={<PermRoute permission="DECISION_READ"><DecisionsPage /></PermRoute>} />
+
+        {/* ── Daily Work module ── */}
+        <Route path="standup"       element={<PermRoute permission="STANDUP_SUBMIT"><StandupPage /></PermRoute>} />
+        <Route path="eod"           element={<PermRoute permission="EOD_SUBMIT"><EodPage /></PermRoute>} />
+        <Route path="time-tracking" element={<PermRoute permission="TIME_WRITE"><TimeTrackingPage /></PermRoute>} />
+
+        {/* ── People module ── */}
+        <Route path="teams"         element={<PermRoute permission="TEAM_READ"><TeamsPage /></PermRoute>} />
+        <Route path="attendance"    element={<PermRoute permission="ATTENDANCE_READ"><AttendancePage /></PermRoute>} />
+        <Route path="leave"         element={<PermRoute permission="LEAVE_READ"><LeavePage /></PermRoute>} />
+        <Route path="announcements" element={<PermRoute permission="ANNOUNCEMENT_READ"><AnnouncementsPage /></PermRoute>} />
+        <Route path="org-chart"     element={<PermRoute permission="ORG_READ"><OrgChartPage /></PermRoute>} />
+        <Route path="directory"     element={<PermRoute permission="TEAM_READ"><DirectoryPage /></PermRoute>} />
+
+        {/* ── Assets module ── */}
+        <Route path="assets" element={<PermRoute permission="ASSET_READ"><AssetManagementPage /></PermRoute>} />
+
+        {/* ── Reports & AI module ── */}
+        <Route path="reports"            element={<PermRoute permission="REPORT_READ"><ReportsPage /></PermRoute>} />
+        <Route path="enterprise-reports" element={<PermRoute permission="ORG_ROLE_READ"><EnterpriseReportsPage /></PermRoute>} />
+        <Route path="ai-insights"        element={<PermRoute permission="AI_INSIGHTS"><AiInsightsPage /></PermRoute>} />
+
+        {/* ── Executive module ── */}
+        <Route path="portfolio"      element={<PermRoute permission="ORG_ROLE_READ"><PortfolioDashboard /></PermRoute>} />
+        <Route path="ceo-dashboard"  element={<PermRoute permission="ORG_ROLE_READ"><CeoDashboardPage /></PermRoute>} />
+        <Route path="cto-dashboard"  element={<PermRoute permission="ORG_ROLE_READ"><CtoDashboardPage /></PermRoute>} />
+
+        {/* ── Administration module ── */}
+        <Route path="admin"        element={<PermRoute permission="ADMIN_USERS"><AdminPage /></PermRoute>} />
+        <Route path="admin-config" element={<PermRoute permission="ADMIN_USERS"><AdminConfigPage /></PermRoute>} />
+        <Route path="data-seed"    element={<PermRoute permission="DATA_SEED"><DataSeedPage /></PermRoute>} />
+        <Route path="ip-config"    element={<PermRoute permission="IP_CONFIG_WRITE"><IpConfigPage /></PermRoute>} />
       </Route>
 
       <Route path="*" element={<Navigate to={mustLogin ? "/login" : homePath} replace />} />
