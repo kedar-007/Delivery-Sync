@@ -85,7 +85,14 @@ class Permissions {
   static const String teamRead       = 'TEAM_READ';
   static const String attendanceRead = 'ATTENDANCE_READ';
   static const String leaveRead      = 'LEAVE_READ';
+  static const String leaveWrite     = 'LEAVE_WRITE';
+  static const String leaveApprove   = 'LEAVE_APPROVE';
+  static const String leaveAdmin     = 'LEAVE_ADMIN';
   static const String assetRead      = 'ASSET_READ';
+  // ── Time ────────────────────────────────────────────────────────────────────
+  static const String timeRead       = 'TIME_READ';
+  static const String timeWrite      = 'TIME_WRITE';
+  static const String timeApprove    = 'TIME_APPROVE';
   // ── AI ──────────────────────────────────────────────────────────────────────
   static const String aiInsights     = 'AI_INSIGHTS';
   static const String aiPerformance  = 'AI_PERFORMANCE';

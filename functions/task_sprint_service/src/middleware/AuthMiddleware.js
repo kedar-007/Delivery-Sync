@@ -94,13 +94,14 @@ class AuthMiddleware {
 
       // 4. Load org role + dataScope (mirrors delivery_sync_function AuthMiddleware)
       const isSuperAdmin = resolvedRole === 'SUPER_ADMIN';
+      const isFullAdmin = isSuperAdmin || resolvedRole === 'TENANT_ADMIN';
       let orgRoleId = null;
       let orgRolePermissions = [];
       let dataScope = null;
       const userId = String(user.ROWID);
       const tenantId = String(user.tenant_id);
 
-      if (!isSuperAdmin && user.tenant_id) {
+      if (!isFullAdmin && user.tenant_id) {
         try {
           const assignment = await db.query(
             `SELECT org_role_id FROM ${TABLES.USER_ORG_ROLES} WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = 'true' LIMIT 1`
@@ -122,11 +123,8 @@ class AuthMiddleware {
 
       // Build effective permissions and auto-derive dataScope if needed
       try {
-        const base = new Set(
-          isSuperAdmin ? Object.values(PERMISSIONS || {})
-          : orgRoleId  ? orgRolePermissions
-          :              (ROLE_PERMISSIONS ? (ROLE_PERMISSIONS[resolvedRole] || []) : [])
-        );
+        const roleBase = isFullAdmin ? Object.values(PERMISSIONS || {}) : (ROLE_PERMISSIONS ? (ROLE_PERMISSIONS[resolvedRole] || []) : []);
+        const base = new Set([...roleBase, ...(orgRoleId ? orgRolePermissions : [])]);
         const overrideRows = await db.query(
           `SELECT permissions FROM ${TABLES.PERMISSION_OVERRIDES} WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = 'true' LIMIT 1`
         );

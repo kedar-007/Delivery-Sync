@@ -92,10 +92,21 @@ class StandupController {
         { orderBy: 'CREATEDTIME DESC', limit: 100 }
       );
 
+      // Enrich with project names
+      const projectIds = [...new Set(standups.map((s) => s.project_id).filter(Boolean))];
+      let projectMap = {};
+      if (projectIds.length > 0) {
+        const projects = await this.db.query(
+          `SELECT ROWID, name FROM ${TABLES.PROJECTS} WHERE ROWID IN (${projectIds.map((id) => `'${id}'`).join(',')}) LIMIT 100`
+        );
+        projects.forEach((p) => { projectMap[String(p.ROWID)] = p.name; });
+      }
+
       return ResponseHelper.success(res, {
         standups: standups.map((s) => ({
           id: String(s.ROWID),
           projectId: s.project_id,
+          projectName: projectMap[String(s.project_id)] || null,
           userId: s.user_id,
           date: s.entry_date,
           yesterday: s.yesterday,

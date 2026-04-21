@@ -9,24 +9,49 @@ import '../../../../core/constants/app_constants.dart';
 import '../../../../core/services/api_client.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/widgets/ds_metric_card.dart';
+import '../../../../shared/widgets/user_avatar.dart';
 import '../../../auth/providers/auth_provider.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-Map<String, dynamic> _normaliseRecord(Map<String, dynamic> r) => {
-  'status':           r['status'] as String? ?? 'ABSENT',
-  'checkInTime':      r['check_in_time']  as String? ?? r['checkInTime']  as String?,
-  'checkOutTime':     r['check_out_time'] as String? ?? r['checkOutTime'] as String?,
-  'isWfh':            r['is_wfh'] == true || r['is_wfh'] == 'true' || r['isWfh'] == true,
-  'hoursWorked':      (r['work_hours'] as num? ?? r['hoursWorked'] as num? ?? 0).toDouble(),
-  'attendanceDate':   r['attendance_date'] as String? ?? r['attendanceDate'] as String?,
-  'name':             r['name'] as String?,
-  'avatarUrl':        r['avatar_url'] as String? ?? r['avatarUrl'] as String?,
-  'email':            r['email'] as String?,
-  'breakSummary':     r['break_summary'] as Map<String, dynamic>? ?? r['breakSummary'] as Map<String, dynamic>?,
-};
+double _numVal(dynamic v) {
+  if (v == null) return 0.0;
+  if (v is num) return v.toDouble();
+  return double.tryParse(v.toString()) ?? 0.0;
+}
+
+int _intVal(dynamic v) {
+  if (v == null) return 0;
+  if (v is num) return v.toInt();
+  return int.tryParse(v.toString().split('.').first) ?? 0;
+}
+
+Map<String, dynamic> _normaliseRecord(Map<String, dynamic> r) {
+  final grossHours    = _numVal(r['work_hours']           ?? r['hoursWorked']);
+  final netHoursRaw   = r['net_work_hours']               ?? r['netWorkHours'];
+  final totalBreakMins = _intVal(r['total_break_minutes'] ?? r['totalBreakMinutes']);
+  final netHours = netHoursRaw != null
+      ? _numVal(netHoursRaw)
+      : (totalBreakMins > 0
+          ? (grossHours - totalBreakMins / 60).clamp(0.0, grossHours)
+          : grossHours);
+  return {
+    'status':            r['status']?.toString()                                 ?? 'ABSENT',
+    'checkInTime':       r['check_in_time']  as String? ?? r['checkInTime']  as String?,
+    'checkOutTime':      r['check_out_time'] as String? ?? r['checkOutTime'] as String?,
+    'isWfh':             r['is_wfh'] == true || r['is_wfh'] == 'true' || r['isWfh'] == true,
+    'hoursWorked':       grossHours,
+    'netHours':          netHours,
+    'totalBreakMinutes': totalBreakMins,
+    'attendanceDate':    r['attendance_date'] as String? ?? r['attendanceDate'] as String?,
+    'name':              r['name'] as String?,
+    'avatarUrl':         r['avatar_url'] as String? ?? r['avatarUrl'] as String?,
+    'email':             r['email'] as String?,
+    'breakSummary':      r['break_summary'] as Map<String, dynamic>? ?? r['breakSummary'] as Map<String, dynamic>?,
+  };
+}
 
 String _clientTime() => DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
 
@@ -364,9 +389,28 @@ class _TodayCardState extends ConsumerState<_TodayCard> {
       );
       ref.invalidate(myAttendanceProvider);
     } catch (e) {
-      if (mounted) _snack('Break end failed: $e', AppColors.error);
+      if (mounted) _handleBreakEndError(e);
     } finally {
       if (mounted) setState(() => _breakLoading = false);
+    }
+  }
+
+  void _handleBreakEndError(Object e) {
+    final msg = e.toString().toLowerCase();
+    if (msg.contains('403') || msg.contains('office network') || msg.contains('ip')) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Cannot End Break'),
+          content: const Text(
+              'You must be on the office network to end your break.\n\nPlease connect to the office Wi-Fi and try again.'),
+          actions: [
+            FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+          ],
+        ),
+      );
+    } else {
+      _snack('Break end failed: $e', AppColors.error);
     }
   }
 
@@ -481,11 +525,13 @@ class _TodayCardState extends ConsumerState<_TodayCard> {
     Map<String, dynamic>? bs,
     Map<String, dynamic>? activeBreak,
   ) {
-    final status     = record['status'] as String? ?? 'ABSENT';
-    final checkedIn  = record['checkInTime']  as String?;
-    final checkedOut = record['checkOutTime'] as String?;
-    final hours      = (record['hoursWorked'] as num?)?.toDouble() ?? 0.0;
-    final isWfh      = record['isWfh'] as bool? ?? false;
+    final status       = record['status'] as String? ?? 'ABSENT';
+    final checkedIn    = record['checkInTime']  as String?;
+    final checkedOut   = record['checkOutTime'] as String?;
+    final hours        = (record['hoursWorked'] as num?)?.toDouble() ?? 0.0;
+    final netHours     = (record['netHours'] as num?)?.toDouble() ?? hours;
+    final totalBreakMins = (record['totalBreakMinutes'] as num?)?.toInt() ?? 0;
+    final isWfh        = record['isWfh'] as bool? ?? false;
     final isWorking  = checkedIn != null && checkedOut == null;
     final onBreak    = activeBreak != null;
 
@@ -560,8 +606,12 @@ class _TodayCardState extends ConsumerState<_TodayCard> {
                     time: _formatTime(checkedOut), color: AppColors.error),
               if (hours > 0) ...[
                 const SizedBox(width: 10),
-                _TimeChip(icon: Icons.schedule_rounded, label: 'Hours',
-                    time: '${hours.toStringAsFixed(1)}h', color: AppColors.primaryLight),
+                _TimeChip(
+                  icon: Icons.schedule_rounded,
+                  label: totalBreakMins > 0 ? 'Net Hrs' : 'Hours',
+                  time: '${netHours.toStringAsFixed(1)}h',
+                  color: AppColors.primaryLight,
+                ),
               ],
             ]),
           ),
@@ -632,7 +682,7 @@ class _TodayCardState extends ConsumerState<_TodayCard> {
               Expanded(child: _BreakButton(
                 icon: Icons.restaurant_rounded,
                 label: 'Lunch',
-                remaining: (lunchInfo['remaining_minutes'] as num?)?.toInt() ?? 60,
+                remaining: lunchInfo.isEmpty ? 60 : _intVal(lunchInfo['remaining_minutes']),
                 loading: _breakLoading,
                 onTap: () => _startBreak('LUNCH'),
               )),
@@ -640,7 +690,7 @@ class _TodayCardState extends ConsumerState<_TodayCard> {
               Expanded(child: _BreakButton(
                 icon: Icons.coffee_rounded,
                 label: 'Short Break',
-                remaining: (shortInfo['remaining_minutes'] as num?)?.toInt() ?? 15,
+                remaining: shortInfo.isEmpty ? 15 : _intVal(shortInfo['remaining_minutes']),
                 loading: _breakLoading,
                 onTap: () => _startBreak('SHORT'),
               )),
@@ -779,10 +829,10 @@ class _BreakSummaryRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final lunch = bs['lunch'] as Map<String, dynamic>?;
     final short = bs['short'] as Map<String, dynamic>?;
-    final lunchUsed = (lunch?['used_minutes']     as num?)?.toInt() ?? 0;
-    final shortUsed = (short?['used_minutes']     as num?)?.toInt() ?? 0;
-    final lunchOver = (lunch?['exceeded_minutes'] as num?)?.toInt() ?? 0;
-    final shortOver = (short?['exceeded_minutes'] as num?)?.toInt() ?? 0;
+    final lunchUsed = _intVal(lunch?['used_minutes']);
+    final shortUsed = _intVal(short?['used_minutes']);
+    final lunchOver = _intVal(lunch?['exceeded_minutes']);
+    final shortOver = _intVal(short?['exceeded_minutes']);
 
     if (lunchUsed == 0 && shortUsed == 0) return const SizedBox.shrink();
 
@@ -832,6 +882,25 @@ class _BreakChip extends StatelessWidget {
   }
 }
 
+class _BreakMinutesChip extends StatelessWidget {
+  const _BreakMinutesChip(this.totalMins);
+  final int totalMins;
+
+  @override
+  Widget build(BuildContext context) {
+    final h = totalMins ~/ 60;
+    final m = totalMins % 60;
+    final label = h > 0 ? '${h}h ${m}m break' : '${totalMins}m break';
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      const Icon(Icons.free_breakfast_rounded, size: 11, color: AppColors.ragAmber),
+      const SizedBox(width: 4),
+      Text(label,
+          style: const TextStyle(
+              fontSize: 11, color: AppColors.ragAmber, fontWeight: FontWeight.w500)),
+    ]);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Tab 1 — This Week
 // ─────────────────────────────────────────────────────────────────────────────
@@ -866,7 +935,8 @@ class _WeeklyTab extends ConsumerWidget {
             final key    = DateFormat('yyyy-MM-dd').format(day);
             final r      = byDate[key];
             final status = r?['status'] as String? ?? 'ABSENT';
-            final hrs    = (r?['hoursWorked'] as num?)?.toDouble() ?? 0;
+            final hrs    = (r?['netHours'] as num?)?.toDouble()
+                        ?? (r?['hoursWorked'] as num?)?.toDouble() ?? 0;
             totalHours += hrs;
             if (status == 'PRESENT' || status == 'LATE') presentDays++;
             else if (status == 'WFH') { wfhDays++; presentDays++; }
@@ -989,11 +1059,11 @@ class _MonthlyTabState extends ConsumerState<_MonthlyTab> {
               final s    = data['summary'] as Map<String, dynamic>? ?? {};
               final recs = data['records'] as List<Map<String, dynamic>>? ?? [];
 
-              final present    = (s['present']    as num?)?.toInt() ?? 0;
-              final absent     = (s['absent']     as num?)?.toInt() ?? 0;
-              final wfh        = (s['wfh']        as num?)?.toInt() ?? 0;
-              final late       = (s['late']       as num?)?.toInt() ?? 0;
-              final totalHours = (s['total_hours'] as num?)?.toDouble() ?? 0;
+              final present    = _intVal(s['present']);
+              final absent     = _intVal(s['absent']);
+              final wfh        = _intVal(s['wfh']);
+              final late       = _intVal(s['late']);
+              final totalHours = _numVal(s['net_hours'] ?? s['total_hours']);
 
               final Map<String, Map<String, dynamic>> byDate = {};
               for (final r in recs) {
@@ -1217,12 +1287,14 @@ class _DayRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ds      = context.ds;
-    final status  = record?['status']       as String? ?? 'ABSENT';
-    final inTime  = record?['checkInTime']  as String?;
-    final outTime = record?['checkOutTime'] as String?;
-    final hours   = (record?['hoursWorked'] as num?)?.toDouble() ?? 0;
-    final isWfh   = record?['isWfh']        as bool? ?? false;
-    final bs      = record?['breakSummary'] as Map<String, dynamic>?;
+    final status   = record?['status']           as String? ?? 'ABSENT';
+    final inTime   = record?['checkInTime']      as String?;
+    final outTime  = record?['checkOutTime']     as String?;
+    final hours    = (record?['hoursWorked']     as num?)?.toDouble() ?? 0;
+    final netHours = (record?['netHours']        as num?)?.toDouble() ?? hours;
+    final breakMins = (record?['totalBreakMinutes'] as num?)?.toInt() ?? 0;
+    final isWfh    = record?['isWfh']            as bool? ?? false;
+    final bs       = record?['breakSummary']     as Map<String, dynamic>?;
 
     final (color, icon) = _statusStyle(status);
     final dayLabel  = day != null ? DateFormat('EEE').format(day!)  : '—';
@@ -1277,21 +1349,33 @@ class _DayRow extends StatelessWidget {
             ],
           ])),
           if (hours > 0)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: AppColors.primaryLight.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(7),
+            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryLight.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: Text('${netHours.toStringAsFixed(1)}h',
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700,
+                        color: AppColors.primaryLight)),
               ),
-              child: Text('${hours.toStringAsFixed(1)}h',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700,
-                      color: AppColors.primaryLight)),
-            ),
+              if (breakMins > 0 && bs == null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text('${breakMins}m break',
+                      style: TextStyle(fontSize: 10,
+                          color: AppColors.ragAmber, fontWeight: FontWeight.w500)),
+                ),
+            ]),
         ]),
-        // Break summary chips (shown if data present)
+        // Break summary — always shown when break data exists
         if (bs != null) ...[
           const SizedBox(height: 6),
           _BreakSummaryRow(bs: bs),
+        ] else if (breakMins > 0) ...[
+          const SizedBox(height: 5),
+          _BreakMinutesChip(breakMins),
         ],
       ]),
     ).animate().fadeIn(duration: 300.ms);
@@ -1319,17 +1403,17 @@ class _TeamMemberTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ds      = context.ds;
-    final name    = record['name']       as String? ?? '—';
-    final status  = record['status']     as String? ?? 'ABSENT';
-    final inTime  = record['checkInTime']  as String?;
-    final outTime = record['checkOutTime'] as String?;
-    final hours   = (record['hoursWorked'] as num?)?.toDouble() ?? 0;
-    final isWfh   = record['isWfh']      as bool? ?? false;
-    final initials = name.trim().split(' ').where((s) => s.isNotEmpty)
-        .take(2).map((s) => s[0].toUpperCase()).join();
-
-    final (color, _) = _DayRow._statusStyle(status);
+    final ds         = context.ds;
+    final name       = record['name']             as String? ?? '—';
+    final status     = record['status']           as String? ?? 'ABSENT';
+    final inTime     = record['checkInTime']      as String?;
+    final outTime    = record['checkOutTime']     as String?;
+    final netHours   = (record['netHours']        as num?)?.toDouble()
+                    ?? (record['hoursWorked']     as num?)?.toDouble() ?? 0;
+    final breakMins  = (record['totalBreakMinutes'] as num?)?.toInt() ?? 0;
+    final isWfh      = record['isWfh']            as bool? ?? false;
+    final bs         = record['breakSummary']     as Map<String, dynamic>?;
+    final avatarUrl  = record['avatarUrl']        as String?;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
@@ -1339,38 +1423,55 @@ class _TeamMemberTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: ds.border),
       ),
-      child: Row(children: [
-        Container(
-          width: 36, height: 36,
-          decoration: BoxDecoration(shape: BoxShape.circle, gradient: AppColors.primaryGradient),
-          child: Center(child: Text(initials,
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12))),
-        ),
-        const SizedBox(width: 10),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(name, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: ds.textPrimary)),
-          if (inTime != null)
-            Row(children: [
-              Icon(Icons.login_rounded, size: 10, color: ds.textMuted),
-              const SizedBox(width: 2),
-              Text(_DayRow._fmt(inTime), style: TextStyle(fontSize: 11, color: ds.textMuted)),
-              if (outTime != null) ...[
-                const SizedBox(width: 6),
-                Icon(Icons.logout_rounded, size: 10, color: ds.textMuted),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          UserAvatar(name: name, avatarUrl: avatarUrl, radius: 18, border: false),
+          const SizedBox(width: 10),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(name, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: ds.textPrimary)),
+            if (inTime != null)
+              Row(children: [
+                Icon(Icons.login_rounded, size: 10, color: ds.textMuted),
                 const SizedBox(width: 2),
-                Text(_DayRow._fmt(outTime), style: TextStyle(fontSize: 11, color: ds.textMuted)),
-              ],
-            ]),
-        ])),
-        Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          _StatusPill(status, isWfh),
-          if (hours > 0) ...[
-            const SizedBox(height: 3),
-            Text('${hours.toStringAsFixed(1)}h',
-                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
-                    color: AppColors.primaryLight)),
-          ],
+                Text(_DayRow._fmt(inTime), style: TextStyle(fontSize: 11, color: ds.textMuted)),
+                if (outTime != null) ...[
+                  const SizedBox(width: 6),
+                  Icon(Icons.logout_rounded, size: 10, color: ds.textMuted),
+                  const SizedBox(width: 2),
+                  Text(_DayRow._fmt(outTime), style: TextStyle(fontSize: 11, color: ds.textMuted)),
+                ],
+              ]),
+          ])),
+          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            _StatusPill(status, isWfh),
+            if (netHours > 0) ...[
+              const SizedBox(height: 3),
+              Row(children: [
+                Text('${netHours.toStringAsFixed(1)}h',
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
+                        color: AppColors.primaryLight)),
+                if (breakMins > 0 && bs == null) ...[
+                  const SizedBox(width: 4),
+                  Text('(${breakMins}m brk)',
+                      style: TextStyle(fontSize: 10, color: ds.textMuted)),
+                ],
+              ]),
+            ],
+          ]),
         ]),
+        if (bs != null) ...[
+          const SizedBox(height: 6),
+          _BreakSummaryRow(bs: bs),
+        ] else if (breakMins > 0) ...[
+          const SizedBox(height: 4),
+          Row(children: [
+            Icon(Icons.free_breakfast_rounded, size: 11, color: AppColors.ragAmber),
+            const SizedBox(width: 4),
+            Text('Break: ${breakMins}m',
+                style: const TextStyle(fontSize: 11, color: AppColors.ragAmber,
+                    fontWeight: FontWeight.w500)),
+          ]),
+        ],
       ]),
     );
   }

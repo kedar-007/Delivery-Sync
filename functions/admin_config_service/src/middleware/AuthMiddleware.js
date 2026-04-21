@@ -117,11 +117,8 @@ class AuthMiddleware {
           }
         } catch (_) {}
       }
-      const base = new Set(
-        isFullAdmin ? Object.values(PERMISSIONS)
-        : orgRoleId  ? orgRolePermissions
-        :              (ROLE_PERMISSIONS[resolvedRole] || [])
-      );
+      const roleBase = isFullAdmin ? Object.values(PERMISSIONS) : (ROLE_PERMISSIONS[resolvedRole] || []);
+      const base = new Set([...roleBase, ...(orgRoleId ? orgRolePermissions : [])]);
       try {
         const userId = String(user.ROWID);
         const tenantId = String(user.tenant_id);

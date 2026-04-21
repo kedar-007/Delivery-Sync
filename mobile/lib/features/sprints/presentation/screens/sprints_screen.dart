@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -150,6 +152,95 @@ final _myAllTimeEntriesProvider = FutureProvider.autoDispose<Map<String, double>
     return {};
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Screen — My Tasks (global, all sprints)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class MyTasksScreen extends ConsumerWidget {
+  const MyTasksScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ds = context.ds;
+    final allMy    = ref.watch(_myTasksSprintProvider);
+    final hoursMap = ref.watch(_myAllTimeEntriesProvider).valueOrNull ?? {};
+
+    return Scaffold(
+      backgroundColor: ds.bgPage,
+      appBar: AppBar(
+        backgroundColor: ds.bgCard,
+        elevation: 0,
+        title: Text('My Tasks', style: TextStyle(color: ds.textPrimary, fontWeight: FontWeight.w700)),
+        leading: BackButton(color: ds.textPrimary),
+      ),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          ref.invalidate(_myTasksSprintProvider);
+          ref.invalidate(_myAllTimeEntriesProvider);
+        },
+        color: AppColors.primaryLight,
+        child: allMy.when(
+          data: (list) {
+            if (list.isEmpty) {
+              return const _EmptyState(
+                icon: Icons.task_outlined,
+                message: 'No tasks assigned to you',
+              );
+            }
+            final blocked    = list.where((t) => t.status == 'BLOCKED').toList();
+            final inProgress = list.where((t) => t.status == 'IN_PROGRESS').toList();
+            final todo       = list.where((t) => t.status == 'TODO').toList();
+            final done       = list.where((t) => t.status == 'DONE').toList();
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+              children: [
+                if (blocked.isNotEmpty) ...[
+                  _TaskSection(label: 'Blocked', tasks: blocked, color: AppColors.error, hoursMap: hoursMap),
+                  const SizedBox(height: 16),
+                ],
+                if (inProgress.isNotEmpty) ...[
+                  _TaskSection(label: 'In Progress', tasks: inProgress, color: AppColors.info, hoursMap: hoursMap),
+                  const SizedBox(height: 16),
+                ],
+                if (todo.isNotEmpty) ...[
+                  _TaskSection(label: 'To Do', tasks: todo, color: AppColors.warning, hoursMap: hoursMap),
+                  const SizedBox(height: 16),
+                ],
+                if (done.isNotEmpty)
+                  _TaskSection(label: 'Done', tasks: done, color: AppColors.success, hoursMap: hoursMap),
+              ],
+            );
+          },
+          loading: () => ListView(
+            padding: const EdgeInsets.all(16),
+            children: List.generate(6, (_) => const ShimmerCard(height: 64)),
+          ),
+          error: (e, _) {
+            final is403 = e is DioException && e.response?.statusCode == 403;
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(is403 ? Icons.lock_outline_rounded : Icons.error_outline_rounded,
+                      color: is403 ? AppColors.warning : AppColors.error, size: 40),
+                  const SizedBox(height: 12),
+                  Text(
+                    is403
+                        ? 'Access restricted — contact your admin.'
+                        : 'Failed to load tasks. Pull to retry.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: ds.textMuted),
+                  ),
+                ]),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Screen — Sprint list + inline detail
@@ -386,22 +477,43 @@ class _SprintListViewState extends ConsumerState<_SprintListView> {
                       padding: const EdgeInsets.all(16),
                       children: List.generate(4, (_) => const ShimmerCard(height: 90)),
                     ),
-                    error: (e, _) => Center(
-                      child: Column(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(Icons.error_outline_rounded,
-                            size: 48, color: AppColors.error),
-                        const SizedBox(height: 12),
-                        Text('$e',
-                            style: const TextStyle(color: AppColors.error),
-                            textAlign: TextAlign.center),
-                        const SizedBox(height: 12),
-                        OutlinedButton(
-                          onPressed: () =>
-                              ref.invalidate(_sprintsProvider(_selectedProject!.id)),
-                          child: const Text('Retry'),
-                        ),
-                      ]),
-                    ),
+                    error: (e, _) {
+                      final is403 = e is DioException &&
+                          e.response?.statusCode == 403;
+                      return Center(
+                        child: Column(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(
+                            is403
+                                ? Icons.lock_outline_rounded
+                                : Icons.error_outline_rounded,
+                            size: 48,
+                            color: is403
+                                ? AppColors.warning
+                                : AppColors.error,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            is403
+                                ? 'You don\'t have access to sprints.\nContact your admin to grant Sprint access.'
+                                : 'Failed to load sprints. Please try again.',
+                            style: TextStyle(
+                              color: is403
+                                  ? AppColors.warning
+                                  : AppColors.error,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          if (!is403) ...[
+                            const SizedBox(height: 12),
+                            OutlinedButton(
+                              onPressed: () => ref.invalidate(
+                                  _sprintsProvider(_selectedProject!.id)),
+                              child: const Text('Retry'),
+                            ),
+                          ],
+                        ]),
+                      );
+                    },
                   ),
                 ),
         ),
@@ -1031,10 +1143,19 @@ class _SprintDetailView extends ConsumerStatefulWidget {
 class _SprintDetailViewState extends ConsumerState<_SprintDetailView>
     with TickerProviderStateMixin {
   late final TabController _tab = TabController(length: 3, vsync: this);
+  final _searchCtrl = TextEditingController();
+  String _taskQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _searchCtrl.addListener(() => setState(() => _taskQuery = _searchCtrl.text.trim().toLowerCase()));
+  }
 
   @override
   void dispose() {
     _tab.dispose();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -1094,12 +1215,35 @@ class _SprintDetailViewState extends ConsumerState<_SprintDetailView>
         ),
         body: Column(children: [
           _SprintProgressHeader(sprint: sprint),
+          // Task search bar (hidden in Analytics tab)
+          AnimatedBuilder(
+            animation: _tab,
+            builder: (_, __) => _tab.index == 2
+                ? const SizedBox.shrink()
+                : Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                    child: TextField(
+                      controller: _searchCtrl,
+                      decoration: InputDecoration(
+                        hintText: 'Search tasks…',
+                        prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                        suffixIcon: _taskQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear_rounded, size: 16),
+                                onPressed: () { _searchCtrl.clear(); setState(() => _taskQuery = ''); },
+                              )
+                            : null,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                    ),
+                  ),
+          ),
           Expanded(
             child: TabBarView(
               controller: _tab,
               children: [
-                _SprintMyTasksTab(sprint: sprint),
-                _SprintBoardTab(sprint: sprint),
+                _SprintMyTasksTab(sprint: sprint, query: _taskQuery),
+                _SprintBoardTab(sprint: sprint, query: _taskQuery),
                 _SprintAnalyticsTab(sprint: sprint),
               ],
             ),
@@ -1113,9 +1257,7 @@ class _SprintDetailViewState extends ConsumerState<_SprintDetailView>
     showModalBottomSheet(
       context: ctx,
       isScrollControlled: true,
-      backgroundColor: ctx.ds.bgCard,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      backgroundColor: Colors.transparent,
       builder: (_) => _SprintAiSheet(sprint: sprint),
     );
   }
@@ -1228,8 +1370,9 @@ class _SprintProgressHeader extends ConsumerWidget {
 // ── My Tasks tab (filtered to sprint) ────────────────────────────────────────
 
 class _SprintMyTasksTab extends ConsumerWidget {
-  const _SprintMyTasksTab({required this.sprint});
+  const _SprintMyTasksTab({required this.sprint, this.query = ''});
   final Sprint sprint;
+  final String query;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1244,15 +1387,23 @@ class _SprintMyTasksTab extends ConsumerWidget {
       color: AppColors.primaryLight,
       child: allMy.when(
         data: (list) {
-          // Filter to tasks belonging to this sprint
-          final mine = list
+          var mine = list
               .where((t) => t.sprintId == sprint.id || t.sprintId == null)
               .toList();
 
+          if (query.isNotEmpty) {
+            mine = mine.where((t) =>
+              t.title.toLowerCase().contains(query) ||
+              (t.assigneeName?.toLowerCase().contains(query) ?? false)
+            ).toList();
+          }
+
           if (mine.isEmpty) {
-            return const _EmptyState(
+            return _EmptyState(
                 icon: Icons.task_outlined,
-                message: 'No tasks assigned to you in this sprint');
+                message: query.isNotEmpty
+                    ? 'No tasks match "$query"'
+                    : 'No tasks assigned to you in this sprint');
           }
 
           final todo       = mine.where((t) => t.status == 'TODO').toList();
@@ -1293,8 +1444,9 @@ class _SprintMyTasksTab extends ConsumerWidget {
 // ── Board tab ─────────────────────────────────────────────────────────────────
 
 class _SprintBoardTab extends ConsumerWidget {
-  const _SprintBoardTab({required this.sprint});
+  const _SprintBoardTab({required this.sprint, this.query = ''});
   final Sprint sprint;
+  final String query;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1304,11 +1456,19 @@ class _SprintBoardTab extends ConsumerWidget {
       onRefresh: () async => ref.invalidate(_sprintTasksProvider(sprint.id)),
       color: AppColors.primaryLight,
       child: tasks.when(
-        data: (list) => list.isEmpty
-            ? const _EmptyState(
-                icon: Icons.view_kanban_rounded,
-                message: 'No tasks in this sprint yet')
-            : _KanbanBoard(tasks: list, sprintId: sprint.id),
+        data: (list) {
+          final filtered = query.isEmpty ? list : list.where((t) =>
+            t.title.toLowerCase().contains(query) ||
+            (t.assigneeName?.toLowerCase().contains(query) ?? false)
+          ).toList();
+          if (filtered.isEmpty) {
+            return _EmptyState(
+              icon: Icons.view_kanban_rounded,
+              message: query.isNotEmpty ? 'No tasks match "$query"' : 'No tasks in this sprint yet',
+            );
+          }
+          return _KanbanBoard(tasks: filtered, sprintId: sprint.id);
+        },
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(
             child: Text('$e', style: const TextStyle(color: AppColors.error))),
@@ -1911,153 +2071,281 @@ class _SprintAiSheet extends StatefulWidget {
 }
 
 class _SprintAiSheetState extends State<_SprintAiSheet> {
-  String? _insight;
-  bool    _loading = true;
+  Map<String, dynamic>? _data;
+  bool   _loading = true;
   String? _error;
 
   @override
-  void initState() {
-    super.initState();
-    _load();
-  }
+  void initState() { super.initState(); _load(); }
 
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     try {
       final raw = await ApiClient.instance.post(
         '${AppConstants.baseAI}/sprint-analysis',
-        data: {
-          'sprintId':   widget.sprint.id,
-          'sprintName': widget.sprint.name,
-          'status':     widget.sprint.status,
-          if (widget.sprint.goalDescription != null)
-            'goal': widget.sprint.goalDescription,
-        },
+        data: { 'sprintId': widget.sprint.id },
       );
       final d = raw['data'];
-      // sprint-analysis returns structured data; join all text fields
-      String insight;
-      if (d is Map) {
-        final parts = <String>[];
-        if (d['summary'] != null) parts.add('${d['summary']}');
-        if (d['highlights'] is List) {
-          parts.add('\n✅ Highlights:');
-          for (final h in d['highlights'] as List) parts.add('• $h');
-        }
-        if (d['recommendations'] is List) {
-          parts.add('\n💡 Recommendations:');
-          for (final r in d['recommendations'] as List) parts.add('• $r');
-        }
-        if (d['insight'] != null) parts.add('${d['insight']}');
-        if (d['analysis'] != null) parts.add('${d['analysis']}');
-        insight = parts.isNotEmpty ? parts.join('\n') : d.toString();
-      } else {
-        insight = d?.toString() ?? 'No insights available.';
-      }
-      if (mounted) setState(() { _insight = insight; _loading = false; });
+      if (mounted) setState(() { _data = d is Map ? Map<String, dynamic>.from(d) : {}; _loading = false; });
     } catch (e) {
       if (mounted) setState(() { _error = '$e'; _loading = false; });
     }
   }
 
+  static Color _healthColor(String? h) => switch (h) {
+    'Healthy'   => AppColors.success,
+    'At Risk'   => AppColors.warning,
+    'Critical'  => AppColors.error,
+    _           => AppColors.textMuted,
+  };
+
   @override
   Widget build(BuildContext context) {
     final ds = context.ds;
+    final d  = _data ?? {};
+
     return DraggableScrollableSheet(
-      initialChildSize: 0.6,
-      maxChildSize: 0.9,
+      initialChildSize: 0.92,
+      maxChildSize: 0.95,
+      minChildSize: 0.4,
       expand: false,
-      builder: (_, ctrl) => Padding(
-        padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36, height: 4,
-                decoration: BoxDecoration(
-                    color: ds.border,
-                    borderRadius: BorderRadius.circular(2)),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Row(children: [
+      builder: (_, ctrl) => Container(
+        decoration: BoxDecoration(
+          color: ds.bgCard,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(children: [
+          // handle
+          Center(child: Container(
+            margin: const EdgeInsets.only(top: 12),
+            width: 36, height: 4,
+            decoration: BoxDecoration(color: ds.border, borderRadius: BorderRadius.circular(2)),
+          )),
+          // header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 8, 0),
+            child: Row(children: [
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   color: const Color(0xFFA855F7).withOpacity(0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.auto_awesome_rounded,
-                    color: Color(0xFFA855F7), size: 20),
+                child: const Icon(Icons.auto_awesome_rounded, color: Color(0xFFA855F7), size: 20),
               ),
               const SizedBox(width: 10),
-              Text('AI Sprint Analysis',
-                  style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: ds.textPrimary)),
-              const Spacer(),
+              Expanded(child: Text('AI Sprint Analysis',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: ds.textPrimary))),
               if (!_loading)
-                IconButton(
-                  icon: const Icon(Icons.refresh_rounded, size: 18),
-                  onPressed: _load,
-                  color: ds.textMuted,
-                ),
+                IconButton(icon: const Icon(Icons.refresh_rounded, size: 18), onPressed: _load, color: ds.textMuted),
             ]),
-            const SizedBox(height: 16),
-            Expanded(
-              child: _loading
-                  ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      const CircularProgressIndicator(
-                          valueColor:
-                              AlwaysStoppedAnimation(Color(0xFFA855F7))),
-                      const SizedBox(height: 16),
-                      Text('Analysing sprint…',
-                          style: TextStyle(color: ds.textMuted)),
-                    ])
-                  : _error != null
-                      ? Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.auto_awesome_rounded,
-                                size: 40, color: Color(0xFFA855F7)),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: _loading
+                ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation(Color(0xFFA855F7))),
+                    const SizedBox(height: 16),
+                    Text('Analysing sprint…', style: TextStyle(color: ds.textMuted)),
+                  ])
+                : _error != null
+                    ? Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                          const Icon(Icons.auto_awesome_rounded, size: 40, color: Color(0xFFA855F7)),
+                          const SizedBox(height: 12),
+                          Text('Could not load insights', style: TextStyle(color: ds.textMuted)),
+                          const SizedBox(height: 8),
+                          Text(_error!, style: const TextStyle(color: AppColors.error, fontSize: 11), textAlign: TextAlign.center),
+                          const SizedBox(height: 16),
+                          TextButton.icon(icon: const Icon(Icons.refresh_rounded), label: const Text('Retry'), onPressed: _load),
+                        ]),
+                      )
+                    : SingleChildScrollView(
+                        controller: ctrl,
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          // Score + Star rating + Health
+                          Row(children: [
+                            // Score ring
+                            SizedBox(
+                              width: 72, height: 72,
+                              child: Stack(alignment: Alignment.center, children: [
+                                CircularProgressIndicator(
+                                  value: ((d['score'] as num?)?.toDouble() ?? 60) / 100,
+                                  strokeWidth: 6,
+                                  backgroundColor: ds.border,
+                                  valueColor: const AlwaysStoppedAnimation(Color(0xFFA855F7)),
+                                ),
+                                Text('${(d['score'] as num?)?.toInt() ?? '—'}',
+                                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: ds.textPrimary)),
+                              ]),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              // Stars
+                              Row(children: List.generate(5, (i) => Icon(
+                                i < ((d['starRating'] as num?)?.toInt() ?? 3) ? Icons.star_rounded : Icons.star_outline_rounded,
+                                color: const Color(0xFFF59E0B), size: 20,
+                              ))),
+                              const SizedBox(height: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: _healthColor(d['sprintHealth'] as String?).withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(d['sprintHealth'] as String? ?? 'Unknown',
+                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700,
+                                        color: _healthColor(d['sprintHealth'] as String?))),
+                              ),
+                            ])),
+                          ]),
+                          const SizedBox(height: 16),
+                          // Completion + Velocity
+                          Row(children: [
+                            Expanded(child: _MetricChip(
+                              label: 'Completion', value: '${d['completionRate'] ?? '—'}',
+                              icon: Icons.check_circle_outline_rounded, color: AppColors.success,
+                            )),
+                            const SizedBox(width: 10),
+                            Expanded(child: _MetricChip(
+                              label: 'Velocity', value: '${d['velocityScore'] ?? '—'}',
+                              icon: Icons.speed_rounded, color: AppColors.info,
+                            )),
+                          ]),
+                          const SizedBox(height: 16),
+                          // Summary
+                          if ((d['sprintSummary'] as String?)?.isNotEmpty == true) ...[
+                            _AiSection(label: 'Summary', icon: Icons.summarize_rounded, color: const Color(0xFFA855F7),
+                              child: Text(d['sprintSummary'] as String,
+                                  style: TextStyle(fontSize: 13, color: ds.textSecondary, height: 1.5))),
                             const SizedBox(height: 12),
-                            Text('Could not load insights',
-                                style: TextStyle(color: ds.textMuted)),
-                            const SizedBox(height: 8),
-                            Text(_error!,
-                                style: const TextStyle(
-                                    color: AppColors.error, fontSize: 11),
-                                textAlign: TextAlign.center),
                           ],
-                        )
-                      : SingleChildScrollView(
-                          controller: ctrl,
-                          child: Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFA855F7).withOpacity(0.06),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                  color: const Color(0xFFA855F7)
-                                      .withOpacity(0.2)),
-                            ),
-                            child: Text(
-                              _insight ?? '',
-                              style: TextStyle(
-                                  fontSize: 14,
-                                  color: ds.textSecondary,
-                                  height: 1.6),
-                            ),
-                          ),
-                        ),
-            ),
-          ],
-        ),
+                          // Insights
+                          if (d['insights'] is List && (d['insights'] as List).isNotEmpty) ...[
+                            _AiSection(label: 'Insights', icon: Icons.lightbulb_outline_rounded, color: AppColors.info,
+                              child: Column(children: (d['insights'] as List).map((i) => _AiBullet('$i', color: AppColors.info)).toList())),
+                            const SizedBox(height: 12),
+                          ] else if (d['insights'] is String && (d['insights'] as String).isNotEmpty) ...[
+                            _AiSection(label: 'Insights', icon: Icons.lightbulb_outline_rounded, color: AppColors.info,
+                              child: Text(d['insights'] as String, style: TextStyle(fontSize: 13, color: ds.textSecondary, height: 1.5))),
+                            const SizedBox(height: 12),
+                          ],
+                          // Risks
+                          if (d['risks'] is List && (d['risks'] as List).isNotEmpty) ...[
+                            _AiSection(label: 'Risks', icon: Icons.warning_amber_rounded, color: AppColors.warning,
+                              child: Column(children: (d['risks'] as List).map((r) => _AiBullet('$r', color: AppColors.warning)).toList())),
+                            const SizedBox(height: 12),
+                          ],
+                          // Recommendations
+                          if (d['recommendations'] is List && (d['recommendations'] as List).isNotEmpty) ...[
+                            _AiSection(label: 'Recommendations', icon: Icons.auto_fix_high_rounded, color: const Color(0xFFA855F7),
+                              child: Column(children: (d['recommendations'] as List).map((r) => _AiBullet('$r', color: const Color(0xFFA855F7))).toList())),
+                            const SizedBox(height: 12),
+                          ],
+                          // Member highlights
+                          if (d['memberHighlights'] is List && (d['memberHighlights'] as List).isNotEmpty) ...[
+                            _AiSection(label: 'Team Highlights', icon: Icons.people_outline_rounded, color: AppColors.success,
+                              child: Column(children: (d['memberHighlights'] as List).map((m) {
+                                final name = m['name'] as String? ?? 'Team Member';
+                                final contrib = m['contribution'] as String? ?? '';
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                    UserAvatar(name: name, radius: 14),
+                                    const SizedBox(width: 8),
+                                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                      Text(name, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: ds.textPrimary)),
+                                      if (contrib.isNotEmpty)
+                                        Text(contrib, style: TextStyle(fontSize: 11, color: ds.textMuted, height: 1.4)),
+                                    ])),
+                                  ]),
+                                );
+                              }).toList())),
+                          ],
+                        ]),
+                      ),
+          ),
+        ]),
       ),
     );
   }
+}
+
+class _MetricChip extends StatelessWidget {
+  const _MetricChip({required this.label, required this.value, required this.icon, required this.color});
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+  @override
+  Widget build(BuildContext context) {
+    final ds = context.ds;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Row(children: [
+        Icon(icon, color: color, size: 16),
+        const SizedBox(width: 6),
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label, style: TextStyle(fontSize: 10, color: context.ds.textMuted)),
+          Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: ds.textPrimary)),
+        ]),
+      ]),
+    );
+  }
+}
+
+class _AiSection extends StatelessWidget {
+  const _AiSection({required this.label, required this.icon, required this.color, required this.child});
+  final String label;
+  final IconData icon;
+  final Color color;
+  final Widget child;
+  @override
+  Widget build(BuildContext context) {
+    final ds = context.ds;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.15)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(icon, color: color, size: 14),
+          const SizedBox(width: 6),
+          Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
+        ]),
+        const SizedBox(height: 8),
+        child,
+      ]),
+    );
+  }
+}
+
+class _AiBullet extends StatelessWidget {
+  const _AiBullet(this.text, {required this.color});
+  final String text;
+  final Color color;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Padding(
+        padding: const EdgeInsets.only(top: 5),
+        child: Container(width: 5, height: 5, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+      ),
+      const SizedBox(width: 8),
+      Expanded(child: Text(text, style: TextStyle(fontSize: 12, color: context.ds.textSecondary, height: 1.4))),
+    ]),
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2065,15 +2353,16 @@ class _SprintAiSheetState extends State<_SprintAiSheet> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _TaskDetailSheet extends StatefulWidget {
-  const _TaskDetailSheet({required this.task});
+  const _TaskDetailSheet({required this.task, this.projectId});
   final SprintTask task;
+  final String? projectId;
 
-  static void show(BuildContext context, SprintTask task) {
+  static void show(BuildContext context, SprintTask task, {String? projectId}) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _TaskDetailSheet(task: task),
+      builder: (_) => _TaskDetailSheet(task: task, projectId: projectId),
     );
   }
 
@@ -2174,7 +2463,7 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet>
               controller: _tab,
               children: [
                 _ActivityTab(taskId: task.id),
-                _TimeLogTab(task: task),
+                _TimeLogTab(task: task, projectId: widget.projectId),
                 _AiInsightsTab(task: task),
               ],
             ),
@@ -2377,8 +2666,9 @@ class _ActivityTabState extends ConsumerState<_ActivityTab> {
 // ── Time Log tab ──────────────────────────────────────────────────────────────
 
 class _TimeLogTab extends ConsumerStatefulWidget {
-  const _TimeLogTab({required this.task});
+  const _TimeLogTab({required this.task, this.projectId});
   final SprintTask task;
+  final String? projectId;
 
   @override
   ConsumerState<_TimeLogTab> createState() => _TimeLogTabState();
@@ -2433,14 +2723,16 @@ class _TimeLogTabState extends ConsumerState<_TimeLogTab> {
     }
     setState(() => _submitting = true);
     try {
+      final effectiveProjectId = widget.projectId ?? widget.task.projectId ?? '';
       final resp = await ApiClient.instance.post(
         '${AppConstants.baseTime}/entries',
         data: {
-          'taskId':      widget.task.id,
+          if (effectiveProjectId.isNotEmpty) 'project_id': effectiveProjectId,
+          'task_id':     widget.task.id,
           'hours':       hours,
-          'date':        DateFormat('yyyy-MM-dd').format(_date),
+          'entry_date':  DateFormat('yyyy-MM-dd').format(_date),
           'description': _descCtrl.text.trim(),
-          'billable':    _billable,
+          'is_billable': _billable,
         },
       );
       if (_sendForApproval) {

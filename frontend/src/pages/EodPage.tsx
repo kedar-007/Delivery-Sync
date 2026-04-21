@@ -11,10 +11,10 @@ import { PageLoader } from '../components/ui/Spinner';
 import VoiceRecorder from '../components/voice/VoiceRecorder';
 import VoiceAiInsights from '../components/voice/VoiceAiInsights';
 import { useProjects } from '../hooks/useProjects';
-import { useSubmitEod, useEodRollup } from '../hooks/useEod';
+import { useSubmitEod, useEodRollup, useEod } from '../hooks/useEod';
 import { useProcessVoice, type EodVoiceResult } from '../hooks/useVoiceAI';
 import { format } from 'date-fns';
-import { CheckCircle, Sparkles } from 'lucide-react';
+import { CheckCircle, Sparkles, History } from 'lucide-react';
 
 interface EodForm {
   project_id: string;
@@ -41,7 +41,7 @@ const AiBadge = () => (
 const EodPage = () => {
   const [searchParams] = useSearchParams();
   const preselectedProject = searchParams.get('projectId') || '';
-  const [tab, setTab] = useState<'submit' | 'rollup'>('submit');
+  const [tab, setTab] = useState<'submit' | 'rollup' | 'mine'>('submit');
   const [rollupProjectId, setRollupProjectId] = useState(preselectedProject);
   const [success, setSuccess] = useState('');
   const [submitError, setSubmitError] = useState('');
@@ -51,6 +51,7 @@ const EodPage = () => {
   const today = format(new Date(), 'yyyy-MM-dd');
   const { data: projects = [], isLoading: projectsLoading } = useProjects();
   const submitEod = useSubmitEod();
+  const { data: myEods = [], isLoading: myLoading } = useEod();
   const { data: rollupData, isLoading: rollupLoading } = useEodRollup({ projectId: rollupProjectId });
   const processVoice = useProcessVoice();
 
@@ -112,12 +113,22 @@ const EodPage = () => {
 
         {/* Tabs */}
         <div className="flex gap-2 border-b border-gray-200">
-          {(['submit', 'rollup'] as const).map((t) => (
+          {(['submit', 'rollup', 'mine'] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
                 tab === t ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}>
-              {t === 'submit' ? 'Submit EOD' : 'EOD Rollup'}
+              {t === 'submit' ? 'Submit EOD' : t === 'rollup' ? 'EOD Rollup' : (
+                <span className="flex items-center gap-1.5">
+                  <History size={14} />
+                  My Submissions
+                  {myEods.length > 0 && (
+                    <span className="bg-blue-100 text-blue-700 text-xs font-bold px-1.5 py-0.5 rounded-full">
+                      {myEods.length}
+                    </span>
+                  )}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -236,6 +247,73 @@ const EodPage = () => {
                 </Button>
               </form>
             </Card>
+          </div>
+        )}
+
+        {tab === 'mine' && (
+          <div className="space-y-4">
+            {/* Count badge */}
+            <div className="flex items-center gap-3 p-3 bg-indigo-50 rounded-xl border border-indigo-100">
+              <History size={18} className="text-indigo-600 shrink-0" />
+              <p className="text-sm font-medium text-indigo-800">
+                {myLoading ? 'Loading…' : `${myEods.length} EOD${myEods.length !== 1 ? 's' : ''} submitted`}
+              </p>
+            </div>
+
+            {myLoading ? <PageLoader /> : myEods.length === 0 ? (
+              <EmptyState title="No EODs yet" description="Your submitted EODs will appear here." />
+            ) : (
+              (myEods as Array<{
+                id: string; date: string; projectName?: string; accomplishments: string;
+                plannedTomorrow?: string; blockers?: string; progressPercentage: number;
+                mood: string; submittedAt?: string;
+              }>).map((entry) => {
+                const moodEmoji = entry.mood === 'GREEN' ? '😊' : entry.mood === 'YELLOW' ? '😐' : '😔';
+                const pct = entry.progressPercentage ?? 0;
+                const progressColor = pct >= 70 ? 'bg-green-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500';
+                return (
+                  <Card key={entry.id} className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">
+                          {format(new Date(entry.date + 'T00:00:00'), 'd MMM yyyy')}
+                        </p>
+                        {entry.projectName && (
+                          <p className="text-xs text-blue-600 font-medium mt-0.5">{entry.projectName}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">{moodEmoji}</span>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-16 bg-gray-200 rounded-full h-1.5">
+                            <div className={`${progressColor} h-1.5 rounded-full`} style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className="text-xs text-gray-500 font-medium">{pct}%</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div>
+                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Accomplishments</p>
+                        <p className="text-sm text-gray-700 mt-0.5">{entry.accomplishments}</p>
+                      </div>
+                      {entry.plannedTomorrow && (
+                        <div>
+                          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Tomorrow</p>
+                          <p className="text-sm text-gray-700 mt-0.5">{entry.plannedTomorrow}</p>
+                        </div>
+                      )}
+                      {entry.blockers && (
+                        <div>
+                          <p className="text-xs font-semibold text-red-400 uppercase tracking-wide">Blockers</p>
+                          <p className="text-sm text-gray-700 mt-0.5">{entry.blockers}</p>
+                        </div>
+                      )}
+                    </div>
+                  </Card>
+                );
+              })
+            )}
           </div>
         )}
 

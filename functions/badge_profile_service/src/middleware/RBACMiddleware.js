@@ -9,6 +9,7 @@ class RBACMiddleware {
     return (req, res, next) => {
       const user = req.currentUser;
       if (!user) return ResponseHelper.unauthorized(res);
+      if (user.role === 'TENANT_ADMIN' || user.role === 'SUPER_ADMIN') return next();
       const allowed = Array.isArray(user.permissions) && user.permissions.length > 0
         ? user.permissions
         : (ROLE_PERMISSIONS[user.role] || []);
@@ -24,6 +25,7 @@ class RBACMiddleware {
     return (req, res, next) => {
       const user = req.currentUser;
       if (!user) return ResponseHelper.unauthorized(res);
+      if (user.role === 'TENANT_ADMIN' || user.role === 'SUPER_ADMIN') return next();
       const allowed = Array.isArray(user.permissions) && user.permissions.length > 0
         ? user.permissions
         : (ROLE_PERMISSIONS[user.role] || []);

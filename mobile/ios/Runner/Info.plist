@@ -60,6 +60,10 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>DSV OpsPulse needs microphone access to record your voice for standup and EOD submissions.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>DSV OpsPulse uses speech recognition to transcribe your voice for AI-powered standup and EOD form filling.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

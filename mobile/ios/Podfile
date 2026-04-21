@@ -44,20 +44,175 @@ post_install do |installer|
     end
   end
 
-  # ZohoPortalAuth binary has been patched with arm64-sim slice.
-  # Remove the arm64 exclusion CocoaPods sets so Flutter allows iOS 26 sim builds.
-  Dir.glob(installer.sandbox.root + "Target Support Files/**/*.xcconfig").each do |path|
-    text = File.read(path)
-    updated = text.lines.reject { |l| l =~ /EXCLUDED_ARCHS\[sdk=iphonesimulator\*\]/ && l.include?("arm64") }.join
-    File.write(path, updated) if updated != text
+  # iOS 26 simulators on Apple Silicon require arm64 — Rosetta is no longer available.
+  # ZohoPortalAuthKit only ships an arm64-device slice (no arm64-sim), so we:
+  #   1. Patch the binary to add a proper arm64-sim slice.
+  #   2. Remove arm64 from EXCLUDED_ARCHS in all CocoaPods-generated xcconfigs so
+  #      Xcode actually links the patched arm64-sim slice for simulator builds.
+  patch_zoho_portal_auth_for_arm64_simulator(installer)
+  fix_excluded_archs_for_arm64_sim(installer)
+end
+
+def fix_excluded_archs_for_arm64_sim(installer)
+  require 'fileutils'
+  pods_root = installer.sandbox.root.to_s
+  xcconfig_pattern = File.join(pods_root, 'Target Support Files', '**', '*.xcconfig')
+  fixed = 0
+  Dir.glob(xcconfig_pattern).each do |path|
+    content = File.read(path)
+    next unless content.match?(/EXCLUDED_ARCHS\[sdk=iphonesimulator\*\]\s*=.*\barm64\b/)
+    updated = content.gsub(
+      /^(EXCLUDED_ARCHS\[sdk=iphonesimulator\*\]\s*=\s*)(.*)$/
+    ) { "#{$1}#{$2.gsub('arm64', '').gsub(/\s+/, ' ').strip}" }
+    File.write(path, updated)
+    fixed += 1
+  end
+  puts "[Podfile] Removed arm64 from EXCLUDED_ARCHS in #{fixed} xcconfig file(s) for iOS 26 sim."
+end
+
+def patch_zoho_portal_auth_for_arm64_simulator(installer)
+  require 'fileutils'
+
+  pods_root = installer.sandbox.root.to_s
+  fw_binary  = File.join(pods_root, 'ZohoPortalAuth/ZohoPortalAuthKit.framework/ZohoPortalAuthKit')
+
+  unless File.exist?(fw_binary)
+    puts '[Podfile] ZohoPortalAuthKit binary not found — skipping arm64-sim patch.'
+    return
   end
 
-  # Re-patch the ZohoPortalAuth binary to add arm64-sim slice if pod install reset it
-  framework_binary = installer.sandbox.root + "ZohoPortalAuth/ZohoPortalAuthKit.framework/ZohoPortalAuthKit"
-  if framework_binary.exist?
-    archs = `lipo -info "#{framework_binary}" 2>&1`
-    unless archs.include?("x86_64") && archs.include?("arm64")
-      system("cp /tmp/zoho_sim_fat.a '#{framework_binary}' 2>/dev/null")
+  puts '[Podfile] Patching ZohoPortalAuthKit for arm64 iOS Simulator (iOS 26+)…'
+
+  tmp = '/tmp/zoho_arm64_sim_patch'
+  FileUtils.rm_rf(tmp)
+  FileUtils.mkdir_p("#{tmp}/ar_work")
+
+  begin
+    # 1. Extract the arm64 device slice (static archive)
+    arm64_a = "#{tmp}/arm64_device.a"
+    unless system(%(lipo "#{fw_binary}" -thin arm64 -output "#{arm64_a}"))
+      puts '[Podfile] lipo thin failed — skipping patch.'
+      return
     end
+
+    # 2. Unpack the archive
+    Dir.chdir("#{tmp}/ar_work") { system('ar x ../arm64_device.a') }
+
+    obj_files = Dir["#{tmp}/ar_work/*.o"]
+    if obj_files.empty?
+      puts '[Podfile] No .o files found in arm64 archive — skipping patch.'
+      return
+    end
+
+    # 3. Retag each .o to iOS Simulator (platform=7).
+    #    Handles TWO cases:
+    #      a) LC_VERSION_MIN_IPHONEOS (cmd=0x25, 16 bytes) — old-style, expand to LC_BUILD_VERSION (24 bytes)
+    #      b) LC_BUILD_VERSION (cmd=0x32) with platform=2 (iOS device) — new-style, just swap platform byte
+    #    Case (b) is common in newer Xcode-built objects (e.g. UIView+ZIAMView.o).
+    #    Write script to a real file to avoid shell newline-escaping issues with -c.
+    script_path = "#{tmp}/patch_objects.py"
+    File.write(script_path, <<~'PYTHON')
+      import struct, glob, sys
+      LC_VER_MIN = 0x25
+      LC_BV      = 0x32
+      PLAT_IOS   = 2
+      PLAT_SIM   = 7
+      M15        = 0x000F0000
+      LINKEDIT   = {0x1D,0x1E,0x22,0x26,0x29,0x2B,0x2E,0x2F}
+
+      def patch(path):
+          with open(path, 'rb') as f:
+              d = bytearray(f.read())
+          if d[:4] != bytes([0xcf, 0xfa, 0xed, 0xfe]):
+              return False
+          nc = struct.unpack_from('<I', d, 16)[0]
+          sc = struct.unpack_from('<I', d, 20)[0]
+          cs = 32 + sc
+          lo = None
+          lc_type = None
+          off = 32
+          for _ in range(nc):
+              if off + 8 > len(d):
+                  break
+              c, sz = struct.unpack_from('<II', d, off)
+              if c == LC_VER_MIN:
+                  lo = off; lc_type = 'min'; break
+              if c == LC_BV:
+                  plat = struct.unpack_from('<I', d, off + 8)[0]
+                  if plat == PLAT_IOS:
+                      lo = off; lc_type = 'bv'; break
+                  break
+              if sz == 0:
+                  break
+              off += sz
+          if lo is None:
+              return False
+          if lc_type == 'bv':
+              struct.pack_into('<I', d, lo + 8, PLAT_SIM)
+              open(path, 'wb').write(d)
+              return True
+          # Expand LC_VER_MIN (16 bytes) to LC_BUILD_VERSION (24 bytes)
+          n = bytearray(d[:lo+16] + b'\x00'*8 + d[lo+16:])
+          struct.pack_into('<I', n, lo,    LC_BV)
+          struct.pack_into('<I', n, lo+4,  24)
+          struct.pack_into('<I', n, lo+8,  PLAT_SIM)
+          struct.pack_into('<I', n, lo+12, M15)
+          struct.pack_into('<I', n, lo+16, M15)
+          struct.pack_into('<I', n, lo+20, 0)
+          struct.pack_into('<I', n, 20,    sc + 8)
+          def sh(b, a):
+              v = struct.unpack_from('<I', b, a)[0]
+              if v >= cs:
+                  struct.pack_into('<I', b, a, v + 8)
+          o2 = 32
+          for _ in range(nc):
+              c2, s2 = struct.unpack_from('<II', n, o2)
+              if c2 == 0x19:
+                  sh(n, o2+32)
+                  ns = struct.unpack_from('<I', n, o2+64)[0]
+                  for s in range(ns):
+                      sb = o2 + 72 + s*80
+                      sh(n, sb+48); sh(n, sb+56)
+              elif c2 == 0x02:
+                  sh(n, o2+8); sh(n, o2+16)
+              elif c2 == 0x0b:
+                  for f in [32,40,48,56,64,72]: sh(n, o2+f)
+              elif c2 in LINKEDIT:
+                  sh(n, o2+8)
+              o2 += s2
+              if s2 == 0:
+                  break
+          open(path, 'wb').write(n)
+          return True
+
+      files = glob.glob(sys.argv[1] + '/*.o')
+      n = sum(1 for f in files if patch(f))
+      print(f'Retagged {n}/{len(files)} object files.')
+    PYTHON
+
+    retagged_output = `python3 "#{script_path}" "#{tmp}/ar_work" 2>&1`.strip
+    puts "[Podfile]   #{retagged_output}"
+
+    # 4. Repack into a new simulator static archive
+    arm64_sim_a = "#{tmp}/arm64_sim.a"
+    Dir.chdir("#{tmp}/ar_work") { system(%(ar rcs "#{arm64_sim_a}" *.o)) }
+
+    # 5. Build a new fat binary: keep x86_64 + i386 slices, replace arm64 with sim-retagged arm64
+    no_arm64 = "#{tmp}/no_arm64.a"
+    other_archs = `lipo -info "#{fw_binary}"`.scan(/\b(armv7|i386|x86_64)\b/).flatten
+
+    if other_archs.empty?
+      FileUtils.cp(arm64_sim_a, fw_binary)
+    else
+      system(%(lipo "#{fw_binary}" -remove arm64 -output "#{no_arm64}"))
+      system(%(lipo -create "#{no_arm64}" "#{arm64_sim_a}" -output "#{fw_binary}"))
+    end
+
+    puts '[Podfile] ✓ ZohoPortalAuthKit patched — arm64-sim slice ready for iOS 26 simulator.'
+
+  rescue => e
+    puts "[Podfile] Warning: ZohoPortalAuth patch failed: #{e.message}"
+  ensure
+    FileUtils.rm_rf(tmp)
   end
 end
