@@ -20,31 +20,11 @@ class AuthController {
    */
   async getCurrentUser(req, res) {
     try {
-      const { ROLE_PERMISSIONS, TABLES } = require('../utils/Constants');
       const user = req.currentUser;
-      // Permission resolution:
-      //   - TENANT_ADMIN / SUPER_ADMIN   → system role permissions (full access)
-      //   - Has org role assigned        → ONLY org role permissions (org role is the sole source)
-      //   - No org role (plain member)   → base TEAM_MEMBER system-role permissions
-      // Individual per-user grants/revokes are applied on top regardless.
-      const basePerms = user.orgRoleId
-        ? (user.orgRolePermissions || [])
-        : (ROLE_PERMISSIONS[user.role] || []);
-      const base = new Set(basePerms);
-      // Per-user additional grants / revokes (on top of org role)
-      try {
-        const overrides = await this.db.query(
-          `SELECT permissions FROM ${TABLES.PERMISSION_OVERRIDES} ` +
-          `WHERE tenant_id = '${user.tenantId}' AND user_id = '${user.id}' AND is_active = 'true' LIMIT 1`
-        );
-        if (overrides.length > 0) {
-          const parsed = JSON.parse(overrides[0].permissions || '{}');
-          (parsed.granted || []).forEach((p) => base.add(p));
-          (parsed.revoked || []).forEach((p) => base.delete(p));
-        }
-      } catch (_) {}
-      const permissionsArray = Array.from(base);
-      console.log(`[AuthController] /me user=${user.id} role=${user.role} orgRoleId=${user.orgRoleId} orgRoleName=${user.orgRoleName} orgPermsCount=${(user.orgRolePermissions||[]).length} totalPerms=${permissionsArray.length}`);
+      // AuthMiddleware already built the full effective permissions (additive: role base + org role + individual overrides).
+      // Use them directly — no need to rebuild here.
+      const permissionsArray = Array.isArray(user.permissions) ? user.permissions : [];
+      console.log(`[AuthController] /me user=${user.id} role=${user.role} orgRoleId=${user.orgRoleId} totalPerms=${permissionsArray.length}`);
       return ResponseHelper.success(res, {
         user: {
           ...user,
@@ -170,10 +150,27 @@ class AuthController {
       const { tenantId } = req.currentUser;
       // Include ACTIVE and INVITED so newly invited users appear in assignment dropdowns
       const users = await this.db.query(
-        `SELECT * FROM ${require('../utils/Constants').TABLES.USERS} ` +
+        `SELECT * FROM ${TABLES.USERS} ` +
         `WHERE tenant_id = '${tenantId}' AND status IN ('ACTIVE','INVITED') ` +
         `ORDER BY name ASC LIMIT 200`
       );
+
+      // Build user → orgRoleName map via user_org_roles + org_roles
+      const orgRoleMap = {};
+      try {
+        const assignments = await this.db.query(
+          `SELECT user_id, org_role_id FROM ${TABLES.USER_ORG_ROLES} WHERE tenant_id = '${tenantId}' AND is_active = 'true' LIMIT 500`
+        );
+        if (assignments.length > 0) {
+          const orgRoles = await this.db.query(
+            `SELECT ROWID, name FROM ${TABLES.ORG_ROLES} WHERE tenant_id = '${tenantId}' LIMIT 200`
+          );
+          const roleNameMap = {};
+          for (const r of orgRoles) roleNameMap[String(r.ROWID)] = r.name;
+          for (const a of assignments) orgRoleMap[String(a.user_id)] = roleNameMap[String(a.org_role_id)] || null;
+        }
+      } catch (_) {}
+
       return ResponseHelper.success(res, {
         users: users.map((u) => ({
           id: String(u.ROWID),
@@ -182,6 +179,7 @@ class AuthController {
           role: u.role,
           // Handle both correct spelling and historical typo in DB column name
           avatarUrl: u.avatar_url || u.avtar_url || '',
+          orgRoleName: orgRoleMap[String(u.ROWID)] || null,
         })),
       });
     } catch (err) {

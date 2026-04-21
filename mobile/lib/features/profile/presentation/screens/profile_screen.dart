@@ -4,10 +4,47 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/constants/app_constants.dart';
+import '../../../../core/services/api_client.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/widgets/user_avatar.dart';
 import '../../../auth/providers/auth_provider.dart';
 import '../../../people/presentation/screens/people_screen.dart';
+
+final _profileStatsProvider = FutureProvider.autoDispose<Map<String, int>>((ref) async {
+  try {
+    final results = await Future.wait([
+      ApiClient.instance.get<Map<String, dynamic>>(
+        '${AppConstants.baseSprints}/tasks/my-tasks',
+        fromJson: (r) => r as Map<String, dynamic>,
+      ),
+      ApiClient.instance.get<Map<String, dynamic>>(
+        '${AppConstants.baseCore}/standups?my=true&limit=200',
+        fromJson: (r) => r as Map<String, dynamic>,
+      ),
+      ApiClient.instance.get<Map<String, dynamic>>(
+        '${AppConstants.baseCore}/projects',
+        fromJson: (r) => r as Map<String, dynamic>,
+      ),
+    ]);
+
+    final tasksData = results[0]['data'];
+    final taskList = tasksData is List ? tasksData : (tasksData is Map ? (tasksData['tasks'] as List? ?? tasksData['data'] as List? ?? []) : []);
+
+    final standupsData = results[1]['data'];
+    final standupList = standupsData is List ? standupsData : (standupsData is Map ? (standupsData['standups'] as List? ?? standupsData['data'] as List? ?? []) : []);
+
+    final projectsData = results[2]['data'];
+    final projectList = projectsData is List ? projectsData : (projectsData is Map ? (projectsData['projects'] as List? ?? projectsData['data'] as List? ?? []) : []);
+
+    return {
+      'tasks':    (taskList as List).length,
+      'standups': (standupList as List).length,
+      'projects': (projectList as List).length,
+    };
+  } catch (_) {
+    return {'tasks': 0, 'standups': 0, 'projects': 0};
+  }
+});
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -101,7 +138,7 @@ class ProfileScreen extends ConsumerWidget {
                   const SizedBox(width: 8),
                   _InfoChip(
                     icon: Icons.badge_rounded,
-                    label: _roleLabel(user.role),
+                    label: user.orgRoleName ?? _roleLabel(user.role),
                     color: AppColors.primaryLight,
                   ),
                   const SizedBox(width: 8),
@@ -115,22 +152,43 @@ class ProfileScreen extends ConsumerWidget {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                decoration: BoxDecoration(
-                  color: ds.bgCard,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: ds.border),
-                ),
-                child: Row(
-                  children: [
-                    _StatItem(label: 'Projects', value: '—', icon: Icons.folder_rounded),
-                    _Divider(),
-                    _StatItem(label: 'Tasks', value: '—', icon: Icons.task_alt_rounded),
-                    _Divider(),
-                    _StatItem(label: 'Standups', value: '—', icon: Icons.record_voice_over_rounded),
-                  ],
-                ),
+              child: Consumer(
+                builder: (context, ref, _) {
+                  final stats = ref.watch(_profileStatsProvider);
+                  final data  = stats.valueOrNull;
+                  return Container(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    decoration: BoxDecoration(
+                      color: ds.bgCard,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: ds.border),
+                    ),
+                    child: Row(
+                      children: [
+                        _StatItem(
+                          label: 'Projects',
+                          value: data != null ? '${data['projects']}' : '—',
+                          icon: Icons.folder_rounded,
+                          loading: stats.isLoading,
+                        ),
+                        _Divider(),
+                        _StatItem(
+                          label: 'Tasks',
+                          value: data != null ? '${data['tasks']}' : '—',
+                          icon: Icons.task_alt_rounded,
+                          loading: stats.isLoading,
+                        ),
+                        _Divider(),
+                        _StatItem(
+                          label: 'Standups',
+                          value: data != null ? '${data['standups']}' : '—',
+                          icon: Icons.record_voice_over_rounded,
+                          loading: stats.isLoading,
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
             ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.05),
           ),
@@ -196,19 +254,18 @@ class ProfileScreen extends ConsumerWidget {
                   color: const Color(0xFFF59E0B),
                   onTap: () => context.push('/more/badges'),
                 ),
-                if (user.hasPermission(Permissions.aiPerformance))
-                  _ProfileTile(
-                    icon: Icons.auto_awesome_rounded,
-                    label: 'Analyse My Performance',
-                    subtitle: 'AI-powered breakdown of your work',
-                    color: const Color(0xFF7C3AED),
-                    onTap: () => PerformanceSheet.show(
-                      context,
-                      userId: user.id,
-                      name: user.name,
-                      avatarUrl: user.avatarUrl,
-                    ),
+                _ProfileTile(
+                  icon: Icons.auto_awesome_rounded,
+                  label: 'Analyse My Performance',
+                  subtitle: 'AI-powered breakdown of your work',
+                  color: const Color(0xFF7C3AED),
+                  onTap: () => PerformanceSheet.show(
+                    context,
+                    userId: user.id,
+                    name: user.name,
+                    avatarUrl: user.avatarUrl,
                   ),
+                ),
                 if (UserRole.isAdmin(user.role))
                   _ProfileTile(
                     icon: Icons.admin_panel_settings_rounded,
@@ -345,10 +402,11 @@ class _StatusChip extends StatelessWidget {
 }
 
 class _StatItem extends StatelessWidget {
-  const _StatItem({required this.label, required this.value, required this.icon});
+  const _StatItem({required this.label, required this.value, required this.icon, this.loading = false});
   final String label;
   final String value;
   final IconData icon;
+  final bool loading;
 
   @override
   Widget build(BuildContext context) {
@@ -358,11 +416,16 @@ class _StatItem extends StatelessWidget {
         children: [
           Icon(icon, size: 18, color: AppColors.primaryLight),
           const SizedBox(height: 6),
-          Text(value,
-              style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: ds.textPrimary)),
+          loading
+              ? SizedBox(
+                  width: 20, height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primaryLight),
+                )
+              : Text(value,
+                  style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: ds.textPrimary)),
           const SizedBox(height: 2),
           Text(label,
               style: TextStyle(fontSize: 11, color: ds.textMuted,

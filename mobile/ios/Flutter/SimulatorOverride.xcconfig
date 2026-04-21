@@ -1,0 +1,4 @@
+// Override Flutter's Generated.xcconfig EXCLUDED_ARCHS to allow arm64 on iOS 26+ simulators.
+// Generated.xcconfig adds arm64 to EXCLUDED_ARCHS for simulator because ZohoPortalAuthKit
+// lacked an arm64-sim slice. The Podfile patches that binary, so we re-allow arm64 here.
+EXCLUDED_ARCHS[sdk=iphonesimulator*]=i386

@@ -111,12 +111,11 @@ final _entriesRangeProvider =
 final _pendingApprovalsProvider = FutureProvider.autoDispose<List<dynamic>>((ref) async {
   final raw = await ApiClient.instance.get<Map<String, dynamic>>(
     '${AppConstants.baseTime}/approvals',
-    queryParameters: {'status': 'SUBMITTED'},
     fromJson: (r) => r as Map<String, dynamic>,
   );
   final d = raw['data'];
   if (d is List) return d;
-  if (d is Map) return d['approvals'] as List? ?? d['entries'] as List? ?? d['data'] as List? ?? [];
+  if (d is Map) return d['approvals'] as List? ?? d['data'] as List? ?? [];
   return [];
 });
 
@@ -145,8 +144,7 @@ class _TimeTrackingScreenState extends ConsumerState<TimeTrackingScreen>
     super.didChangeDependencies();
     final u = ref.read(currentUserProvider);
     final mgr = u?.role == 'TENANT_ADMIN'
-        || u?.hasPermission(Permissions.orgRoleRead) == true
-        || u?.hasPermission('TIME_APPROVE') == true;
+        || u?.hasPermission(Permissions.timeApprove) == true;
     if (mgr != _isManager) {
       _isManager = mgr;
       _tabController.dispose();
@@ -1178,7 +1176,7 @@ class _ApprovalCardState extends State<_ApprovalCard> {
     setState(() => _acting = true);
     try {
       final id = (widget.entry['ROWID'] ?? widget.entry['id'] ?? '').toString();
-      await ApiClient.instance.post('${AppConstants.baseTime}/approvals/$id/approve', data: {});
+      await ApiClient.instance.patch('${AppConstants.baseTime}/approvals/$id/approve', data: {});
       widget.onAction();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
@@ -1209,7 +1207,7 @@ class _ApprovalCardState extends State<_ApprovalCard> {
     setState(() => _acting = true);
     try {
       final id = (widget.entry['ROWID'] ?? widget.entry['id'] ?? '').toString();
-      await ApiClient.instance.post('${AppConstants.baseTime}/approvals/$id/reject', data: {'reason': reasonCtrl.text.trim()});
+      await ApiClient.instance.patch('${AppConstants.baseTime}/approvals/$id/reject', data: {'reason': reasonCtrl.text.trim()});
       widget.onAction();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
@@ -1221,14 +1219,23 @@ class _ApprovalCardState extends State<_ApprovalCard> {
 
   @override
   Widget build(BuildContext context) {
-    final ds    = context.ds;
-    final e     = widget.entry;
-    final name  = e['submittedByName'] as String? ?? e['userName'] as String? ?? e['submittedBy'] as String? ?? 'User';
-    final proj  = e['projectName'] as String? ?? e['project'] as String? ?? '';
-    final desc  = e['description'] as String? ?? '';
-    final hours = (e['hours'] as num?)?.toDouble() ?? 0.0;
-    final date  = _stripDate(e['date'] as String? ?? e['entry_date'] as String? ?? '');
-    final bill  = e['isBillable'] as bool? ?? e['is_billable'] == true || e['is_billable'] == 'true';
+    final ds        = context.ds;
+    final e         = widget.entry;
+    // Backend nests requester info under 'requester' and entry under 'entry'
+    final requester = e['requester'] as Map? ?? {};
+    final entry     = e['entry']     as Map? ?? {};
+    final name      = requester['name']      as String?
+                   ?? e['user_name']         as String?
+                   ?? e['userName']          as String? ?? 'User';
+    final avatarUrl = requester['avatar_url'] as String? ?? requester['avatarUrl'] as String?;
+    final proj      = entry['project_name']  as String? ?? entry['projectName']  as String?
+                   ?? e['projectName']       as String? ?? '';
+    final desc      = entry['description']   as String? ?? e['description'] as String? ?? '';
+    final hours     = (entry['hours'] as num? ?? e['hours'] as num? ?? 0).toDouble();
+    final date      = _stripDate(entry['entry_date'] as String? ?? e['entry_date'] as String?
+                   ?? e['date'] as String? ?? '');
+    final bill      = entry['is_billable'] == true || entry['is_billable'] == 'true'
+                   || e['is_billable'] == true;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -1240,7 +1247,7 @@ class _ApprovalCardState extends State<_ApprovalCard> {
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          UserAvatar(name: name, radius: 18),
+          UserAvatar(name: name, avatarUrl: avatarUrl, radius: 18),
           const SizedBox(width: 10),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(name, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: ds.textPrimary)),

@@ -201,11 +201,8 @@ class AuthMiddleware {
         const userId = String(user.ROWID);
         const tenantId = String(user.tenant_id);
         const isFullAdmin = isSuperAdmin || resolvedRole === 'TENANT_ADMIN';
-        const base = new Set(
-          isFullAdmin ? Object.values(PERMISSIONS)
-          : orgRoleId ? orgRolePermissions
-          :             (ROLE_PERMISSIONS[resolvedRole] || [])
-        );
+        const roleBase = isFullAdmin ? Object.values(PERMISSIONS) : (ROLE_PERMISSIONS[resolvedRole] || []);
+        const base = new Set([...roleBase, ...(orgRoleId ? orgRolePermissions : [])]);
         // Apply individual grants / revokes on top
         const overrideRows = await db.query(
           `SELECT permissions FROM ${TABLES.PERMISSION_OVERRIDES} WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = 'true' LIMIT 1`

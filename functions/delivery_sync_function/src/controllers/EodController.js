@@ -95,10 +95,21 @@ class EodController {
         { orderBy: 'CREATEDTIME DESC', limit: 100 }
       );
 
+      // Enrich with project names
+      const projectIds = [...new Set(eods.map((e) => e.project_id).filter(Boolean))];
+      let projectMap = {};
+      if (projectIds.length > 0) {
+        const projects = await this.db.query(
+          `SELECT ROWID, name FROM ${TABLES.PROJECTS} WHERE ROWID IN (${projectIds.map((id) => `'${id}'`).join(',')}) LIMIT 100`
+        );
+        projects.forEach((p) => { projectMap[String(p.ROWID)] = p.name; });
+      }
+
       return ResponseHelper.success(res, {
         eods: eods.map((e) => ({
           id: String(e.ROWID),
           projectId: e.project_id,
+          projectName: projectMap[String(e.project_id)] || null,
           userId: e.user_id,
           date: e.entry_date,
           accomplishments: e.accomplished,

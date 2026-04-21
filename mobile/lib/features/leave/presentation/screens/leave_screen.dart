@@ -115,7 +115,7 @@ class _LeaveScreenState extends ConsumerState<LeaveScreen>
         children: [
           _RequestsTab(onRefresh: () => ref.invalidate(leaveRequestsProvider)),
           _BalanceTab(),
-          if (_isTeamVisible) _TeamRequestsTab(),
+          if (_isTeamVisible) const _TeamRequestsTab(),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -186,8 +186,8 @@ class _RequestsTab extends ConsumerWidget {
   Future<void> _cancel(WidgetRef ref, String id) async {
     try {
       await ApiClient.instance.patch(
-        '${AppConstants.basePeople}/leave/requests/$id',
-        data: {'status': 'CANCELLED'},
+        '${AppConstants.basePeople}/leave/requests/$id/cancel',
+        data: {},
       );
       ref.invalidate(leaveRequestsProvider);
     } catch (_) {}
@@ -196,56 +196,194 @@ class _RequestsTab extends ConsumerWidget {
 
 // ── Team requests tab ─────────────────────────────────────────────────────────
 
-class _TeamRequestsTab extends ConsumerWidget {
+class _TeamRequestsTab extends ConsumerStatefulWidget {
+  const _TeamRequestsTab();
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_TeamRequestsTab> createState() => _TeamRequestsTabState();
+}
+
+class _TeamRequestsTabState extends ConsumerState<_TeamRequestsTab> {
+  String _filter = 'ALL';
+
+  static const _filters = ['ALL', 'PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'];
+
+  @override
+  Widget build(BuildContext context) {
     final requests = ref.watch(teamLeaveRequestsProvider);
     final ds = context.ds;
 
-    return RefreshIndicator(
-      onRefresh: () async => ref.invalidate(teamLeaveRequestsProvider),
-      color: AppColors.primaryLight,
-      child: requests.when(
-        data: (list) {
-          if (list.isEmpty) {
-            return Center(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.group_rounded, size: 56, color: ds.textMuted),
-                const SizedBox(height: 12),
-                Text('No team leave requests', style: TextStyle(color: ds.textMuted)),
-              ]),
-            );
-          }
-          return ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-            itemCount: list.length,
-            itemBuilder: (_, i) => _TeamLeaveCard(
-              list[i],
-              onApprove: list[i].status == 'PENDING'
-                  ? () => _updateStatus(ref, list[i].id, 'APPROVED')
-                  : null,
-              onReject: list[i].status == 'PENDING'
-                  ? () => _updateStatus(ref, list[i].id, 'REJECTED')
-                  : null,
+    return Column(
+      children: [
+        // Status filter chips
+        SizedBox(
+          height: 48,
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            scrollDirection: Axis.horizontal,
+            itemCount: _filters.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (_, i) {
+              final f = _filters[i];
+              final selected = _filter == f;
+              final count = requests.valueOrNull == null ? null
+                  : f == 'ALL' ? requests.valueOrNull!.length
+                  : requests.valueOrNull!.where((r) => r.status == f).length;
+              return FilterChip(
+                label: Text(
+                  f == 'ALL' ? 'All${count != null ? ' ($count)' : ''}'
+                      : '${f[0]}${f.substring(1).toLowerCase()}${count != null && count > 0 ? ' ($count)' : ''}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    color: selected ? Colors.white : ds.textSecondary,
+                  ),
+                ),
+                selected: selected,
+                onSelected: (_) => setState(() => _filter = f),
+                selectedColor: AppColors.primary,
+                backgroundColor: ds.bgCard,
+                checkmarkColor: Colors.white,
+                side: BorderSide(
+                  color: selected ? AppColors.primary : ds.border,
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                visualDensity: VisualDensity.compact,
+              );
+            },
+          ),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: () async => ref.invalidate(teamLeaveRequestsProvider),
+            color: AppColors.primaryLight,
+            child: requests.when(
+              data: (all) {
+                final list = _filter == 'ALL'
+                    ? all
+                    : all.where((r) => r.status == _filter).toList();
+                if (list.isEmpty) {
+                  return Center(
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.group_rounded, size: 56, color: ds.textMuted),
+                      const SizedBox(height: 12),
+                      Text(
+                        _filter == 'ALL'
+                            ? 'No team leave requests'
+                            : 'No ${_filter[0]}${_filter.substring(1).toLowerCase()} requests',
+                        style: TextStyle(color: ds.textMuted),
+                      ),
+                    ]),
+                  );
+                }
+                return ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                  itemCount: list.length,
+                  itemBuilder: (_, i) => _TeamLeaveCard(
+                    list[i],
+                    onApprove: list[i].status == 'PENDING'
+                        ? () => _approve(list[i].id)
+                        : null,
+                    onReject: list[i].status == 'PENDING'
+                        ? () => _showRejectDialog(list[i].id)
+                        : null,
+                  ),
+                );
+              },
+              loading: () =>
+                  ListView(children: List.generate(3, (_) => const ShimmerCard())),
+              error: (e, _) => Center(
+                  child: Text('$e', style: const TextStyle(color: AppColors.error))),
             ),
-          );
-        },
-        loading: () =>
-            ListView(children: List.generate(3, (_) => const ShimmerCard())),
-        error: (e, _) => Center(
-            child: Text('$e', style: const TextStyle(color: AppColors.error))),
-      ),
+          ),
+        ),
+      ],
     );
   }
 
-  Future<void> _updateStatus(WidgetRef ref, String id, String status) async {
+  Future<void> _approve(String id) async {
     try {
       await ApiClient.instance.patch(
-        '${AppConstants.basePeople}/leave/requests/$id',
-        data: {'status': status},
+        '${AppConstants.basePeople}/leave/requests/$id/approve',
+        data: {},
       );
       ref.invalidate(teamLeaveRequestsProvider);
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to approve: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    }
+  }
+
+  Future<void> _showRejectDialog(String id) async {
+    final notesCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        final ds = ctx.ds;
+        return AlertDialog(
+          backgroundColor: ds.bgCard,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('Reject Leave Request',
+              style: TextStyle(fontWeight: FontWeight.w800, color: ds.textPrimary)),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text('Please provide a reason for rejection.',
+                style: TextStyle(fontSize: 13, color: ds.textSecondary)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: notesCtrl,
+              autofocus: true,
+              maxLines: 3,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: InputDecoration(
+                hintText: 'Rejection reason (required)',
+                hintStyle: TextStyle(color: ds.textMuted),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ]),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text('Cancel', style: TextStyle(color: ds.textMuted)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.ragRed,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Reject'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true) return;
+    final notes = notesCtrl.text.trim();
+    if (notes.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Rejection reason is required.'), backgroundColor: AppColors.error),
+        );
+      }
+      return;
+    }
+    try {
+      await ApiClient.instance.patch(
+        '${AppConstants.basePeople}/leave/requests/$id/reject',
+        data: {'notes': notes},
+      );
+      ref.invalidate(teamLeaveRequestsProvider);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to reject: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    }
   }
 }
 

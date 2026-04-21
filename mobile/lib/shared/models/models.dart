@@ -16,6 +16,7 @@ class CurrentUser extends Equatable {
     this.tenantName,
     this.tenantSlug,
     this.avatarUrl,
+    this.orgRoleName,
     this.status = 'ACTIVE',
     this.permissions = const [],
   });
@@ -28,6 +29,7 @@ class CurrentUser extends Equatable {
   final String? tenantName;
   final String? tenantSlug;
   final String? avatarUrl;
+  final String? orgRoleName;
   final String status;
   /// Server-computed permissions array (from org role + per-user overrides).
   final List<String> permissions;
@@ -49,13 +51,14 @@ class CurrentUser extends Equatable {
       tenantName:  j['tenantName'] as String?,
       tenantSlug:  j['tenantSlug'] as String?,
       avatarUrl:   j['avatarUrl'] as String? ?? j['avatar_url'] as String? ?? j['photoUrl'] as String?,
+      orgRoleName: j['orgRoleName'] as String?,
       status:      j['status'] as String? ?? 'ACTIVE',
       permissions: perms,
     );
   }
 
   @override
-  List<Object?> get props => [id, email, role, tenantId, permissions];
+  List<Object?> get props => [id, email, role, tenantId, orgRoleName, permissions];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -289,6 +292,7 @@ class SprintTask extends Equatable {
     this.assigneeAvatarUrl,
     this.createdBy,
     this.sprintId,
+    this.projectId,
     this.storyPoints,
   });
 
@@ -302,6 +306,7 @@ class SprintTask extends Equatable {
   final String? assigneeAvatarUrl;
   final String? createdBy;
   final String? sprintId;
+  final String? projectId;
   final int? storyPoints;
 
   factory SprintTask.fromJson(Map<String, dynamic> j) {
@@ -335,6 +340,7 @@ class SprintTask extends Equatable {
                         ?? j['assignee_avatar_url'] as String?,
       createdBy:        j['createdBy']?.toString() ?? j['created_by']?.toString(),
       sprintId:         j['sprintId']?.toString() ?? j['sprint_id']?.toString(),
+      projectId:        j['project_id']?.toString() ?? j['projectId']?.toString(),
       storyPoints:      (j['storyPoints'] as num?)?.toInt()
                         ?? (j['story_points'] as num?)?.toInt(),
     );
@@ -609,8 +615,8 @@ class LeaveRequest extends Equatable {
       reason:       j['reason']     as String? ?? '',
       status:       j['status']     as String? ?? 'PENDING',
       createdAt:    j['CREATEDTIME'] as String? ?? j['createdAt'] as String?,
-      employeeName: j['employee_name'] as String? ?? j['employeeName'] as String?
-                    ?? j['name'] as String?,
+      employeeName: j['user_name'] as String? ?? j['employee_name'] as String?
+                    ?? j['employeeName'] as String? ?? j['name'] as String?,
     );
   }
 

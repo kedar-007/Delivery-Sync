@@ -100,6 +100,12 @@ final routerProvider = Provider<GoRouter>((ref) {
             GoRoute(
               path: '/sprints',
               builder: (_, __) => const SprintsScreen(),
+              routes: [
+                GoRoute(
+                  path: 'my-tasks',
+                  builder: (_, __) => const MyTasksScreen(),
+                ),
+              ],
             ),
           ]),
 
@@ -250,6 +256,13 @@ class _MoreScreen extends ConsumerWidget {
 
           // ── Work Items ──────────────────────────────────────────────
           _SectionLabel('Work Items', ds),
+          _MoreTile(
+            icon: Icons.checklist_rounded,
+            label: 'My Tasks',
+            subtitle: 'View all tasks assigned to you',
+            color: AppColors.primaryLight,
+            onTap: () => context.go('/sprints/my-tasks'),
+          ),
           _MoreTile(
             icon: Icons.task_alt_rounded,
             label: 'Actions',

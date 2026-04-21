@@ -330,12 +330,6 @@ class AttendanceController {
     if (!users.length) return ResponseHelper.notFound(res, 'User not found');
     const userRowId = users[0].ROWID;
 
-    const ip = extractClientIp(req);
-    const ipCheck = await this._validateIpAllowed(tenantId, ip);
-    if (!ipCheck.allowed) {
-      return ResponseHelper.forbidden(res, `Breaks can only be recorded from an allowed network (${ip || 'unknown IP'}).`);
-    }
-
     const break_type = ((req.body.break_type || 'SHORT') + '').toUpperCase();
     if (!['LUNCH', 'SHORT'].includes(break_type)) {
       return ResponseHelper.validationError(res, 'break_type must be LUNCH or SHORT');
@@ -354,6 +348,17 @@ class AttendanceController {
       `user_id = '${userRowId}' AND attendance_date = '${today}'`, { limit: 1 });
     if (!existing.length || !existing[0].check_in_time) return ResponseHelper.validationError(res, 'Must be checked in before starting a break');
     if (existing[0].check_out_time) return ResponseHelper.validationError(res, 'Already checked out');
+
+    // IP check for office workers only — WFH workers (is_wfh=true) are already remote.
+    const isWfhRecord = existing[0].is_wfh === 'true' || existing[0].is_wfh === true;
+    if (!isWfhRecord) {
+      const ip = extractClientIp(req);
+      const ipCheck = await this._validateIpAllowed(tenantId, ip);
+      if (!ipCheck.allowed) {
+        console.log(`[breakStart] IP blocked: user=${req.currentUser.email} detected="${ip}" headers=${JSON.stringify({ xfwd: req.headers['x-forwarded-for'], xreal: req.headers['x-real-ip'] })}`);
+        return ResponseHelper.forbidden(res, `Breaks can only be recorded from the office network. Detected IP: ${ip || 'unknown'}`);
+      }
+    }
 
     // Check for any currently active break in the new breaks table
     let activeBreaks = [];
@@ -397,12 +402,6 @@ class AttendanceController {
     if (!users.length) return ResponseHelper.notFound(res, 'User not found');
     const userRowId = users[0].ROWID;
 
-    const ip = extractClientIp(req);
-    const ipCheck = await this._validateIpAllowed(tenantId, ip);
-    if (!ipCheck.allowed) {
-      return ResponseHelper.forbidden(res, `Breaks can only be ended from an allowed network (${ip || 'unknown IP'}).`);
-    }
-
     let formattedNow;
     if (req.body.client_time) {
       formattedNow = String(req.body.client_time).replace('T', ' ').slice(0, 19);
@@ -411,6 +410,19 @@ class AttendanceController {
       formattedNow = getNowInTZ(profiles[0]?.timezone);
     }
     const today = formattedNow.split(' ')[0];
+
+    // IP check for office workers only — WFH workers are already remote.
+    const todayRecord = await this.db.findWhere(TABLES.ATTENDANCE_RECORDS, tenantId,
+      `user_id = '${userRowId}' AND attendance_date = '${today}'`, { limit: 1 });
+    const isWfhRecord = todayRecord[0]?.is_wfh === 'true' || todayRecord[0]?.is_wfh === true;
+    if (!isWfhRecord) {
+      const ip = extractClientIp(req);
+      const ipCheck = await this._validateIpAllowed(tenantId, ip);
+      if (!ipCheck.allowed) {
+        console.log(`[breakEnd] IP blocked: user=${req.currentUser.email} detected="${ip}" headers=${JSON.stringify({ xfwd: req.headers['x-forwarded-for'], xreal: req.headers['x-real-ip'] })}`);
+        return ResponseHelper.forbidden(res, `Breaks can only be ended from the office network. Detected IP: ${ip || 'unknown'}`);
+      }
+    }
 
     // Find active break using status column — avoids empty-string comparison issues
     let activeBreaks = [];

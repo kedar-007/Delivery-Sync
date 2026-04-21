@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -142,7 +143,7 @@ class DashboardScreen extends ConsumerWidget {
                     ),
                   ],
                   loading: () => List.generate(4, (_) => const ShimmerCard(height: 100)),
-                  error: (e, _) => [_ErrorTile(e.toString())],
+                  error: (e, _) => [_ErrorTile(e)],
                 ),
               ),
             ),
@@ -188,7 +189,7 @@ class DashboardScreen extends ConsumerWidget {
                 childCount: 3,
               ),
             ),
-            error: (e, _) => SliverToBoxAdapter(child: _ErrorTile(e.toString())),
+            error: (e, _) => SliverToBoxAdapter(child: _ErrorTile(e)),
           ),
 
           // ── Section: My Tasks ──────────────────────────────────────────
@@ -224,7 +225,7 @@ class DashboardScreen extends ConsumerWidget {
                       ],
                       const Spacer(),
                       GestureDetector(
-                        onTap: () => context.go('/sprints'),
+                        onTap: () => context.go('/sprints/my-tasks'),
                         child: const Text('See all', style: TextStyle(
                           fontSize: 13, fontWeight: FontWeight.w600,
                           color: AppColors.primaryLight)),
@@ -436,8 +437,15 @@ class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
       ref.invalidate(_dashAttendanceProvider);
       ref.invalidate(myAttendanceProvider);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('WFH check-in failed: $e'), backgroundColor: AppColors.error));
+      if (mounted) {
+        final is403 = e is DioException && e.response?.statusCode == 403;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(is403
+              ? 'Access denied. Contact your admin to enable attendance permissions.'
+              : 'WFH check-in failed. Please try again.'),
+          backgroundColor: AppColors.error,
+        ));
+      }
     } finally {
       if (mounted) setState(() => _actionLoading = false);
     }
@@ -455,8 +463,11 @@ class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
       ref.invalidate(_dashAttendanceProvider);
       ref.invalidate(myAttendanceProvider);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Check-out failed: $e'), backgroundColor: AppColors.error));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(e is DioException && e.response?.statusCode == 403
+            ? 'Access denied for check-out.'
+            : 'Check-out failed. Please try again.'),
+        backgroundColor: AppColors.error));
     } finally {
       if (mounted) setState(() => _actionLoading = false);
     }
@@ -472,8 +483,18 @@ class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
       ref.invalidate(_dashAttendanceProvider);
       ref.invalidate(myAttendanceProvider);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Break failed: $e'), backgroundColor: AppColors.error));
+      if (mounted) {
+        String msg = 'Break failed. Please try again.';
+        if (e is DioException && e.response?.statusCode == 403) {
+          final body = e.response?.data;
+          final serverMsg = body is Map ? (body['message'] as String?) : null;
+          msg = serverMsg != null && serverMsg.contains('network')
+              ? 'Not on office network. Connect to office WiFi to take a break.'
+              : 'Access denied for break. Contact your admin.';
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), backgroundColor: AppColors.error));
+      }
     } finally {
       if (mounted) setState(() => _breakLoading = false);
     }
@@ -489,8 +510,18 @@ class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
       ref.invalidate(_dashAttendanceProvider);
       ref.invalidate(myAttendanceProvider);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Break end failed: $e'), backgroundColor: AppColors.error));
+      if (mounted) {
+        String msg = 'End break failed. Please try again.';
+        if (e is DioException && e.response?.statusCode == 403) {
+          final body = e.response?.data;
+          final serverMsg = body is Map ? (body['message'] as String?) : null;
+          msg = serverMsg != null && serverMsg.contains('network')
+              ? 'Not on office network. Connect to office WiFi to end the break.'
+              : 'Access denied for break. Contact your admin.';
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), backgroundColor: AppColors.error));
+      }
     } finally {
       if (mounted) setState(() => _breakLoading = false);
     }
@@ -995,7 +1026,7 @@ class _MyTasksSection extends ConsumerWidget {
             ),
       loading: () => Column(
           children: List.generate(3, (_) => const ShimmerCard(height: 60))),
-      error: (e, _) => _ErrorTile(e.toString()),
+      error: (e, _) => _ErrorTile(e),
     );
   }
 }
@@ -1042,13 +1073,33 @@ class _TaskTile extends StatelessWidget {
 }
 
 class _ErrorTile extends StatelessWidget {
-  const _ErrorTile(this.message);
-  final String message;
+  const _ErrorTile(this.error);
+  final Object error;
+
+  bool get _is403 =>
+      error is DioException && (error as DioException).response?.statusCode == 403;
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.all(16),
-    child: Text('Error: $message',
-        style: const TextStyle(color: AppColors.error, fontSize: 13)),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    child: Row(children: [
+      Icon(
+        _is403 ? Icons.lock_outline_rounded : Icons.error_outline_rounded,
+        size: 16,
+        color: _is403 ? AppColors.warning : AppColors.error,
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Text(
+          _is403
+              ? 'Access restricted — contact your admin to grant permission.'
+              : 'Failed to load. Please refresh.',
+          style: TextStyle(
+            color: _is403 ? AppColors.warning : AppColors.error,
+            fontSize: 13,
+          ),
+        ),
+      ),
+    ]),
   );
 }

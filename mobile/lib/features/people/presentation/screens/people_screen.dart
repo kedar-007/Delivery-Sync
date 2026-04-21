@@ -11,6 +11,12 @@ import '../../../../shared/widgets/ds_metric_card.dart';
 import '../../../../shared/widgets/user_avatar.dart';
 import '../../../auth/providers/auth_provider.dart';
 
+num? _parseNum(dynamic v) {
+  if (v == null) return null;
+  if (v is num) return v;
+  return num.tryParse(v.toString());
+}
+
 // ── Providers ─────────────────────────────────────────────────────────────────
 
 final _announcementsProvider = FutureProvider.autoDispose<List<dynamic>>((ref) async {
@@ -27,6 +33,18 @@ final _announcementsProvider = FutureProvider.autoDispose<List<dynamic>>((ref) a
 final _leaveRequestsProvider = FutureProvider.autoDispose<List<dynamic>>((ref) async {
   final raw = await ApiClient.instance.get<Map<String, dynamic>>(
     '${AppConstants.basePeople}/leave/requests',
+    fromJson: (r) => r as Map<String, dynamic>,
+  );
+  final d = raw['data'];
+  if (d is List) return d;
+  if (d is Map) return d['requests'] as List? ?? [];
+  return [];
+});
+
+final _teamLeaveRequestsProvider = FutureProvider.autoDispose<List<dynamic>>((ref) async {
+  final raw = await ApiClient.instance.get<Map<String, dynamic>>(
+    '${AppConstants.basePeople}/leave/requests',
+    queryParameters: {'team': 'true'},
     fromJson: (r) => r as Map<String, dynamic>,
   );
   final d = raw['data'];
@@ -201,7 +219,8 @@ class _PersonTile extends ConsumerWidget {
     final ds       = context.ds;
     final name     = person['name']      as String? ?? '—';
     final email    = person['email']     as String? ?? '';
-    final role     = person['role']      as String? ?? '';
+    final role        = person['role']        as String? ?? '';
+    final orgRoleName = person['orgRoleName'] as String?;
     final avatar   = person['avatarUrl'] as String?
         ?? person['avatar_url'] as String?;
     final userId   = (person['user_id'] ?? person['ROWID'] ?? person['id'] ?? '').toString();
@@ -240,7 +259,7 @@ class _PersonTile extends ConsumerWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              _RoleChip(role),
+              _RoleChip(role, orgRoleName: orgRoleName),
             ],
           ),
         ),
@@ -320,13 +339,20 @@ class _PerformanceSheetState extends ConsumerState<PerformanceSheet> {
 
   Future<Map<String, dynamic>> _fetchPerformance() async {
     final raw = await ApiClient.instance.post<Map<String, dynamic>>(
-      '${AppConstants.baseAI}/performance',
-      data: {'userId': widget.userId},
+      '${AppConstants.baseAI}/holistic-performance',
+      data: {'targetUserId': widget.userId, 'days': 30},
       fromJson: (r) => r as Map<String, dynamic>,
     );
     final d = raw['data'];
-    if (d is Map<String, dynamic>) return d;
-    return {};
+    if (d is! Map<String, dynamic>) return {};
+    // Holistic-performance returns {members:[{...}], teamSummary, ...}
+    // Extract the single member's data when targeting a specific user
+    final members = d['members'];
+    if (members is List && members.isNotEmpty) {
+      final m = members.first;
+      if (m is Map<String, dynamic>) return m;
+    }
+    return d;
   }
 
   static Color _scoreColor(int score) => score >= 80
@@ -337,7 +363,7 @@ class _PerformanceSheetState extends ConsumerState<PerformanceSheet> {
   Widget build(BuildContext context) {
     final ds = context.ds;
     return DraggableScrollableSheet(
-      initialChildSize: 0.75,
+      initialChildSize: 0.92,
       maxChildSize: 0.95,
       minChildSize: 0.4,
       builder: (_, ctrl) => Container(
@@ -418,7 +444,7 @@ class _PerformanceSheetState extends ConsumerState<PerformanceSheet> {
                   return const Center(child: Text('No performance data available',
                       style: TextStyle(color: Colors.grey)));
                 }
-                return _PerfContent(data: d, scoreColor: _scoreColor);
+                return _PerfContent(data: d, scoreColor: _scoreColor, scrollCtrl: ctrl);
               },
             ),
           ),
@@ -429,9 +455,10 @@ class _PerformanceSheetState extends ConsumerState<PerformanceSheet> {
 }
 
 class _PerfContent extends StatelessWidget {
-  const _PerfContent({required this.data, required this.scoreColor});
+  const _PerfContent({required this.data, required this.scoreColor, this.scrollCtrl});
   final Map<String, dynamic> data;
   final Color Function(int) scoreColor;
+  final ScrollController? scrollCtrl;
 
   static Color _severityColor(String? s) => switch (s?.toLowerCase()) {
     'high'   => AppColors.ragRed,
@@ -442,17 +469,18 @@ class _PerfContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ds          = context.ds;
-    final score       = (data['score'] as num?)?.toInt() ?? 0;
-    final stars       = (data['starRating'] as num?)?.toInt() ?? (score / 20).round().clamp(1, 5);
+    final score       = _parseNum(data['score'])?.toInt() ?? 0;
+    final stars       = _parseNum(data['starRating'])?.toInt() ?? (score / 20).round().clamp(1, 5);
     final summary     = data['performanceSummary'] as String?;
     final factors     = (data['factors'] as List?) ?? [];
     final issues      = (data['issues'] as List?) ?? [];
     final strengths   = (data['strengths'] as List?) ?? [];
     final suggestions = (data['suggestions'] as List?) ?? [];
+    final areasOfImprovement = (data['areasOfImprovement'] as List?) ?? [];
     final color       = scoreColor(score);
 
     return ListView(
-      controller: null,
+      controller: scrollCtrl,
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
       children: [
         // Score ring + stars
@@ -498,7 +526,7 @@ class _PerfContent extends StatelessWidget {
           const SizedBox(height: 8),
           ...factors.map((f) {
             final fm = f as Map<String, dynamic>;
-            final fs = (fm['score'] as num?)?.toInt() ?? 0;
+            final fs = _parseNum(fm['score'])?.toInt() ?? 0;
             final fc = scoreColor(fs);
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
@@ -587,6 +615,22 @@ class _PerfContent extends StatelessWidget {
           const SizedBox(height: 8),
         ],
 
+        // Areas of improvement
+        if (areasOfImprovement.isNotEmpty) ...[
+          _SectionLabel('AREAS FOR IMPROVEMENT'),
+          const SizedBox(height: 8),
+          ...areasOfImprovement.map((a) => Padding(
+            padding: const EdgeInsets.only(bottom: 5),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Icon(Icons.trending_up_rounded, size: 14, color: AppColors.ragAmber),
+              const SizedBox(width: 6),
+              Expanded(child: Text(a.toString(),
+                  style: TextStyle(fontSize: 12, color: ds.textPrimary))),
+            ]),
+          )),
+          const SizedBox(height: 8),
+        ],
+
         // Suggestions
         if (suggestions.isNotEmpty) ...[
           _SectionLabel('SUGGESTIONS'),
@@ -626,11 +670,27 @@ class _SectionLabel extends StatelessWidget {
 }
 
 class _RoleChip extends StatelessWidget {
-  const _RoleChip(this.role);
+  const _RoleChip(this.role, {this.orgRoleName});
   final String role;
+  final String? orgRoleName;
 
   @override
   Widget build(BuildContext context) {
+    // Prefer the human-readable org role name if available
+    if (orgRoleName != null && orgRoleName!.isNotEmpty) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: AppColors.primaryLight.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: AppColors.primaryLight.withOpacity(0.3)),
+        ),
+        child: Text(orgRoleName!,
+            style: const TextStyle(
+                fontSize: 10, fontWeight: FontWeight.w700,
+                color: AppColors.primaryLight)),
+      );
+    }
     final (color, label) = switch (role) {
       'TENANT_ADMIN'  => (AppColors.primaryLight, 'Admin'),
       'DELIVERY_LEAD' => (AppColors.info,         'Lead'),
@@ -786,17 +846,29 @@ class _OrgChartTab extends StatelessWidget {
 
 // ── Leave tab ─────────────────────────────────────────────────────────────────
 
-class _LeaveTab extends ConsumerWidget {
+class _LeaveTab extends ConsumerStatefulWidget {
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final ds       = context.ds;
-    final balance  = ref.watch(_leaveBalanceProvider);
-    final requests = ref.watch(_leaveRequestsProvider);
+  ConsumerState<_LeaveTab> createState() => _LeaveTabState();
+}
+
+class _LeaveTabState extends ConsumerState<_LeaveTab> {
+  bool _showTeam = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds         = context.ds;
+    final balance    = ref.watch(_leaveBalanceProvider);
+    final requests   = ref.watch(_leaveRequestsProvider);
+    final user       = ref.watch(currentUserProvider);
+    final canApprove = user?.hasPermission(Permissions.leaveApprove) == true
+        || user?.hasPermission(Permissions.leaveAdmin) == true
+        || UserRole.isAdmin(user?.role ?? '');
 
     return RefreshIndicator(
       onRefresh: () async {
         ref.invalidate(_leaveBalanceProvider);
         ref.invalidate(_leaveRequestsProvider);
+        if (canApprove) ref.invalidate(_teamLeaveRequestsProvider);
       },
       color: AppColors.primaryLight,
       child: ListView(
@@ -813,7 +885,7 @@ class _LeaveTab extends ConsumerWidget {
                   ? [('Annual', '—', AppColors.success),
                      ('Sick',   '—', AppColors.warning),
                      ('Casual', '—', AppColors.info)]
-                  : _extractBalances(list);
+                  : _LeaveTabState._extractBalances(list);
               return Row(
                 children: types.asMap().entries.map((e) {
                   final isLast = e.key == types.length - 1;
@@ -833,7 +905,7 @@ class _LeaveTab extends ConsumerWidget {
               Expanded(child: _BalanceTile('Casual', '—', AppColors.info)),
             ]),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
@@ -848,29 +920,64 @@ class _LeaveTab extends ConsumerWidget {
               onPressed: () => _showLeaveForm(context, ref, balance.valueOrNull ?? []),
             ),
           ),
-          const SizedBox(height: 24),
-          Text('MY REQUESTS',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
-                  color: ds.textMuted, letterSpacing: 1.2)),
-          const SizedBox(height: 10),
-          requests.when(
-            data: (list) => list.isEmpty
-                ? Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: ds.bgCard,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: ds.border),
+          const SizedBox(height: 16),
+
+          // Toggle — My Requests | Team Requests (only if manager)
+          if (canApprove) ...[
+            Container(
+              decoration: BoxDecoration(
+                color: ds.bgElevated,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: ds.border),
+              ),
+              child: Row(children: [
+                Expanded(child: _ToggleBtn(
+                  label: 'My Requests',
+                  icon: Icons.person_rounded,
+                  selected: !_showTeam,
+                  onTap: () => setState(() => _showTeam = false),
+                )),
+                Container(width: 1, height: 36, color: ds.border),
+                Expanded(child: _ToggleBtn(
+                  label: 'Team Requests',
+                  icon: Icons.group_rounded,
+                  selected: _showTeam,
+                  onTap: () => setState(() => _showTeam = true),
+                  badge: ref.watch(_teamLeaveRequestsProvider).valueOrNull
+                      ?.where((r) => (r as Map<String, dynamic>?)?['status'] == 'PENDING')
+                      .length,
+                )),
+              ]),
+            ),
+            const SizedBox(height: 14),
+          ] else
+            const SizedBox(height: 8),
+
+          // Content — My Requests
+          if (!_showTeam || !canApprove) ...[
+            requests.when(
+              data: (list) => list.isEmpty
+                  ? Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: ds.bgCard,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: ds.border),
+                      ),
+                      child: Center(child: Text('No leave requests yet',
+                          style: TextStyle(color: ds.textMuted))),
+                    )
+                  : Column(
+                      children: list.map((r) => _LeaveRequestTile(r as Map<String, dynamic>)).toList(),
                     ),
-                    child: Center(child: Text('No leave requests yet',
-                        style: TextStyle(color: ds.textMuted))),
-                  )
-                : Column(
-                    children: list.map((r) => _LeaveRequestTile(r as Map<String, dynamic>)).toList(),
-                  ),
-            loading: () => const ShimmerCard(height: 80),
-            error: (e, _) => Text('$e', style: const TextStyle(color: AppColors.error)),
-          ),
+              loading: () => const ShimmerCard(height: 80),
+              error: (e, _) => Text('$e', style: const TextStyle(color: AppColors.error)),
+            ),
+          ],
+
+          // Content — Team Requests
+          if (_showTeam && canApprove)
+            const _TeamLeaveSection(),
         ],
       ),
     );
@@ -880,48 +987,19 @@ class _LeaveTab extends ConsumerWidget {
     const colors = [AppColors.success, AppColors.warning, AppColors.info, AppColors.accent];
     return list.asMap().entries.map((e) {
       final b  = e.value as Map<String, dynamic>;
-      // leave_type may be a nested map or a direct string
-      final lt = b['leave_type'] is Map
-          ? b['leave_type'] as Map<String, dynamic>
-          : <String, dynamic>{};
-      final name = lt['name'] as String?
-          ?? b['leave_type_name'] as String?
-          ?? b['leaveTypeName'] as String?
-          ?? b['type'] as String?
-          ?? 'Leave ${e.key + 1}';
-
-      // --- remaining days: try direct fields first ---
-      final rawRemaining = b['remaining_days']
-          ?? b['remaining']
-          ?? b['balance']
-          ?? b['remainingDays']
-          ?? b['days_remaining']
-          ?? b['available_days'];
-
+      final lt = b['leave_type'] is Map ? b['leave_type'] as Map<String, dynamic> : <String, dynamic>{};
+      final name = lt['name'] as String? ?? b['leave_type_name'] as String? ?? b['leaveTypeName'] as String? ?? b['type'] as String? ?? 'Leave ${e.key + 1}';
+      final rawRemaining = b['remaining_days'] ?? b['remaining'] ?? b['balance'] ?? b['remainingDays'] ?? b['days_remaining'] ?? b['available_days'];
       String remaining;
       if (rawRemaining != null) {
-        remaining = rawRemaining is num
-            ? rawRemaining.toInt().toString()
-            : '$rawRemaining';
+        remaining = rawRemaining is num ? rawRemaining.toInt().toString() : '$rawRemaining';
       } else {
-        // fallback: compute total_allocated − used_days
-        final total = (b['total_allocated'] as num?)?.toInt()
-            ?? (b['total'] as num?)?.toInt()
-            ?? (b['allocated_days'] as num?)?.toInt()
-            ?? (lt['total_days'] as num?)?.toInt();
-        final used = (b['used_days'] as num?)?.toInt()
-            ?? (b['used'] as num?)?.toInt()
-            ?? (b['taken'] as num?)?.toInt()
-            ?? (b['taken_days'] as num?)?.toInt();
-        if (total != null && used != null) {
-          remaining = '${total - used}';
-        } else if (total != null) {
-          remaining = '$total';
-        } else {
-          remaining = '—';
-        }
+        final total = (b['total_allocated'] as num?)?.toInt() ?? (b['total'] as num?)?.toInt() ?? (b['allocated_days'] as num?)?.toInt() ?? (lt['total_days'] as num?)?.toInt();
+        final used  = (b['used_days'] as num?)?.toInt() ?? (b['used'] as num?)?.toInt() ?? (b['taken'] as num?)?.toInt() ?? (b['taken_days'] as num?)?.toInt();
+        if (total != null && used != null) remaining = '${total - used}';
+        else if (total != null) remaining = '$total';
+        else remaining = '—';
       }
-
       return (name, remaining, colors[e.key % colors.length]);
     }).toList();
   }
@@ -932,8 +1010,6 @@ class _LeaveTab extends ConsumerWidget {
     DateTime? from;
     DateTime? to;
     String?   leaveTypeId;
-
-    // Build leave-type options from balance list
     final leaveTypes = balanceList.map((b) {
       final m  = b as Map<String, dynamic>;
       final lt = m['leave_type'] as Map<String, dynamic>? ?? {};
@@ -946,44 +1022,29 @@ class _LeaveTab extends ConsumerWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: context.ds.bgCard,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => StatefulBuilder(builder: (ctx, setState) {
-        return Padding(
-          padding: EdgeInsets.only(
-            left: 20, right: 20, top: 20,
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
-          ),
+        return SingleChildScrollView(
+          padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(ctx).viewInsets.bottom + 24),
           child: Form(
             key: formKey,
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Apply for Leave',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              const Text('Apply for Leave', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
               const SizedBox(height: 16),
               if (leaveTypes.isNotEmpty) ...[
                 DropdownButtonFormField<String>(
                   value: leaveTypeId,
                   decoration: const InputDecoration(labelText: 'Leave Type'),
-                  items: leaveTypes.map((t) =>
-                    DropdownMenuItem(value: t.$1, child: Text(t.$2)),
-                  ).toList(),
+                  items: leaveTypes.map((t) => DropdownMenuItem(value: t.$1, child: Text(t.$2))).toList(),
                   onChanged: (v) => setState(() => leaveTypeId = v),
                   validator: (v) => v == null ? 'Select a leave type' : null,
                 ),
                 const SizedBox(height: 12),
               ],
               Row(children: [
-                Expanded(child: _DatePicker(
-                  label: 'From Date',
-                  value: from,
-                  onPick: (d) => setState(() => from = d),
-                )),
+                Expanded(child: _DatePicker(label: 'From Date', value: from, onPick: (d) => setState(() => from = d))),
                 const SizedBox(width: 12),
-                Expanded(child: _DatePicker(
-                  label: 'To Date',
-                  value: to,
-                  onPick: (d) => setState(() => to = d),
-                )),
+                Expanded(child: _DatePicker(label: 'To Date', value: to, onPick: (d) => setState(() => to = d))),
               ]),
               const SizedBox(height: 12),
               TextFormField(
@@ -997,15 +1058,13 @@ class _LeaveTab extends ConsumerWidget {
                 width: double.infinity,
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primaryLight,
-                    foregroundColor: Colors.white,
+                    backgroundColor: AppColors.primaryLight, foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   onPressed: () async {
                     if (!formKey.currentState!.validate() || from == null || to == null) {
-                      ScaffoldMessenger.of(ctx).showSnackBar(
-                          const SnackBar(content: Text('Please fill all fields')));
+                      ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Please fill all fields')));
                       return;
                     }
                     try {
@@ -1023,16 +1082,13 @@ class _LeaveTab extends ConsumerWidget {
                       if (ctx.mounted) {
                         Navigator.pop(ctx);
                         ScaffoldMessenger.of(ctx).showSnackBar(
-                          const SnackBar(content: Text('Leave request submitted!'),
-                              backgroundColor: AppColors.success),
+                          const SnackBar(content: Text('Leave request submitted!'), backgroundColor: AppColors.success),
                         );
                       }
                     } catch (e) {
-                      if (ctx.mounted) {
-                        ScaffoldMessenger.of(ctx).showSnackBar(
-                          SnackBar(content: Text('Failed: $e'), backgroundColor: AppColors.error),
-                        );
-                      }
+                      if (ctx.mounted) ScaffoldMessenger.of(ctx).showSnackBar(
+                        SnackBar(content: Text('Failed: $e'), backgroundColor: AppColors.error),
+                      );
                     }
                   },
                   child: const Text('Submit', style: TextStyle(fontWeight: FontWeight.w600)),
@@ -1043,6 +1099,372 @@ class _LeaveTab extends ConsumerWidget {
         );
       }),
     );
+  }
+}
+
+// ── Toggle button ─────────────────────────────────────────────────────────────
+
+class _ToggleBtn extends StatelessWidget {
+  const _ToggleBtn({required this.label, required this.icon, required this.selected, required this.onTap, this.badge});
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+  final int? badge;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds = context.ds;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(11),
+        ),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(icon, size: 14, color: selected ? Colors.white : ds.textMuted),
+          const SizedBox(width: 6),
+          Text(label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: selected ? Colors.white : ds.textMuted,
+              )),
+          if (badge != null && badge! > 0) ...[
+            const SizedBox(width: 5),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(
+                color: selected ? Colors.white.withOpacity(0.25) : AppColors.ragAmber.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text('$badge',
+                  style: TextStyle(
+                    fontSize: 10, fontWeight: FontWeight.w800,
+                    color: selected ? Colors.white : AppColors.ragAmber,
+                  )),
+            ),
+          ],
+        ]),
+      ),
+    );
+  }
+}
+
+// ── Team Leave Section ────────────────────────────────────────────────────────
+
+class _TeamLeaveSection extends ConsumerStatefulWidget {
+  const _TeamLeaveSection();
+  @override
+  ConsumerState<_TeamLeaveSection> createState() => _TeamLeaveSectionState();
+}
+
+class _TeamLeaveSectionState extends ConsumerState<_TeamLeaveSection> {
+  String _filter = 'PENDING';
+
+  static const _filters = ['ALL', 'PENDING', 'APPROVED', 'REJECTED'];
+
+  Future<void> _approve(String id) async {
+    try {
+      await ApiClient.instance.patch(
+        '${AppConstants.basePeople}/leave/requests/$id/approve',
+        data: {},
+      );
+      ref.invalidate(_teamLeaveRequestsProvider);
+      ref.invalidate(_leaveBalanceProvider);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Leave approved'), backgroundColor: AppColors.success),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    }
+  }
+
+  Future<void> _showRejectDialog(String id) async {
+    final ctrl = TextEditingController();
+    final ds   = context.ds;
+    final ok   = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ds.bgCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Reject Leave', style: TextStyle(fontWeight: FontWeight.w800, color: ds.textPrimary)),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('Provide a reason for rejection.', style: TextStyle(fontSize: 13, color: ds.textSecondary)),
+          const SizedBox(height: 12),
+          TextField(
+            controller: ctrl,
+            autofocus: true,
+            maxLines: 3,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: InputDecoration(
+              hintText: 'Rejection reason (required)',
+              hintStyle: TextStyle(color: ds.textMuted),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('Cancel', style: TextStyle(color: ds.textMuted))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.ragRed, foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final notes = ctrl.text.trim();
+    if (notes.isEmpty) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Rejection reason required.'), backgroundColor: AppColors.error),
+      );
+      return;
+    }
+    try {
+      await ApiClient.instance.patch(
+        '${AppConstants.basePeople}/leave/requests/$id/reject',
+        data: {'notes': notes},
+      );
+      ref.invalidate(_teamLeaveRequestsProvider);
+      ref.invalidate(_leaveBalanceProvider);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Leave rejected'), backgroundColor: AppColors.ragAmber),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed: $e'), backgroundColor: AppColors.error),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ds       = context.ds;
+    final teamData = ref.watch(_teamLeaveRequestsProvider);
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+
+      // Filter chips
+      SizedBox(
+        height: 36,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: _filters.length,
+          separatorBuilder: (_, __) => const SizedBox(width: 8),
+          itemBuilder: (_, i) {
+            final f = _filters[i];
+            final selected = _filter == f;
+            final count = teamData.valueOrNull == null ? null
+                : f == 'ALL' ? teamData.valueOrNull!.length
+                : teamData.valueOrNull!.where((r) {
+                    final m = r as Map<String, dynamic>;
+                    return (m['status'] as String? ?? '') == f;
+                  }).length;
+            return FilterChip(
+              label: Text(
+                '${f[0]}${f.substring(1).toLowerCase()}${count != null && count > 0 ? ' ($count)' : ''}',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected ? Colors.white : ds.textSecondary,
+                ),
+              ),
+              selected: selected,
+              onSelected: (_) => setState(() => _filter = f),
+              selectedColor: AppColors.primary,
+              backgroundColor: ds.bgCard,
+              checkmarkColor: Colors.white,
+              side: BorderSide(color: selected ? AppColors.primary : ds.border),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              visualDensity: VisualDensity.compact,
+            );
+          },
+        ),
+      ),
+      const SizedBox(height: 10),
+
+      teamData.when(
+        data: (all) {
+          final list = _filter == 'ALL'
+              ? all
+              : all.where((r) {
+                  final m = r as Map<String, dynamic>;
+                  return (m['status'] as String? ?? '') == _filter;
+                }).toList();
+
+          if (list.isEmpty) {
+            return Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: ds.bgCard,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: ds.border),
+              ),
+              child: Center(child: Text(
+                _filter == 'ALL' ? 'No team leave requests' : 'No ${_filter.toLowerCase()} requests',
+                style: TextStyle(color: ds.textMuted),
+              )),
+            );
+          }
+
+          return Column(
+            children: list.map((r) {
+              final m = r as Map<String, dynamic>;
+              final id     = (m['ROWID'] ?? m['id'] ?? '').toString();
+              final status = m['status'] as String? ?? 'PENDING';
+              return _TeamLeaveCard(
+                data: m,
+                onApprove: status == 'PENDING' ? () => _approve(id) : null,
+                onReject:  status == 'PENDING' ? () => _showRejectDialog(id) : null,
+              );
+            }).toList(),
+          );
+        },
+        loading: () => Column(
+          children: List.generate(2, (_) => const ShimmerCard(height: 90)),
+        ),
+        error: (e, _) => Text('$e', style: const TextStyle(color: AppColors.error)),
+      ),
+    ]);
+  }
+}
+
+class _TeamLeaveCard extends StatelessWidget {
+  const _TeamLeaveCard({required this.data, this.onApprove, this.onReject});
+  final Map<String, dynamic> data;
+  final VoidCallback? onApprove;
+  final VoidCallback? onReject;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds     = context.ds;
+    final name   = data['user_name']  as String? ?? data['employeeName'] as String? ?? '—';
+    final avatar = data['user_avatar_url'] as String? ?? data['avatarUrl'] as String?;
+    final status = data['status']     as String? ?? 'PENDING';
+    final from   = data['start_date'] as String? ?? '—';
+    final to     = data['end_date']   as String? ?? '—';
+    final reason = data['reason']     as String?;
+    final leaveType = data['leave_type_name'] as String?
+        ?? (data['leave_type'] is Map ? (data['leave_type'] as Map)['name'] as String? : null)
+        ?? data['leave_type'] as String? ?? '';
+
+    final (statusColor, statusLabel) = switch (status) {
+      'APPROVED'  => (AppColors.ragGreen,  'Approved'),
+      'REJECTED'  => (AppColors.ragRed,    'Rejected'),
+      'CANCELLED' => (AppColors.textMuted, 'Cancelled'),
+      _           => (AppColors.ragAmber,  'Pending'),
+    };
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: ds.bgCard,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: statusColor.withOpacity(0.3)),
+      ),
+      child: Row(children: [
+        Container(
+          width: 4,
+          constraints: const BoxConstraints(minHeight: 80),
+          decoration: BoxDecoration(
+            color: statusColor,
+            borderRadius: const BorderRadius.horizontal(left: Radius.circular(13)),
+          ),
+        ),
+        Expanded(child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              UserAvatar(name: name, avatarUrl: avatar, radius: 16, border: false),
+              const SizedBox(width: 8),
+              Expanded(child: Text(name,
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: ds.textPrimary))),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(statusLabel,
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: statusColor)),
+              ),
+            ]),
+            const SizedBox(height: 6),
+            Row(children: [
+              if (leaveType.isNotEmpty) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(leaveType,
+                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+                          color: AppColors.primaryLight)),
+                ),
+                const SizedBox(width: 8),
+              ],
+              Icon(Icons.date_range_rounded, size: 11, color: ds.textMuted),
+              const SizedBox(width: 4),
+              Text('${_fmtDate(from)} – ${_fmtDate(to)}',
+                  style: TextStyle(fontSize: 11, color: ds.textSecondary)),
+            ]),
+            if (reason != null && reason.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(reason, style: TextStyle(fontSize: 11, color: ds.textMuted),
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+            ],
+            if (onApprove != null || onReject != null) ...[
+              const SizedBox(height: 8),
+              Row(children: [
+                if (onReject != null)
+                  Expanded(child: OutlinedButton.icon(
+                    icon: const Icon(Icons.close_rounded, size: 13),
+                    label: const Text('Reject', style: TextStyle(fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.ragRed,
+                      side: BorderSide(color: AppColors.ragRed.withOpacity(0.4)),
+                      padding: const EdgeInsets.symmetric(vertical: 7),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: onReject,
+                  )),
+                if (onApprove != null && onReject != null) const SizedBox(width: 8),
+                if (onApprove != null)
+                  Expanded(child: ElevatedButton.icon(
+                    icon: const Icon(Icons.check_rounded, size: 13),
+                    label: const Text('Approve', style: TextStyle(fontSize: 12)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.ragGreen,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 7),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: onApprove,
+                  )),
+              ]),
+            ],
+          ]),
+        )),
+      ]),
+    );
+  }
+
+  static String _fmtDate(String s) {
+    if (s == '—') return s;
+    try { return DateFormat('d MMM').format(DateTime.parse(s)); } catch (_) { return s; }
   }
 }
 
