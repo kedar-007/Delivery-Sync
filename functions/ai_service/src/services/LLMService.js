@@ -141,9 +141,10 @@ class LLMService {
 
     // For this Zoho Qwen model, max_tokens is the TOTAL context window (input + output).
     // Estimate input tokens at ~2.5 chars/token and add the desired output budget on top.
+    // Hard cap at 2048 — the crm-di-qwen_text_moe_30b model returns 500 above this.
     const desiredOutputTokens  = options.max_tokens ?? LLM_CONFIG.MAX_TOKENS;
     const estimatedInputTokens = Math.ceil(prompt.length / 2.5);
-    const effectiveMaxTokens   = estimatedInputTokens + desiredOutputTokens;
+    const effectiveMaxTokens   = Math.min(2048, estimatedInputTokens + desiredOutputTokens);
 
     const payload = {
       prompt,
@@ -187,6 +188,17 @@ class LLMService {
         throw Object.assign(new Error(structured.details?.error?.message || structured.message), { llmError: structured });
       }
 
+      // "Failure from server side" = the model itself crashed — retrying never helps.
+      const statusMsg = String(
+        err.response?.data?.details?.status_details?.message ??
+        err.response?.data?.status_details?.message ?? ''
+      ).toLowerCase();
+      const isModelCrash = statusMsg.includes('failure from server') || statusMsg.includes('failure from server side');
+      if (isModelCrash) {
+        console.warn('[LLMService] Model server-side failure (non-retryable) — skipping retries');
+        throw Object.assign(new Error('LLM model unavailable (server-side failure)'), { llmError: err.response?.data });
+      }
+
       if ((isServerError || isTimeout) && retriesLeft > 0) {
         const delay = LLMService.RETRY_DELAY_MS * (LLMService.MAX_RETRIES - retriesLeft + 1);
         console.warn(`[LLMService] Transient error (${err.message}), retrying in ${delay}ms… (${retriesLeft} left)`);
@@ -195,10 +207,9 @@ class LLMService {
       }
 
       const structured = handleAPIError(err, 'LLM');
-      console.error('[LLMService] LLM call failed:', JSON.stringify(structured, null, 2));
-      // Also log the raw Axios response body for deeper diagnosis
+      console.warn('[LLMService] LLM call failed:', JSON.stringify(structured, null, 2));
       if (err.response?.data) {
-        console.error('[LLMService] Raw error body:', JSON.stringify(err.response.data, null, 2));
+        console.warn('[LLMService] Raw error body:', JSON.stringify(err.response.data, null, 2));
       }
       throw Object.assign(new Error(structured.message), { llmError: structured });
     }

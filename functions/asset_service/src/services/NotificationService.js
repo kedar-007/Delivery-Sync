@@ -551,6 +551,117 @@ class NotificationService {
     });
   }
 
+  _assetApprovedTemplate(name, approverName, categoryName, message) {
+    const body = `
+      <p style="font-size:15px;color:#374151;margin:0 0 20px;">Hi <strong>${name}</strong>,</p>
+      <p style="font-size:14px;color:#6b7280;margin:0 0 8px;">
+        Great news! <strong style="color:#374151;">${approverName}</strong> has approved your asset request.
+        The operations team has been notified and will process it shortly.
+      </p>
+      ${this._infoCard([
+        ['Category',    categoryName],
+        ['Approved By', approverName],
+        ['Status',      'APPROVED', '#16a34a'],
+      ])}
+      ${message ? `<div style="background:#f0fdf4;border-left:4px solid #16a34a;border-radius:0 6px 6px 0;padding:14px 16px;margin:16px 0;">
+        <p style="margin:0 0 4px;font-size:12px;font-weight:600;color:#15803d;text-transform:uppercase;letter-spacing:0.5px;">Note from Approver</p>
+        <p style="margin:0;font-size:14px;color:#166534;">${message}</p>
+      </div>` : ''}
+      <p style="font-size:13px;color:#6b7280;margin:16px 0 0;">You will be notified again when the asset is ready for pickup.</p>`;
+    return this._base({
+      accentColor: '#16a34a',
+      preheader: `${approverName} approved your asset request`,
+      headerTitle: 'Asset Request Approved',
+      headerSubtitle: `Category: ${categoryName}`,
+      body, ctaUrl: '/assets', ctaLabel: 'View Asset Requests',
+    });
+  }
+
+  _assetOpsAssignedTemplate(name, approverName, requesterName, categoryName, message) {
+    const body = `
+      <p style="font-size:15px;color:#374151;margin:0 0 20px;">Hi <strong>${name}</strong>,</p>
+      <p style="font-size:14px;color:#6b7280;margin:0 0 8px;">
+        <strong style="color:#374151;">${approverName}</strong> has assigned an asset request to you for processing.
+        Please source the asset, add device details if applicable, and hand it over to the requester.
+      </p>
+      ${this._infoCard([
+        ['Requested By', requesterName],
+        ['Category',     categoryName],
+        ['Approved By',  approverName],
+        ['Action Required', 'Process & Hand Over', '#d97706'],
+      ])}
+      ${message ? `<div style="background:#fffbeb;border-left:4px solid #d97706;border-radius:0 6px 6px 0;padding:14px 16px;margin:16px 0;">
+        <p style="margin:0 0 4px;font-size:12px;font-weight:600;color:#92400e;text-transform:uppercase;letter-spacing:0.5px;">Message from Approver</p>
+        <p style="margin:0;font-size:14px;color:#92400e;">${message}</p>
+      </div>` : ''}`;
+    return this._base({
+      accentColor: '#d97706',
+      preheader: `Asset request assigned to you by ${approverName}`,
+      headerTitle: 'Asset Request — Action Required',
+      headerSubtitle: `Please process and hand over to ${requesterName}`,
+      body, ctaUrl: '/assets', ctaLabel: 'View Request',
+    });
+  }
+
+  _assetHandoverTemplate(name, handoverName, assetName, deviceId, deviceUsername, devicePassword, notes) {
+    const credRows = [];
+    if (deviceId)       credRows.push(['Device ID',       deviceId]);
+    if (deviceUsername) credRows.push(['Username / Login', deviceUsername]);
+    if (devicePassword) credRows.push(['Password',         devicePassword]);
+    const credBlock = credRows.length ? `
+      <p style="font-size:13px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:0.5px;margin:20px 0 6px;">🔐 Device Credentials</p>
+      ${this._infoCard(credRows.map(([l, v]) => [l, v]))}
+      <p style="font-size:12px;color:#9ca3af;margin:4px 0 0;">Please save these credentials securely and delete this email after noting them down.</p>` : '';
+    const body = `
+      <p style="font-size:15px;color:#374151;margin:0 0 20px;">Hi <strong>${name}</strong>,</p>
+      <p style="font-size:14px;color:#6b7280;margin:0 0 8px;">
+        <strong style="color:#374151;">${handoverName}</strong> has processed your asset request.
+        Your asset is now ready for pickup.
+      </p>
+      ${this._infoCard([
+        ['Asset',        assetName],
+        ['Processed By', handoverName],
+        ['Status',       'READY FOR PICKUP', '#7c3aed'],
+      ])}
+      ${credBlock}
+      ${notes ? `<div style="background:#f5f3ff;border-left:4px solid #7c3aed;border-radius:0 6px 6px 0;padding:14px 16px;margin:16px 0;">
+        <p style="margin:0 0 4px;font-size:12px;font-weight:600;color:#5b21b6;text-transform:uppercase;letter-spacing:0.5px;">Handover Notes</p>
+        <p style="margin:0;font-size:14px;color:#4c1d95;">${notes}</p>
+      </div>` : ''}`;
+    return this._base({
+      accentColor: '#7c3aed',
+      preheader: `Your asset "${assetName}" is ready for pickup`,
+      headerTitle: 'Asset Ready for Pickup',
+      headerSubtitle: `Processed by: ${handoverName}`,
+      body, ctaUrl: '/assets', ctaLabel: 'View My Assets',
+    });
+  }
+
+  _assetHandoverManagerTemplate(name, handoverName, requesterName, assetName, notes) {
+    const body = `
+      <p style="font-size:15px;color:#374151;margin:0 0 20px;">Hi <strong>${name}</strong>,</p>
+      <p style="font-size:14px;color:#6b7280;margin:0 0 8px;">
+        This is a confirmation that the asset request you approved has been processed and handed over.
+      </p>
+      ${this._infoCard([
+        ['Asset',        assetName],
+        ['Given To',     requesterName],
+        ['Processed By', handoverName],
+        ['Status',       'HANDED OVER', '#0891b2'],
+      ])}
+      ${notes ? `<div style="background:#f0f9ff;border-left:4px solid #0891b2;border-radius:0 6px 6px 0;padding:14px 16px;margin:16px 0;">
+        <p style="margin:0 0 4px;font-size:12px;font-weight:600;color:#0e7490;text-transform:uppercase;letter-spacing:0.5px;">Handover Notes</p>
+        <p style="margin:0;font-size:14px;color:#164e63;">${notes}</p>
+      </div>` : ''}`;
+    return this._base({
+      accentColor: '#0891b2',
+      preheader: `Asset "${assetName}" handed over to ${requesterName}`,
+      headerTitle: 'Asset Handover Complete',
+      headerSubtitle: `${assetName} → ${requesterName}`,
+      body, ctaUrl: '/assets', ctaLabel: 'View Asset Requests',
+    });
+  }
+
   _dailySummaryTemplate(name, date, submitted, missed, projectName) {
     const submittedRows = submitted.map((s) =>
       `<tr><td style="padding:8px 16px;border-bottom:1px solid #f3f4f6;">

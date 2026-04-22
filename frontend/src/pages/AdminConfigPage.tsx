@@ -34,6 +34,7 @@ import {
   useOrgRoles, useAllPermissions, useSetOrgRolePermissions,
 } from '../hooks/useAdminConfig';
 import { adminConfigApi } from '../lib/api';
+import { useConfirm } from '../components/ui/ConfirmDialog';
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 
@@ -1569,12 +1570,14 @@ function BadgeCatalogTab() {
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function AdminConfigPage() {
+  const { confirm: openConfirm } = useConfirm();
   const [activeTab, setActiveTab] = useState<TabKey>('workflows');
   const [seeding, setSeeding]   = useState(false);
   const [seedMsg, setSeedMsg]   = useState('');
 
   const handleSeedDemo = useCallback(async () => {
-    if (!window.confirm('This will insert demo projects, sprints, tasks, and time entries into your tenant. Continue?')) return;
+    const ok = await openConfirm({ title: 'Seed Demo Data', message: 'This will insert demo projects, sprints, tasks, and time entries into your tenant. This cannot be undone.', confirmText: 'Seed Data', variant: 'warning' });
+    if (!ok) return;
     setSeeding(true); setSeedMsg('');
     try {
       const result = await adminConfigApi.seed.demo();
@@ -1583,7 +1586,7 @@ export default function AdminConfigPage() {
     } catch (e: unknown) {
       setSeedMsg(`Error: ${(e as Error).message}`);
     } finally { setSeeding(false); }
-  }, []);
+  }, [openConfirm]);
 
   const tabContent: Record<TabKey, React.ReactNode> = {
     workflows:     <WorkflowsTab />,

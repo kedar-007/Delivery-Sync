@@ -111,7 +111,7 @@ class ApprovalController {
     if (approval.status !== 'PENDING') return ResponseHelper.validationError(res, 'Already reviewed');
 
     await this.db.update(TABLES.TIME_APPROVAL_REQUESTS, { ROWID: req.params.requestId, status: 'REJECTED', notes });
-    await this.db.update(TABLES.TIME_ENTRIES, { ROWID: approval.time_entry_id, status: TIME_STATUS.REJECTED, notes });
+    await this.db.update(TABLES.TIME_ENTRIES, { ROWID: approval.time_entry_id, status: TIME_STATUS.REJECTED });
 
     const entry = await this.db.findById(TABLES.TIME_ENTRIES, approval.time_entry_id, req.tenantId);
     const userRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${approval.requested_by}' LIMIT 1`);

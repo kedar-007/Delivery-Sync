@@ -302,60 +302,158 @@ class _UserCard extends StatelessWidget {
 
 // ── Audit log item ────────────────────────────────────────────────────────────
 
-class _AuditLogItem extends StatelessWidget {
+class _AuditLogItem extends StatefulWidget {
   const _AuditLogItem(this.log);
   final AuditLog log;
 
   @override
-  Widget build(BuildContext context) {
-    final ds = context.ds;
-    DateTime? createdAt;
-    try { createdAt = DateTime.parse(log.createdAt); } catch (_) {}
+  State<_AuditLogItem> createState() => _AuditLogItemState();
+}
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Timeline dot + line
-        Column(children: [
-          Container(
-            width: 10, height: 10,
-            decoration: const BoxDecoration(
-              color: AppColors.primaryLight,
-              shape: BoxShape.circle,
-            ),
-          ),
-          Container(width: 2, height: 50, color: AppColors.border),
-        ]),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
+class _AuditLogItemState extends State<_AuditLogItem> {
+  bool _expanded = false;
+
+  static Color _actionColor(String action) {
+    final a = action.toUpperCase();
+    if (a.contains('DELETE') || a.contains('REMOVE')) return AppColors.ragRed;
+    if (a.contains('CREATE') || a.contains('ADD') || a.contains('INVITE')) return AppColors.ragGreen;
+    if (a.contains('UPDATE') || a.contains('EDIT') || a.contains('CHANGE')) return AppColors.ragAmber;
+    return AppColors.primaryLight;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ds  = context.ds;
+    final log = widget.log;
+    DateTime? ts;
+    try { ts = DateTime.parse(log.createdAt); } catch (_) {}
+
+    final hasDiff = (log.oldValue != null && log.oldValue!.isNotEmpty) ||
+                    (log.newValue != null && log.newValue!.isNotEmpty);
+    final actionColor = _actionColor(log.action);
+    final name  = log.performedByName ?? log.performedByEmail ?? 'System';
+    final email = log.performedByEmail;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: ds.bgCard,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: ds.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Main row ───────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                UserAvatar(name: name, avatarUrl: log.avatarUrl, radius: 18),
+                const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    '${log.action} ${log.resource}',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
-                        color: ds.textPrimary),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // actor name + timestamp
+                      Row(children: [
+                        Expanded(
+                          child: Text(name,
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+                                color: ds.textPrimary),
+                            overflow: TextOverflow.ellipsis),
+                        ),
+                        if (ts != null)
+                          Text(
+                            DateFormat('d MMM, h:mm a').format(ts.toLocal()),
+                            style: TextStyle(fontSize: 10, color: ds.textMuted),
+                          ),
+                      ]),
+                      if (email != null && email != name) ...[
+                        const SizedBox(height: 1),
+                        Text(email, style: TextStyle(fontSize: 10, color: ds.textMuted),
+                          overflow: TextOverflow.ellipsis),
+                      ],
+                      const SizedBox(height: 6),
+                      // action badge + entity chip
+                      Wrap(spacing: 6, runSpacing: 4, children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: actionColor.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            log.action.replaceAll('_', ' '),
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700,
+                                color: actionColor),
+                          ),
+                        ),
+                        if (log.entityType != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: ds.bgElevated,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: ds.border),
+                            ),
+                            child: Text(
+                              log.entityType!.replaceAll('_', ' '),
+                              style: TextStyle(fontSize: 10, color: ds.textSecondary,
+                                  fontWeight: FontWeight.w500),
+                            ),
+                          ),
+                      ]),
+                    ],
                   ),
                 ),
-                if (createdAt != null)
-                  Text(
-                    DateFormat('d MMM, h:mm a').format(createdAt),
-                    style: TextStyle(fontSize: 10, color: ds.textMuted),
+                if (hasDiff) ...[
+                  const SizedBox(width: 6),
+                  GestureDetector(
+                    onTap: () => setState(() => _expanded = !_expanded),
+                    child: Icon(
+                      _expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                      size: 18, color: ds.textMuted,
+                    ),
                   ),
-              ]),
-              if (log.userName != null)
-                Text(log.userName!,
-                    style: TextStyle(fontSize: 11, color: ds.textMuted)),
-              if (log.details != null)
-                Text(log.details!,
-                    style: TextStyle(fontSize: 11, color: ds.textSecondary),
-                    maxLines: 2, overflow: TextOverflow.ellipsis),
-            ]),
+                ],
+              ],
+            ),
           ),
-        ),
-      ],
+          // ── Diff section ───────────────────────────────────────────────
+          if (hasDiff && _expanded)
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: ds.bgElevated,
+                border: Border(top: BorderSide(color: ds.border)),
+                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(14)),
+              ),
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (log.oldValue != null && log.oldValue!.isNotEmpty) ...[
+                    Text('Before', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600,
+                        color: AppColors.ragRed)),
+                    const SizedBox(height: 3),
+                    Text(log.oldValue!, style: TextStyle(fontSize: 11, color: ds.textSecondary),
+                        maxLines: 4, overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 8),
+                  ],
+                  if (log.newValue != null && log.newValue!.isNotEmpty) ...[
+                    Text('After', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600,
+                        color: AppColors.ragGreen)),
+                    const SizedBox(height: 3),
+                    Text(log.newValue!, style: TextStyle(fontSize: 11, color: ds.textSecondary),
+                        maxLines: 4, overflow: TextOverflow.ellipsis),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

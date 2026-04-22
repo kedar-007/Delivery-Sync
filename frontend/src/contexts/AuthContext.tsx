@@ -17,6 +17,7 @@ interface AuthContextValue {
   error: string | null;
   needsRegistration: boolean;
   isLoggedOut: boolean;
+  isDeactivated: boolean;
   suspensionInfo: SuspensionInfo | null;
   refetch: () => Promise<void>;
   logout: () => Promise<void>;
@@ -28,6 +29,7 @@ const AuthContext = createContext<AuthContextValue>({
   error: null,
   needsRegistration: false,
   isLoggedOut: false,
+  isDeactivated: false,
   suspensionInfo: null,
   refetch: async () => { },
   logout: async () => { },
@@ -73,6 +75,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     localStorage.getItem('ds_logged_out') === '1'
   );
   const [suspensionInfo, setSuspensionInfo] = useState<SuspensionInfo | null>(null);
+  const [isDeactivated, setIsDeactivated] = useState(false);
 
   const fetchUser = async () => {
     try {
@@ -80,6 +83,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setError(null);
       setNeedsReg(false);
       setSuspensionInfo(null);
+      setIsDeactivated(false);
 
       const data = await authApi.me();
       const u = data?.user ?? null;
@@ -98,6 +102,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       if (e.status === 403 && e.data?.code === 'TENANT_SUSPENDED' && e.data.suspension) {
         setSuspensionInfo(e.data.suspension);
+      } else if (e.status === 403 && e.data?.code === 'USER_DEACTIVATED') {
+        setIsDeactivated(true);
       } else if (e.status === 403) {
         setNeedsReg(true);
       }
@@ -148,7 +154,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   return (
     <AuthContext.Provider value={{
       user, loading, error,
-      needsRegistration, isLoggedOut,
+      needsRegistration, isLoggedOut, isDeactivated,
       suspensionInfo,
       refetch: fetchUser,
       logout,

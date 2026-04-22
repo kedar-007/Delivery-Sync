@@ -21,6 +21,7 @@ import {
 import { useProjects } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
+import { useConfirm } from '../components/ui/ConfirmDialog';
 import { canDo, PERMISSIONS } from '../utils/permissions';
 import { useForm, Controller } from 'react-hook-form';
 
@@ -382,6 +383,7 @@ const MemberCard = ({ member }: { member: any }) => (
 
 const TeamsPage = () => {
   const { user } = useAuth();
+  const { confirm } = useConfirm();
   const canWrite = canDo(user?.role, PERMISSIONS.TEAM_WRITE);
 
   const [projectId, setProjectId] = useState('');
@@ -461,7 +463,8 @@ const TeamsPage = () => {
   };
 
   const handleDelete = async (team: any) => {
-    if (!window.confirm(`Delete team "${team.name}"? This cannot be undone.`)) return;
+    const ok = await confirm({ title: 'Delete Team', message: `"${team.name}" will be permanently deleted. This cannot be undone.`, confirmText: 'Delete', variant: 'danger' });
+    if (!ok) return;
     try { await deleteTeam.mutateAsync(team.id); } catch { /* handled */ }
   };
 
@@ -474,7 +477,8 @@ const TeamsPage = () => {
   };
 
   const handleRemoveMember = async (memberId: string) => {
-    if (!window.confirm('Remove this member from the team?')) return;
+    const ok = await confirm({ title: 'Remove Member', message: 'This person will lose access to this team.', confirmText: 'Remove', variant: 'warning' });
+    if (!ok) return;
     try { await removeMember.mutateAsync(memberId); } catch { /* handled */ }
   };
 

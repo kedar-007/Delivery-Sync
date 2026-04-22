@@ -20,8 +20,11 @@ class TimeController {
     const me = req.currentUser;
 
     let where = '';
-    // Non-admin only see their own
-    const effectiveUserId = (me.role === 'TEAM_MEMBER') ? me.id : (user_id || null);
+    // Restrict to own entries unless user has ORG_WIDE/SUBORDINATES data scope or is TENANT_ADMIN
+    const canSeeAll = me.role === 'TENANT_ADMIN'
+      || me.dataScope === 'ORG_WIDE'
+      || me.dataScope === 'SUBORDINATES';
+    const effectiveUserId = canSeeAll ? (user_id || null) : me.id;
     if (effectiveUserId) where += `user_id = '${DataStoreService.escape(effectiveUserId)}' AND `;
     if (project_id) where += `project_id = '${DataStoreService.escape(project_id)}' AND `;
     if (task_id)    where += `task_id = '${DataStoreService.escape(task_id)}' AND `;

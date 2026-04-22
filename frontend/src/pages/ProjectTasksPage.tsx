@@ -15,6 +15,7 @@ import Badge from '../components/ui/Badge';
 import UserAvatar from '../components/ui/UserAvatar';
 import EmptyState from '../components/ui/EmptyState';
 import Alert from '../components/ui/Alert';
+import { useConfirm } from '../components/ui/ConfirmDialog';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -105,6 +106,7 @@ function Avatar({ userId, users }: { userId: string; users: User[] }) {
 export default function ProjectTasksPage() {
   const { projectId, tenantSlug } = useParams<{ projectId: string; tenantSlug: string }>();
   const { user } = useAuth();
+  const { confirm } = useConfirm();
 
   const isAdmin = ['TENANT_ADMIN', 'DELIVERY_LEAD', 'PMO'].includes(user?.role ?? '');
 
@@ -234,7 +236,8 @@ export default function ProjectTasksPage() {
   });
 
   const handleDelete = async (t: Task) => {
-    if (!window.confirm(`Delete "${t.title}"?`)) return;
+    const ok = await confirm({ title: 'Delete Task', message: `"${t.title}" will be permanently deleted.`, confirmText: 'Delete', variant: 'danger' });
+    if (!ok) return;
     await deleteTask.mutateAsync(t.id);
   };
 

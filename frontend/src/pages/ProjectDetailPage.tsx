@@ -16,8 +16,10 @@ import { useUpdateRAG, useProjectMembers, useAddMember, useRemoveMember } from '
 import { useUsers } from '../hooks/useUsers';
 import { useForm, Controller } from 'react-hook-form';
 import UserPicker from '../components/ui/UserPicker';
+import { useConfirm } from '../components/ui/ConfirmDialog';
 
 const ProjectDetailPage = () => {
+  const { confirm } = useConfirm();
   const { projectId, tenantSlug } = useParams<{ projectId: string; tenantSlug: string }>();
   const navigate = useNavigate();
   const [showRAG, setShowRAG] = useState(false);
@@ -57,7 +59,8 @@ const ProjectDetailPage = () => {
   };
 
   const handleRemoveMember = async (memberId: string) => {
-    if (!window.confirm('Remove this member from the project?')) return;
+    const ok = await confirm({ title: 'Remove Member', message: 'This person will lose access to this project.', confirmText: 'Remove', variant: 'warning' });
+    if (!ok) return;
     try { await removeMember.mutateAsync(memberId); } catch { /* handled by query */ }
   };
 

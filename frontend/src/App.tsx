@@ -45,6 +45,8 @@ import SprintsPage from "./pages/SprintsPage";
 import HelpPage from "./pages/HelpPage";
 import DataSeedPage from "./pages/DataSeedPage";
 import IpConfigPage from "./pages/IpConfigPage";
+import AccessRevokedPage from "./pages/AccessRevokedPage";
+import { ConfirmProvider } from "./components/ui/ConfirmDialog";
 
 // ── Permission-gated route wrapper ───────────────────────────────────────────
 // Redirects to /:tenantSlug/dashboard if the current user lacks `permission`.
@@ -73,11 +75,10 @@ const loadScript = (src: string): Promise<void> =>
 // ── Inner app — consumes AuthContext ──────────────────────────────────────────
 
 const AppRoutes = () => {
-  const { user, loading, isLoggedOut } = useAuth();
+  const { user, loading, isLoggedOut, isDeactivated } = useAuth();
 
-  if (loading) {
-    return <AppLoader />;
-  }
+  if (loading) return <AppLoader />;
+  if (isDeactivated) return <AccessRevokedPage />;
 
   // ✅ Single source of truth — AuthContext decides if user is logged in
   const mustLogin = !user || isLoggedOut;
@@ -181,11 +182,12 @@ const App = () => {
   }
 
   return (
-    // ✅ AuthProvider is mounted ONCE at the top — not inside routes
     <AuthProvider>
-      <HashRouter>
-        <AppRoutes />
-      </HashRouter>
+      <ConfirmProvider>
+        <HashRouter>
+          <AppRoutes />
+        </HashRouter>
+      </ConfirmProvider>
     </AuthProvider>
   );
 };
