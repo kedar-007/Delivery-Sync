@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../../core/constants/app_constants.dart';
@@ -19,11 +20,16 @@ final _projectDashboardProvider =
     FutureProvider.autoDispose.family<Map<String, dynamic>, String>(
         (ref, id) async {
   final raw = await ApiClient.instance.get<Map<String, dynamic>>(
-    '${AppConstants.baseCore}/projects/$id/dashboard',
+    '${AppConstants.baseCore}/dashboard/project/$id',
     fromJson: (r) => r as Map<String, dynamic>,
   );
   final d = raw['data'];
-  if (d is Map<String, dynamic>) return d;
+  if (d is Map<String, dynamic>) {
+    // API returns stats nested under 'stats' key — flatten into top level
+    // so the Overview widgets can read d['totalMembers'] etc. directly.
+    final stats = (d['stats'] as Map<String, dynamic>?) ?? {};
+    return {...d, ...stats};
+  }
   return {};
 });
 
@@ -378,15 +384,9 @@ class _OverviewTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final ds        = context.ds;
     final dashboard = ref.watch(_projectDashboardProvider(project.id));
-    final blockers  = ref.watch(_projectBlockersProvider(project.id));
-    final actions   = ref.watch(_projectActionsProvider(project.id));
 
     return RefreshIndicator(
-      onRefresh: () async {
-        ref.invalidate(_projectDashboardProvider(project.id));
-        ref.invalidate(_projectBlockersProvider(project.id));
-        ref.invalidate(_projectActionsProvider(project.id));
-      },
+      onRefresh: () async => ref.invalidate(_projectDashboardProvider(project.id)),
       color: AppColors.primaryLight,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 20, 16, 100),
@@ -402,67 +402,97 @@ class _OverviewTab extends ConsumerWidget {
               ),
               child: Text(
                 project.description!,
-                style: TextStyle(
-                    fontSize: 14,
-                    color: ds.textSecondary,
-                    height: 1.6),
+                style: TextStyle(fontSize: 14, color: ds.textSecondary, height: 1.6),
               ),
             ).animate().fadeIn(duration: 300.ms).slideY(begin: 0.05),
             const SizedBox(height: 16),
           ],
 
+          // ── Quick nav chips ─────────────────────────────────────────
+          const _QuickNavChips(),
+          const SizedBox(height: 16),
+
           // ── KPI stats ───────────────────────────────────────────────
           dashboard.when(
             data: (d) {
+              final overdueActions    = d['overdueActions']    ?? 0;
+              final criticalBlockers  = d['criticalBlockers']  ?? 0;
+              final delayedMilestones = d['delayedMilestones'] ?? 0;
+              final totalHours        = d['totalHours']        ?? d['total_hours']       ?? 0;
+              final billableHours     = d['billableHours']     ?? d['billable_hours']    ?? 0;
+              final nonBillableHours  = d['nonBillableHours']  ?? d['non_billable_hours'] ?? 0;
+
+              String fmt(dynamic v) {
+                if (v is double) return v == v.truncateToDouble() ? '${v.toInt()}' : v.toStringAsFixed(1);
+                return '$v';
+              }
+
               final stats = [
                 _KpiStat(
-                  '${d['memberCount'] ?? d['members'] ?? project.memberCount}',
-                  'Members',
-                  Icons.group_rounded,
-                  AppColors.info,
+                  '${d['totalMembers'] ?? d['memberCount'] ?? project.memberCount}',
+                  'Members', Icons.group_rounded, AppColors.info,
                 ),
                 _KpiStat(
                   '${d['openActions'] ?? d['actionsCount'] ?? 0}',
-                  'Actions',
-                  Icons.task_alt_rounded,
-                  AppColors.warning,
+                  'Actions', Icons.task_alt_rounded,
+                  overdueActions > 0 ? AppColors.error : AppColors.success,
+                  sublabel: overdueActions > 0 ? '$overdueActions overdue' : 'On track',
                 ),
                 _KpiStat(
                   '${d['openBlockers'] ?? d['blockersCount'] ?? 0}',
-                  'Blockers',
-                  Icons.block_rounded,
-                  AppColors.error,
+                  'Blockers', Icons.block_rounded,
+                  criticalBlockers > 0 ? AppColors.error : AppColors.ragAmber,
+                  sublabel: criticalBlockers > 0 ? '$criticalBlockers critical' : null,
                 ),
                 _KpiStat(
-                  '${d['milestoneCount'] ?? d['milestones'] ?? 0}',
-                  'Milestones',
-                  Icons.flag_rounded,
-                  AppColors.success,
+                  '${d['totalMilestones'] ?? d['milestoneCount'] ?? 0}',
+                  'Milestones', Icons.flag_rounded,
+                  delayedMilestones > 0 ? AppColors.error : AppColors.success,
+                  sublabel: delayedMilestones > 0 ? '$delayedMilestones delayed' : 'On track',
+                ),
+                _KpiStat(
+                  '${d['totalStandups'] ?? 0}',
+                  'Standups (7d)', Icons.bar_chart_rounded, const Color(0xFF7c3aed),
+                ),
+                _KpiStat(
+                  '${d['taskCount'] ?? 0}',
+                  'Total Tasks', Icons.checklist_rounded, AppColors.info,
+                ),
+                _KpiStat(
+                  fmt(billableHours),
+                  'Billable Hrs', Icons.access_time_rounded, AppColors.success,
+                  sublabel: 'hrs logged',
+                ),
+                _KpiStat(
+                  fmt(nonBillableHours),
+                  'Non-Billable', Icons.timelapse_rounded, AppColors.ragAmber,
+                  sublabel: 'hrs logged',
+                ),
+                _KpiStat(
+                  fmt(totalHours),
+                  'Total Hours', Icons.schedule_rounded, const Color(0xFF7c3aed),
+                  sublabel: 'hrs logged',
                 ),
               ];
-              return Row(
-                children: stats.asMap().entries.map((e) {
-                  final i = e.key;
-                  final s = e.value;
-                  return Expanded(
-                    child: Padding(
-                      padding: EdgeInsets.only(left: i == 0 ? 0 : 8),
-                      child: _KpiCard(stat: s),
-                    ),
-                  );
-                }).toList(),
+
+              return GridView.count(
+                crossAxisCount: 3,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+                childAspectRatio: 0.95,
+                children: stats.map((s) => _KpiCard(stat: s)).toList(),
               ).animate().fadeIn(duration: 300.ms, delay: 100.ms);
             },
-            loading: () => Row(
-              children: List.generate(
-                4,
-                (i) => Expanded(
-                  child: Padding(
-                    padding: EdgeInsets.only(left: i == 0 ? 0 : 8),
-                    child: const ShimmerCard(height: 72),
-                  ),
-                ),
-              ),
+            loading: () => GridView.count(
+              crossAxisCount: 3,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+              childAspectRatio: 0.95,
+              children: List.generate(9, (_) => const ShimmerCard(height: 72)),
             ),
             error: (_, __) => const SizedBox.shrink(),
           ),
@@ -482,33 +512,57 @@ class _OverviewTab extends ConsumerWidget {
               .animate()
               .fadeIn(duration: 300.ms, delay: 200.ms),
 
-          // ── Open Blockers ───────────────────────────────────────────
+          // ── Milestones preview ──────────────────────────────────────
           const SizedBox(height: 24),
-          _PremiumSectionHeader(
+          const _PremiumSectionHeader(
+            title: 'Milestones',
+            icon: Icons.flag_rounded,
+            color: AppColors.info,
+          ),
+          const SizedBox(height: 10),
+          dashboard.when(
+            data: (d) {
+              final list = (d['milestones'] as List? ?? []).take(3).toList();
+              if (list.isEmpty) {
+                return const _EmptyState(
+                  message: 'No milestones yet',
+                  color: AppColors.success,
+                  icon: Icons.check_circle_rounded,
+                );
+              }
+              return Column(
+                children: list.asMap().entries
+                    .map((e) => _MilestonePreviewCard(
+                          m: e.value as Map<String, dynamic>,
+                          delay: e.key * 40,
+                        ))
+                    .toList(),
+              );
+            },
+            loading: () => const ShimmerCard(height: 60),
+            error: (_, __) => const SizedBox.shrink(),
+          ),
+
+          // ── Open Blockers preview ───────────────────────────────────
+          const SizedBox(height: 24),
+          const _PremiumSectionHeader(
             title: 'Open Blockers',
             icon: Icons.block_rounded,
             color: AppColors.error,
           ),
           const SizedBox(height: 10),
-          blockers.when(
-            data: (list) {
-              final open = list
-                  .where((b) =>
-                      ((b as Map<String, dynamic>)['status'] as String? ?? '') !=
-                      'RESOLVED')
-                  .take(3)
-                  .toList();
-              if (open.isEmpty) {
-                return _EmptyState(
+          dashboard.when(
+            data: (d) {
+              final list = (d['openBlockersPreview'] as List? ?? []).take(3).toList();
+              if (list.isEmpty) {
+                return const _EmptyState(
                   message: 'No open blockers',
                   color: AppColors.success,
                   icon: Icons.check_circle_rounded,
                 );
               }
               return Column(
-                children: open
-                    .asMap()
-                    .entries
+                children: list.asMap().entries
                     .map((e) => _BlockerCard(
                           b: e.value as Map<String, dynamic>,
                           delay: e.key * 40,
@@ -520,35 +574,26 @@ class _OverviewTab extends ConsumerWidget {
             error: (_, __) => const SizedBox.shrink(),
           ),
 
-          // ── Actions ────────────────────────────────────────────────
+          // ── Overdue Actions preview ─────────────────────────────────
           const SizedBox(height: 24),
-          _PremiumSectionHeader(
-            title: 'Actions',
+          const _PremiumSectionHeader(
+            title: 'Overdue Actions',
             icon: Icons.task_alt_rounded,
             color: AppColors.warning,
           ),
           const SizedBox(height: 10),
-          actions.when(
-            data: (list) {
-              final open = list
-                  .where((a) {
-                    final s =
-                        (a as Map<String, dynamic>)['status'] as String? ?? '';
-                    return s != 'DONE' && s != 'CANCELLED';
-                  })
-                  .take(3)
-                  .toList();
-              if (open.isEmpty) {
-                return _EmptyState(
-                  message: 'No open actions',
+          dashboard.when(
+            data: (d) {
+              final list = (d['openActionsPreview'] as List? ?? []).take(3).toList();
+              if (list.isEmpty) {
+                return const _EmptyState(
+                  message: 'No overdue actions',
                   color: AppColors.success,
                   icon: Icons.check_circle_rounded,
                 );
               }
               return Column(
-                children: open
-                    .asMap()
-                    .entries
+                children: list.asMap().entries
                     .map((e) => _ActionCard(
                           a: e.value as Map<String, dynamic>,
                           delay: e.key * 40,
@@ -565,12 +610,143 @@ class _OverviewTab extends ConsumerWidget {
       ),
     );
   }
+}
 
-  static Color _ragColor(String rag) => switch (rag) {
-        'RED'   => AppColors.ragRed,
-        'AMBER' => AppColors.ragAmber,
-        _       => AppColors.ragGreen,
-      };
+// ─────────────────────────────────────────────────────────────────────────────
+//  Quick nav chips
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _QuickNavChips extends StatelessWidget {
+  const _QuickNavChips();
+
+  @override
+  Widget build(BuildContext context) {
+    final ds = context.ds;
+    final chips = [
+      (Icons.checklist_rounded,    'My Tasks',    '/sprints/my-tasks', AppColors.info),
+      (Icons.bar_chart_rounded,    'Standup',     '/more/standup',     const Color(0xFF7c3aed)),
+      (Icons.block_rounded,        'Blockers',    '/more/blockers',    AppColors.error),
+      (Icons.flag_rounded,         'Milestones',  '/more/milestones',  AppColors.success),
+    ];
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: chips.map((c) {
+          final (icon, label, route, color) = c;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: GestureDetector(
+              onTap: () => context.push(route),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: color.withOpacity(0.25)),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(icon, size: 13, color: color),
+                  const SizedBox(width: 5),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: color,
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Milestone preview card (compact, for Overview tab)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _MilestonePreviewCard extends StatelessWidget {
+  const _MilestonePreviewCard({required this.m, this.delay = 0});
+  final Map<String, dynamic> m;
+  final int delay;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds     = context.ds;
+    final title  = m['title'] as String? ?? '—';
+    final due    = m['dueDate'] as String? ?? m['due_date'] as String?;
+    final status = (m['status'] as String? ?? 'PENDING').toUpperCase();
+    final isDone = status == 'COMPLETED';
+    DateTime? dueDate;
+    try { if (due != null) dueDate = DateTime.parse(due); } catch (_) {}
+    final isOver = dueDate != null && dueDate.isBefore(DateTime.now()) && !isDone;
+    final color  = isDone ? AppColors.success : isOver ? AppColors.error : AppColors.info;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: ds.bgCard,
+        borderRadius: BorderRadius.circular(14),
+        border: Border(
+          left: BorderSide(color: color, width: 3),
+          top: BorderSide(color: ds.border),
+          right: BorderSide(color: ds.border),
+          bottom: BorderSide(color: ds.border),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(children: [
+          Icon(
+            isDone ? Icons.check_circle_rounded : Icons.flag_rounded,
+            size: 16,
+            color: color,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              title,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: ds.textPrimary,
+                decoration: isDone ? TextDecoration.lineThrough : null,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (dueDate != null)
+            Text(
+              DateFormat('d MMM').format(dueDate),
+              style: TextStyle(
+                fontSize: 11,
+                color: isOver ? AppColors.error : ds.textMuted,
+                fontWeight: isOver ? FontWeight.w700 : FontWeight.normal,
+              ),
+            ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              isDone ? 'Done' : isOver ? 'Overdue' : 'Active',
+              style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: color),
+            ),
+          ),
+        ]),
+      ),
+    ).animate().fadeIn(duration: 250.ms, delay: Duration(milliseconds: delay));
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -578,11 +754,12 @@ class _OverviewTab extends ConsumerWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _KpiStat {
-  const _KpiStat(this.value, this.label, this.icon, this.color);
+  const _KpiStat(this.value, this.label, this.icon, this.color, {this.sublabel});
   final String value;
   final String label;
   final IconData icon;
   final Color color;
+  final String? sublabel;
 }
 
 class _KpiCard extends StatelessWidget {
@@ -631,6 +808,15 @@ class _KpiCard extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
+          if (stat.sublabel != null && stat.sublabel!.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              stat.sublabel!,
+              style: TextStyle(fontSize: 9, color: stat.color.withOpacity(0.8), fontWeight: FontWeight.w500),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
         ],
       ),
     );

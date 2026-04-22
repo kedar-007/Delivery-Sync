@@ -20,11 +20,25 @@ const normaliseAsset = (r: any) => ({
   condition:      r.asset_condition ?? r.condition ?? 'GOOD', // reserved keyword fix
   documentUrl:    r.document_url  ?? r.documentUrl  ?? null,
   imageUrl:       r.document_url  ?? r.documentUrl  ?? null,  // alias for image display
-  assignedTo:     r.assigned_to   ?? r.assignedTo   ?? null,
-  assignedAt:     r.assigned_at   ?? r.assignedAt   ?? null,
-  createdBy:      r.CREATORID     ?? r.created_by   ?? r.createdBy,
-  createdAt:      r.CREATEDTIME   ?? r.created_at   ?? r.createdAt,
-  updatedAt:      r.MODIFIEDTIME  ?? r.updated_at   ?? r.updatedAt,
+  assignedTo:          r.assigned_to         ?? r.assignedTo         ?? null,
+  assignedAt:          r.assigned_at         ?? r.assignedAt         ?? null,
+  assignedDate:        r.assigned_date       ?? r.assignedDate       ?? null,
+  daysUsing:           r.days_using          ?? r.daysUsing          ?? null,
+  assignedBy:          r.assigned_by         ?? r.assignedBy         ?? null,
+  assignedByName:      r.assigned_by_name    ?? r.assignedByName     ?? null,
+  assignedByAvatar:    r.assigned_by_avatar  ?? r.assignedByAvatar   ?? null,
+  approvedBy:          r.approved_by         ?? r.approvedBy         ?? null,
+  approvedByName:      r.approved_by_name    ?? r.approvedByName     ?? null,
+  approvedByAvatar:    r.approved_by_avatar  ?? r.approvedByAvatar   ?? null,
+  handoverByName:      r.handover_by_name    ?? r.handoverByName     ?? null,
+  conditionAtAssignment: r.condition_at_assignment ?? r.conditionAtAssignment ?? null,
+  assignmentNotes:     r.assignment_notes    ?? r.assignmentNotes    ?? null,
+  expectedReturnDate:  r.expected_return_date ?? r.expectedReturnDate ?? null,
+  categoryName:        r.category_name       ?? r.categoryName       ?? null,
+  requestId:           r.request_id          ?? r.requestId          ?? null,
+  createdBy:           r.CREATORID           ?? r.created_by         ?? r.createdBy,
+  createdAt:           r.CREATEDTIME         ?? r.created_at         ?? r.createdAt,
+  updatedAt:           r.MODIFIEDTIME        ?? r.updated_at         ?? r.updatedAt,
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,14 +57,33 @@ const normaliseRequest = (r: any) => ({
   priority:          r.priority ?? r.urgency ?? 'NORMAL',
   neededBy:          r.needed_by         ?? r.neededBy ?? null,
   reqNotes:          r.req_notes         ?? r.reqNotes ?? null,
-  approvedBy:        r.approved_by       ?? r.approvedBy ?? null,
-  approvedAt:        r.approved_at       ?? r.approvedAt ?? null,
-  fulfilledBy:       r.fulfilled_by      ?? r.fulfilledBy ?? null,
-  fulfilledAt:       r.fulfilled_at      ?? r.fulfilledAt ?? null,
-  fulfillmentNotes:  r.fulfillment_notes ?? r.fulfillmentNotes ?? '',
-  createdBy:         r.CREATORID         ?? r.created_by ?? r.createdBy,
-  createdAt:         r.CREATEDTIME       ?? r.created_at ?? r.createdAt,
-  updatedAt:         r.MODIFIEDTIME      ?? r.updated_at ?? r.updatedAt,
+  approvedBy:           r.approved_by           ?? r.approvedBy ?? null,
+  approvedByName:       r.approved_by_name      ?? r.approvedByName ?? null,
+  approvedAt:           r.approved_at           ?? r.approvedAt ?? null,
+  rejectionNotes:       r.rejection_notes       ?? r.rejectionNotes ?? null,
+  opsAssignees:         r.ops_assignees         ?? r.opsAssignees ?? [],
+  opsAssigneeDetails:   r.ops_assignee_details  ?? r.opsAssigneeDetails ?? [],
+  handoverBy:           r.handover_by           ?? r.handoverBy ?? null,
+  handoverByName:       r.handover_by_name      ?? r.handoverByName ?? null,
+  handoverAt:           r.handover_at           ?? r.handoverAt ?? null,
+  handoverNotes:        r.handover_notes        ?? r.handoverNotes ?? null,
+  deviceId:             r.device_id             ?? r.deviceId ?? null,
+  deviceUsername:       r.device_username       ?? r.deviceUsername ?? null,
+  devicePassword:       r.device_password       ?? r.devicePassword ?? null,
+  returnBy:             r.return_by             ?? r.returnBy ?? null,
+  returnAt:             r.return_at             ?? r.returnAt ?? null,
+  returnReason:         r.return_reason         ?? r.returnReason ?? null,
+  returnCondition:      r.return_condition      ?? r.returnCondition ?? null,
+  returnChecklist:      r.return_checklist      ? (typeof r.return_checklist === 'string' ? JSON.parse(r.return_checklist) : r.return_checklist) : [],
+  returnNotes:          r.return_notes          ?? r.returnNotes ?? null,
+  returnVerifiedBy:     r.return_verified_by    ?? r.returnVerifiedBy ?? null,
+  returnVerifiedAt:     r.return_verified_at    ?? r.returnVerifiedAt ?? null,
+  fulfilledBy:          r.fulfilled_by          ?? r.fulfilledBy ?? null,
+  fulfilledAt:          r.fulfilled_at          ?? r.fulfilledAt ?? null,
+  fulfillmentNotes:     r.fulfillment_notes     ?? r.fulfillmentNotes ?? '',
+  createdBy:            r.CREATORID             ?? r.created_by ?? r.createdBy,
+  createdAt:            r.CREATEDTIME           ?? r.created_at ?? r.createdAt,
+  updatedAt:            r.MODIFIEDTIME          ?? r.updated_at ?? r.updatedAt,
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -166,10 +199,64 @@ export const useRequestAsset = () => {
 export const useApproveAssetRequest = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => assetsApi.requests.approve(id),
+    mutationFn: ({ id, data }: { id: string; data?: unknown }) => assetsApi.requests.approve(id, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['assets'] }),
   });
 };
+
+export const useAssignOpsRequest = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: unknown }) => assetsApi.requests.assignOps(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assets'] }),
+  });
+};
+
+export const useStartProcessingRequest = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => assetsApi.requests.startProcessing(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assets'] }),
+  });
+};
+
+export const useHandoverAssetRequest = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: unknown }) => assetsApi.requests.handover(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assets'] }),
+  });
+};
+
+export const useInitiateReturn = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data?: unknown }) => assetsApi.requests.initiateReturn(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assets'] }),
+  });
+};
+
+export const useVerifyReturn = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: unknown }) => assetsApi.requests.verifyReturn(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assets'] }),
+  });
+};
+
+export const useAssignableUsers = () =>
+  useQuery({
+    queryKey: ['assets', 'assignable-users'],
+    queryFn: () => assetsApi.requests.assignableUsers(),
+    staleTime: 60_000,
+  });
+
+export const useAssetOrgRoles = () =>
+  useQuery({
+    queryKey: ['assets', 'org-roles'],
+    queryFn: () => assetsApi.requests.orgRoles(),
+    staleTime: 60_000,
+  });
 
 export const useRejectAssetRequest = () => {
   const qc = useQueryClient();

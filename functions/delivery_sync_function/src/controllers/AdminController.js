@@ -254,6 +254,37 @@ class AdminController {
   }
 
   /**
+   * PATCH /api/admin/users/:userId/activate
+   * Re-activate a previously deactivated user.
+   */
+  async activateUser(req, res) {
+    try {
+      const { tenantId, id: performedBy } = req.currentUser;
+      const { userId } = req.params;
+
+      const existing = await this.db.findById(TABLES.USERS, userId, tenantId);
+      if (!existing) return ResponseHelper.notFound(res, 'User not found');
+      if (existing.status !== USER_STATUS.INACTIVE) {
+        return ResponseHelper.validationError(res, 'User is not deactivated');
+      }
+
+      await this.db.update(TABLES.USERS, { ROWID: userId, status: USER_STATUS.ACTIVE });
+
+      await this.audit.log({
+        tenantId, entityType: 'user', entityId: userId,
+        action: AUDIT_ACTION.STATUS_CHANGE,
+        oldValue: { status: USER_STATUS.INACTIVE },
+        newValue: { status: USER_STATUS.ACTIVE },
+        performedBy,
+      });
+
+      return ResponseHelper.success(res, null, 'User reactivated');
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
    * GET /api/admin/audit-logs?action=&entityType=&performedBy=&dateFrom=&dateTo=&limit=
    * Returns enriched audit logs (performer name + email resolved, changes parsed).
    */

@@ -15,6 +15,7 @@ import EmptyState from '../components/ui/EmptyState';
 import Alert from '../components/ui/Alert';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import { useAuth } from '../contexts/AuthContext';
+import { useConfirm } from '../components/ui/ConfirmDialog';
 import { useMyTasks, useUpdateTask, useCreateTask, useDeleteTask, useTask, useTaskComments, useAddTaskComment, useUpdateTaskStatus } from '../hooks/useTaskSprint';
 import { useProjects } from '../hooks/useProjects';
 import { useUsers, TenantUser } from '../hooks/useUsers';
@@ -785,6 +786,7 @@ function TaskDetailPanel({
 
 export default function MyTasksPage() {
   const { user } = useAuth();
+  const { confirm } = useConfirm();
 
   const { data: rawTasks, isLoading, error } = useMyTasks();
   const { data: rawProjects } = useProjects();
@@ -885,8 +887,9 @@ export default function MyTasksPage() {
     updateTask.mutate({ id: t.id, data: { status } });
 
   // ── Delete ──
-  const handleDelete = (t: Task) => {
-    if (!window.confirm(`Delete "${t.title}"?`)) return;
+  const handleDelete = async (t: Task) => {
+    const ok = await confirm({ title: 'Delete Task', message: `"${t.title}" will be permanently deleted.`, confirmText: 'Delete', variant: 'danger' });
+    if (!ok) return;
     deleteTask.mutate(t.id);
   };
 

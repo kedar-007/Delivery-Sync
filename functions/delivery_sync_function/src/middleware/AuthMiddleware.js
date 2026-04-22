@@ -80,7 +80,11 @@ class AuthMiddleware {
       // console.log('[AuthMiddleware] raw user row:', JSON.stringify(user));
 
       if (user.status === USER_STATUS.INACTIVE) {
-        return ResponseHelper.forbidden(res, 'Your account has been deactivated.');
+        return res.status(403).json({
+          success: false,
+          code: 'USER_DEACTIVATED',
+          message: 'Your account has been deactivated. Please contact your administrator.',
+        });
       }
 
       // 3. Attach to request context
@@ -217,10 +221,10 @@ class AuthMiddleware {
         // TENANT_ADMIN always gets ORG_WIDE data scope regardless of org role assignment
         if (isFullAdmin) {
           dataScope = 'ORG_WIDE';
-        } else if (!dataScope && base.has(PERMISSIONS.ORG_ROLE_READ)) {
-          dataScope = 'ORG_WIDE';
-          console.log(`[AuthMiddleware] auto-derived dataScope=ORG_WIDE from ORG_ROLE_READ permission`);
         }
+        // Note: dataScope=null means no sharing rule is configured → controllers default to OWN_DATA (membership-based).
+        // Do NOT auto-derive ORG_WIDE from any permission — ORG_ROLE_READ means "can view role definitions",
+        // not "can see all org data". Explicit sharing rules are the only source of ORG_WIDE scope.
       } catch (permErr) {
         console.error('[AuthMiddleware] effective permissions build failed:', permErr.message);
       }

@@ -19,13 +19,14 @@ import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
 import { PageLoader } from '../components/ui/Spinner';
 import {
-  useAdminUsers, useInviteUser, useDeactivateUser, useUpdateAdminUser, useAuditLogs,
+  useAdminUsers, useInviteUser, useDeactivateUser, useActivateUser, useUpdateAdminUser, useAuditLogs,
   useOrgRoles, useCreateOrgRole, useUpdateOrgRole, useDeleteOrgRole,
   useSetOrgRolePermissions, useAssignUserOrgRole, useOrgChart, useAllPermissions,
   useSharingRules, useSetDefaultVisibility, useAddExplicitSharingRule, useDeleteSharingRule,
 } from '../hooks/useAdmin';
 import UserPermissionsModal from '../components/ui/UserPermissionsModal';
 import { useAuth } from '../contexts/AuthContext';
+import { useConfirm } from '../components/ui/ConfirmDialog';
 import { canDo, hasPermission, PERMISSIONS, INVITE_ALLOWED_ROLES } from '../utils/permissions';
 import { User as UserType } from '../types';
 
@@ -1621,7 +1622,7 @@ const ALL_ROLES = ['TENANT_ADMIN', 'TEAM_MEMBER'];
 // ─── UserRow ──────────────────────────────────────────────────────────────────
 const UserRow = ({
   user, currentUserId, allowedInviteRoles, orgRoles,
-  isEditingRole, editingRole, onStartEdit, onCancelEdit, onRoleChange, onSaveRoleDone, onDeactivate,
+  isEditingRole, editingRole, onStartEdit, onCancelEdit, onRoleChange, onSaveRoleDone, onDeactivate, onActivate,
 }: {
   user: UserType;
   currentUserId: string;
@@ -1634,6 +1635,7 @@ const UserRow = ({
   onRoleChange: (r: string) => void;
   onSaveRoleDone: () => void;
   onDeactivate: () => void;
+  onActivate: () => void;
 }) => {
   const updateUser = useUpdateAdminUser(user.id);
   const isSelf = user.id === currentUserId;
@@ -1719,7 +1721,10 @@ const UserRow = ({
               </button>
             )}
             {user.status === 'INACTIVE' && (
-              <span className="text-xs text-gray-400 flex items-center gap-1"><UserCheck size={12} /> Inactive</span>
+              <button onClick={onActivate}
+                className="text-xs text-emerald-600 hover:underline flex items-center gap-1">
+                <UserCheck size={12} /> Activate
+              </button>
             )}
           </div>
         </td>
@@ -1740,6 +1745,7 @@ const UserRow = ({
 // ─── AdminPage ────────────────────────────────────────────────────────────────
 const AdminPage = () => {
   const { user: currentUser } = useAuth();
+  const { confirm } = useConfirm();
   const canInvite = hasPermission(currentUser, PERMISSIONS.INVITE_USER);
   const canManageRoles = hasPermission(currentUser, PERMISSIONS.ORG_ROLE_WRITE);
   const allowedInviteRoles = INVITE_ALLOWED_ROLES[currentUser?.role ?? ''] ?? [];
@@ -1790,6 +1796,7 @@ const AdminPage = () => {
     useAuditLogs(auditParams, tab === 'audit');
   const inviteUser = useInviteUser();
   const deactivateUser = useDeactivateUser();
+  const activateUser = useActivateUser();
 
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<InviteForm>();
 
@@ -1827,8 +1834,25 @@ const AdminPage = () => {
   };
 
   const handleDeactivate = async (userId: string) => {
-    if (!window.confirm('Deactivate this user? They will lose access.')) return;
+    const ok = await confirm({
+      title: 'Deactivate User',
+      message: 'This user will immediately lose access to the app. Their data and history will be preserved.',
+      confirmText: 'Deactivate',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try { await deactivateUser.mutateAsync(userId); } catch { /* */ }
+  };
+
+  const handleActivate = async (userId: string) => {
+    const ok = await confirm({
+      title: 'Reactivate User',
+      message: 'This user will regain full access to the app based on their role and permissions.',
+      confirmText: 'Activate',
+      variant: 'info',
+    });
+    if (!ok) return;
+    try { await activateUser.mutateAsync(userId); } catch { /* */ }
   };
 
   const startEditRole = (userId: string, currentRole: string) => {
@@ -1920,6 +1944,7 @@ const AdminPage = () => {
                       onRoleChange={setEditingRole}
                       onSaveRoleDone={cancelEditRole}
                       onDeactivate={() => handleDeactivate(u.id)}
+                      onActivate={() => handleActivate(u.id)}
                     />
                   ))}
                 </tbody>
@@ -2148,7 +2173,8 @@ const AdminPage = () => {
                         users={users as UserType[]}
                         onEdit={(r) => { setEditingOrgRole(r); setRoleFormOpen(true); }}
                         onDelete={async (id) => {
-                          if (!window.confirm('Delete this role? All member assignments will be removed.')) return;
+                          const ok = await confirm({ title: 'Delete Role', message: 'All member assignments for this role will be removed. This cannot be undone.', confirmText: 'Delete', variant: 'danger' });
+                          if (!ok) return;
                           await deleteRole.mutateAsync(id);
                         }}
                         onEditPerms={(r) => { setPermRole(r); setPermModalOpen(true); }}

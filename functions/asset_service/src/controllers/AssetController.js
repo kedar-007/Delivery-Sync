@@ -164,8 +164,101 @@ class AssetController {
   }
 
   async myAssets(req, res) {
-    const assets = await this.db.findWhere(TABLES.ASSETS, req.tenantId, `assigned_to = '${req.currentUser.id}' AND status = 'ASSIGNED'`, { limit: 50 });
-    return ResponseHelper.success(res, assets);
+    const assets = await this.db.findWhere(
+      TABLES.ASSETS, req.tenantId,
+      `assigned_to = '${req.currentUser.id}' AND status = 'ASSIGNED'`,
+      { limit: 50 },
+    );
+    if (!assets.length) return ResponseHelper.success(res, []);
+
+    const assetIds = assets.map((a) => String(a.ROWID));
+
+    // Active assignments for these assets
+    const [assignments, categories] = await Promise.all([
+      this.db.query(
+        `SELECT ROWID, asset_id, user_id, assigned_by, request_id, assigned_date, expected_return_date, condition_at_assignment, assignment_notes
+         FROM ${TABLES.ASSET_ASSIGNMENTS}
+         WHERE asset_id IN (${assetIds.map((id) => `'${id}'`).join(',')})
+           AND is_active = 'true'
+           AND tenant_id = '${req.tenantId}'
+         LIMIT 100`,
+      ),
+      this.db.findWhere(TABLES.ASSET_CATEGORIES, req.tenantId, '', { limit: 100 }),
+    ]);
+
+    // Collect all user IDs to look up names
+    const assignerIds = [...new Set(assignments.map((a) => a.assigned_by).filter(Boolean))];
+    const requestIds  = [...new Set(assignments.map((a) => a.request_id).filter(Boolean))];
+
+    const [assignerUsers, requests] = await Promise.all([
+      assignerIds.length
+        ? this.db.query(
+            `SELECT ROWID, name, email, avatar_url FROM ${TABLES.USERS}
+             WHERE ROWID IN (${assignerIds.map((id) => `'${id}'`).join(',')}) LIMIT 100`,
+          )
+        : [],
+      requestIds.length
+        ? this.db.query(
+            `SELECT ROWID, approved_by, handover_by FROM ${TABLES.ASSET_REQUESTS}
+             WHERE ROWID IN (${requestIds.map((id) => `'${id}'`).join(',')}) LIMIT 100`,
+          )
+        : [],
+    ]);
+
+    // Collect approver / handover user IDs
+    const extraUserIds = [...new Set([
+      ...requests.map((r) => r.approved_by),
+      ...requests.map((r) => r.handover_by),
+    ].filter(Boolean))];
+
+    const extraUsers = extraUserIds.length
+      ? await this.db.query(
+          `SELECT ROWID, name, email, avatar_url FROM ${TABLES.USERS}
+           WHERE ROWID IN (${extraUserIds.map((id) => `'${id}'`).join(',')}) LIMIT 100`,
+        )
+      : [];
+
+    // Build lookup maps
+    const userMap    = Object.fromEntries([...assignerUsers, ...extraUsers].map((u) => [String(u.ROWID), u]));
+    const assignMap  = Object.fromEntries(assignments.map((a) => [String(a.asset_id), a]));
+    const reqMap     = Object.fromEntries(requests.map((r) => [String(r.ROWID), r]));
+    const catMap     = Object.fromEntries(categories.map((c) => [String(c.ROWID), c]));
+
+    const today   = new Date();
+    const enriched = assets.map((a) => {
+      const asgn     = assignMap[String(a.ROWID)] ?? {};
+      const req_     = asgn.request_id ? (reqMap[String(asgn.request_id)] ?? {}) : {};
+      const assigner = asgn.assigned_by  ? (userMap[String(asgn.assigned_by)] ?? {})  : {};
+      const approver = req_.approved_by  ? (userMap[String(req_.approved_by)] ?? {})  : {};
+      const handover = req_.handover_by  ? (userMap[String(req_.handover_by)] ?? {})  : {};
+      const cat      = catMap[String(a.category_id)] ?? {};
+
+      const assignedDate   = asgn.assigned_date ?? a.assigned_at ?? null;
+      const daysUsing      = assignedDate
+        ? Math.floor((today - new Date(assignedDate)) / 86_400_000)
+        : null;
+
+      return {
+        ...a,
+        category_name:         cat.name ?? null,
+        assigned_date:         assignedDate,
+        days_using:            daysUsing,
+        assigned_by:           asgn.assigned_by ?? null,
+        assigned_by_name:      assigner.name ?? null,
+        assigned_by_avatar:    assigner.avatar_url ?? null,
+        approved_by:           req_.approved_by ?? null,
+        approved_by_name:      approver.name ?? null,
+        approved_by_avatar:    approver.avatar_url ?? null,
+        handover_by:           req_.handover_by ?? null,
+        handover_by_name:      handover.name ?? null,
+        condition_at_assignment: asgn.condition_at_assignment ?? 'GOOD',
+        assignment_notes:      asgn.assignment_notes ?? null,
+        expected_return_date:  asgn.expected_return_date ?? null,
+        request_id:            asgn.request_id ?? null,
+      };
+    });
+
+    return ResponseHelper.success(res, enriched);
   }
 
   // POST /api/assets/inventory/bulk

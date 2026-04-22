@@ -394,16 +394,17 @@ class _HistoryTabState extends ConsumerState<_HistoryTab> {
       );
     }
     if (_entries == null || _entries!.isEmpty) {
+      final ds = context.ds;
       return Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          const Icon(Icons.history_rounded, size: 56, color: AppColors.textMuted),
+          Icon(Icons.history_rounded, size: 56, color: ds.textMuted),
           const SizedBox(height: 16),
-          const Text('No standups yet',
+          Text('No standups yet',
               style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary)),
+                  color: ds.textPrimary)),
           const SizedBox(height: 6),
-          const Text('Your submitted standups will appear here.',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+          Text('Your submitted standups will appear here.',
+              style: TextStyle(color: ds.textSecondary, fontSize: 13)),
         ]),
       );
     }
@@ -483,13 +484,13 @@ class _StandupHistoryCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Row(children: [
-                  const Icon(Icons.calendar_today_rounded,
-                      size: 14, color: AppColors.textMuted),
+                  Icon(Icons.calendar_today_rounded,
+                      size: 14, color: ds.textMuted),
                   const SizedBox(width: 6),
                   Text(date,
-                      style: const TextStyle(fontSize: 13,
+                      style: TextStyle(fontSize: 13,
                           fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary)),
+                          color: ds.textPrimary)),
                 ]),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -514,7 +515,7 @@ class _StandupHistoryCard extends StatelessWidget {
                 _HistorySection(
                     label: 'Yesterday',
                     text: yesterday,
-                    color: AppColors.textSecondary),
+                    color: ds.textSecondary),
                 const SizedBox(height: 10),
                 _HistorySection(
                     label: 'Today',
@@ -544,19 +545,22 @@ class _HistorySection extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label.toUpperCase(),
-              style: TextStyle(
-                  fontSize: 10, fontWeight: FontWeight.w800,
-                  color: color, letterSpacing: 0.5)),
-          const SizedBox(height: 3),
-          Text(text,
-              style: const TextStyle(
-                  fontSize: 13, color: AppColors.textPrimary, height: 1.4)),
-        ],
-      );
+  Widget build(BuildContext context) {
+    final ds = context.ds;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label.toUpperCase(),
+            style: TextStyle(
+                fontSize: 10, fontWeight: FontWeight.w800,
+                color: color, letterSpacing: 0.5)),
+        const SizedBox(height: 3),
+        Text(text,
+            style: TextStyle(
+                fontSize: 13, color: ds.textPrimary, height: 1.4)),
+      ],
+    );
+  }
 }
 
 // ── Voice Recorder Card ───────────────────────────────────────────────────────

@@ -159,7 +159,7 @@ class AuthController {
       const orgRoleMap = {};
       try {
         const assignments = await this.db.query(
-          `SELECT user_id, org_role_id FROM ${TABLES.USER_ORG_ROLES} WHERE tenant_id = '${tenantId}' AND is_active = 'true' LIMIT 500`
+          `SELECT user_id, org_role_id FROM ${TABLES.USER_ORG_ROLES} WHERE tenant_id = '${tenantId}' AND is_active = 'true' LIMIT 300`
         );
         if (assignments.length > 0) {
           const orgRoles = await this.db.query(

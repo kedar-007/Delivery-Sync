@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
 
@@ -1484,43 +1485,176 @@ const _kanbanColumns = [
   ('DONE',        'Done',        AppColors.success),
 ];
 
-class _KanbanBoard extends ConsumerWidget {
+// ── Kanban board — owns mutable board state for optimistic DnD ───────────────
+
+class _KanbanBoard extends ConsumerStatefulWidget {
   const _KanbanBoard({required this.tasks, required this.sprintId});
   final List<SprintTask> tasks;
   final String sprintId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_KanbanBoard> createState() => _KanbanBoardState();
+}
+
+class _KanbanBoardState extends ConsumerState<_KanbanBoard> {
+  late Map<String, List<SprintTask>> _board;
+  final _scrollCtrl = ScrollController();
+  Timer? _scrollTimer;
+
+  static const _edgeZoneWidth = 52.0;
+  static const _scrollSpeed   = 9.0; // px per 16ms frame ≈ ~560 px/s
+
+  @override
+  void initState() {
+    super.initState();
+    _initBoard(widget.tasks);
+  }
+
+  @override
+  void didUpdateWidget(_KanbanBoard old) {
+    super.didUpdateWidget(old);
+    if (old.tasks != widget.tasks) _initBoard(widget.tasks);
+  }
+
+  @override
+  void dispose() {
+    _scrollTimer?.cancel();
+    _scrollCtrl.dispose();
+    super.dispose();
+  }
+
+  void _initBoard(List<SprintTask> tasks) {
+    final b = <String, List<SprintTask>>{};
+    for (final (s, _, _) in _kanbanColumns) b[s] = [];
+    for (final t in tasks) {
+      (b.containsKey(t.status) ? b[t.status]! : b['TODO']!).add(t);
+    }
+    _board = b;
+  }
+
+  String? _colOf(String taskId) {
+    for (final e in _board.entries) {
+      if (e.value.any((t) => t.id == taskId)) return e.key;
+    }
+    return null;
+  }
+
+  void _startAutoScroll(double direction) {
+    _scrollTimer?.cancel();
+    _scrollTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
+      if (!_scrollCtrl.hasClients) return;
+      final max = _scrollCtrl.position.maxScrollExtent;
+      final next = (_scrollCtrl.offset + direction * _scrollSpeed)
+          .clamp(0.0, math.max(0.0, max)) as double;
+      _scrollCtrl.jumpTo(next);
+    });
+  }
+
+  void _stopAutoScroll() {
+    _scrollTimer?.cancel();
+    _scrollTimer = null;
+  }
+
+  void _handleDrop(SprintTask task, String toStatus) {
+    _stopAutoScroll();
+    final fromStatus = _colOf(task.id) ?? task.status;
+    if (fromStatus == toStatus) return;
+
+    setState(() {
+      _board[fromStatus]!.removeWhere((t) => t.id == task.id);
+      _board[toStatus]!.add(task);
+    });
+    HapticFeedback.lightImpact();
+
+    ApiClient.instance.patch(
+      '${AppConstants.baseSprints}/tasks/${task.id}/status',
+      data: {'status': toStatus},
+    ).then((_) {
+      ref.invalidate(_sprintTasksProvider(widget.sprintId));
+      ref.invalidate(_myTasksSprintProvider);
+    }).catchError((Object e) {
+      if (!mounted) return;
+      setState(() {
+        _board[toStatus]!.removeWhere((t) => t.id == task.id);
+        _board[fromStatus]!.add(task);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Failed to move task. Please try again.'),
+        backgroundColor: AppColors.error,
+      ));
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return LayoutBuilder(
-      builder: (ctx, constraints) => SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-        child: SizedBox(
-          height: constraints.maxHeight,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: _kanbanColumns.map((col) {
-              final (status, label, color) = col;
-              return _KanbanColumn(
-                status: status,
-                label: label,
-                color: color,
-                tasks: tasks.where((t) => t.status == status).toList(),
-                sprintId: sprintId,
-                height: constraints.maxHeight - 24,
-              );
-            }).toList(),
+      builder: (ctx, constraints) => Stack(
+        children: [
+          // ── Board ──────────────────────────────────────────────────
+          SingleChildScrollView(
+            controller: _scrollCtrl,
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+            child: SizedBox(
+              height: constraints.maxHeight,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: _kanbanColumns.map((col) {
+                  final (status, label, color) = col;
+                  return _KanbanColumn(
+                    status: status,
+                    label: label,
+                    color: color,
+                    tasks: _board[status] ?? [],
+                    sprintId: widget.sprintId,
+                    height: constraints.maxHeight - 24,
+                    onAccept: (task) => _handleDrop(task, status),
+                  );
+                }).toList(),
+              ),
+            ),
           ),
-        ),
+
+          // ── Left auto-scroll edge zone ──────────────────────────
+          Positioned(
+            left: 0, top: 0, bottom: 0,
+            width: _edgeZoneWidth,
+            child: DragTarget<SprintTask>(
+              onWillAccept: (_) {
+                _startAutoScroll(-1);
+                return false; // don't steal the drop from columns
+              },
+              onLeave: (_) => _stopAutoScroll(),
+              onAccept: (_) => _stopAutoScroll(),
+              builder: (_, __, ___) => const SizedBox.expand(),
+            ),
+          ),
+
+          // ── Right auto-scroll edge zone ─────────────────────────
+          Positioned(
+            right: 0, top: 0, bottom: 0,
+            width: _edgeZoneWidth,
+            child: DragTarget<SprintTask>(
+              onWillAccept: (_) {
+                _startAutoScroll(1);
+                return false; // don't steal the drop from columns
+              },
+              onLeave: (_) => _stopAutoScroll(),
+              onAccept: (_) => _stopAutoScroll(),
+              builder: (_, __, ___) => const SizedBox.expand(),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _KanbanColumn extends ConsumerWidget {
+class _KanbanColumn extends StatelessWidget {
   const _KanbanColumn({
     required this.status, required this.label, required this.color,
     required this.tasks, required this.height, required this.sprintId,
+    required this.onAccept,
   });
   final String status;
   final String label;
@@ -1528,90 +1662,114 @@ class _KanbanColumn extends ConsumerWidget {
   final List<SprintTask> tasks;
   final double height;
   final String sprintId;
+  final void Function(SprintTask) onAccept;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final ds = context.ds;
     return SizedBox(
       width: 220,
       height: height,
-      child: Container(
-        margin: const EdgeInsets.only(right: 12),
-        decoration: BoxDecoration(
-          color: ds.bgCard,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withOpacity(0.2)),
-          boxShadow: [
-            BoxShadow(
-              color: color.withOpacity(0.04),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(children: [
-          // Column header
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      child: DragTarget<SprintTask>(
+        onWillAccept: (task) => task != null && !tasks.any((t) => t.id == task.id),
+        onAccept: onAccept,
+        builder: (_, candidateData, __) {
+          final isOver = candidateData.isNotEmpty;
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            margin: const EdgeInsets.only(right: 12),
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [color.withOpacity(0.12), color.withOpacity(0.04)],
+              color: isOver ? color.withOpacity(0.06) : ds.bgCard,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isOver ? color.withOpacity(0.55) : color.withOpacity(0.2),
+                width: isOver ? 2 : 1,
               ),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
-            ),
-            child: Row(children: [
-              Container(
-                width: 8, height: 8,
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(label,
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: color)),
-              ),
-              Container(
-                width: 22, height: 22,
-                decoration: BoxDecoration(
-                    color: color.withOpacity(0.2), shape: BoxShape.circle),
-                child: Center(
-                  child: Text('${tasks.length}',
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          color: color)),
+              boxShadow: [
+                BoxShadow(
+                  color: color.withOpacity(isOver ? 0.12 : 0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
                 ),
-              ),
-            ]),
-          ),
-          // Tasks
-          Expanded(
-            child: tasks.isEmpty
-                ? Center(
-                    child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.inbox_rounded,
-                              size: 28, color: ds.textMuted),
-                          const SizedBox(height: 6),
-                          Text('Empty',
-                              style: TextStyle(
-                                  fontSize: 12, color: ds.textMuted)),
-                        ]),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(10),
-                    itemCount: tasks.length,
-                    itemBuilder: (_, i) => _KanbanCard(
-                      task: tasks[i],
-                      columnColor: color,
-                      sprintId: sprintId,
+              ],
+            ),
+            child: Column(children: [
+              // Column header
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [color.withOpacity(0.12), color.withOpacity(0.04)],
+                  ),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+                ),
+                child: Row(children: [
+                  Container(
+                    width: 8, height: 8,
+                    decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(label,
+                        style: TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.w700, color: color)),
+                  ),
+                  Container(
+                    width: 22, height: 22,
+                    decoration: BoxDecoration(
+                        color: color.withOpacity(0.2), shape: BoxShape.circle),
+                    child: Center(
+                      child: Text('${tasks.length}',
+                          style: TextStyle(
+                              fontSize: 11, fontWeight: FontWeight.w800, color: color)),
                     ),
                   ),
-          ),
-        ]),
+                ]),
+              ),
+              // Drop zone hint
+              if (isOver)
+                Container(
+                  margin: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: color.withOpacity(0.45), width: 1.5),
+                  ),
+                  child: Center(
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.add_rounded, size: 14, color: color),
+                      const SizedBox(width: 4),
+                      Text('Drop here',
+                          style: TextStyle(
+                              fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+                    ]),
+                  ),
+                ),
+              // Tasks
+              Expanded(
+                child: tasks.isEmpty && !isOver
+                    ? Center(
+                        child: Column(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(Icons.inbox_rounded, size: 28, color: ds.textMuted),
+                          const SizedBox(height: 6),
+                          Text('Empty',
+                              style: TextStyle(fontSize: 12, color: ds.textMuted)),
+                        ]),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(10),
+                        itemCount: tasks.length,
+                        itemBuilder: (_, i) => _KanbanCard(
+                          task: tasks[i],
+                          columnColor: color,
+                          sprintId: sprintId,
+                        ),
+                      ),
+              ),
+            ]),
+          );
+        },
       ).animate().fadeIn(duration: 300.ms).slideY(begin: 0.05),
     );
   }
@@ -1633,185 +1791,131 @@ class _KanbanCard extends ConsumerWidget {
     final users = ref.watch(_sprintUsersProvider).valueOrNull ?? [];
     final (priorityColor, _) = _priorityInfo(task.priority);
 
-    // Look up assignee by ID
-    String? assigneeName    = task.assigneeName;
-    String? assigneeAvatar  = task.assigneeAvatarUrl;
+    String? assigneeName   = task.assigneeName;
+    String? assigneeAvatar = task.assigneeAvatarUrl;
     if ((assigneeName == null || assigneeName.isEmpty) && task.assigneeId != null) {
       final u = users.where((x) => x['id'] == task.assigneeId).firstOrNull;
       assigneeName   = u?['name'] as String?;
       assigneeAvatar = u?['avatarUrl'] as String?;
     }
 
-    return GestureDetector(
-      onTap: () => _TaskDetailSheet.show(context, task),
-      onLongPress: () {
-        HapticFeedback.mediumImpact();
-        _showStatusPicker(context, ref);
-      },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: ds.bgPage,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: ds.border),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(
-                  Theme.of(context).brightness == Brightness.dark
-                      ? 0.15
-                      : 0.04),
-              blurRadius: 6,
-              offset: const Offset(0, 2),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    Widget cardBody({bool compact = false}) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          _TypeBadge(task.type),
+          const Spacer(),
+          if (assigneeName != null && assigneeName.isNotEmpty)
+            UserAvatar(name: assigneeName, avatarUrl: assigneeAvatar, radius: 10)
+          else
+            Icon(Icons.drag_indicator_rounded, size: 14, color: ds.textMuted),
+        ]),
+        const SizedBox(height: 8),
+        Text(task.title,
+            style: TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w600, color: ds.textPrimary),
+            maxLines: compact ? 1 : 2,
+            overflow: TextOverflow.ellipsis),
+        const SizedBox(height: 8),
+        Row(children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: priorityColor.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: priorityColor.withOpacity(0.3)),
             ),
-          ],
-        ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          // Type badge + assignee avatar
-          Row(children: [
-            _TypeBadge(task.type),
-            const Spacer(),
-            if (assigneeName != null && assigneeName.isNotEmpty)
-              UserAvatar(name: assigneeName, avatarUrl: assigneeAvatar, radius: 10)
-            else
-              Icon(Icons.more_vert_rounded, size: 14, color: ds.textMuted),
-          ]),
-          const SizedBox(height: 8),
-          Text(task.title,
-              style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: ds.textPrimary),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis),
-          const SizedBox(height: 8),
-          Row(children: [
+            child: Text(task.priority,
+                style: TextStyle(
+                    fontSize: 9, fontWeight: FontWeight.w700, color: priorityColor)),
+          ),
+          if (task.storyPoints != null) ...[
+            const SizedBox(width: 6),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: priorityColor.withOpacity(0.12),
+                color: ds.bgElevated,
                 borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: priorityColor.withOpacity(0.3)),
+                border: Border.all(color: ds.border),
               ),
-              child: Text(task.priority,
+              child: Text('${task.storyPoints} pts',
                   style: TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w700,
-                      color: priorityColor)),
+                      fontSize: 9, fontWeight: FontWeight.w600,
+                      color: ds.textMuted)),
             ),
-            if (task.storyPoints != null) ...[
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: ds.bgElevated,
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: ds.border),
+          ],
+          const Spacer(),
+          if (assigneeName != null && assigneeName.isNotEmpty)
+            Text(assigneeName.split(' ').first,
+                style: TextStyle(fontSize: 9, color: ds.textMuted)),
+        ]),
+      ],
+    );
+
+    return LongPressDraggable<SprintTask>(
+      data: task,
+      delay: const Duration(milliseconds: 400),
+      onDragStarted: () => HapticFeedback.heavyImpact(),
+      feedback: Material(
+        color: Colors.transparent,
+        child: SizedBox(
+          width: 200,
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: ds.bgPage,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: columnColor.withOpacity(0.6), width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                  color: columnColor.withOpacity(0.3),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
                 ),
-                child: Text('${task.storyPoints} pts',
-                    style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w600,
-                        color: ds.textMuted)),
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: cardBody(compact: true),
+          ),
+        ),
+      ),
+      childWhenDragging: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        height: 72,
+        decoration: BoxDecoration(
+          color: columnColor.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: columnColor.withOpacity(0.3)),
+        ),
+        child: Center(
+          child: Icon(Icons.drag_indicator_rounded,
+              color: columnColor.withOpacity(0.4), size: 22),
+        ),
+      ),
+      child: GestureDetector(
+        onTap: () => _TaskDetailSheet.show(context, task),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: ds.bgPage,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: ds.border),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isDark ? 0.15 : 0.04),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
               ),
             ],
-            const Spacer(),
-            if (assigneeName != null && assigneeName.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(assigneeName.split(' ').first,
-                    style: TextStyle(fontSize: 9, color: ds.textMuted)),
-              ),
-          ]),
-        ]),
-      ),
-    );
-  }
-
-  void _showStatusPicker(BuildContext context, WidgetRef ref) {
-    final ds = context.ds;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: ds.bgCard,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Move Task',
-                style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: ds.textPrimary)),
-            const SizedBox(height: 4),
-            Text(task.title,
-                style: TextStyle(fontSize: 13, color: ds.textSecondary),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis),
-            const SizedBox(height: 16),
-            ..._kanbanColumns.map((col) {
-              final (s, label, color) = col;
-              final isCurrent = task.status == s;
-              return GestureDetector(
-                onTap: isCurrent
-                    ? null
-                    : () async {
-                        Navigator.pop(context);
-                        try {
-                          await ApiClient.instance.post(
-                            '${AppConstants.baseSprints}/tasks/${task.id}/status',
-                            data: {'status': s},
-                          );
-                          ref.invalidate(_sprintTasksProvider(sprintId));
-                          ref.invalidate(_myTasksSprintProvider);
-                          HapticFeedback.lightImpact();
-                        } catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                  content: Text('Failed: $e'),
-                                  backgroundColor: AppColors.error),
-                            );
-                          }
-                        }
-                      },
-                child: Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: isCurrent
-                        ? color.withOpacity(0.1)
-                        : ds.bgElevated,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                        color: isCurrent
-                            ? color.withOpacity(0.4)
-                            : ds.border),
-                  ),
-                  child: Row(children: [
-                    Container(
-                      width: 10, height: 10,
-                      decoration: BoxDecoration(
-                          color: color, shape: BoxShape.circle),
-                    ),
-                    const SizedBox(width: 10),
-                    Text(label,
-                        style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: isCurrent ? color : ds.textPrimary)),
-                    const Spacer(),
-                    if (isCurrent)
-                      Icon(Icons.check_rounded, color: color, size: 16),
-                  ]),
-                ),
-              );
-            }),
-          ],
+          ),
+          child: cardBody(),
         ),
       ),
     );

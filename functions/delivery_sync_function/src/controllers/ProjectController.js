@@ -90,8 +90,12 @@ class ProjectController {
       let paged;
       const statusClause = status ? `status = '${DataStoreService.escape(status)}'` : null;
 
-      const hasOrgWideAccess = role === 'TENANT_ADMIN' || role === 'PMO' || role === 'EXEC' || role === 'CLIENT'
-        || req.currentUser.dataScope === 'ORG_WIDE' || req.currentUser.dataScope === 'SUBORDINATES';
+      // Only grant org-wide project visibility to TENANT_ADMIN unconditionally.
+      // All other roles rely on their dataScope from org sharing rules — if no rule is set,
+      // dataScope is null and they fall through to the membership-based filter below.
+      const hasOrgWideAccess = role === 'TENANT_ADMIN'
+        || req.currentUser.dataScope === 'ORG_WIDE'
+        || req.currentUser.dataScope === 'SUBORDINATES';
 
       if (hasOrgWideAccess) {
         paged = await this.db.findPaginated(

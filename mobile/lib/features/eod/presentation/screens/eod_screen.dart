@@ -450,16 +450,17 @@ class _HistoryTabState extends ConsumerState<_HistoryTab> {
       );
     }
     if (_entries == null || _entries!.isEmpty) {
+      final ds = context.ds;
       return Center(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          const Icon(Icons.history_rounded, size: 56, color: AppColors.textMuted),
+          Icon(Icons.history_rounded, size: 56, color: ds.textMuted),
           const SizedBox(height: 16),
-          const Text('No EODs yet',
+          Text('No EODs yet',
               style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary)),
+                  color: ds.textPrimary)),
           const SizedBox(height: 6),
-          const Text('Your submitted EODs will appear here.',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+          Text('Your submitted EODs will appear here.',
+              style: TextStyle(color: ds.textSecondary, fontSize: 13)),
         ]),
       );
     }
@@ -552,13 +553,13 @@ class _EodHistoryCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Row(children: [
-                  const Icon(Icons.calendar_today_rounded,
-                      size: 14, color: AppColors.textMuted),
+                  Icon(Icons.calendar_today_rounded,
+                      size: 14, color: ds.textMuted),
                   const SizedBox(width: 6),
                   Text(date,
-                      style: const TextStyle(fontSize: 13,
+                      style: TextStyle(fontSize: 13,
                           fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary)),
+                          color: ds.textPrimary)),
                 ]),
                 Row(children: [
                   // Mood emoji
@@ -604,7 +605,7 @@ class _EodHistoryCard extends StatelessWidget {
                 _HistorySection(
                     label: 'Accomplishments',
                     text: accomplishments,
-                    color: AppColors.textSecondary),
+                    color: ds.textSecondary),
                 if (plannedTomorrow != null && plannedTomorrow.isNotEmpty) ...[
                   const SizedBox(height: 10),
                   _HistorySection(
@@ -642,18 +643,21 @@ class _HistorySection extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label.toUpperCase(),
-              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800,
-                  color: color, letterSpacing: 0.5)),
-          const SizedBox(height: 3),
-          Text(text,
-              style: const TextStyle(fontSize: 13,
-                  color: AppColors.textPrimary, height: 1.4)),
-        ],
-      );
+  Widget build(BuildContext context) {
+    final ds = context.ds;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label.toUpperCase(),
+            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800,
+                color: color, letterSpacing: 0.5)),
+        const SizedBox(height: 3),
+        Text(text,
+            style: TextStyle(fontSize: 13,
+                color: ds.textPrimary, height: 1.4)),
+      ],
+    );
+  }
 }
 
 // ── Voice Recorder Card ───────────────────────────────────────────────────────
@@ -720,7 +724,7 @@ class _VoiceRecorderCard extends StatelessWidget {
                     listening ? 'Recording…' : 'Voice to AI',
                     style: TextStyle(
                       fontSize: 13, fontWeight: FontWeight.w700,
-                      color: listening ? AppColors.ragRed : AppColors.textPrimary,
+                      color: listening ? AppColors.ragRed : ds.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -728,8 +732,8 @@ class _VoiceRecorderCard extends StatelessWidget {
                     listening
                         ? 'Tap stop when done speaking'
                         : 'Tap mic, describe your day, let AI fill the form',
-                    style: const TextStyle(
-                        fontSize: 11, color: AppColors.textSecondary),
+                    style: TextStyle(
+                        fontSize: 11, color: ds.textSecondary),
                   ),
                 ],
               ),
@@ -742,8 +746,8 @@ class _VoiceRecorderCard extends StatelessWidget {
               const SizedBox(width: 4),
               _PulseDot(),
               const SizedBox(width: 8),
-              const Text('Listening…',
-                  style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+              Text('Listening…',
+                  style: TextStyle(fontSize: 12, color: ds.textMuted)),
             ]),
           ],
 
@@ -756,8 +760,8 @@ class _VoiceRecorderCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(transcript,
-                  style: const TextStyle(fontSize: 13,
-                      color: AppColors.textPrimary, height: 1.4)),
+                  style: TextStyle(fontSize: 13,
+                      color: ds.textPrimary, height: 1.4)),
             ),
             const SizedBox(height: 10),
             Row(children: [
@@ -783,7 +787,7 @@ class _VoiceRecorderCard extends StatelessWidget {
                 onPressed: onClear,
                 icon: const Icon(Icons.clear_rounded),
                 tooltip: 'Clear',
-                color: AppColors.textMuted,
+                color: ds.textMuted,
               ),
             ]),
           ],
@@ -956,13 +960,13 @@ class _SuccessView extends StatelessWidget {
                 .scale(begin: const Offset(0.5, 0.5), duration: 400.ms,
                     curve: Curves.elasticOut),
             const SizedBox(height: 24),
-            const Text('EOD Submitted!',
+            Text('EOD Submitted!',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary)),
+                    color: context.ds.textPrimary)),
             const SizedBox(height: 8),
-            const Text('Great job wrapping up your day.',
+            Text('Great job wrapping up your day.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.textSecondary,
+                style: TextStyle(color: context.ds.textSecondary,
                     fontSize: 14, height: 1.5)),
             const SizedBox(height: 32),
             ElevatedButton(
@@ -987,8 +991,8 @@ class _Label extends StatelessWidget {
   Widget build(BuildContext context) => Row(
         children: [
           Text(text,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700,
-                  color: AppColors.textSecondary, letterSpacing: 0.2)),
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700,
+                  color: context.ds.textSecondary, letterSpacing: 0.2)),
           if (aiTag) ...[
             const SizedBox(width: 6),
             Container(

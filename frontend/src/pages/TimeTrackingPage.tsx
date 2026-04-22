@@ -12,6 +12,7 @@ import Button from '../components/ui/Button';
 import Card, { StatCard } from '../components/ui/Card';
 import Modal, { ModalActions } from '../components/ui/Modal';
 import Alert from '../components/ui/Alert';
+import { useConfirm } from '../components/ui/ConfirmDialog';
 import Badge from '../components/ui/Badge';
 import EmptyState from '../components/ui/EmptyState';
 import { PageSkeleton, SkeletonTable } from '../components/ui/Skeleton';
@@ -425,6 +426,7 @@ interface MyTimeLogTabProps {
 const PAGE_SIZE = 20;
 
 const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
+  const { confirm: openConfirm } = useConfirm();
   // Build id→name map for instant project name lookup
   const projectMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -480,7 +482,8 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
   const entries = filteredEntries.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this time entry?')) return;
+    const ok = await openConfirm({ title: 'Delete Time Entry', message: 'This time entry will be permanently deleted.', confirmText: 'Delete', variant: 'danger' });
+    if (!ok) return;
     try { await deleteEntry.mutateAsync(id); } catch { /* noop */ }
   };
 
@@ -489,7 +492,8 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
   };
 
   const handleRetract = async (id: string) => {
-    if (!window.confirm('Retract this submission?')) return;
+    const ok = await openConfirm({ title: 'Retract Submission', message: 'This will move the entry back to draft. You can re-submit it later.', confirmText: 'Retract', variant: 'warning' });
+    if (!ok) return;
     try { await retractEntry.mutateAsync(id); } catch { /* noop */ }
   };
 

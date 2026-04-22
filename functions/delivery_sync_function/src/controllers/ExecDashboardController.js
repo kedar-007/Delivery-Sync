@@ -23,11 +23,19 @@ class ExecDashboardController {
 
   /**
    * GET /api/dashboard/exec-summary
-   * Role guard: EXEC, TENANT_ADMIN, PMO (enforced in route).
+   * Requires ORG_WIDE or SUBORDINATES dataScope (or TENANT_ADMIN).
+   * Route applies the RBAC permission guard; this method enforces the data scope.
    */
   async getSummary(req, res) {
     try {
-      const { tenantId } = req.currentUser;
+      const { tenantId, role } = req.currentUser;
+      const { dataScope } = req.currentUser;
+      const hasOrgWideAccess = role === 'TENANT_ADMIN'
+        || dataScope === 'ORG_WIDE'
+        || dataScope === 'SUBORDINATES';
+      if (!hasOrgWideAccess) {
+        return ResponseHelper.forbidden(res, 'Organisation-wide dashboard requires ORG_WIDE data scope.');
+      }
       const today      = DataStoreService.today();
       const ago7       = DataStoreService.daysAgo(7);
       const ago30      = DataStoreService.daysAgo(30);

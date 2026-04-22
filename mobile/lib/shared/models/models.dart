@@ -1083,6 +1083,13 @@ class AuditLog extends Equatable {
     required this.createdAt,
     this.userName,
     this.details,
+    this.performedByName,
+    this.performedByEmail,
+    this.avatarUrl,
+    this.entityType,
+    this.entityId,
+    this.oldValue,
+    this.newValue,
   });
 
   final String id;
@@ -1092,15 +1099,35 @@ class AuditLog extends Equatable {
   final String createdAt;
   final String? userName;
   final String? details;
+  final String? performedByName;
+  final String? performedByEmail;
+  final String? avatarUrl;
+  final String? entityType;
+  final String? entityId;
+  final String? oldValue;
+  final String? newValue;
+
+  static String? _valStr(dynamic v) {
+    if (v == null) return null;
+    if (v is String) return v.isEmpty ? null : v;
+    return v.toString();
+  }
 
   factory AuditLog.fromJson(Map<String, dynamic> j) => AuditLog(
-        id:        j['id']?.toString() ?? '',
-        action:    j['action']   as String? ?? '',
-        resource:  j['resource'] as String? ?? '',
-        userId:    j['userId']?.toString() ?? '',
-        createdAt: j['createdAt'] as String? ?? '',
-        userName:  j['userName'] as String?,
-        details:   j['details']  as String?,
+        id:               j['id']?.toString()           ?? j['ROWID']?.toString() ?? '',
+        action:           j['action']    as String?     ?? '',
+        resource:         j['resource']  as String?     ?? j['entity_type'] as String? ?? '',
+        userId:           j['userId']?.toString()        ?? j['performed_by']?.toString() ?? '',
+        createdAt:        j['createdAt'] as String?     ?? j['created_at'] as String? ?? j['CREATEDTIME'] as String? ?? '',
+        userName:         j['userName']  as String?,
+        details:          j['details']   as String?,
+        performedByName:  j['performedByName']  as String? ?? j['performed_by_name']  as String?,
+        performedByEmail: j['performedByEmail'] as String? ?? j['performed_by_email'] as String?,
+        avatarUrl:        j['avatarUrl']  as String?    ?? j['avatar_url'] as String?,
+        entityType:       j['entityType'] as String?   ?? j['entity_type'] as String?,
+        entityId:         j['entityId']?.toString()    ?? j['entity_id']?.toString(),
+        oldValue:         _valStr(j['oldValue'] ?? j['old_value']),
+        newValue:         _valStr(j['newValue'] ?? j['new_value']),
       );
 
   @override

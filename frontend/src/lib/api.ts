@@ -185,6 +185,8 @@ export const adminApi = {
     api.put(`/admin/users/${id}`, data).then((r) => r.data.data),
   deactivateUser: (id: string) =>
     api.delete(`/admin/users/${id}`).then((r) => r.data.data),
+  activateUser: (id: string) =>
+    api.patch(`/admin/users/${id}/activate`).then((r) => r.data.data),
   getTenant: () => api.get('/admin/tenant').then((r) => r.data.data),
   getAuditLogs: (params?: Record<string, string>) =>
     api.get('/admin/audit-logs', { params }).then((r) => r.data.data),
@@ -628,11 +630,18 @@ export const assetsApi = {
     bulkCreate:  (rows: unknown[]) => assetClient.post('/inventory/bulk', { assets: rows }).then((r) => r.data.data),
   },
   requests:        {
-    list:    (params?: Record<string, string>) => assetClient.get('/requests', { params }).then((r) => r.data.data),
-    create:  (data: unknown) => assetClient.post('/requests', data).then((r) => r.data.data),
-    approve: (id: string) => assetClient.patch(`/requests/${id}/approve`).then((r) => r.data.data),
-    reject:  (id: string, data: unknown) => assetClient.patch(`/requests/${id}/reject`, data).then((r) => r.data.data),
-    fulfill: (id: string, data: unknown) => assetClient.patch(`/requests/${id}/fulfill`, data).then((r) => r.data.data),
+    list:            (params?: Record<string, string>) => assetClient.get('/requests', { params }).then((r) => r.data.data),
+    create:          (data: unknown) => assetClient.post('/requests', data).then((r) => r.data.data),
+    approve:         (id: string, data?: unknown) => assetClient.patch(`/requests/${id}/approve`, data ?? {}).then((r) => r.data),
+    reject:          (id: string, data: unknown) => assetClient.patch(`/requests/${id}/reject`, data).then((r) => r.data.data),
+    assignOps:       (id: string, data: unknown) => assetClient.patch(`/requests/${id}/assign-ops`, data).then((r) => r.data.data),
+    startProcessing: (id: string) => assetClient.patch(`/requests/${id}/process`, {}).then((r) => r.data.data),
+    handover:        (id: string, data: unknown) => assetClient.patch(`/requests/${id}/handover`, data).then((r) => r.data.data),
+    initiateReturn:  (id: string, data?: unknown) => assetClient.post(`/requests/${id}/return`, data ?? {}).then((r) => r.data.data),
+    verifyReturn:    (id: string, data: unknown) => assetClient.patch(`/requests/${id}/verify-return`, data).then((r) => r.data.data),
+    fulfill:         (id: string, data: unknown) => assetClient.patch(`/requests/${id}/fulfill`, data).then((r) => r.data.data),
+    assignableUsers: () => assetClient.get('/requests/assignable-users').then((r) => r.data.data),
+    orgRoles:        () => assetClient.get('/requests/org-roles').then((r) => r.data.data),
   },
   assignments:     {
     list:   (params?: Record<string, string>) => assetClient.get('/assignments', { params }).then((r) => r.data.data),

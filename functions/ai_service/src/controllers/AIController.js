@@ -632,24 +632,37 @@ Keep it under 120 words and practical.`;
         scope: AI_SCOPE[role],
       });
 
-      // Scale max_tokens with member count — each member needs ~250 tokens for
-      // factors + issues + strengths + suggestions. Minimum 1000, cap at 4000.
+      // Keep output budget modest so input+output stays within the model's
+      // context window. 400 output tokens is enough for a concise JSON payload
+      // per member; the rule-based fallback handles the rest if LLM fails.
       const memberCount = Object.keys(memberData).length;
-      const maxTokens = Math.min(4000, Math.max(1000, memberCount * 250 + 500));
+      const maxTokens = Math.min(1200, Math.max(400, memberCount * 150 + 300));
       console.log(`[AIController.getHolisticPerformance] memberCount=${memberCount} maxTokens=${maxTokens}`);
 
-      const { response: rawText, usage } = await this.llm.call(
-        prompt, PromptService.SYSTEM_PROMPT, { max_tokens: maxTokens }
-      );
+      let parsed;
+      let tokensUsed = 0;
+      let source = 'llm';
 
-      const parsed = this._parseJSON(rawText, this._buildRuleBasedAnalysis(memberData, days));
+      try {
+        const { response: rawText, usage } = await this.llm.call(
+          prompt, PromptService.SYSTEM_PROMPT, { max_tokens: maxTokens }
+        );
+        tokensUsed = usage?.total_tokens ?? 0;
+        parsed = this._parseJSON(rawText, this._buildRuleBasedAnalysis(memberData, days));
+      } catch (llmErr) {
+        // LLM unavailable or overloaded — fall back to deterministic rule-based analysis
+        console.warn(`[AIController.getHolisticPerformance] LLM failed (${llmErr.message}), using rule-based fallback`);
+        parsed = this._buildRuleBasedAnalysis(memberData, days);
+        source = 'rule_based';
+      }
 
       return ResponseHelper.aiResponse(res, 'holistic_performance', parsed, {
         days,
         since,
-        memberCount: Object.keys(memberData).length,
-        tokensUsed:  usage.total_tokens,
-        scope:       AI_SCOPE[role],
+        memberCount,
+        tokensUsed,
+        scope: AI_SCOPE[role],
+        source,
       });
 
     } catch (err) {
