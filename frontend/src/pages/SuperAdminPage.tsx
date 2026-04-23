@@ -5,15 +5,15 @@ import {
   Building2, Users, Shield, Bell, Lock, Unlock, Eye, Search, X, Check,
   UserX, UserCheck, Layers, LogOut, PanelLeftClose, PanelLeftOpen,
   RefreshCw, ChevronRight, ChevronLeft, AlertTriangle, Settings, BarChart2,
-  CreditCard, Activity, TrendingUp, Zap, Filter, CheckCircle2,
+  CreditCard, Activity, TrendingUp, Zap, Filter, CheckCircle2, Bug, Mail, Plus, Save,
 } from 'lucide-react';
-import { superAdminApi } from '../lib/api';
+import { superAdminApi, bugApi } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import UserAvatar from '../components/ui/UserAvatar';
 import { useMyProfile } from '../hooks/useUsers';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-type Tab = 'overview' | 'organisations' | 'users' | 'modules' | 'billing' | 'metrics' | 'alerts' | 'audit';
+type Tab = 'overview' | 'organisations' | 'users' | 'modules' | 'billing' | 'metrics' | 'alerts' | 'audit' | 'bug-reports' | 'bug-config';
 
 // ── Colour maps ────────────────────────────────────────────────────────────────
 const PLAN_COLORS: Record<string, string> = {
@@ -50,6 +50,27 @@ const ACTION_STYLE: Record<string, { ring: string; dot: string; badge: string }>
   TENANT:  { ring: 'border-indigo-200',  dot: 'bg-indigo-400',  badge: 'bg-indigo-50 text-indigo-700'    },
 };
 const DEFAULT_ACTION_STYLE = { ring: 'border-gray-200', dot: 'bg-gray-200', badge: 'bg-gray-50 text-gray-500' };
+
+const BUG_SEVERITY_COLORS: Record<string, string> = {
+  CRITICAL: 'bg-red-100 text-red-700 border-red-200',
+  HIGH:     'bg-orange-100 text-orange-700 border-orange-200',
+  MEDIUM:   'bg-amber-100 text-amber-700 border-amber-200',
+  LOW:      'bg-slate-100 text-slate-600 border-slate-200',
+};
+const BUG_STATUS_COLORS: Record<string, string> = {
+  OPEN:         'bg-blue-100 text-blue-700 border-blue-200',
+  IN_PROGRESS:  'bg-violet-100 text-violet-700 border-violet-200',
+  RESOLVED:     'bg-emerald-100 text-emerald-700 border-emerald-200',
+  CLOSED:       'bg-gray-100 text-gray-500 border-gray-200',
+  DUPLICATE:    'bg-slate-100 text-slate-500 border-slate-200',
+  WONT_FIX:     'bg-rose-100 text-rose-600 border-rose-200',
+};
+const BUG_TYPE_COLORS: Record<string, string> = {
+  BUG:             'bg-red-50 text-red-700',
+  ISSUE:           'bg-amber-50 text-amber-700',
+  FEEDBACK:        'bg-blue-50 text-blue-700',
+  FEATURE_REQUEST: 'bg-violet-50 text-violet-700',
+};
 
 const PLAN_PRICE: Record<string, number> = { STARTER: 49, PRO: 149, ENTERPRISE: 499 };
 const AUDIT_PAGE_SIZE = 20;
@@ -494,6 +515,8 @@ const NAV: { id: Tab; label: string; icon: React.ReactNode; group: string }[] = 
   { id: 'modules',       label: 'Module Config',   icon: <Layers size={16} />,     group: 'Configuration' },
   { id: 'alerts',        label: 'Platform Alerts', icon: <Bell size={16} />,       group: 'Configuration' },
   { id: 'audit',         label: 'Audit Trail',     icon: <Shield size={16} />,     group: 'Configuration' },
+  { id: 'bug-reports',   label: 'Bug Reports',     icon: <Bug size={16} />,        group: 'Configuration' },
+  { id: 'bug-config',   label: 'Bug Notifications', icon: <Mail size={16} />,      group: 'Configuration' },
 ];
 
 function SuperAdminSidebar({ active, onChange, alertCount }: {
@@ -567,6 +590,72 @@ function SuperAdminSidebar({ active, onChange, alertCount }: {
   );
 }
 
+// ── Bug Report Attachment Panel ───────────────────────────────────────────────
+const BugDetailAttachments: React.FC<{ reportId: string }> = ({ reportId }) => {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['bug-detail', reportId],
+    queryFn:  () => bugApi.get(reportId).then((d: any) => d),
+    enabled:  !!reportId,
+    staleTime: 60_000,
+  });
+
+  const attachments: any[] = (data as any)?.attachments ?? [];
+
+  if (isLoading) return <p className="text-xs text-gray-400 mt-3">Loading attachments…</p>;
+  if (isError)   return <p className="text-xs text-red-400 mt-3">Could not load attachments.</p>;
+  if (attachments.length === 0) return <p className="text-xs text-gray-400 mt-3">No attachments.</p>;
+
+  return (
+    <div className="mt-4">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+        Attachments ({attachments.length})
+      </p>
+      <div className="flex flex-wrap gap-3">
+        {attachments.map((att: any) => {
+          const url      = att.file_url ?? '';
+          const name     = att.file_name ?? 'file';
+          const mime     = att.mime_type ?? '';
+          const isImage  = mime.startsWith('image/');
+          const isVideo  = mime.startsWith('video/');
+          const sizeKb   = att.file_size ? Math.round(Number(att.file_size) / 1024) : null;
+
+          if (isImage) {
+            return (
+              <a key={att.ROWID ?? url} href={url} target="_blank" rel="noopener noreferrer"
+                className="block rounded-xl overflow-hidden border border-gray-200 hover:border-indigo-400 transition-colors shrink-0"
+                title={name}>
+                <img src={url} alt={name} className="h-32 w-auto object-cover" />
+                <p className="px-2 py-1 text-[10px] text-gray-400 truncate max-w-[128px]">{name}</p>
+              </a>
+            );
+          }
+
+          if (isVideo) {
+            return (
+              <div key={att.ROWID ?? url} className="rounded-xl overflow-hidden border border-gray-200 shrink-0">
+                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                <video src={url} controls className="h-32 max-w-[220px] object-contain bg-black" />
+                <p className="px-2 py-1 text-[10px] text-gray-400 truncate max-w-[220px]">{name}</p>
+              </div>
+            );
+          }
+
+          return (
+            <a key={att.ROWID ?? url} href={url} target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:border-indigo-400 hover:bg-indigo-50 transition-colors text-xs text-gray-700 max-w-[220px]">
+              <span className="text-lg">📎</span>
+              <div className="min-w-0">
+                <p className="font-medium truncate">{name}</p>
+                {sizeKb !== null && <p className="text-[10px] text-gray-400">{sizeKb} KB</p>}
+              </div>
+            </a>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 // ── Main ───────────────────────────────────────────────────────────────────────
 const SuperAdminPage: React.FC = () => {
   const qc = useQueryClient();
@@ -586,6 +675,23 @@ const SuperAdminPage: React.FC = () => {
   const [auditAction, setAuditAction] = useState('');
   const [auditPage,   setAuditPage]   = useState(1);
 
+  const [bugSearch,   setBugSearch]   = useState('');
+  const [bugStatus,   setBugStatus]   = useState('');
+  const [bugSeverity, setBugSeverity] = useState('');
+  const [bugTenant,   setBugTenant]   = useState('');
+  const [bugPage,     setBugPage]     = useState(1);
+
+  // Notification config state
+  const [cfgEmails,      setCfgEmails]      = useState<string[]>([]);
+  const [cfgNewEmail,    setCfgNewEmail]    = useState('');
+  const [cfgOnNew,       setCfgOnNew]       = useState(true);
+  const [cfgSeverities,  setCfgSeverities]  = useState<string[]>(['CRITICAL', 'HIGH']);
+  const [cfgPrefix,      setCfgPrefix]      = useState('[Bug Report]');
+  const [cfgSaving,      setCfgSaving]      = useState(false);
+  const [cfgSaved,       setCfgSaved]       = useState(false);
+
+  const [expandedBugId,  setExpandedBugId]  = useState<string | null>(null);
+
   const [lockTarget,     setLockTarget]     = useState<{ id: string; name: string } | null>(null);
   const [unlockTarget,   setUnlockTarget]   = useState<{ id: string; name: string } | null>(null);
   const [moduleTarget,   setModuleTarget]   = useState<{ id: string; name: string } | null>(null);
@@ -595,6 +701,7 @@ const SuperAdminPage: React.FC = () => {
 
   // Reset audit page when filters change
   useEffect(() => setAuditPage(1), [auditSearch, auditAction]);
+  useEffect(() => setBugPage(1), [bugSearch, bugStatus, bugSeverity, bugTenant]);
 
   // ── Queries ──────────────────────────────────────────────────────────────────
   const { data: stats } = useQuery({
@@ -644,11 +751,37 @@ const SuperAdminPage: React.FC = () => {
     enabled:  activeTab === 'metrics',
   });
 
+  const { data: bugReports = [], isLoading: bugLoading, isError: bugError, error: bugFetchError } = useQuery({
+    queryKey: ['sa-bug-reports', bugStatus, bugSeverity, bugTenant],
+    queryFn:  () => bugApi.listAll({
+      ...(bugStatus   && { status:    bugStatus   }),
+      ...(bugSeverity && { severity:  bugSeverity }),
+      ...(bugTenant   && { tenant_id: bugTenant   }),
+    }).then((d: any) => (d as any)?.reports ?? []),
+    enabled: activeTab === 'bug-reports' || activeTab === 'bug-config',
+    retry: 1,
+  });
+
   const { data: tenantDetail } = useQuery({
     queryKey: ['sa-tenant-detail', tenantDetailId],
     queryFn:  () => superAdminApi.getTenantDetail(tenantDetailId!).then(d => d.tenant),
     enabled:  !!tenantDetailId,
   });
+
+  const { data: bugCfgData } = useQuery({
+    queryKey: ['sa-bug-config'],
+    queryFn:  () => bugApi.getConfig().then((d: any) => d?.config),
+    enabled:  activeTab === 'bug-reports' || activeTab === 'bug-config',
+  });
+
+  useEffect(() => {
+    const cfg: any = bugCfgData;
+    if (!cfg) return;
+    setCfgEmails(Array.isArray(cfg.notify_emails) ? cfg.notify_emails : []);
+    setCfgOnNew(cfg.notify_on_new !== false && cfg.notify_on_new !== 'false');
+    setCfgSeverities(Array.isArray(cfg.notify_on_severity) ? cfg.notify_on_severity : ['CRITICAL', 'HIGH']);
+    setCfgPrefix(cfg.email_subject_prefix || '[Bug Report]');
+  }, [bugCfgData]);
 
   // ── Mutations ─────────────────────────────────────────────────────────────────
   const updateStatus = useMutation({
@@ -694,6 +827,30 @@ const SuperAdminPage: React.FC = () => {
     ((featureUsage?.features as any[]) ?? []).map((f: any) => ({
       label: f.label, value: f.events, color: MOD_HEX[f.key] ?? '#94a3b8',
     })), [featureUsage]);
+
+  const BUG_PAGE_SIZE = 20;
+
+  const filteredBugs = useMemo(() => {
+    let rows = bugReports as any[];
+    if (bugSearch) {
+      const q = bugSearch.toLowerCase();
+      rows = rows.filter(r =>
+        r.title?.toLowerCase().includes(q) ||
+        r.reporter_name?.toLowerCase().includes(q) ||
+        r.tenant_name?.toLowerCase().includes(q)
+      );
+    }
+    return rows;
+  }, [bugReports, bugSearch]);
+
+  const pagedBugs = filteredBugs.slice((bugPage - 1) * BUG_PAGE_SIZE, bugPage * BUG_PAGE_SIZE);
+
+  const uniqueBugTenants = useMemo(() =>
+    Array.from(new Set((bugReports as any[]).map((r: any) => r.tenant_id).filter(Boolean)))
+      .map(id => {
+        const row = (bugReports as any[]).find((r: any) => r.tenant_id === id);
+        return { id, name: row?.tenant_name ?? id };
+      }), [bugReports]);
 
   const currentTabLabel = NAV.find(n => n.id === activeTab)?.label ?? 'Platform Admin';
 
@@ -1305,6 +1462,347 @@ const SuperAdminPage: React.FC = () => {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ═══════════════════════════ BUG REPORTS ════════════════════════ */}
+          {activeTab === 'bug-reports' && (
+            <div className="space-y-4">
+              {/* KPI strip */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  { label: 'Total Reports',  value: (bugReports as any[]).length,                                               color: 'bg-blue-50 text-blue-900'    },
+                  { label: 'Open',           value: (bugReports as any[]).filter((r: any) => r.status === 'OPEN').length,       color: 'bg-amber-50 text-amber-900'  },
+                  { label: 'Critical',       value: (bugReports as any[]).filter((r: any) => r.severity === 'CRITICAL').length, color: 'bg-red-50 text-red-900'      },
+                  { label: 'Resolved',       value: (bugReports as any[]).filter((r: any) => r.status === 'RESOLVED' || r.status === 'CLOSED').length, color: 'bg-emerald-50 text-emerald-900' },
+                ].map(c => (
+                  <div key={c.label} className={`rounded-2xl p-5 ${c.color} flex flex-col gap-1`}>
+                    <span className="text-sm font-medium opacity-70">{c.label}</span>
+                    <p className="text-3xl font-bold">{bugLoading ? '—' : c.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Filters */}
+              <div className="bg-white rounded-2xl border border-gray-200 px-4 py-3 flex flex-wrap gap-3 items-center">
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 shrink-0"><Filter size={13} /> Filters</span>
+                <div className="relative">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input value={bugSearch} onChange={e => setBugSearch(e.target.value)} placeholder="Search title, reporter, org…"
+                    className="pl-8 pr-3 py-1.5 rounded-lg border border-gray-200 text-xs w-52 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                </div>
+                <select value={bugStatus} onChange={e => setBugStatus(e.target.value)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:outline-none">
+                  <option value="">All Statuses</option>
+                  {['OPEN','IN_REVIEW','RESOLVED','CLOSED','DUPLICATE','WONT_FIX'].map(s => <option key={s} value={s}>{s.replace(/_/g,' ')}</option>)}
+                </select>
+                <select value={bugSeverity} onChange={e => setBugSeverity(e.target.value)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:outline-none">
+                  <option value="">All Severities</option>
+                  {['CRITICAL','HIGH','MEDIUM','LOW'].map(s => <option key={s}>{s}</option>)}
+                </select>
+                <select value={bugTenant} onChange={e => setBugTenant(e.target.value)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:outline-none max-w-[160px]">
+                  <option value="">All Organisations</option>
+                  {uniqueBugTenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+                {(bugSearch || bugStatus || bugSeverity || bugTenant) && (
+                  <button onClick={() => { setBugSearch(''); setBugStatus(''); setBugSeverity(''); setBugTenant(''); }}
+                    className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700"><X size={12} /> Clear</button>
+                )}
+                <span className="ml-auto text-xs text-gray-400">{filteredBugs.length} reports</span>
+              </div>
+
+              {/* Error state */}
+              {bugError && (
+                <div className="bg-red-50 border border-red-200 rounded-2xl px-5 py-4 flex items-center gap-3 text-red-700">
+                  <AlertTriangle size={16} className="shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold">Failed to load bug reports</p>
+                    <p className="text-xs mt-0.5 opacity-80">{(bugFetchError as any)?.message || 'An error occurred. Check that the bug_service is running and the session is valid.'}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Table */}
+              {bugLoading ? (
+                <div className="text-center py-16 text-gray-400">Loading bug reports…</div>
+              ) : (
+                <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-100 bg-gray-50">
+                        <th className="w-8 px-3 py-3" />
+                        {['Reporter','Organisation','Type','Severity','Title','Status','Reported'].map(h => (
+                          <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pagedBugs.map((r: any) => {
+                        const rowId = r.ROWID ?? r.id;
+                        const isExpanded = expandedBugId === rowId;
+                        return (
+                          <React.Fragment key={rowId}>
+                            <tr
+                              className={`border-b border-gray-100 cursor-pointer transition-colors ${isExpanded ? 'bg-indigo-50/40' : 'hover:bg-gray-50/60'}`}
+                              onClick={() => setExpandedBugId(isExpanded ? null : rowId)}
+                            >
+                              <td className="px-3 py-3 text-gray-400">
+                                {isExpanded ? <ChevronRight size={14} className="rotate-90 transition-transform" /> : <ChevronRight size={14} className="transition-transform" />}
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-2">
+                                  <UserAvatar name={r.reporter_name || '?'} size="sm" />
+                                  <div>
+                                    <p className="text-xs font-semibold text-gray-800 leading-tight">{r.reporter_name || '—'}</p>
+                                    <p className="text-[10px] text-gray-400 truncate max-w-[120px]">{r.reporter_email || ''}</p>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className="flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-lg font-medium whitespace-nowrap">
+                                  <Building2 size={10} className="opacity-60 shrink-0" />
+                                  {r.tenant_name || '—'}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold ${BUG_TYPE_COLORS[r.report_type] ?? 'bg-gray-50 text-gray-600'}`}>
+                                  {(r.report_type || '—').replace(/_/g,' ')}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${BUG_SEVERITY_COLORS[r.severity] ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                                  {r.severity || '—'}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 max-w-[200px]">
+                                <p className="text-xs font-medium text-gray-800 truncate" title={r.title}>{r.title || '—'}</p>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${BUG_STATUS_COLORS[r.status] ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                                  {(r.status || '—').replace(/_/g,' ')}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
+                                {r.CREATEDTIME ? relativeTime(r.CREATEDTIME) : '—'}
+                              </td>
+                            </tr>
+                            {isExpanded && (
+                              <tr className="border-b border-indigo-100 bg-indigo-50/30">
+                                <td colSpan={8} className="px-8 py-5">
+                                  <div className="space-y-4 max-w-3xl">
+                                    {/* Title + meta row */}
+                                    <div className="flex flex-wrap gap-2 items-center">
+                                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${BUG_SEVERITY_COLORS[r.severity] ?? ''}`}>{r.severity}</span>
+                                      <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold ${BUG_TYPE_COLORS[r.report_type] ?? 'bg-gray-50 text-gray-600'}`}>{(r.report_type || '').replace(/_/g,' ')}</span>
+                                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${BUG_STATUS_COLORS[r.status] ?? ''}`}>{(r.status || '').replace(/_/g,' ')}</span>
+                                      {r.tags && <span className="text-[11px] text-gray-400">Tags: {r.tags}</span>}
+                                    </div>
+
+                                    {/* Description */}
+                                    <div>
+                                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Description</p>
+                                      <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">
+                                        {r.description || '—'}
+                                      </div>
+                                    </div>
+
+                                    {/* Page URL + Browser */}
+                                    <div className="flex flex-wrap gap-6">
+                                      {r.page_url && (
+                                        <div>
+                                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Page URL</p>
+                                          <p className="text-xs text-indigo-600 break-all">{r.page_url}</p>
+                                        </div>
+                                      )}
+                                      {r.browser_info && (
+                                        <div>
+                                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Browser</p>
+                                          <p className="text-xs text-gray-600">{r.browser_info}</p>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* Reporter */}
+                                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                                      <span className="font-semibold">Reported by:</span>
+                                      <span>{r.reporter_name}</span>
+                                      {r.reporter_email && <span className="text-gray-400">({r.reporter_email})</span>}
+                                      <span className="text-gray-400">· {r.tenant_name || r.tenant_id}</span>
+                                      {r.CREATEDTIME && <span className="text-gray-400">· {relativeTime(r.CREATEDTIME)}</span>}
+                                    </div>
+
+                                    {/* Attachments */}
+                                    <BugDetailAttachments reportId={rowId} />
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                      {!pagedBugs.length && !bugError && (
+                        <tr><td colSpan={8} className="text-center py-14 text-gray-400">No bug reports found</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                  <div className="px-5 pb-4 pt-2">
+                    <Pagination page={bugPage} total={filteredBugs.length} pageSize={BUG_PAGE_SIZE} onChange={setBugPage} />
+                  </div>
+                </div>
+              )}
+
+            </div>
+          )}
+
+          {/* ── Bug Notification Config tab ── */}
+          {activeTab === 'bug-config' && (
+            <div className="space-y-6">
+              {/* Stats strip */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  { label: 'Total Reports',    value: (bugReports as any[]).length,                                                         color: 'bg-blue-50 text-blue-900'    },
+                  { label: 'Emails Fired',     value: (bugReports as any[]).filter((r: any) => r.notified === 'true' || r.notified === true).length, color: 'bg-violet-50 text-violet-900' },
+                  { label: 'Not Notified',     value: (bugReports as any[]).filter((r: any) => r.notified !== 'true' && r.notified !== true).length,  color: 'bg-amber-50 text-amber-900'  },
+                  { label: 'Notify Recipients',value: cfgEmails.length,                                                                     color: 'bg-emerald-50 text-emerald-900' },
+                ].map(c => (
+                  <div key={c.label} className={`rounded-2xl p-5 ${c.color} flex flex-col gap-1`}>
+                    <span className="text-sm font-medium opacity-70">{c.label}</span>
+                    <p className="text-3xl font-bold">{c.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Config card */}
+              <div className="bg-white rounded-2xl border border-gray-200 p-6">
+                <div className="flex items-center gap-2 mb-1">
+                  <Mail size={16} className="text-indigo-500" />
+                  <h3 className="text-sm font-semibold text-gray-800">Platform Notification Configuration</h3>
+                </div>
+                <p className="text-xs text-gray-400 mb-6">These recipients are notified whenever any bug report is submitted across the platform.</p>
+
+                <div className="space-y-6">
+                  {/* Notify emails */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-2">Notify these email addresses</label>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {cfgEmails.map(em => (
+                        <span key={em} className="flex items-center gap-1.5 bg-indigo-50 text-indigo-700 text-xs px-3 py-1 rounded-full border border-indigo-200">
+                          {em}
+                          <button onClick={() => { setCfgEmails(cfgEmails.filter(e => e !== em)); setCfgSaved(false); }} className="hover:text-red-500 transition-colors">
+                            <X size={11} />
+                          </button>
+                        </span>
+                      ))}
+                      {cfgEmails.length === 0 && <span className="text-xs text-gray-400 italic">No recipients configured yet</span>}
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="email"
+                        value={cfgNewEmail}
+                        onChange={e => setCfgNewEmail(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && cfgNewEmail.includes('@')) {
+                            setCfgEmails([...cfgEmails.filter(x => x !== cfgNewEmail.trim()), cfgNewEmail.trim()]);
+                            setCfgNewEmail('');
+                            setCfgSaved(false);
+                          }
+                        }}
+                        placeholder="team@company.com"
+                        className="rounded-lg border border-gray-200 px-3 py-2 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                      />
+                      <button
+                        onClick={() => {
+                          if (cfgNewEmail.includes('@')) {
+                            setCfgEmails([...cfgEmails.filter(x => x !== cfgNewEmail.trim()), cfgNewEmail.trim()]);
+                            setCfgNewEmail('');
+                            setCfgSaved(false);
+                          }
+                        }}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-50 text-indigo-600 text-sm font-semibold hover:bg-indigo-100 transition-colors"
+                      >
+                        <Plus size={14} /> Add
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Notify on new toggle */}
+                  <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl">
+                    <input
+                      type="checkbox"
+                      id="cfg-notify-new"
+                      checked={cfgOnNew}
+                      onChange={e => { setCfgOnNew(e.target.checked); setCfgSaved(false); }}
+                      className="w-4 h-4 rounded text-indigo-600"
+                    />
+                    <div>
+                      <label htmlFor="cfg-notify-new" className="text-sm font-medium text-gray-800 cursor-pointer">
+                        Notify on every new report
+                      </label>
+                      <p className="text-xs text-gray-400 mt-0.5">When off, only reports matching the selected severities trigger an email.</p>
+                    </div>
+                  </div>
+
+                  {/* Severity filter */}
+                  {!cfgOnNew && (
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 mb-2">Notify only on these severities</label>
+                      <div className="flex gap-3 flex-wrap">
+                        {(['CRITICAL','HIGH','MEDIUM','LOW'] as const).map(sev => (
+                          <label key={sev} className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={cfgSeverities.includes(sev)}
+                              onChange={e => { setCfgSeverities(e.target.checked ? [...cfgSeverities, sev] : cfgSeverities.filter(s => s !== sev)); setCfgSaved(false); }}
+                              className="w-4 h-4 rounded text-indigo-600"
+                            />
+                            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${BUG_SEVERITY_COLORS[sev] ?? ''}`}>{sev}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Email subject prefix */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Email subject prefix</label>
+                    <input
+                      value={cfgPrefix}
+                      onChange={e => { setCfgPrefix(e.target.value); setCfgSaved(false); }}
+                      placeholder="[Bug Report]"
+                      className="rounded-lg border border-gray-200 px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                    />
+                  </div>
+
+                  {/* Save */}
+                  <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
+                    <button
+                      disabled={cfgSaving}
+                      onClick={async () => {
+                        setCfgSaving(true);
+                        setCfgSaved(false);
+                        try {
+                          await bugApi.saveConfig({
+                            notify_emails:        JSON.stringify(cfgEmails) as any,
+                            notify_on_severity:   JSON.stringify(cfgSeverities) as any,
+                            notify_on_new:        cfgOnNew,
+                            email_subject_prefix: cfgPrefix,
+                          });
+                          setCfgSaved(true);
+                          qc.invalidateQueries({ queryKey: ['sa-bug-config'] });
+                        } catch (_) {}
+                        setCfgSaving(false);
+                      }}
+                      className="flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+                    >
+                      <Save size={14} /> {cfgSaving ? 'Saving…' : 'Save Configuration'}
+                    </button>
+                    {cfgSaved && (
+                      <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-semibold">
+                        <Check size={15} /> Saved successfully
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 

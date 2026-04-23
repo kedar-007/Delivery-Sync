@@ -72,9 +72,10 @@ const PERM_GROUPS: PermGroup[] = [
     color: 'orange',
     icon: <Info size={12} />,
     perms: [
-      { key: 'TIME_READ',    label: 'View Time Logs', desc: 'See time tracking entries' },
-      { key: 'TIME_WRITE',   label: 'Log Time',       desc: 'Submit time entries' },
-      { key: 'TIME_APPROVE', label: 'Approve Time',   desc: 'Approve team time submissions' },
+      { key: 'TIME_READ',      label: 'View Time Logs',     desc: 'See time tracking entries' },
+      { key: 'TIME_WRITE',     label: 'Log Time',           desc: 'Submit time entries' },
+      { key: 'TIME_APPROVE',   label: 'Approve Time',       desc: 'Approve team time submissions' },
+      { key: 'TIME_ANALYTICS', label: 'Team Activity Analytics', desc: 'View billable/non-billable hours breakdown across all team members' },
     ],
   },
   {
@@ -317,6 +318,13 @@ const AI_GUIDE: Record<string, AiGuide> = {
     defaultRoles: ['TENANT_ADMIN', 'DELIVERY_LEAD', 'PMO'],
     risk: 'medium',
     tip: 'Reserve for line managers and project leads who own billing / payroll accuracy.',
+  },
+  TIME_ANALYTICS: {
+    summary: 'Grants access to the Team Activity Analytics page — a manager-facing view showing billable vs non-billable hours per team member over any selected period (week, month, custom). Includes a stacked bar chart, per-member table with expandable project breakdowns, and submission status (approved / pending / draft hours).',
+    unlocks: ['Team Activity page under Reports & AI', 'Billable vs non-billable chart', 'Per-member hours breakdown', 'Per-project drill-down per member', 'Approved / submitted / draft hours status'],
+    defaultRoles: ['TENANT_ADMIN', 'DELIVERY_LEAD', 'PMO'],
+    risk: 'medium',
+    tip: 'Grant to reporting managers and project leads who need to track team utilisation and billing. Team members should not have this — it exposes other people\'s work hours.',
   },
   ACTION_READ: {
     summary: 'Allows viewing action items within projects including owner, due date, and status.',
@@ -852,10 +860,12 @@ const UserPermissionsModal = ({ open, onClose, userId, userName, userRole }: Pro
 
   const handleSave = async () => {
     setSaveError('');
+    // Use PERM_GROUPS (frontend catalogue) as the source of truth for all known permission keys.
+    // This avoids the issue where data.allPermissions comes from the backend and may not include
+    // permissions that were added to the frontend before the backend was redeployed.
+    const allKnownPerms = PERM_GROUPS.flatMap((g) => g.perms.map((p) => p.key));
     const granted = Array.from(enabled).filter((p) => !roleSet.has(p));
-    const revoked = [...(data?.allPermissions ?? [])].filter(
-      (p) => roleSet.has(p) && !enabled.has(p)
-    );
+    const revoked = allKnownPerms.filter((p) => roleSet.has(p) && !enabled.has(p));
     try {
       await save.mutateAsync({ granted, revoked });
       setDirty(false);

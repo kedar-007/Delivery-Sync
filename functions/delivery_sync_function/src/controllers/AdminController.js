@@ -335,6 +335,38 @@ class AdminController {
   }
 
   /**
+   * PATCH /api/admin/tenant/settings
+   * Merges provided keys into tenants.settings JSON. TENANT_ADMIN only.
+   */
+  async updateTenantSettings(req, res) {
+    try {
+      const { tenantId } = req.currentUser;
+      const updates = req.body; // e.g. { botEnabled: false }
+      if (!updates || typeof updates !== 'object') {
+        return ResponseHelper.validationError(res, 'Request body must be a settings object');
+      }
+
+      const rows = await this.db.query(
+        `SELECT ROWID, settings FROM ${TABLES.TENANTS} WHERE ROWID = '${tenantId}' LIMIT 1`
+      );
+      if (rows.length === 0) return ResponseHelper.notFound(res, 'Tenant not found');
+
+      const current = (() => { try { return JSON.parse(rows[0].settings || '{}'); } catch { return {}; } })();
+      const merged  = { ...current, ...updates };
+
+      await this.db.update(TABLES.TENANTS, {
+        ROWID:    String(rows[0].ROWID),
+        settings: JSON.stringify(merged),
+      });
+
+      console.log(`[AdminController] updateTenantSettings tenantId=${tenantId} keys=${Object.keys(updates).join(',')}`);
+      return ResponseHelper.success(res, { settings: merged });
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
    * GET /api/admin/my-permissions
    * Returns the calling user's effective permissions (role defaults + overrides).
    * Any authenticated user can call this — no admin required.
@@ -432,10 +464,12 @@ class AdminController {
       const user = await this.db.findById(TABLES.USERS, userId, tenantId);
       if (!user) return ResponseHelper.notFound(res, 'User not found');
 
-      const { PERMISSIONS } = require('../utils/Constants');
-      const validPerms = new Set(Object.values(PERMISSIONS));
-      const cleanGranted = granted.filter((p) => validPerms.has(p));
-      const cleanRevoked = revoked.filter((p) => validPerms.has(p));
+      // Accept any string that looks like a valid permission key (uppercase letters, digits, underscores).
+      // We intentionally do NOT filter against Object.values(PERMISSIONS) here — that would silently
+      // drop newly-added permissions if the backend hasn't been restarted after a Constants update.
+      const isValidPermKey = (p) => typeof p === 'string' && /^[A-Z][A-Z0-9_]{1,99}$/.test(p);
+      const cleanGranted = granted.filter(isValidPermKey);
+      const cleanRevoked = revoked.filter(isValidPermKey);
 
       const permJson = JSON.stringify({ granted: cleanGranted, revoked: cleanRevoked });
 

@@ -1,10 +1,10 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import {
   Settings, GitMerge, ToggleLeft, ToggleRight, Shield, FileText,
   CalendarDays, Award, Plus, Trash2, Edit2, CheckCircle2,
   AlertCircle, ChevronDown, ChevronRight, Zap, Flag, Users,
-  Lock, Unlock, RefreshCw, Info, Star, GripVertical, Search,
+  Lock, Unlock, RefreshCw, Info, Star, GripVertical, Search, Bot, Bug, X,
 } from 'lucide-react';
 import {
   DndContext,
@@ -33,7 +33,8 @@ import {
   useBadgeDefinitions, useCreateBadgeDefinition, useUpdateBadgeDefinition,
   useOrgRoles, useAllPermissions, useSetOrgRolePermissions,
 } from '../hooks/useAdminConfig';
-import { adminConfigApi } from '../lib/api';
+import { adminConfigApi, adminApi } from '../lib/api';
+import { useBugConfig, useSaveBugConfig } from '../hooks/useBugReports';
 import { useConfirm } from '../components/ui/ConfirmDialog';
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
@@ -45,6 +46,8 @@ const TABS = [
   { key: 'permissions', label: 'Permissions',    icon: Shield },
   { key: 'leave-types', label: 'Leave Types',    icon: CalendarDays },
   { key: 'badges',      label: 'Badge Catalog',  icon: Award },
+  { key: 'bot',         label: 'AI Assistant',   icon: Bot },
+  { key: 'bug-report',  label: 'Bug Reports',    icon: Bug },
 ] as const;
 
 type TabKey = typeof TABS[number]['key'];
@@ -1567,6 +1570,318 @@ function BadgeCatalogTab() {
   );
 }
 
+// ── Bug Report Config Tab ─────────────────────────────────────────────────────
+
+function BugReportConfigTab() {
+  const { data: config, isLoading } = useBugConfig();
+  const { mutateAsync: saveConfig, isPending: saving } = useSaveBugConfig();
+
+  const [enabled,       setEnabled]       = useState<boolean>(true);
+  const [notifyOnNew,   setNotifyOnNew]   = useState<boolean>(true);
+  const [emailInput,    setEmailInput]    = useState('');
+  const [emails,        setEmails]        = useState<string[]>([]);
+  const [severities,    setSeverities]    = useState<string[]>(['CRITICAL', 'HIGH']);
+  const [prefix,        setPrefix]        = useState('[Bug Report]');
+  const [maxFiles,      setMaxFiles]      = useState(5);
+  const [saved,         setSaved]         = useState(false);
+  const [error,         setError]         = useState('');
+  const [hydrated,      setHydrated]      = useState(false);
+
+  useEffect(() => {
+    if (!config || hydrated) return;
+    setEnabled(String(config.enabled) !== 'false');
+    setNotifyOnNew(String(config.notify_on_new) !== 'false');
+    setEmails((() => { try { return JSON.parse(config.notify_emails || '[]'); } catch { return []; } })());
+    setSeverities((() => { try { return JSON.parse(config.notify_on_severity || '["CRITICAL","HIGH"]'); } catch { return ['CRITICAL','HIGH']; } })());
+    setPrefix(config.email_subject_prefix || '[Bug Report]');
+    setMaxFiles(Number(config.max_attachments) || 5);
+    setHydrated(true);
+  }, [config, hydrated]);
+
+  const addEmail = () => {
+    const e = emailInput.trim().toLowerCase();
+    if (!e || !e.includes('@')) return;
+    if (emails.includes(e)) { setEmailInput(''); return; }
+    setEmails((prev) => [...prev, e]);
+    setEmailInput('');
+  };
+
+  const toggleSeverity = (s: string) =>
+    setSeverities((prev) => prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]);
+
+  const handleSave = async () => {
+    setError(''); setSaved(false);
+    try {
+      await saveConfig({
+        enabled,
+        notify_on_new:       notifyOnNew,
+        notify_emails:       JSON.stringify(emails),
+        notify_on_severity:  JSON.stringify(severities),
+        email_subject_prefix: prefix,
+        max_attachments:     maxFiles,
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e: unknown) {
+      setError((e as Error).message || 'Failed to save');
+    }
+  };
+
+  if (isLoading) return <div className="p-8 text-sm text-gray-400">Loading…</div>;
+
+  return (
+    <div className="p-6 space-y-6 max-w-xl">
+      {/* Enable toggle */}
+      <div className="flex items-center justify-between p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40">
+        <div>
+          <p className="font-semibold text-sm text-gray-900 dark:text-white">Bug Reporting</p>
+          <p className="text-xs text-gray-500 mt-0.5">Allow users to report bugs and submit feedback</p>
+        </div>
+        <button onClick={() => setEnabled((v) => !v)} className="shrink-0">
+          {enabled
+            ? <ToggleRight size={32} className="text-green-500" />
+            : <ToggleLeft  size={32} className="text-gray-400" />}
+        </button>
+      </div>
+
+      {/* Notify on new */}
+      <div className="flex items-center justify-between p-4 rounded-xl border border-gray-200 dark:border-gray-700">
+        <div>
+          <p className="font-semibold text-sm text-gray-900 dark:text-white">Notify on every report</p>
+          <p className="text-xs text-gray-500 mt-0.5">Send email for every new submission regardless of severity</p>
+        </div>
+        <button onClick={() => setNotifyOnNew((v) => !v)} className="shrink-0">
+          {notifyOnNew
+            ? <ToggleRight size={32} className="text-green-500" />
+            : <ToggleLeft  size={32} className="text-gray-400" />}
+        </button>
+      </div>
+
+      {/* Severity filter */}
+      <div>
+        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+          Notify on severity
+          <span className="ml-1 font-normal normal-case text-gray-400">(when not notifying on every report)</span>
+        </p>
+        <div className="flex gap-2 flex-wrap">
+          {(['CRITICAL','HIGH','MEDIUM','LOW'] as const).map((s) => {
+            const active = severities.includes(s);
+            const colors: Record<string, string> = {
+              CRITICAL: 'bg-red-100 text-red-700 border-red-300',
+              HIGH:     'bg-orange-100 text-orange-700 border-orange-300',
+              MEDIUM:   'bg-yellow-100 text-yellow-700 border-yellow-300',
+              LOW:      'bg-green-100 text-green-700 border-green-300',
+            };
+            return (
+              <button
+                key={s}
+                onClick={() => toggleSeverity(s)}
+                className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+                  active ? colors[s] : 'border-gray-200 dark:border-gray-700 text-gray-400'
+                }`}
+              >
+                {s}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Notification emails */}
+      <div>
+        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+          Notification email addresses
+        </p>
+        <div className="flex gap-2 mb-3">
+          <input
+            type="email"
+            value={emailInput}
+            onChange={(e) => setEmailInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addEmail())}
+            placeholder="engineer@company.com"
+            className="flex-1 px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-700
+              bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white
+              placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400"
+          />
+          <button
+            onClick={addEmail}
+            className="px-4 py-2 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-semibold"
+          >
+            Add
+          </button>
+        </div>
+        {emails.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {emails.map((e) => (
+              <span key={e} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-medium border border-blue-200 dark:border-blue-700">
+                {e}
+                <button onClick={() => setEmails((prev) => prev.filter((x) => x !== e))}>
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400">No notification emails configured.</p>
+        )}
+      </div>
+
+      {/* Email prefix */}
+      <div>
+        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
+          Email subject prefix
+        </p>
+        <input
+          type="text"
+          value={prefix}
+          onChange={(e) => setPrefix(e.target.value)}
+          className="w-full px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-700
+            bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white
+            focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400"
+        />
+      </div>
+
+      {/* Max attachments */}
+      <div>
+        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
+          Max attachments per report
+        </p>
+        <input
+          type="number"
+          min={1} max={10}
+          value={maxFiles}
+          onChange={(e) => setMaxFiles(Number(e.target.value))}
+          className="w-28 px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-700
+            bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white
+            focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400"
+        />
+      </div>
+
+      {saved && <p className="text-xs text-green-600 font-medium">✓ Saved successfully</p>}
+      {error && <p className="text-xs text-red-500">{error}</p>}
+
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        className="px-5 py-2.5 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900
+          text-sm font-semibold disabled:opacity-40 transition-colors hover:bg-gray-800 dark:hover:bg-gray-100"
+      >
+        {saving ? 'Saving…' : 'Save Settings'}
+      </button>
+    </div>
+  );
+}
+
+// ── Bot Settings Tab ───────────────────────────────────────────────────────────
+
+function BotSettingsTab() {
+  const [botEnabled, setBotEnabled] = useState<boolean | null>(null);
+  const [saving,     setSaving]     = useState(false);
+  const [saved,      setSaved]      = useState(false);
+  const [error,      setError]      = useState('');
+
+  useEffect(() => {
+    adminApi.getTenant()
+      .then((d: { tenant: { settings: { botEnabled?: boolean } } }) => {
+        setBotEnabled(d?.tenant?.settings?.botEnabled !== false);
+      })
+      .catch(() => setBotEnabled(true));
+  }, []);
+
+  const handleToggle = async () => {
+    const next = !botEnabled;
+    setBotEnabled(next);
+    setSaving(true);
+    setSaved(false);
+    setError('');
+    try {
+      await adminApi.updateTenantSettings({ botEnabled: next });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e: unknown) {
+      setError((e as Error).message || 'Failed to save');
+      setBotEnabled(!next); // revert
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card className="p-6">
+        <div className="flex items-start gap-4">
+          <div className="p-3 rounded-xl bg-indigo-50 flex-shrink-0">
+            <Bot size={22} className="text-indigo-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-base font-semibold text-gray-900">AI Assistant (Bot)</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Enable or disable the AI assistant widget for all users in your organisation.
+              When disabled, the bot icon is hidden and all bot API calls are blocked.
+            </p>
+
+            <div className="mt-5 flex items-center justify-between p-4 rounded-xl border border-gray-200 bg-gray-50">
+              <div>
+                <p className="text-sm font-medium text-gray-800">
+                  Bot Assistant is currently{' '}
+                  <span className={botEnabled ? 'text-green-600' : 'text-red-500'}>
+                    {botEnabled === null ? '…' : botEnabled ? 'Enabled' : 'Disabled'}
+                  </span>
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Changes take effect immediately for all members.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleToggle}
+                disabled={saving || botEnabled === null}
+                className="flex-shrink-0 ml-4 disabled:opacity-50"
+                title={botEnabled ? 'Disable bot' : 'Enable bot'}
+              >
+                {botEnabled
+                  ? <ToggleRight size={44} className="text-indigo-600 transition-colors" />
+                  : <ToggleLeft  size={44} className="text-gray-400  transition-colors" />
+                }
+              </button>
+            </div>
+
+            {saved && (
+              <div className="mt-3 flex items-center gap-2 text-sm text-green-600">
+                <CheckCircle2 size={15} /> Saved successfully
+              </div>
+            )}
+            {error && (
+              <div className="mt-3 flex items-center gap-2 text-sm text-red-500">
+                <AlertCircle size={15} /> {error}
+              </div>
+            )}
+          </div>
+        </div>
+      </Card>
+
+      <Card className="p-6">
+        <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+          <Info size={15} className="text-gray-400" /> What the bot can do
+        </h4>
+        <ul className="space-y-2 text-sm text-gray-600">
+          {[
+            'Answer questions about time logs, tasks, standups and milestones',
+            'Generate a personalised daily plan pinned to the todo list',
+            'Let each user customise their bot name, avatar and accent colour',
+            'Persist conversation history and todo items per session',
+          ].map((item) => (
+            <li key={item} className="flex items-start gap-2">
+              <CheckCircle2 size={14} className="text-indigo-400 mt-0.5 flex-shrink-0" />
+              {item}
+            </li>
+          ))}
+        </ul>
+      </Card>
+    </div>
+  );
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function AdminConfigPage() {
@@ -1595,6 +1910,8 @@ export default function AdminConfigPage() {
     permissions:   <PermissionsTab />,
     'leave-types': <LeaveTypesTab />,
     badges:        <BadgeCatalogTab />,
+    bot:           <BotSettingsTab />,
+    'bug-report':  <BugReportConfigTab />,
   };
 
   return (

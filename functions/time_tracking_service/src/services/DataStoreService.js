@@ -97,6 +97,24 @@ class DataStoreService {
   }
 
   /**
+   * Fetch ALL rows by paginating with LIMIT/OFFSET (stays within ZCQL's 300-row cap).
+   * @param {string} baseQuery  – full ZCQL without LIMIT/OFFSET at the end
+   * @param {number} batchSize  – rows per page; must be ≤ 200 to stay safely under the 300-row cap
+   * @returns {Promise<object[]>}
+   */
+  async queryAll(baseQuery, batchSize = 200) {
+    const all = [];
+    let offset = 0;
+    while (true) {
+      const batch = await this.query(`${baseQuery} LIMIT ${batchSize} OFFSET ${offset}`);
+      all.push(...batch);
+      if (batch.length < batchSize) break;
+      offset += batchSize;
+    }
+    return all;
+  }
+
+  /**
    * Count rows matching filters.
    */
   async count(tableName, filters = {}) {

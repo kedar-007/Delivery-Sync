@@ -15,6 +15,7 @@ export interface CurrentUser {
   orgRoleId?: string | null;
   orgRoleName?: string | null;
   permissions?: string[];
+  botEnabled?: boolean;
 }
 
 export interface User {

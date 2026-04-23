@@ -21,7 +21,8 @@ router.put('/users/:userId', auth, can(PERMISSIONS.ADMIN_USERS), asyncHandler((r
 router.delete('/users/:userId', auth, admin(), asyncHandler((req, res) => ctrl(req).deactivateUser(req, res)));
 router.patch('/users/:userId/activate', auth, admin(), asyncHandler((req, res) => ctrl(req).activateUser(req, res)));
 
-router.get('/tenant', auth, can(PERMISSIONS.ADMIN_SETTINGS), asyncHandler((req, res) => ctrl(req).getTenant(req, res)));
+router.get('/tenant',            auth, can(PERMISSIONS.ADMIN_SETTINGS), asyncHandler((req, res) => ctrl(req).getTenant(req, res)));
+router.patch('/tenant/settings', auth, admin(),                          asyncHandler((req, res) => ctrl(req).updateTenantSettings(req, res)));
 router.get('/audit-logs', auth, can(PERMISSIONS.ADMIN_SETTINGS), asyncHandler((req, res) => ctrl(req).getAuditLogs(req, res)));
 router.get('/modules', auth, asyncHandler((req, res) => ctrl(req).getModulePermissions(req, res)));
 

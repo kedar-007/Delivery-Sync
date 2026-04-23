@@ -119,6 +119,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
     fetchUser();
+    // Refetch permissions when the tab becomes visible again (e.g. after admin grants a new
+    // permission in another tab). Using visibilitychange instead of window.focus so that
+    // native OS dialogs (file pickers, color pickers) do NOT trigger a refetch — those
+    // dialogs return focus to the window without changing the tab's visibility state.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && localStorage.getItem('ds_logged_out') !== '1') {
+        fetchUser();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

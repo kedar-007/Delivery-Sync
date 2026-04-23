@@ -86,7 +86,7 @@ const Dialog = ({ state, onClose }: { state: DialogState; onClose: (v: boolean) 
       />
 
       {/* Card */}
-      <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-2 duration-200">
+      <div role="dialog" aria-modal="true" aria-labelledby="confirm-title" className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-2 duration-200">
         {/* Coloured top bar */}
         <div className={`h-1 w-full bg-gradient-to-r ${cfg.bar}`} />
 
@@ -105,7 +105,7 @@ const Dialog = ({ state, onClose }: { state: DialogState; onClose: (v: boolean) 
           </div>
 
           {/* Text */}
-          <h2 className="text-base font-bold text-gray-900 text-center mb-2">{state.title}</h2>
+          <h2 id="confirm-title" className="text-base font-bold text-gray-900 text-center mb-2">{state.title}</h2>
           <p className="text-sm text-gray-500 text-center leading-relaxed">{state.message}</p>
         </div>
 

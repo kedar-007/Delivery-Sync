@@ -188,6 +188,8 @@ export const adminApi = {
   activateUser: (id: string) =>
     api.patch(`/admin/users/${id}/activate`).then((r) => r.data.data),
   getTenant: () => api.get('/admin/tenant').then((r) => r.data.data),
+  updateTenantSettings: (settings: Record<string, unknown>) =>
+    api.patch('/admin/tenant/settings', settings).then((r) => r.data.data),
   getAuditLogs: (params?: Record<string, string>) =>
     api.get('/admin/audit-logs', { params }).then((r) => r.data.data),
   getModules: () => api.get('/admin/modules').then((r) => r.data.data),
@@ -585,6 +587,8 @@ export const timeEntriesApi = {
   submit:      (id: string) => timeClient.patch(`/entries/${id}/submit`).then((r) => r.data.data),
   retract:     (id: string) => timeClient.patch(`/entries/${id}/retract`).then((r) => r.data.data),
   bulkSubmit:  (data: unknown) => timeClient.post('/entries/bulk-submit', data).then((r) => r.data.data),
+  teamAnalytics: (params?: Record<string, string>) => timeClient.get('/entries/analytics/team', { params }).then((r) => r.data.data),
+  userActivity:  (params: Record<string, string>)  => timeClient.get('/entries/analytics/user', { params }).then((r) => r.data.data),
 };
 
 export const timeApprovalsApi = {
@@ -783,6 +787,188 @@ export const enterpriseReportsApi = {
   customReport:      (data: unknown) => reportingClient.post('/custom', data).then((r) => r.data.data),
   generatePdf:       (data: unknown) => reportingClient.post('/pdf/generate', data).then((r) => r.data.data),
   pdfJobs:           () => reportingClient.get('/pdf/jobs').then((r) => r.data.data),
+};
+
+// ─── Bot Service ──────────────────────────────────────────────────────────────
+
+const botClient = axios.create({
+  baseURL: '/server/bot_service/api/bot',
+  withCredentials: true,
+  headers: { 'Content-Type': 'application/json' },
+});
+
+export interface BotProfile {
+  ROWID?:           string;
+  bot_name:         string;
+  bot_avatar_url:   string;
+  bot_accent_color: string;
+  bot_personality:  'FRIENDLY' | 'PROFESSIONAL' | 'CONCISE';
+}
+
+export interface BotScanResult {
+  module:         string;
+  icon:           string;
+  label:          string;
+  status:         'all_good' | 'needs_attention' | 'overdue';
+  found:          string;
+  completion_pct: number;
+  data:           Record<string, unknown>;
+}
+
+export interface BotTodoItem {
+  ROWID:         string;
+  tenant_id:     string;
+  user_id:       string;
+  session_id:    string;
+  title:         string;
+  description:   string;
+  module:        string;
+  todo_priority: 'high' | 'medium' | 'low';
+  is_pinned:     string;
+  is_completed:  string;
+  due_date:      string | null;
+}
+
+export interface BotMessageResponse {
+  reply:        string;
+  message_type: 'text' | 'daily_plan' | 'data_response';
+  data:         Record<string, unknown> | null;
+  items:        BotTodoItem[];
+  scan_results: BotScanResult[];
+  saved_todos:  Array<{ id: string | null }>;
+}
+
+export interface QuickAction {
+  icon:            string;
+  label:           string;
+  prompt_template: string;
+  sort_order:      number;
+}
+
+export const botApi = {
+  sendMessage: (payload: {
+    session_id:   string;
+    message:      string;
+    message_type?: string;
+  }): Promise<BotMessageResponse> =>
+    botClient.post('/message', payload).then((r) => r.data.data),
+
+  getProfile: (): Promise<BotProfile> =>
+    botClient.get('/profile').then((r) => r.data.data),
+
+  updateProfile: (data: Partial<BotProfile>): Promise<BotProfile> =>
+    botClient.put('/profile', data).then((r) => r.data.data),
+
+  uploadAvatar: (data: { base64: string; content_type?: string; file_name?: string }): Promise<{ url: string }> =>
+    botClient.post('/avatar', data).then((r) => r.data.data),
+
+  getTodos: (sessionId?: string): Promise<{ todos: BotTodoItem[] }> =>
+    botClient.get('/todos', { params: sessionId ? { session_id: sessionId } : {} }).then((r) => r.data.data),
+
+  updateTodo: (id: string, fields: { is_pinned?: boolean; is_completed?: boolean }) =>
+    botClient.put(`/todos/${id}`, fields).then((r) => r.data.data),
+
+  getQuickActions: (): Promise<{ actions: QuickAction[] }> =>
+    botClient.get('/quick-actions').then((r) => r.data.data),
+};
+
+// ─── Bug Report Service ───────────────────────────────────────────────────────
+
+const bugClient = axios.create({
+  baseURL: '/server/bug_service/api/bugs',
+  withCredentials: true,
+  headers: { 'Content-Type': 'application/json' },
+});
+bugClient.interceptors.response.use(
+  (r) => r,
+  (error: AxiosError<{ success: boolean; message: string }>) => {
+    const message = error.response?.data?.message || error.message || 'Bug service error';
+    const enhanced = new Error(message) as Error & { status?: number };
+    enhanced.status = error.response?.status;
+    return Promise.reject(enhanced);
+  }
+);
+
+export interface BugReport {
+  ROWID?:           string;
+  tenant_id?:       string;
+  reporter_id?:     string;
+  reporter_email?:  string;
+  reporter_name?:   string;
+  report_type?:     'BUG' | 'FEEDBACK' | 'ISSUE' | 'FEATURE_REQUEST';
+  title?:           string;
+  description?:     string;
+  severity?:        'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  status?:          'OPEN' | 'IN_REVIEW' | 'RESOLVED' | 'CLOSED' | 'DUPLICATE';
+  priority?:        'P0' | 'P1' | 'P2' | 'P3';
+  page_url?:        string;
+  browser_info?:    string;
+  human_verified?:  string | boolean;
+  attachment_count?: string | number;
+  assigned_to?:     string;
+  resolution_notes?: string;
+  resolved_by?:     string;
+  resolved_at?:     string;
+  tags?:            string;
+  notified?:        string | boolean;
+  CREATEDTIME?:     string;
+  MODIFIEDTIME?:    string;
+  tenantName?:      string;
+}
+
+export interface BugAttachment {
+  ROWID?:         string;
+  bug_report_id?: string;
+  file_url?:      string;
+  file_name?:     string;
+  file_type?:     string;
+  mime_type?:     string;
+  file_size?:     string | number;
+  CREATEDTIME?:   string;
+}
+
+export interface BugReportConfig {
+  tenant_id?:           string;
+  enabled?:             boolean | string;
+  notify_emails?:       string;   // JSON array
+  notify_on_severity?:  string;   // JSON array
+  notify_on_new?:       boolean | string;
+  allow_anonymous?:     boolean | string;
+  max_attachments?:     string | number;
+  max_file_size_mb?:    string | number;
+  email_subject_prefix?: string;
+  auto_assign_to?:      string;
+}
+
+export const bugApi = {
+  // Reports
+  submit:           (data: Partial<BugReport>) =>
+    bugClient.post('/reports', data).then((r) => r.data.data),
+
+  uploadAttachment: (reportId: string, data: { base64: string; file_name: string; file_type: string; mime_type: string; file_size: number }) =>
+    bugClient.post(`/reports/${reportId}/attachments`, data).then((r) => r.data.data),
+
+  notify: (reportId: string) =>
+    bugClient.post(`/reports/${reportId}/notify`).then((r) => r.data.data),
+
+  list:             (params?: Record<string, string>) =>
+    bugClient.get('/reports', { params }).then((r) => r.data.data),
+
+  get:              (id: string) =>
+    bugClient.get(`/reports/${id}`).then((r) => r.data.data),
+
+  update:           (id: string, data: Partial<BugReport>) =>
+    bugClient.patch(`/reports/${id}`, data).then((r) => r.data.data),
+
+  listAll:          (params?: Record<string, string>) =>
+    bugClient.get('/reports/all', { params }).then((r) => r.data.data),
+
+  // Config
+  getConfig:        (tenantId?: string) =>
+    bugClient.get('/config', { params: tenantId ? { tenantId } : undefined }).then((r) => r.data.data),
+
+  saveConfig:       (data: Partial<BugReportConfig> & { tenantId?: string }) =>
+    bugClient.put('/config', data).then((r) => r.data.data),
 };
 
 export default api;

@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Settings, Sun, Moon, X, BellRing } from 'lucide-react';
+import { Settings, Sun, Moon, X, BellRing, Bug } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useI18n, LOCALES, LocaleCode } from '../../contexts/I18nContext';
 import UserAvatar from '../ui/UserAvatar';
 import NotificationBell from '../ui/NotificationBell';
 import AttendanceWidget from '../ui/AttendanceWidget';
+import ReportBugWidget from '../bugs/ReportBugWidget';
 import { useMyProfile } from '../../hooks/useUsers';
 import { useAnnouncements, useMarkAnnouncementRead } from '../../hooks/usePeople';
 import { useFestival } from '../../contexts/FestivalContext';
@@ -90,6 +91,7 @@ const Header = ({ title, subtitle, actions }: HeaderProps) => {
   const { locale, setLocale } = useI18n();
   const { data: profile } = useMyProfile();
   const { festival } = useFestival();
+  const [bugOpen, setBugOpen] = useState(false);
 
   const toggleDark = () => setThemeId(isDark ? 'default' : 'dark');
 
@@ -155,6 +157,14 @@ const Header = ({ title, subtitle, actions }: HeaderProps) => {
               </select>
             </div>
             <NotificationBell />
+            <button
+              onClick={() => setBugOpen(true)}
+              title="Report a bug or give feedback"
+              className="p-2 rounded-lg transition-colors"
+              style={{ color: `rgb(var(--ds-text-muted))` }}
+            >
+              <Bug size={18} />
+            </button>
             <Link to={`/${tenantSlug}/settings`} aria-label="Settings" className="p-2 rounded-lg transition-colors" style={{ color: `rgb(var(--ds-text-muted))` }}>
               <Settings size={18} />
             </Link>
@@ -165,6 +175,7 @@ const Header = ({ title, subtitle, actions }: HeaderProps) => {
         </div>
       </header>
       <InternalBanner />
+      {user && <ReportBugWidget open={bugOpen} onOpenChange={setBugOpen} />}
     </div>
   );
 };

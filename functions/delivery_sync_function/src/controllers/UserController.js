@@ -260,20 +260,44 @@ class UserController {
 
   // ─────────────────────────────────────────────────────────────────────────────
   // PATCH /api/users/me
-  // Body: { name?: string }
+  // Body: { name?: string, phone?: string, designation?: string }
   // ─────────────────────────────────────────────────────────────────────────────
   async updateProfile(req, res) {
     try {
-      const { id: userId } = req.currentUser;
-      const { name } = req.body;
+      const { id: userId, tenantId } = req.currentUser;
+      const { name, phone, designation } = req.body;
 
       if (!name || typeof name !== 'string' || !name.trim()) {
         return ResponseHelper.validationError(res, 'name is required');
       }
 
+      // Update name in users table
       await this.db.update(TABLES.USERS, { ROWID: userId, name: name.trim().slice(0, 100) });
+
+      // Update phone/designation in user_profiles (where those columns live)
+      if (phone !== undefined || designation !== undefined) {
+        const profiles = await this.db.query(
+          `SELECT ROWID FROM ${TABLES.USER_PROFILES} WHERE user_id = '${userId}' LIMIT 1`
+        );
+        const profileUpdates = {};
+        if (phone !== undefined)       profileUpdates.phone       = String(phone || '').slice(0, 30);
+        if (designation !== undefined) profileUpdates.designation = String(designation || '').slice(0, 200);
+
+        if (profiles.length > 0) {
+          await this.db.update(TABLES.USER_PROFILES, { ROWID: profiles[0].ROWID, ...profileUpdates });
+        } else {
+          await this.db.insert(TABLES.USER_PROFILES, {
+            tenant_id: tenantId, user_id: userId,
+            bio: '', photo_url: '', skills: '[]', experience: '[]', certifications: '[]',
+            resume_url: '', social_links: '{}', is_profile_public: 'false',
+            ...profileUpdates,
+          });
+        }
+      }
+
       return ResponseHelper.success(res, { updated: true }, 'Profile updated');
     } catch (err) {
+      console.error('[UserController.updateProfile]', err.message);
       return ResponseHelper.serverError(res, err.message);
     }
   }
@@ -291,52 +315,86 @@ class UserController {
         return ResponseHelper.validationError(res, 'fileName and base64 are required');
       }
 
-      const bucket = this.stratus.bucket(BUCKET_NAME);
+      // Strip data-URI prefix if present (frontend may send full data-URL)
+      const base64Data = base64.replace(/^data:image\/[\w+]+;base64,/, '');
+      const buffer     = Buffer.from(base64Data, 'base64');
+      const ext            = (fileName.split('.').pop() || 'jpg').toLowerCase();
+      const uniqueFileName = `avatar_${userId}_${Date.now()}.${ext}`;
 
-      // 1. Delete old avatar from Stratus if one exists
-      const existingUser = await this.db.findById(TABLES.USERS, userId, tenantId);
-      if (existingUser?.avatar_url) {
+      // ── Try Stratus upload ────────────────────────────────────────────────
+      let avatarUrl = '';
+      let stratusOk = false;
+
+      if (!process.env.STRATUS_BUCKET_NAME && !BUCKET_BASE_URL.includes('zohostratus')) {
+        console.warn('[UserController] STRATUS_BUCKET_NAME not configured — skipping Stratus upload');
+      } else {
         try {
-          const oldFileName = existingUser.avatar_url.split('/').pop();
-          if (oldFileName) {
-            console.log('[UserController] Deleting old avatar:', oldFileName);
-            await bucket.deleteObject(oldFileName);
+          const bucket       = this.stratus.bucket(BUCKET_NAME);
+
+          // Delete old avatar first (non-fatal)
+          try {
+            const existing = await this.db.findById(TABLES.USERS, userId, tenantId);
+            if (existing?.avatar_url) {
+              const oldName = existing.avatar_url.split('/').pop();
+              if (oldName) await bucket.deleteObject(oldName).catch(() => {});
+            }
+          } catch (_) {}
+
+          const result = await bucket.putObject(uniqueFileName, buffer, {
+            contentType: contentType || 'image/jpeg',
+          });
+
+          if (result === true) {
+            avatarUrl = `${BUCKET_BASE_URL}/${uniqueFileName}`;
+            stratusOk = true;
+            console.log('[UserController] Stratus upload OK:', avatarUrl);
+          } else {
+            console.warn('[UserController] Stratus putObject returned non-true:', result);
           }
-        } catch (delErr) {
-          console.warn('[UserController] Failed to delete old avatar (non-fatal):', delErr.message);
+        } catch (stratusErr) {
+          console.error('[UserController] Stratus upload failed:', stratusErr.message);
+          // Return a helpful error rather than a cryptic 500
+          const hint = stratusErr.message?.toLowerCase().includes('bucket')
+            ? 'Stratus bucket "profiles-users" not found. Create it in Catalyst Console → Object Storage, then set STRATUS_BUCKET_NAME env var.'
+            : `Avatar storage error: ${stratusErr.message}. Check STRATUS_BUCKET_NAME and STRATUS_USER_AVATARS_URL env vars.`;
+          return ResponseHelper.serverError(res, hint);
         }
       }
 
-      // 2. Decode base64 → Buffer
-      const base64Data = base64.replace(/^data:image\/\w+;base64,/, '');
-      const buffer     = Buffer.from(base64Data, 'base64');
-
-      // 3. Unique file name: userId_timestamp.ext
-      const ext            = fileName.split('.').pop() || 'jpg';
-      const uniqueFileName = `${userId}_${Date.now()}.${ext}`;
-
-      console.log('[UserController] Uploading avatar:', { uniqueFileName, contentType, size: buffer.length });
-
-      // 4. Upload to Stratus
-      const uploadResult = await bucket.putObject(uniqueFileName, buffer, {
-        contentType: contentType || 'image/jpeg',
-      });
-
-      console.log('[UserController] Upload result:', uploadResult);
-
-      if (uploadResult !== true) {
-        return ResponseHelper.serverError(res, 'Avatar upload to Stratus failed');
+      if (!stratusOk) {
+        return ResponseHelper.serverError(
+          res,
+          'Avatar storage is not configured. In Catalyst Console: (1) Create an Object Storage bucket named "profiles-users", (2) Add STRATUS_BUCKET_NAME=profiles-users and STRATUS_USER_AVATARS_URL=<bucket-base-url> env vars to delivery_sync_function.'
+        );
       }
 
-      const avatarUrl = `${BUCKET_BASE_URL}/${uniqueFileName}`;
-      console.log('[UserController] Avatar URL:', avatarUrl);
+      // ── Persist URL to user_profiles.photo_url (primary) ─────────────────
+      try {
+        const profiles = await this.db.query(
+          `SELECT ROWID FROM ${TABLES.USER_PROFILES} WHERE user_id = '${userId}' LIMIT 1`
+        );
+        if (profiles.length > 0) {
+          await this.db.update(TABLES.USER_PROFILES, { ROWID: profiles[0].ROWID, photo_url: avatarUrl });
+        } else {
+          await this.db.insert(TABLES.USER_PROFILES, {
+            tenant_id: tenantId, user_id: userId,
+            photo_url: avatarUrl,
+            bio: '', skills: '[]', experience: '[]', certifications: '[]',
+            resume_url: '', social_links: '{}', is_profile_public: 'false',
+          });
+        }
+      } catch (profileErr) {
+        console.error('[UserController] user_profiles update failed:', profileErr.message);
+      }
 
-      // 5. Persist URL
-      await this.db.update(TABLES.USERS, { ROWID: userId, avatar_url: avatarUrl });
+      // ── Also cache URL in users.avatar_url for fast lookups (non-fatal) ──
+      try {
+        await this.db.update(TABLES.USERS, { ROWID: userId, avatar_url: avatarUrl });
+      } catch (_) {}
 
-      return ResponseHelper.success(res, { avatarUrl }, 'Avatar uploaded');
+      return ResponseHelper.success(res, { avatarUrl }, 'Avatar uploaded successfully');
     } catch (err) {
-      console.error('[UserController] uploadAvatar error:', err.message);
+      console.error('[UserController] uploadAvatar error:', err.message, err.stack);
       return ResponseHelper.serverError(res, err.message);
     }
   }

@@ -10,7 +10,9 @@
       "badge_profile_service",
       "admin_config_service",
       "reporting_service",
-      "user_confirmation"
+      "user_confirmation",
+      "bot_service",
+      "bug_service"
     ],
     "ignore": [],
     "source": "functions"
