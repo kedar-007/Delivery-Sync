@@ -1,0 +1,115 @@
+{
+  "cookies": [
+    {
+      "name": "zalb_3a750b85f1",
+      "value": "3b86d86b079022cb01003cd2f343daaa",
+      "domain": "localhost",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "zalb_be502cdbd7",
+      "value": "4e0845197545528b3a10c597d93767b8",
+      "domain": "localhost",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "iamcsr",
+      "value": "80bed5b6-20f7-44dd-9999-8b39d3eedae7",
+      "domain": "localhost",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "stk",
+      "value": "8018b211d4182ae40721bc3a2ef48d20",
+      "domain": "localhost",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "IAM_TEST_COOKIE",
+      "value": "IAM_TEST_COOKIE",
+      "domain": "localhost",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_iamadt_client_50039299089",
+      "value": "71dabc32d26a141602f77c68bec5c3f5639cdf4d96971d2cd3f70fd38c0ac6517e421e1736cf665f4f84f20daa141eb4",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1779945914.60149,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_z_identity",
+      "value": "true",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1776929115.352036,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "__Secure-iamsdt_client_50039299089",
+      "value": "0.EnQSMHHavDLSahQWAvd8aL7Fw_VjnN9NlpcdLNP3D9OMCsZRfkIeFzbPZl9PhPINqhQetBpAZw8rNVXrr5DKHNIy4vh4X9QBHNdsWTWd2BjbeK-g1pzosRWDNSVA5k9CEstu2vosYc5gXAbtVLwjl4FevYsVkiDc7tDKrImWzQE",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1779945914.601462,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "_iambdt_client_50039299089",
+      "value": "670f2b3555ebaf90ca1cd232e2f8785fd4011cd76c59359dd818db78afa0d69ce8b11583352540e64f4212cb6edafa2c61ce605c06ed54bc2397815ebd8b1592",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1779945914.601509,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "ZD_CSRF_TOKEN",
+      "value": "7f876b86efecdf18c858dabb7ff88fb2f3b94e06241d815fc947f36a2f73bc89e33df337b1563b9b2cc9259720f53a2e5ec12ede8759cf43be360a265bda3bbf",
+      "domain": "localhost",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "http://localhost:3000",
+      "localStorage": [
+        {
+          "name": "tenantSlug",
+          "value": "fristine-tech"
+        }
+      ]
+    }
+  ]
+}

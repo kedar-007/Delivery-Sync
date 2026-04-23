@@ -7,6 +7,8 @@ const { PERMISSIONS } = require('../utils/Constants');
 
 const ctrl = (req) => new TimeController(req.catalystApp);
 
+router.get('/analytics/team',   RBACMiddleware.require(PERMISSIONS.TIME_ANALYTICS), (req, res) => ctrl(req).teamAnalytics(req, res));
+router.get('/analytics/user',   RBACMiddleware.require(PERMISSIONS.TIME_ANALYTICS), (req, res) => ctrl(req).userActivity(req, res));
 router.get('/my-week',          RBACMiddleware.require(PERMISSIONS.TIME_READ),  (req, res) => ctrl(req).myWeek(req, res));
 router.get('/summary',          RBACMiddleware.require(PERMISSIONS.TIME_READ),  (req, res) => ctrl(req).summary(req, res));
 router.get('/',                 RBACMiddleware.require(PERMISSIONS.TIME_READ),  (req, res) => ctrl(req).list(req, res));

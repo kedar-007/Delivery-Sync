@@ -83,7 +83,7 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Reports & AI', icon: <BarChart3 size={18} />, permission: PERMISSIONS.REPORT_READ, moduleKey: 'reports',
     children: [
       { label: 'Reports',            to: '/reports',            icon: <FileText size={16} />,  permission: PERMISSIONS.REPORT_READ },
-      { label: 'Enterprise Reports', to: '/enterprise-reports', icon: <BarChart3 size={16} />, permission: PERMISSIONS.ORG_ROLE_READ },
+{ label: 'Team Activity',      to: '/team-activity',      icon: <Timer size={16} />,     permission: PERMISSIONS.TIME_ANALYTICS },
       { label: 'AI Insights',        to: '/ai-insights',        icon: <Sparkles size={16} />,  permission: PERMISSIONS.REPORT_READ, moduleKey: 'ai' },
     ],
   },

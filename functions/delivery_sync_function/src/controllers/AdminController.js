@@ -432,10 +432,12 @@ class AdminController {
       const user = await this.db.findById(TABLES.USERS, userId, tenantId);
       if (!user) return ResponseHelper.notFound(res, 'User not found');
 
-      const { PERMISSIONS } = require('../utils/Constants');
-      const validPerms = new Set(Object.values(PERMISSIONS));
-      const cleanGranted = granted.filter((p) => validPerms.has(p));
-      const cleanRevoked = revoked.filter((p) => validPerms.has(p));
+      // Accept any string that looks like a valid permission key (uppercase letters, digits, underscores).
+      // We intentionally do NOT filter against Object.values(PERMISSIONS) here — that would silently
+      // drop newly-added permissions if the backend hasn't been restarted after a Constants update.
+      const isValidPermKey = (p) => typeof p === 'string' && /^[A-Z][A-Z0-9_]{1,99}$/.test(p);
+      const cleanGranted = granted.filter(isValidPermKey);
+      const cleanRevoked = revoked.filter(isValidPermKey);
 
       const permJson = JSON.stringify({ granted: cleanGranted, revoked: cleanRevoked });
 

@@ -585,6 +585,8 @@ export const timeEntriesApi = {
   submit:      (id: string) => timeClient.patch(`/entries/${id}/submit`).then((r) => r.data.data),
   retract:     (id: string) => timeClient.patch(`/entries/${id}/retract`).then((r) => r.data.data),
   bulkSubmit:  (data: unknown) => timeClient.post('/entries/bulk-submit', data).then((r) => r.data.data),
+  teamAnalytics: (params?: Record<string, string>) => timeClient.get('/entries/analytics/team', { params }).then((r) => r.data.data),
+  userActivity:  (params: Record<string, string>)  => timeClient.get('/entries/analytics/user', { params }).then((r) => r.data.data),
 };
 
 export const timeApprovalsApi = {

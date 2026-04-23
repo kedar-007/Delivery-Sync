@@ -36,8 +36,8 @@ import DirectoryPage from "./pages/DirectoryPage";
 import SprintBoardPage from "./pages/SprintBoardPage";
 import BacklogPage from "./pages/BacklogPage";
 import TimeTrackingPage from "./pages/TimeTrackingPage";
+import TeamActivityPage from "./pages/TeamActivityPage";
 import AssetManagementPage from "./pages/AssetManagementPage";
-import EnterpriseReportsPage from "./pages/EnterpriseReportsPage";
 import AdminConfigPage from "./pages/AdminConfigPage";
 import ProjectTasksPage from "./pages/ProjectTasksPage";
 import MyTasksPage from "./pages/MyTasksPage";
@@ -136,7 +136,7 @@ const AppRoutes = () => {
 
         {/* ── Reports & AI module ── */}
         <Route path="reports"            element={<PermRoute permission="REPORT_READ"><ReportsPage /></PermRoute>} />
-        <Route path="enterprise-reports" element={<PermRoute permission="ORG_ROLE_READ"><EnterpriseReportsPage /></PermRoute>} />
+<Route path="team-activity"      element={<PermRoute permission="TIME_ANALYTICS"><TeamActivityPage /></PermRoute>} />
         <Route path="ai-insights"        element={<PermRoute permission="AI_INSIGHTS"><AiInsightsPage /></PermRoute>} />
 
         {/* ── Executive module ── */}

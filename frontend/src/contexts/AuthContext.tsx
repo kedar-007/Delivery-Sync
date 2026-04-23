@@ -119,6 +119,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
     fetchUser();
+    // Refetch permissions when the tab regains focus (e.g. after admin grants a new permission
+    // in another tab — the user doesn't need to hard-refresh to pick up the change).
+    const onFocus = () => {
+      if (localStorage.getItem('ds_logged_out') !== '1') fetchUser();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
