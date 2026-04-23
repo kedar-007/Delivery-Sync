@@ -6,6 +6,7 @@ import AppLoader from "./components/ui/AppLoader";
 import { hasPermission } from "./utils/permissions";
 import type { Permission } from "./utils/permissions";
 
+import BotWidget from "./components/bot/BotWidget";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import PortfolioDashboard from "./pages/PortfolioDashboard";
@@ -86,6 +87,7 @@ const AppRoutes = () => {
   const homePath = tenantSlug ? `/${tenantSlug}/dashboard` : '/login';
 
   return (
+    <>
     <Routes>
       <Route path="/login" element={mustLogin ? <LoginPage /> : <Navigate to={homePath} replace />} />
       <Route path="/super-admin" element={<SuperAdminPage />} />
@@ -132,7 +134,7 @@ const AppRoutes = () => {
         <Route path="directory"     element={<PermRoute permission="TEAM_READ"><DirectoryPage /></PermRoute>} />
 
         {/* ── Assets module ── */}
-        <Route path="assets" element={<PermRoute permission="ASSET_READ"><AssetManagementPage /></PermRoute>} />
+        <Route path="assets"  element={<PermRoute permission="ASSET_READ"><AssetManagementPage /></PermRoute>} />
 
         {/* ── Reports & AI module ── */}
         <Route path="reports"            element={<PermRoute permission="REPORT_READ"><ReportsPage /></PermRoute>} />
@@ -153,6 +155,8 @@ const AppRoutes = () => {
 
       <Route path="*" element={<Navigate to={mustLogin ? "/login" : homePath} replace />} />
     </Routes>
+    {user && !isLoggedOut && user.botEnabled !== false && <BotWidget />}
+  </>
   );
 };
 

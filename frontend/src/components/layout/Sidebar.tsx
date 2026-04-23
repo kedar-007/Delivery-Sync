@@ -6,7 +6,7 @@ import {
   Shield, FileText, Settings, LogOut, ChevronDown, ChevronRight,
   Milestone, ClipboardList, Clock, BookOpen, Briefcase, X,
   PanelLeftClose, PanelLeftOpen, Users, Sparkles, CalendarDays,
-  Timer, Package, Award, BarChart3, Megaphone, GitBranch, FlaskConical,
+  Timer, Package, BarChart3, Megaphone, GitBranch, FlaskConical,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useMyProfile } from '../../hooks/useUsers';
@@ -70,8 +70,8 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Teams',         to: '/teams',         icon: <Users size={16} />,        permission: PERMISSIONS.TEAM_READ },
       { label: 'Directory',     to: '/directory',     icon: <Users size={16} />,        permission: PERMISSIONS.TEAM_READ },
       { label: 'Org Chart',     to: '/org-chart',     icon: <GitBranch size={16} />,    permission: PERMISSIONS.ORG_READ },
-      { label: 'Announcements', to: '/announcements', icon: <Megaphone size={16} />,    permission: PERMISSIONS.ANNOUNCEMENT_READ },
-      { label: 'IP Restrictions', to: '/ip-config',  icon: <Shield size={16} />,       permission: PERMISSIONS.IP_CONFIG_WRITE },
+      { label: 'Announcements',   to: '/announcements', icon: <Megaphone size={16} />, permission: PERMISSIONS.ANNOUNCEMENT_READ },
+      { label: 'IP Restrictions', to: '/ip-config',   icon: <Shield size={16} />,    permission: PERMISSIONS.IP_CONFIG_WRITE },
     ],
   },
 

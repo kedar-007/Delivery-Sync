@@ -98,15 +98,20 @@ class AuthMiddleware {
       let tenantName = '';
       let tenantSlug = '';
       let tenantStatus = 'ACTIVE';
+      let botEnabled = true;
       try {
         const tenantRows = await db.query(
-          `SELECT name, slug, status FROM ${TABLES.TENANTS} WHERE ROWID = '${user.tenant_id}' LIMIT 1`
+          `SELECT name, slug, status, settings FROM ${TABLES.TENANTS} WHERE ROWID = '${user.tenant_id}' LIMIT 1`
         );
         if (tenantRows.length > 0) {
           const tenant = tenantRows[0];
-          tenantName = tenant.name || '';
-          tenantSlug = tenant.slug || '';
+          tenantName   = tenant.name   || '';
+          tenantSlug   = tenant.slug   || '';
           tenantStatus = tenant.status || 'ACTIVE';
+          try {
+            const ts = JSON.parse(tenant.settings || '{}');
+            botEnabled = ts.botEnabled !== false; // default true unless explicitly disabled
+          } catch (_) {}
         }
       } catch (_) {}
 
@@ -147,6 +152,7 @@ class AuthMiddleware {
         tenantSlug,
         status: user.status,
         avatarUrl: user.avatar_url || user.avtar_url || '',
+        botEnabled,
       };
       req.tenantId = String(user.tenant_id);
 
