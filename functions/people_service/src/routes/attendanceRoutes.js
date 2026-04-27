@@ -19,6 +19,16 @@ router.put('/ip-config/settings',          RBACMiddleware.require(PERMISSIONS.IP
 router.get('/ip-config',                   RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),    (req, res) => ctrl(req).getIpConfig(req, res));
 router.post('/ip-config',                  RBACMiddleware.require(PERMISSIONS.IP_CONFIG_WRITE),   (req, res) => ctrl(req).addIpConfig(req, res));
 router.delete('/ip-config/:configId',      RBACMiddleware.require(PERMISSIONS.IP_CONFIG_WRITE),   (req, res) => ctrl(req).deleteIpConfig(req, res));
+router.get('/geo-config/settings',         RBACMiddleware.require(PERMISSIONS.IP_CONFIG_WRITE),   (req, res) => ctrl(req).getGeoSettings(req, res));
+router.put('/geo-config/settings',         RBACMiddleware.require(PERMISSIONS.IP_CONFIG_WRITE),   (req, res) => ctrl(req).updateGeoSettings(req, res));
+router.get('/geo-config',                  RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),    (req, res) => ctrl(req).getGeoConfig(req, res));
+router.post('/geo-config',                 RBACMiddleware.require(PERMISSIONS.IP_CONFIG_WRITE),   (req, res) => ctrl(req).addGeoConfig(req, res));
+router.delete('/geo-config/:configId',     RBACMiddleware.require(PERMISSIONS.IP_CONFIG_WRITE),   (req, res) => ctrl(req).deleteGeoConfig(req, res));
+router.get('/geo-zones/settings',          RBACMiddleware.require(PERMISSIONS.IP_CONFIG_WRITE),   (req, res) => ctrl(req).getGeoZoneSettings(req, res));
+router.put('/geo-zones/settings',          RBACMiddleware.require(PERMISSIONS.IP_CONFIG_WRITE),   (req, res) => ctrl(req).updateGeoZoneSettings(req, res));
+router.get('/geo-zones',                   RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),    (req, res) => ctrl(req).getGeoZones(req, res));
+router.post('/geo-zones',                  RBACMiddleware.require(PERMISSIONS.IP_CONFIG_WRITE),   (req, res) => ctrl(req).addGeoZone(req, res));
+router.delete('/geo-zones/:zoneId',        RBACMiddleware.require(PERMISSIONS.IP_CONFIG_WRITE),   (req, res) => ctrl(req).deleteGeoZone(req, res));
 router.patch('/:recordId/override',        RBACMiddleware.require(PERMISSIONS.ATTENDANCE_ADMIN), (req, res) => ctrl(req).override(req, res));
 router.get('/anomalies',                   RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).anomalies(req, res));
 router.get('/summary',                     RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).summary(req, res));

@@ -18,6 +18,7 @@ import Alert from '../components/ui/Alert';
 import { useConfirm } from '../components/ui/ConfirmDialog';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import {
   useTasks, useSprints, useCreateTask, useUpdateTask, useDeleteTask,
 } from '../hooks/useTaskSprint';
@@ -157,6 +158,8 @@ export default function ProjectTasksPage() {
 
   // ── Assignee state (managed outside react-hook-form) ──
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
+  const [requireApproval, setRequireApproval]     = useState(false);
+  const canManageApproval = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TIME_APPROVE);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<TaskFormData>({
     defaultValues: {
@@ -168,6 +171,7 @@ export default function ProjectTasksPage() {
   const openCreate = () => {
     reset({ type: 'TASK', priority: 'MEDIUM', status: 'TODO', story_points: 0, estimated_hours: 0 });
     setSelectedAssignees([]);
+    setRequireApproval(false);
     setFormError('');
     setShowCreate(true);
   };
@@ -186,6 +190,7 @@ export default function ProjectTasksPage() {
       labels: (t.labels ?? []).join(', '),
     });
     setSelectedAssignees(t.assigneeIds ?? [t.assigneeId].filter(Boolean) as string[]);
+    setRequireApproval((t as any).requireApproval === true);
     setFormError('');
     setEditTask(t);
   };
@@ -206,6 +211,7 @@ export default function ProjectTasksPage() {
         sprint_id:       data.sprint_id || undefined,
         assignee_id:     selectedAssignees[0] ?? undefined,
         labels:          JSON.stringify(data.labels?.split(',').map((s) => s.trim()).filter(Boolean) ?? []),
+        require_approval: requireApproval ? 'true' : 'false',
       });
       setShowCreate(false);
     } catch (e: unknown) { setFormError((e as Error).message); }
@@ -229,6 +235,7 @@ export default function ProjectTasksPage() {
           sprint_id:       data.sprint_id || undefined,
           assignee_id:     selectedAssignees[0] ?? undefined,
           labels:          JSON.stringify(data.labels?.split(',').map((s) => s.trim()).filter(Boolean) ?? []),
+          require_approval: requireApproval ? 'true' : 'false',
         },
       });
       setEditTask(null);
@@ -260,12 +267,13 @@ export default function ProjectTasksPage() {
     setLogPending(true); setLogError('');
     try {
       await timeEntriesApi.create({
-        project_id:  logTimeTask.projectId,
-        task_id:     logTimeTask.id,
-        entry_date:  logDate,
-        hours:       parseFloat(logHours),
-        description: logDesc || logTimeTask.title,
-        is_billable: logBillable,
+        project_id:       logTimeTask.projectId,
+        task_id:          logTimeTask.id,
+        entry_date:       logDate,
+        hours:            parseFloat(logHours),
+        description:      logDesc || logTimeTask.title,
+        is_billable:      logBillable,
+        require_approval: (logTimeTask as any).requireApproval === true ? 'true' : 'false',
       });
       setLogTimeTask(null);
       setLogHours(''); setLogDesc('');
@@ -432,6 +440,9 @@ export default function ProjectTasksPage() {
             selectedAssignees={selectedAssignees}
             onAssigneesChange={setSelectedAssignees}
             onAttachmentChange={() => {}}
+            canManageApproval={canManageApproval}
+            requireApproval={requireApproval}
+            onRequireApprovalChange={setRequireApproval}
           />
           <ModalActions>
             <Button variant="secondary" onClick={() => setShowCreate(false)}>Cancel</Button>
@@ -458,6 +469,9 @@ export default function ProjectTasksPage() {
               selectedAssignees={selectedAssignees}
               onAssigneesChange={setSelectedAssignees}
               onAttachmentChange={() => {}}
+              canManageApproval={canManageApproval}
+              requireApproval={requireApproval}
+              onRequireApprovalChange={setRequireApproval}
             />
             <ModalActions>
               <Button variant="secondary" onClick={() => setEditTask(null)}>Cancel</Button>
@@ -805,6 +819,7 @@ function AssigneeMultiSelect({
 
 function TaskFormFields({
   register, errors, sprints, users, selectedAssignees, onAssigneesChange, onAttachmentChange,
+  canManageApproval, requireApproval, onRequireApprovalChange,
 }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   register: any;
@@ -815,6 +830,9 @@ function TaskFormFields({
   selectedAssignees: string[];
   onAssigneesChange: (ids: string[]) => void;
   onAttachmentChange: (files: File[]) => void;
+  canManageApproval?: boolean;
+  requireApproval?: boolean;
+  onRequireApprovalChange?: (v: boolean) => void;
 }) {
   const [attachments, setAttachments] = useState<File[]>([]);
 
@@ -920,6 +938,24 @@ function TaskFormFields({
         <label className="form-label">Labels <span className="text-gray-400 font-normal">(comma separated)</span></label>
         <input className="form-input" placeholder="frontend, urgent, blocked" {...register('labels')} />
       </div>
+
+      {canManageApproval && (
+        <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+          <div>
+            <p className="text-sm font-medium text-amber-900">Require time entry approval</p>
+            <p className="text-xs text-amber-600 mt-0.5">All time logged on this task will be sent to the assignee's manager for approval</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onRequireApprovalChange?.(!requireApproval)}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${requireApproval ? 'bg-amber-500' : 'bg-gray-300'}`}
+            role="switch"
+            aria-checked={requireApproval}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${requireApproval ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
+        </div>
+      )}
 
       {/* ── Attachments ── */}
       <div>

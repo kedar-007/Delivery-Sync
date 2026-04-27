@@ -20,6 +20,7 @@ import { useMyTasks, useUpdateTask, useCreateTask, useDeleteTask, useTask, useTa
 import { useProjects } from '../hooks/useProjects';
 import { useUsers, TenantUser } from '../hooks/useUsers';
 import { timeEntriesApi, tasksApi, aiApi } from '../lib/api';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { useQuery } from '@tanstack/react-query';
 import UserAvatar from '../components/ui/UserAvatar';
 
@@ -188,10 +189,12 @@ function TaskFormModal({
 }) {
   const createTask = useCreateTask();
   const updateTask = useUpdateTask();
-  const [assignees, setAssignees]     = useState<string[]>([]);
-  const [attachments, setAttachments] = useState<File[]>([]);
-  const [formError, setFormError]     = useState('');
+  const [assignees, setAssignees]         = useState<string[]>([]);
+  const [attachments, setAttachments]     = useState<File[]>([]);
+  const [formError, setFormError]         = useState('');
+  const [requireApproval, setRequireApproval] = useState(false);
   const { user } = useAuth();
+  const canManageApproval = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TIME_APPROVE);
   const { data: usersData = [] } = useUsers();
   const users = usersData as TenantUser[];
 
@@ -213,9 +216,11 @@ function TaskFormModal({
           labels:      (editing.labels ?? []).join(', '),
         });
         setAssignees(editing.assigneeIds ?? (editing.assigneeId ? [editing.assigneeId] : []));
+        setRequireApproval((editing as any).requireApproval === true);
       } else {
         reset({ type: 'TASK', priority: 'MEDIUM', status: 'TODO', project_id: '' });
         setAssignees(user?.id ? [String(user.id)] : []);
+        setRequireApproval(false);
       }
       setAttachments([]);
       setFormError('');
@@ -233,8 +238,9 @@ function TaskFormModal({
         priority:     data.priority,
         status:       data.status,
         due_date:     data.due_date || undefined,
-        labels:       JSON.stringify(data.labels?.split(',').map((s) => s.trim()).filter(Boolean) ?? []),
-        assignee_ids: JSON.stringify(assignees),
+        labels:           JSON.stringify(data.labels?.split(',').map((s) => s.trim()).filter(Boolean) ?? []),
+        assignee_ids:     JSON.stringify(assignees),
+        require_approval: requireApproval ? 'true' : 'false',
       };
       if (editing) {
         await updateTask.mutateAsync({ id: editing.id, data: payload });
@@ -265,12 +271,11 @@ function TaskFormModal({
         </div>
 
         <div>
-          <label className="form-label">Project *</label>
-          <select className="form-select" {...register('project_id', { required: 'Project is required' })}>
-            <option value="">Select project…</option>
+          <label className="form-label">Project <span className="text-gray-400 font-normal">(optional)</span></label>
+          <select className="form-select" {...register('project_id')}>
+            <option value="">No project</option>
             {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          {errors.project_id && <p className="text-xs text-red-600 mt-1">{errors.project_id.message}</p>}
         </div>
 
         <div className="grid grid-cols-3 gap-3">
@@ -319,6 +324,24 @@ function TaskFormModal({
           <AssigneeMultiSelect users={users} value={assignees} onChange={setAssignees} />
         </div>
 
+        {canManageApproval && (
+          <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+            <div>
+              <p className="text-sm font-medium text-amber-900">Require time entry approval</p>
+              <p className="text-xs text-amber-600 mt-0.5">All time logged on this task will be sent to the assignee's manager for approval</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setRequireApproval((v) => !v)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 ${requireApproval ? 'bg-amber-500' : 'bg-gray-300'}`}
+              role="switch"
+              aria-checked={requireApproval}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${requireApproval ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
+        )}
+
         <div>
           <label className="form-label flex items-center gap-1.5"><Paperclip size={13} /> Attachments <span className="text-gray-400 font-normal">(optional)</span></label>
           <AttachmentPicker files={attachments} onChange={setAttachments} />
@@ -349,7 +372,7 @@ function TaskDetailPanel({
   logTimeBillable, setLogTimeBillable,
   logTimeStartTime, setLogTimeStartTime,
   logTimeEndTime, setLogTimeEndTime,
-  logTimePending, logTimeError, logTimeSendForApproval, setLogTimeSendForApproval, onLogTime,
+  logTimePending, logTimeError, onLogTime,
   aiInsight, aiLoading,
   onEdit,
   taskAttachments,
@@ -382,7 +405,6 @@ function TaskDetailPanel({
   logTimeEndTime: string;    setLogTimeEndTime:    (v: string) => void;
   logTimePending: boolean;
   logTimeError: string;
-  logTimeSendForApproval: boolean; setLogTimeSendForApproval: (v: boolean) => void;
   onLogTime: () => void;
   aiInsight: string | null;
   aiLoading: boolean;
@@ -625,26 +647,9 @@ function TaskDetailPanel({
                   </label>
                 </div>
 
-                {/* Send for approval toggle */}
-                <div className="flex items-center justify-between rounded-lg bg-blue-50 border border-blue-100 px-3 py-2.5">
-                  <div>
-                    <p className="text-xs font-medium text-blue-900">Send for approval</p>
-                    <p className="text-[11px] text-blue-500 mt-0.5">Manager will be notified to review</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setLogTimeSendForApproval(!logTimeSendForApproval)}
-                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${logTimeSendForApproval ? 'bg-blue-600' : 'bg-gray-300'}`}
-                    role="switch"
-                    aria-checked={logTimeSendForApproval}
-                  >
-                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${logTimeSendForApproval ? 'translate-x-[18px]' : 'translate-x-[2px]'}`} />
-                  </button>
-                </div>
-
                 <div className="flex justify-end">
                   <Button size="sm" variant="primary" loading={logTimePending} disabled={!logTimeHours} onClick={onLogTime}>
-                    {logTimeSendForApproval ? 'Log & Send for Approval' : 'Save Entry'}
+                    Save Entry
                   </Button>
                 </div>
               </div>
@@ -912,7 +917,6 @@ export default function MyTasksPage() {
   const [logTimeEndTime, setLogTimeEndTime]       = useState('');
   const [logTimePending, setLogTimePending]       = useState(false);
   const [logTimeError, setLogTimeError]           = useState('');
-  const [logTimeSendForApproval, setLogTimeSendForApproval] = useState(false);
 
   const { data: fullTask }              = useTask(taskDetailId ?? '');
   const { data: taskComments = [] }     = useTaskComments(taskDetailId ?? '');
@@ -1022,22 +1026,19 @@ export default function MyTasksPage() {
     if (!taskDetailId || !logTimeHours || !detailTask) return;
     setLogTimePending(true); setLogTimeError('');
     try {
-      const created: any = await timeEntriesApi.create({
-        project_id:  detailTask.projectId,
-        task_id:     taskDetailId,
-        entry_date:  logTimeDate,
-        hours:       parseFloat(logTimeHours),
-        description: logTimeDesc || detailTask.title,
-        is_billable: logTimeBillable,
+      await timeEntriesApi.create({
+        project_id:       detailTask.projectId,
+        task_id:          taskDetailId,
+        entry_date:       logTimeDate,
+        hours:            parseFloat(logTimeHours),
+        description:      logTimeDesc || detailTask.title,
+        is_billable:      logTimeBillable,
+        require_approval: (detailTask as any).requireApproval === true ? 'true' : 'false',
         ...(logTimeStartTime ? { start_time: logTimeStartTime } : {}),
         ...(logTimeEndTime   ? { end_time:   logTimeEndTime   } : {}),
       });
-      if (logTimeSendForApproval) {
-        const newId = String(created?.id ?? created?.ROWID ?? '');
-        if (newId) await timeEntriesApi.submit(newId);
-      }
       setLogTimeHours(''); setLogTimeDesc(''); setLogTimeBillable(false);
-      setLogTimeStartTime(''); setLogTimeEndTime(''); setLogTimeSendForApproval(false);
+      setLogTimeStartTime(''); setLogTimeEndTime('');
       const r: any = await timeEntriesApi.list({ task_id: taskDetailId });
       setTaskTimeEntries(Array.isArray(r) ? r : r?.data ?? []);
     } catch (e: unknown) { setLogTimeError((e as Error).message); }
@@ -1064,12 +1065,13 @@ export default function MyTasksPage() {
     setLogPending(true); setLogError('');
     try {
       await timeEntriesApi.create({
-        project_id:  logTimeTask.projectId,
-        task_id:     logTimeTask.id,
-        entry_date:  logDate,
-        hours:       parseFloat(logHours),
-        description: logDesc || logTimeTask.title,
-        is_billable: logBillable,
+        project_id:       logTimeTask.projectId,
+        task_id:          logTimeTask.id,
+        entry_date:       logDate,
+        hours:            parseFloat(logHours),
+        description:      logDesc || logTimeTask.title,
+        is_billable:      logBillable,
+        require_approval: (logTimeTask as any).requireApproval === true ? 'true' : 'false',
       });
       setLogTimeTask(null); setLogHours(''); setLogDesc('');
     } catch (e: unknown) { setLogError((e as Error).message); }
@@ -1306,8 +1308,6 @@ export default function MyTasksPage() {
           setLogTimeEndTime={setLogTimeEndTime}
           logTimePending={logTimePending}
           logTimeError={logTimeError}
-          logTimeSendForApproval={logTimeSendForApproval}
-          setLogTimeSendForApproval={setLogTimeSendForApproval}
           onLogTime={handleDetailLogTime}
           aiInsight={aiInsight}
           aiLoading={aiLoading}

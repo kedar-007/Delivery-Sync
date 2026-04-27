@@ -121,7 +121,7 @@ class TaskController {
     const tenantId = req.tenantId;
     const userId = req.currentUser.id;
 
-    if (!project_id || !title) return ResponseHelper.validationError(res, 'project_id and title are required');
+    if (!title) return ResponseHelper.validationError(res, 'title is required');
 
     // Normalise labels — frontend may send JSON string or array
     let labelsStr = '[]';
@@ -142,7 +142,7 @@ class TaskController {
 
     const insertData = {
       tenant_id: String(tenantId),
-      project_id: String(project_id),
+      project_id: String(project_id || 0),
       sprint_id: String(sprint_id || 0),
       parent_task_id: String(parent_task_id || 0),
       title,
@@ -156,6 +156,7 @@ class TaskController {
       logged_hours: 0,
       labels: labelsStr,
       created_by: String(userId),
+      require_approval: req.body.require_approval === true || req.body.require_approval === 'true' ? 'true' : 'false',
     };
     if (due_date) insertData.due_date = due_date;
 
@@ -163,13 +164,17 @@ class TaskController {
 
     await this.audit.log({ tenantId, entityType: 'TASK', entityId: row.ROWID, action: AUDIT_ACTION.CREATE, newValue: row, performedBy: userId });
 
-    // Notify assignee
-    if (primaryAssigneeId && primaryAssigneeId !== String(userId)) {
-      const userRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${primaryAssigneeId}' LIMIT 1`);
+    // Notify all assignees (skip self)
+    const assigneesToNotify = assigneeIdsArr.filter((id) => id && id !== String(userId));
+    if (assigneesToNotify.length > 0) {
       const creatorRows = await this.db.query(`SELECT name FROM ${TABLES.USERS} WHERE ROWID = '${userId}' LIMIT 1`);
-      if (userRows[0]) {
-        await this.notif.send({ toEmail: userRows[0].email, subject: `[Delivery Sync] Task assigned: ${title}`, htmlBody: `<p>Hi ${userRows[0].name}, a task has been assigned to you: <strong>${title}</strong> by ${creatorRows[0]?.name || 'a lead'}.</p>` });
-        await this.notif.sendInApp({ tenantId, userId: primaryAssigneeId, title: 'Task Assigned', message: `"${title}" has been assigned to you`, type: NOTIFICATION_TYPE.TASK_ASSIGNED, entityType: 'TASK', entityId: row.ROWID });
+      const creatorName = creatorRows[0]?.name || 'a lead';
+      for (const assigneeId of assigneesToNotify) {
+        const userRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${assigneeId}' LIMIT 1`);
+        if (userRows[0]) {
+          await this.notif.send({ toEmail: userRows[0].email, subject: `[Delivery Sync] Task assigned: ${title}`, htmlBody: `<p>Hi ${userRows[0].name}, a task has been assigned to you: <strong>${title}</strong> by ${creatorName}.</p>` });
+          await this.notif.sendInApp({ tenantId, userId: assigneeId, title: 'Task Assigned', message: `"${title}" has been assigned to you`, type: NOTIFICATION_TYPE.TASK_ASSIGNED, entityType: 'TASK', entityId: row.ROWID });
+        }
       }
     }
 
@@ -183,9 +188,13 @@ class TaskController {
     if (!task) return ResponseHelper.notFound(res, 'Task not found');
 
     const allowed = ['title', 'description', 'type', 'status',
-      'sprint_id', 'story_points', 'estimated_hours', 'due_date', 'labels', 'task_priority'];
+      'sprint_id', 'story_points', 'estimated_hours', 'due_date', 'labels', 'task_priority', 'require_approval'];
     const updates = {};
     allowed.forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
+    // Normalise require_approval to match the create handler (handles string or boolean input)
+    if (updates.require_approval !== undefined) {
+      updates.require_approval = (updates.require_approval === true || updates.require_approval === 'true') ? 'true' : 'false';
+    }
     // priority maps to task_priority column
     if (req.body.priority !== undefined) updates.task_priority = req.body.priority;
     // Update assignee_ids JSON array

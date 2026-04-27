@@ -64,14 +64,16 @@ class DashboardController {
         { tenant_id: tenantId, entry_date: today, user_id: userId },
         { limit: 200 });
       const submittedProjectIds = new Set(standupRows.map((s) => String(s.project_id)));
-      const missingStandups = projects.filter((p) => !submittedProjectIds.has(String(p.ROWID)));
+      const missingStandups = projects.filter((p) =>
+        p.standup_enabled !== 'false' && !submittedProjectIds.has(String(p.ROWID)));
 
       // ── Missing EOD Today ─────────────────────────────────────────────────────
       const eodRows = await this.db.findAll(TABLES.EOD_ENTRIES,
         { tenant_id: tenantId, entry_date: today, user_id: userId },
         { limit: 200 });
       const eodProjectIds = new Set(eodRows.map((e) => String(e.project_id)));
-      const missingEod = projects.filter((p) => !eodProjectIds.has(String(p.ROWID)));
+      const missingEod = projects.filter((p) =>
+        p.eod_enabled !== 'false' && !eodProjectIds.has(String(p.ROWID)));
 
       // ── Overdue Actions + count ───────────────────────────────────────────────
       const overdueWhere = `assigned_to = '${userId}' AND due_date < '${today}' ` +
@@ -192,6 +194,8 @@ class DashboardController {
           id: String(project.ROWID), name: project.name, ragStatus: project.rag_status,
           status: project.status, startDate: project.start_date, endDate: project.end_date,
           description: project.description,
+          standupEnabled: project.standup_enabled !== 'false',
+          eodEnabled: project.eod_enabled !== 'false',
         },
         stats: {
           totalStandups: standups.length,

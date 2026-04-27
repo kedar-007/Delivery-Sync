@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { sprintsApi, tasksApi } from '../lib/api';
+import { useToast } from '../components/ui/Toast';
 
 // ── Field Normalisers ─────────────────────────────────────────────────────────
 // Catalyst DataStore: ROWID = PK, CREATEDTIME = created, MODIFIEDTIME = updated, CREATORID = creator
@@ -48,7 +49,8 @@ const normaliseTask = (r: any) => {
     dueDate:        r.due_date        ?? r.dueDate        ?? null,
     completedAt:    r.completed_at    ?? r.completedAt    ?? null,
     labels:         (() => { try { return JSON.parse(r.labels ?? '[]'); } catch { return []; } })(),
-    customFields:   (() => { try { return JSON.parse(r.custom_fields ?? r.customFields ?? '{}'); } catch { return {}; } })(),
+    customFields:    (() => { try { return JSON.parse(r.custom_fields ?? r.customFields ?? '{}'); } catch { return {}; } })(),
+    requireApproval: r.require_approval === true || r.require_approval === 'true' || r.requireApproval === true,
     createdBy:      r.CREATORID       ?? r.created_by     ?? r.createdBy,
     createdAt:      r.CREATEDTIME     ?? r.created_at     ?? r.createdAt,
     updatedAt:      r.MODIFIEDTIME    ?? r.updated_at     ?? r.updatedAt,
@@ -120,36 +122,45 @@ export const useSprintVelocity = (projectId: string) =>
 
 export const useCreateSprint = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: unknown) => sprintsApi.create(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['sprints'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['sprints'] }); toast.success('Sprint created'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to create sprint'),
   });
 };
 
 export const useUpdateSprint = (id: string) => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: unknown) => sprintsApi.update(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sprints'] });
       qc.invalidateQueries({ queryKey: ['sprints', 'detail', id] });
+      toast.success('Sprint updated');
     },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update sprint'),
   });
 };
 
 export const useStartSprint = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (id: string) => sprintsApi.start(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['sprints'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['sprints'] }); toast.success('Sprint started'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to start sprint'),
   });
 };
 
 export const useCompleteSprint = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (id: string) => sprintsApi.complete(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['sprints'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['sprints'] }); toast.success('Sprint completed'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to complete sprint'),
   });
 };
 
@@ -159,7 +170,7 @@ export const useTasks = (params?: Record<string, string>, enabled = true) =>
     queryKey: ['tasks', params],
     queryFn: () => tasksApi.list(params).then(applyNorm(normaliseTask)),
     enabled,
-    retry: 1,          // don't spam retries if task service is unavailable
+    retry: 1,
     retryDelay: 2000,
   });
 
@@ -198,52 +209,66 @@ export const useTaskComments = (id: string) =>
 
 export const useCreateTask = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: unknown) => tasksApi.create(data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks'] });
       qc.invalidateQueries({ queryKey: ['sprints', 'board'] });
+      toast.success('Task created');
     },
+    onError: (e: Error) => toast.error(e.message || 'Failed to create task'),
   });
 };
 
 export const useUpdateTask = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: unknown }) => tasksApi.update(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks'] });
       qc.invalidateQueries({ queryKey: ['sprints', 'board'] });
+      toast.success('Task updated');
     },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update task'),
   });
 };
 
 export const useUpdateTaskStatus = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: unknown }) => tasksApi.updateStatus(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks'] });
       qc.invalidateQueries({ queryKey: ['sprints', 'board'] });
+      toast.success('Status updated');
     },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update status'),
   });
 };
 
 export const useDeleteTask = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (id: string) => tasksApi.remove(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks'] });
       qc.invalidateQueries({ queryKey: ['sprints', 'board'] });
+      toast.success('Task deleted');
     },
+    onError: (e: Error) => toast.error(e.message || 'Failed to delete task'),
   });
 };
 
 export const useAddTaskComment = (taskId: string) => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: unknown) => tasksApi.addComment(taskId, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks', taskId, 'comments'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['tasks', taskId, 'comments'] }); toast.success('Comment posted'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to post comment'),
   });
 };

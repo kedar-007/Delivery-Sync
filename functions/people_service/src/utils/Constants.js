@@ -165,7 +165,7 @@ const TABLES = Object.freeze({
   TIME_EXPORT_JOBS: 'time_export_jobs',
   // People
   ATTENDANCE_RECORDS: 'attendance_records', ATTENDANCE_POLICIES: 'attendance_policies',
-  IP_WHITELISTS: 'ip_whitelists',
+  IP_WHITELISTS: 'ip_whitelists', GEO_RESTRICTIONS: 'geo_restrictions', GEO_ZONES: 'geo_zones',
   ATTENDANCE_BREAKS: 'attendance_breaks',
   LEAVE_TYPES: 'leave_types', LEAVE_BALANCES: 'leave_balances',
   LEAVE_REQUESTS: 'leave_requests', LEAVE_CALENDAR: 'leave_calendar',

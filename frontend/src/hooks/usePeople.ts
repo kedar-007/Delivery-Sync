@@ -1,11 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { attendanceApi, leaveApi, announcementsApi, orgApi } from '../lib/api';
+import { useToast } from '../components/ui/Toast';
 
 // ── Field normaliser: Catalyst DataStore returns snake_case; map to camelCase ─
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-// Normalise Catalyst DateTime ('YYYY-MM-DD HH:MM:SS') so new Date() parses it correctly
+// Normalise stored UTC datetime ('YYYY-MM-DD HH:MM:SS') to 'YYYY-MM-DDTHH:MM:SSZ'
+// so new Date() always parses as UTC regardless of browser timezone
 const normDT = (v: string | null | undefined) =>
-  v ? v.replace(' ', 'T') : null;
+  v ? v.replace(' ', 'T').replace(/Z?$/, 'Z') : null;
 
 const normaliseAttendance = (r: any) => ({
   ...r,
@@ -189,51 +191,61 @@ export const useAttendanceAnomalies = () =>
 
 export const useCheckIn = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: unknown) => attendanceApi.checkIn(data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['attendance'] });
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance'] }); toast.success('Checked in'); },
+    onError: (e: Error) => toast.error(e.message || 'Check-in failed'),
   });
 };
 
 export const useCheckOut = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: unknown) => attendanceApi.checkOut(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['attendance'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance'] }); toast.success('Checked out'); },
+    onError: (e: Error) => toast.error(e.message || 'Check-out failed'),
   });
 };
 
 export const useMarkWfh = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: unknown) => attendanceApi.markWfh(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['attendance'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance'] }); toast.success('Marked as WFH'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to mark WFH'),
   });
 };
 
 export const useOverrideAttendance = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: ({ recordId, data }: { recordId: string; data: unknown }) => attendanceApi.override(recordId, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['attendance'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance'] }); toast.success('Attendance updated'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update attendance'),
   });
 };
 
 export const useBreakStart = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: unknown) => attendanceApi.breakStart(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['attendance'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance'] }); toast.success('Break started'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to start break'),
   });
 };
 
 export const useBreakEnd = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: unknown) => attendanceApi.breakEnd(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['attendance'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance'] }); toast.success('Break ended'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to end break'),
   });
 };
 
@@ -249,9 +261,11 @@ export const useIpSettings = () =>
 
 export const useUpdateIpSettings = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: { enabled: boolean }) => attendanceApi.updateIpSettings(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['attendance', 'ip-settings'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance', 'ip-settings'] }); toast.success('IP settings updated'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update IP settings'),
   });
 };
 
@@ -260,17 +274,93 @@ export const useIpConfig = () =>
 
 export const useAddIpConfig = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: unknown) => attendanceApi.addIpConfig(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['attendance', 'ip-config'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance', 'ip-config'] }); toast.success('IP address added'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to add IP address'),
   });
 };
 
 export const useDeleteIpConfig = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (configId: string) => attendanceApi.deleteIpConfig(configId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['attendance', 'ip-config'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance', 'ip-config'] }); toast.success('IP address removed'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to remove IP address'),
+  });
+};
+
+export const useGeoSettings = () =>
+  useQuery({ queryKey: ['attendance', 'geo-settings'], queryFn: () => attendanceApi.getGeoSettings() });
+
+export const useUpdateGeoSettings = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (data: { enabled: boolean }) => attendanceApi.updateGeoSettings(data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance', 'geo-settings'] }); toast.success('Geo settings updated'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update geo settings'),
+  });
+};
+
+export const useGeoConfig = () =>
+  useQuery({ queryKey: ['attendance', 'geo-config'], queryFn: () => attendanceApi.getGeoConfig() });
+
+export const useAddGeoConfig = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (data: unknown) => attendanceApi.addGeoConfig(data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance', 'geo-config'] }); toast.success('Country added'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to add country'),
+  });
+};
+
+export const useDeleteGeoConfig = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (configId: string) => attendanceApi.deleteGeoConfig(configId),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance', 'geo-config'] }); toast.success('Country removed'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to remove country'),
+  });
+};
+
+export const useGeoZoneSettings = () =>
+  useQuery({ queryKey: ['attendance', 'geo-zone-settings'], queryFn: () => attendanceApi.getGeoZoneSettings() });
+
+export const useUpdateGeoZoneSettings = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (data: { enabled: boolean }) => attendanceApi.updateGeoZoneSettings(data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance', 'geo-zone-settings'] }); toast.success('Zone settings updated'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update zone settings'),
+  });
+};
+
+export const useGeoZones = () =>
+  useQuery({ queryKey: ['attendance', 'geo-zones'], queryFn: () => attendanceApi.getGeoZones() });
+
+export const useAddGeoZone = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (data: unknown) => attendanceApi.addGeoZone(data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance', 'geo-zones'] }); toast.success('Zone added'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to add zone'),
+  });
+};
+
+export const useDeleteGeoZone = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (zoneId: string) => attendanceApi.deleteGeoZone(zoneId),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance', 'geo-zones'] }); toast.success('Zone removed'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to remove zone'),
   });
 };
 
@@ -320,39 +410,49 @@ export const useLeaveCalendar = (params?: Record<string, string>) =>
 
 export const useApplyLeave = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: unknown) => leaveApi.apply(data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['leave', 'requests'] });
       qc.invalidateQueries({ queryKey: ['leave', 'balance'] });
+      toast.success('Leave request submitted');
     },
+    onError: (e: Error) => toast.error(e.message || 'Failed to submit leave request'),
   });
 };
 
 export const useCancelLeave = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (id: string) => leaveApi.cancel(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['leave', 'requests'] });
       qc.invalidateQueries({ queryKey: ['leave', 'balance'] });
+      toast.success('Leave request cancelled');
     },
+    onError: (e: Error) => toast.error(e.message || 'Failed to cancel leave request'),
   });
 };
 
 export const useApproveLeave = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data?: unknown }) => leaveApi.approve(id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['leave', 'requests'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['leave', 'requests'] }); toast.success('Leave approved'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to approve leave'),
   });
 };
 
 export const useRejectLeave = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: unknown }) => leaveApi.reject(id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['leave', 'requests'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['leave', 'requests'] }); toast.success('Leave rejected'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to reject leave'),
   });
 };
 
@@ -368,25 +468,31 @@ export const useAnnouncements = () =>
 
 export const useCreateAnnouncement = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: unknown) => announcementsApi.create(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['announcements'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['announcements'] }); toast.success('Announcement created'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to create announcement'),
   });
 };
 
 export const useUpdateAnnouncement = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: unknown }) => announcementsApi.update(id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['announcements'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['announcements'] }); toast.success('Announcement updated'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update announcement'),
   });
 };
 
 export const useDeleteAnnouncement = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (id: string) => announcementsApi.remove(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['announcements'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['announcements'] }); toast.success('Announcement deleted'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to delete announcement'),
   });
 };
 
@@ -420,9 +526,11 @@ export const useDirectReports = (userId: string) =>
 
 export const useSetManager = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: unknown) => orgApi.setManager(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['org'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['org'] }); toast.success('Manager assigned'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to assign manager'),
   });
 };
 
@@ -435,17 +543,21 @@ export const useCompanyCalendar = (params?: Record<string, string>) =>
 
 export const useCreateHoliday = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: unknown) => leaveApi.createHoliday(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['leave', 'company-calendar'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['leave', 'company-calendar'] }); toast.success('Holiday added'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to add holiday'),
   });
 };
 
 export const useDeleteHoliday = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (id: string) => leaveApi.deleteHoliday(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['leave', 'company-calendar'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['leave', 'company-calendar'] }); toast.success('Holiday removed'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to remove holiday'),
   });
 };
 
@@ -461,10 +573,13 @@ export const useAllLeaveBalances = (params?: Record<string, string>) =>
 
 export const useSetLeaveBalance = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: unknown) => leaveApi.setBalance(data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['leave', 'balance'] });
+      toast.success('Leave balance updated');
     },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update leave balance'),
   });
 };

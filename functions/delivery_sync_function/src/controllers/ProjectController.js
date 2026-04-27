@@ -129,6 +129,8 @@ class ProjectController {
           startDate: p.start_date,
           endDate: p.end_date,
           ownerUserId: p.owner_user_id,
+          standupEnabled: p.standup_enabled !== 'false',
+          eodEnabled: p.eod_enabled !== 'false',
         })),
         total: paged.total,
         page: paged.page,
@@ -192,13 +194,15 @@ class ProjectController {
       if (data.start_date !== undefined) updatePayload.start_date = data.start_date;
       if (data.end_date !== undefined) updatePayload.end_date = data.end_date;
       if (data.status !== undefined) updatePayload.status = data.status;
+      if (data.standup_enabled !== undefined) updatePayload.standup_enabled = String(data.standup_enabled);
+      if (data.eod_enabled !== undefined) updatePayload.eod_enabled = String(data.eod_enabled);
 
       const updated = await this.db.update(TABLES.PROJECTS, updatePayload);
 
       await this.audit.log({
         tenantId, entityType: 'project', entityId: projectId,
         action: AUDIT_ACTION.UPDATE,
-        oldValue: { name: existing.name, status: existing.status },
+        oldValue: { name: existing.name, status: existing.status, standup_enabled: existing.standup_enabled, eod_enabled: existing.eod_enabled },
         newValue: data,
         performedBy: userId,
       });

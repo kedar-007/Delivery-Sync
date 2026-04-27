@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { useForm } from 'react-hook-form';
 import { format, isPast, parseISO } from 'date-fns';
 import Layout from '../components/layout/Layout';
@@ -104,11 +106,17 @@ const PRIORITY_OPTIONS: { value: '' | TaskPriority; label: string }[] = [
 
 const BacklogPage = () => {
   const { projectId = '' } = useParams<{ tenantSlug: string; projectId?: string }>();
+  const { user } = useAuth();
+  const canManageApproval = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TIME_APPROVE);
 
   // Filters
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<'' | TaskStatus>('');
   const [filterPriority, setFilterPriority] = useState<'' | TaskPriority>('');
+
+  // Approval toggle state for create / edit forms
+  const [createRequireApproval, setCreateRequireApproval] = useState(false);
+  const [editRequireApproval, setEditRequireApproval]     = useState(false);
 
   // Modal state
   const [showCreate, setShowCreate] = useState(false);
@@ -173,8 +181,10 @@ const BacklogPage = () => {
         project_id: projectId,
         status: 'TODO',
         sprint_id: null,
+        require_approval: createRequireApproval ? 'true' : 'false',
       });
       createForm.reset({ priority: 'MEDIUM' });
+      setCreateRequireApproval(false);
       setShowCreate(false);
     } catch (err: unknown) {
       setCreateError((err as Error).message);
@@ -184,6 +194,7 @@ const BacklogPage = () => {
   const openEdit = (e: React.MouseEvent, task: Task) => {
     e.stopPropagation();
     setEditingTask(task);
+    setEditRequireApproval((task as any).requireApproval === true);
     resetEdit({
       title: task.title,
       description: task.description ?? '',
@@ -209,6 +220,7 @@ const BacklogPage = () => {
           assignee_id: data.assignee_id || undefined,
           story_points: data.story_points ? Number(data.story_points) : undefined,
           due_date: data.due_date || undefined,
+          require_approval: editRequireApproval ? 'true' : 'false',
         },
       });
       setEditingTask(null);
@@ -506,6 +518,23 @@ const BacklogPage = () => {
               <input type="date" className="form-input" {...createForm.register('due_date')} />
             </div>
           </div>
+          {canManageApproval && (
+            <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+              <div>
+                <p className="text-sm font-medium text-amber-900">Require time entry approval</p>
+                <p className="text-xs text-amber-600 mt-0.5">All time logged on this task will be sent to the assignee's manager for approval</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreateRequireApproval((v) => !v)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${createRequireApproval ? 'bg-amber-500' : 'bg-gray-300'}`}
+                role="switch"
+                aria-checked={createRequireApproval}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${createRequireApproval ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+          )}
           <ModalActions>
             <Button variant="outline" type="button" onClick={() => setShowCreate(false)}>Cancel</Button>
             <Button type="submit" loading={createForm.formState.isSubmitting}>Add to Backlog</Button>
@@ -568,6 +597,23 @@ const BacklogPage = () => {
             <label className="form-label">Due Date</label>
             <input type="date" className="form-input" {...registerEdit('due_date')} />
           </div>
+          {canManageApproval && (
+            <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+              <div>
+                <p className="text-sm font-medium text-amber-900">Require time entry approval</p>
+                <p className="text-xs text-amber-600 mt-0.5">All time logged on this task will be sent to the assignee's manager for approval</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditRequireApproval((v) => !v)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${editRequireApproval ? 'bg-amber-500' : 'bg-gray-300'}`}
+                role="switch"
+                aria-checked={editRequireApproval}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${editRequireApproval ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+          )}
           <ModalActions>
             <Button variant="outline" type="button" onClick={() => setEditingTask(null)}>Cancel</Button>
             <Button type="submit" loading={isEditSubmitting}>Save Changes</Button>

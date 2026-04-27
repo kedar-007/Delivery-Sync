@@ -4,7 +4,7 @@ import {
   Plus, UserCheck, UserX, Shield, Search, Filter, RefreshCw,
   ChevronDown, ChevronUp, Clock, User, Tag, Layers, Calendar, Lock,
   ChevronLeft, ChevronRight, Edit2, Check, X, KeyRound,
-  GitBranch, Trash2, Settings, Users, Eye,
+  GitBranch, Trash2, Settings, Users, Eye, Globe,
   LayoutDashboard, FolderKanban, Package, BarChart3, Briefcase,
   Sparkles, AlertTriangle, Wifi,
 } from 'lucide-react';
@@ -1619,6 +1619,15 @@ const LogRow = ({ log, avatarUrl }: { log: AuditLog; avatarUrl?: string }) => {
 // ─── Role options ─────────────────────────────────────────────────────────────
 const ALL_ROLES = ['TENANT_ADMIN', 'TEAM_MEMBER'];
 
+const TZ_SHORT: Record<string, string> = {
+  'Asia/Kolkata': 'IST', 'America/New_York': 'US Eastern', 'America/Chicago': 'US Central',
+  'America/Denver': 'US Mountain', 'America/Los_Angeles': 'US Pacific',
+  'Europe/London': 'UK/GMT', 'Europe/Paris': 'Central EU', 'Europe/Athens': 'Eastern EU',
+  'Asia/Dubai': 'Gulf (GST)', 'Asia/Riyadh': 'Arabia (AST)', 'Africa/Johannesburg': 'SAST',
+  'Asia/Singapore': 'Singapore', 'Asia/Shanghai': 'China (CST)', 'Asia/Tokyo': 'Japan (JST)',
+  'Australia/Sydney': 'AU Eastern', 'Pacific/Auckland': 'New Zealand',
+};
+
 // ─── UserRow ──────────────────────────────────────────────────────────────────
 const UserRow = ({
   user, currentUserId, allowedInviteRoles, orgRoles,
@@ -1641,10 +1650,17 @@ const UserRow = ({
   const isSelf = user.id === currentUserId;
   const canChangeRole = !isSelf && allowedInviteRoles.length > 0;
   const [showPerms, setShowPerms] = useState(false);
+  const [editingTz, setEditingTz] = useState(false);
+  const [tzValue, setTzValue] = useState(user.timezone || '');
 
   const saveRole = async () => {
     try { await updateUser.mutateAsync({ role: editingRole }); } catch { /* */ }
     onSaveRoleDone();
+  };
+
+  const saveTz = async () => {
+    try { await updateUser.mutateAsync({ timezone: tzValue }); } catch { /* */ }
+    setEditingTz(false);
   };
 
   return (
@@ -1700,6 +1716,63 @@ const UserRow = ({
                   </span>
                 ) : null;
               })()}
+            </div>
+          )}
+        </td>
+        {/* Shift / timezone column */}
+        <td className="px-4 py-3">
+          {editingTz ? (
+            <div className="flex items-center gap-1.5">
+              <select
+                className="form-select text-xs py-1 px-2 border-gray-300 rounded-lg max-w-[160px]"
+                value={tzValue}
+                onChange={(e) => setTzValue(e.target.value)}
+              >
+                <option value="">— no shift —</option>
+                <optgroup label="India"><option value="Asia/Kolkata">India IST (UTC+5:30)</option></optgroup>
+                <optgroup label="United States">
+                  <option value="America/New_York">US Eastern</option>
+                  <option value="America/Chicago">US Central</option>
+                  <option value="America/Denver">US Mountain</option>
+                  <option value="America/Los_Angeles">US Pacific</option>
+                </optgroup>
+                <optgroup label="UK &amp; Europe">
+                  <option value="Europe/London">UK / GMT</option>
+                  <option value="Europe/Paris">Central EU</option>
+                  <option value="Europe/Athens">Eastern EU</option>
+                </optgroup>
+                <optgroup label="Middle East &amp; Africa">
+                  <option value="Asia/Dubai">Gulf (GST)</option>
+                  <option value="Asia/Riyadh">Arabia (AST)</option>
+                  <option value="Africa/Johannesburg">South Africa (SAST)</option>
+                </optgroup>
+                <optgroup label="Asia Pacific">
+                  <option value="Asia/Singapore">Singapore (SGT)</option>
+                  <option value="Asia/Shanghai">China (CST)</option>
+                  <option value="Asia/Tokyo">Japan (JST)</option>
+                  <option value="Australia/Sydney">AU Eastern</option>
+                  <option value="Pacific/Auckland">New Zealand</option>
+                </optgroup>
+              </select>
+              <button onClick={saveTz} disabled={updateUser.isPending}
+                className="p-1 rounded text-emerald-600 hover:bg-emerald-50 transition-colors" title="Save">
+                <Check size={13} />
+              </button>
+              <button onClick={() => { setEditingTz(false); setTzValue(user.timezone || ''); }}
+                className="p-1 rounded text-gray-400 hover:bg-gray-100 transition-colors" title="Cancel">
+                <X size={13} />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-gray-500 flex items-center gap-1">
+                <Globe size={11} className="text-gray-400" />
+                {user.timezone ? TZ_SHORT[user.timezone] || user.timezone.split('/')[1] : <span className="text-gray-300">—</span>}
+              </span>
+              <button onClick={() => setEditingTz(true)}
+                className="p-1 rounded text-gray-300 hover:text-blue-600 hover:bg-blue-50 transition-colors" title="Set work shift">
+                <Edit2 size={11} />
+              </button>
             </div>
           )}
         </td>
@@ -1924,7 +1997,7 @@ const AdminPage = () => {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    {['Name', 'Email', 'Role', 'Status', 'Actions'].map((h) => (
+                    {['Name', 'Email', 'Role', 'Shift', 'Status', 'Actions'].map((h) => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
                     ))}
                   </tr>

@@ -106,6 +106,8 @@ const EodPage = () => {
 
   if (projectsLoading) return <Layout><PageLoader /></Layout>;
 
+  const eodProjects = (projects as any[]).filter((p) => p.eodEnabled !== false);
+
   return (
     <Layout>
       <Header title="End of Day" subtitle="Daily EOD updates" />
@@ -149,7 +151,7 @@ const EodPage = () => {
                     <label className="form-label">Project *</label>
                     <select className="form-select" {...register('project_id', { required: 'Required' })}>
                       <option value="">Select project…</option>
-                      {projects.map((p: { id: string; name: string }) => (
+                      {eodProjects.map((p: { id: string; name: string }) => (
                         <option key={p.id} value={p.id}>{p.name}</option>
                       ))}
                     </select>

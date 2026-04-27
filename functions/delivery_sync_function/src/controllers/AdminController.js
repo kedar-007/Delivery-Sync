@@ -166,12 +166,22 @@ class AdminController {
         assignments.forEach((a) => { orgRoleMap[String(a.user_id)] = String(a.org_role_id); });
       } catch (_) {}
 
+      // Fetch timezones from user_profiles
+      let timezoneMap = {};
+      try {
+        const profiles = await this.db.query(
+          `SELECT user_id, timezone FROM ${TABLES.USER_PROFILES} WHERE tenant_id = '${tenantId}' LIMIT 300`
+        );
+        profiles.forEach((p) => { if (p.timezone) timezoneMap[String(p.user_id)] = p.timezone; });
+      } catch (_) {}
+
       return ResponseHelper.success(res, {
         users: users.map((u) => ({
           id: String(u.ROWID), name: u.name, email: u.email,
           role: u.role, status: u.status, avatarUrl: u.avatar_url || u.avtar_url || '',
           invitedBy: u.invited_by, createdAt: u.CREATEDTIME,
           orgRoleId: orgRoleMap[String(u.ROWID)] || null,
+          timezone: timezoneMap[String(u.ROWID)] || '',
         })),
       });
     } catch (err) {
@@ -191,7 +201,7 @@ class AdminController {
       const existing = await this.db.findById(TABLES.USERS, userId, tenantId);
       if (!existing) return ResponseHelper.notFound(res, 'User not found');
 
-      const { role, status } = req.body;
+      const { role, status, timezone } = req.body;
 
       if (role && !Object.values(ROLES).includes(role)) {
         return ResponseHelper.validationError(res, `Invalid role: ${role}`);
@@ -201,7 +211,29 @@ class AdminController {
       if (role) updatePayload.role = role;
       if (status) updatePayload.status = status;
 
-      await this.db.update(TABLES.USERS, updatePayload);
+      if (Object.keys(updatePayload).length > 1) {
+        await this.db.update(TABLES.USERS, updatePayload);
+      }
+
+      // Update timezone in user_profiles (separate table)
+      if (timezone !== undefined) {
+        try {
+          const profiles = await this.db.query(
+            `SELECT ROWID FROM ${TABLES.USER_PROFILES} WHERE user_id = '${userId}' AND tenant_id = '${tenantId}' LIMIT 1`
+          );
+          if (profiles.length > 0) {
+            await this.db.update(TABLES.USER_PROFILES, { ROWID: profiles[0].ROWID, timezone: String(timezone || '') });
+          } else {
+            await this.db.insert(TABLES.USER_PROFILES, {
+              tenant_id: tenantId, user_id: userId, timezone: String(timezone || ''),
+              bio: '', photo_url: '', skills: '[]', experience: '[]', certifications: '[]',
+              resume_url: '', social_links: '{}', is_profile_public: 'false',
+            });
+          }
+        } catch (tzErr) {
+          console.warn('[AdminController.updateUser] timezone update failed:', tzErr.message);
+        }
+      }
 
       if (role && role !== existing.role) {
         await this.audit.log({

@@ -28,6 +28,7 @@ export interface User {
   invitedBy?: string;
   createdAt?: string;
   orgRoleId?: string | null;
+  timezone?: string;
 }
 
 // ─── Tenant ───────────────────────────────────────────────────────────────────

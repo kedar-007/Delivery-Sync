@@ -65,6 +65,12 @@ class CronController {
         for (const project of projects) {
           const projectId = String(project.ROWID);
 
+          // Skip if standup reminders are disabled for this project
+          if (project.standup_enabled === 'false') {
+            console.log(`[CronJob:StandupReminder] Skipping project ${projectId} (standup_enabled=false)`);
+            continue;
+          }
+
           // Get all active members of this project
           const members = await this.db.findAll(TABLES.PROJECT_MEMBERS,
             { tenant_id: tenantId, project_id: projectId }, { limit: 100 });
@@ -130,6 +136,13 @@ class CronController {
 
         for (const project of projects) {
           const projectId = String(project.ROWID);
+
+          // Skip if EOD reminders are disabled for this project
+          if (project.eod_enabled === 'false') {
+            console.log(`[CronJob:EodReminder] Skipping project ${projectId} (eod_enabled=false)`);
+            continue;
+          }
+
           const members = await this.db.findAll(TABLES.PROJECT_MEMBERS,
             { tenant_id: tenantId, project_id: projectId }, { limit: 100 });
 

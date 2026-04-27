@@ -48,6 +48,7 @@ import DataSeedPage from "./pages/DataSeedPage";
 import IpConfigPage from "./pages/IpConfigPage";
 import AccessRevokedPage from "./pages/AccessRevokedPage";
 import { ConfirmProvider } from "./components/ui/ConfirmDialog";
+import { ToastProvider } from "./components/ui/Toast";
 
 // ── Permission-gated route wrapper ───────────────────────────────────────────
 // Redirects to /:tenantSlug/dashboard if the current user lacks `permission`.
@@ -186,13 +187,15 @@ const App = () => {
   }
 
   return (
-    <AuthProvider>
-      <ConfirmProvider>
-        <HashRouter>
-          <AppRoutes />
-        </HashRouter>
-      </ConfirmProvider>
-    </AuthProvider>
+    <ToastProvider>
+      <AuthProvider>
+        <ConfirmProvider>
+          <HashRouter>
+            <AppRoutes />
+          </HashRouter>
+        </ConfirmProvider>
+      </AuthProvider>
+    </ToastProvider>
   );
 };
 

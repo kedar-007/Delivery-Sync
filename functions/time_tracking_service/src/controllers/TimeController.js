@@ -133,12 +133,23 @@ class TimeController {
       effectiveHours = Math.round(((eh * 60 + em) - (sh * 60 + sm)) / 60 * 4) / 4; // round to 0.25
     }
 
-    if (!project_id || !entryDate || !effectiveHours) return ResponseHelper.validationError(res, 'project_id, entry_date and hours are required');
+    if (!entryDate || !effectiveHours) return ResponseHelper.validationError(res, 'entry_date and hours are required');
     if (effectiveHours < 0.25 || effectiveHours > 24) return ResponseHelper.validationError(res, 'hours must be between 0.25 and 24');
+
+    // Resolve project_id: use provided value, or fall back to the task's project.
+    // Never store 0 — the time_entries.project_id column has a FK constraint on projects.ROWID.
+    let resolvedProjectId = project_id && String(project_id) !== '0' ? String(project_id) : null;
+    if (!resolvedProjectId && task_id && String(task_id) !== '0') {
+      try {
+        const taskRows = await this.db.findWhere(TABLES.TASKS, tenantId, `ROWID = '${String(task_id)}'`, { limit: 1 });
+        const pid = taskRows[0]?.project_id;
+        if (pid && String(pid) !== '0') resolvedProjectId = String(pid);
+      } catch (_) { /* cross-service lookup failed — leave null */ }
+    }
 
     const insertPayload = {
       tenant_id:   String(tenantId),
-      project_id:  String(project_id),
+      ...(resolvedProjectId ? { project_id: resolvedProjectId } : {}),
       task_id:     String(task_id || 0),
       user_id:     String(userId),
       entry_date:  entryDate,
@@ -150,6 +161,45 @@ class TimeController {
     const row = await this.db.insert(TABLES.TIME_ENTRIES, insertPayload);
 
     await this.audit.log({ tenantId, entityType: 'TIME_ENTRY', entityId: row.ROWID, action: AUDIT_ACTION.CREATE, newValue: row, performedBy: userId });
+
+    // Auto-submit if the task requires approval (flag passed from frontend — tasks table is in task_sprint_service, not accessible here)
+    const taskIdNum = parseInt(task_id, 10);
+    if (taskIdNum && taskIdNum > 0) {
+      try {
+        const reqApproval = req.body.require_approval;
+        const needsApproval = reqApproval === 'true' || reqApproval === true || reqApproval === 1;
+
+        if (needsApproval) {
+          const profileRows = await this.db.findWhere(TABLES.USER_PROFILES, tenantId, `user_id = '${userId}'`, { limit: 1 });
+          const rmId = profileRows[0]?.reporting_manager_id ? String(profileRows[0].reporting_manager_id) : '';
+
+          // Mark as SUBMITTED regardless of whether a manager is assigned
+          await this.db.update(TABLES.TIME_ENTRIES, { ROWID: row.ROWID, status: TIME_STATUS.SUBMITTED, submitted_at: DataStoreService.fmtDT(new Date()) });
+          row.status = TIME_STATUS.SUBMITTED;
+
+          if (rmId) {
+            await this.db.insert(TABLES.TIME_APPROVAL_REQUESTS, {
+              tenant_id: String(tenantId),
+              time_entry_id: String(row.ROWID),
+              requested_by: String(userId),
+              assigned_to: rmId,
+              status: 'PENDING',
+            });
+            const rmRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = ${rmId} LIMIT 1`);
+            if (rmRows[0]) {
+              const userName = req.currentUser.name || 'A team member';
+              await this.notif.send({ toEmail: rmRows[0].email, subject: `[Delivery Sync] Time entry awaiting your approval`, htmlBody: `<p>Hi ${rmRows[0].name}, ${userName} has submitted a time entry of ${effectiveHours} hours for approval.</p>` });
+              await this.notif.sendInApp({ tenantId, userId: rmId, title: 'Time Approval Needed', message: `${userName} submitted ${effectiveHours}h for approval`, type: NOTIFICATION_TYPE.TIME_APPROVAL_NEEDED, entityType: 'TIME_ENTRY', entityId: String(row.ROWID) });
+            }
+          } else {
+            console.warn(`[TimeController.create] user ${userId} has no reporting_manager_id — entry submitted but no approval request created`);
+          }
+        }
+      } catch (autoSubmitErr) {
+        console.error('[TimeController.create] auto-submit error:', autoSubmitErr.message, autoSubmitErr.stack);
+      }
+    }
+
     return ResponseHelper.created(res, row);
   }
 
@@ -205,7 +255,7 @@ class TimeController {
         requested_by: req.currentUser.id, assigned_to: rmId, status: 'PENDING',
       });
 
-      const rmRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${rmId}' LIMIT 1`);
+      const rmRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = ${rmId} LIMIT 1`);
       if (rmRows[0]) {
         await this.notif.send({ toEmail: rmRows[0].email, subject: `[Delivery Sync] Time entry awaiting your approval`, htmlBody: `<p>Hi ${rmRows[0].name}, ${req.currentUser.name} has submitted a time entry of ${entry.hours} hours for approval.</p>` });
         await this.notif.sendInApp({ tenantId: req.tenantId, userId: rmId, title: 'Time Approval Needed', message: `${req.currentUser.name} submitted ${entry.hours}h for approval`, type: NOTIFICATION_TYPE.TIME_APPROVAL_NEEDED, entityType: 'TIME_ENTRY', entityId: req.params.entryId });

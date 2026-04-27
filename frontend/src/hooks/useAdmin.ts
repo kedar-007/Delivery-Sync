@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../lib/api';
+import { useToast } from '../components/ui/Toast';
 
 export const useAdminUsers = (params?: Record<string, string>) =>
   useQuery({
@@ -9,33 +10,41 @@ export const useAdminUsers = (params?: Record<string, string>) =>
 
 export const useInviteUser = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: unknown) => adminApi.inviteUser(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-users'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-users'] }); toast.success('Invitation sent'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to send invitation'),
   });
 };
 
 export const useUpdateAdminUser = (userId: string) => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: unknown) => adminApi.updateUser(userId, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-users'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-users'] }); toast.success('User updated'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update user'),
   });
 };
 
 export const useDeactivateUser = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (id: string) => adminApi.deactivateUser(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-users'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-users'] }); toast.success('User deactivated'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to deactivate user'),
   });
 };
 
 export const useActivateUser = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (id: string) => adminApi.activateUser(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-users'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-users'] }); toast.success('User activated'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to activate user'),
   });
 };
 
@@ -70,10 +79,12 @@ export const useUserPermissions = (userId: string, enabled = true) =>
 
 export const useSetUserPermissions = (userId: string) => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: { granted: string[]; revoked: string[] }) =>
       adminApi.setUserPermissions(userId, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['user-permissions', userId] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['user-permissions', userId] }); toast.success('Permissions saved'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to save permissions'),
   });
 };
 
@@ -102,47 +113,59 @@ export const useOrgChart = () =>
 
 export const useCreateOrgRole = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: unknown) => adminApi.createOrgRole(data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['org-roles'] });
       qc.invalidateQueries({ queryKey: ['org-chart'] });
+      toast.success('Role created');
     },
+    onError: (e: Error) => toast.error(e.message || 'Failed to create role'),
   });
 };
 
 export const useUpdateOrgRole = (id: string) => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: unknown) => adminApi.updateOrgRole(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['org-roles'] });
       qc.invalidateQueries({ queryKey: ['org-chart'] });
+      toast.success('Role updated');
     },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update role'),
   });
 };
 
 export const useDeleteOrgRole = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (id: string) => adminApi.deleteOrgRole(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['org-roles'] });
       qc.invalidateQueries({ queryKey: ['org-chart'] });
+      toast.success('Role deleted');
     },
+    onError: (e: Error) => toast.error(e.message || 'Failed to delete role'),
   });
 };
 
 export const useSetOrgRolePermissions = (roleId: string) => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (permissions: string[]) => adminApi.setOrgRolePermissions(roleId, permissions),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['org-roles'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['org-roles'] }); toast.success('Permissions saved'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to save permissions'),
   });
 };
 
 export const useAssignUserOrgRole = () => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: ({ userId, orgRoleId }: { userId: string; orgRoleId: string | null }) =>
       adminApi.assignUserOrgRole(userId, orgRoleId),
@@ -150,7 +173,9 @@ export const useAssignUserOrgRole = () => {
       qc.invalidateQueries({ queryKey: ['org-roles'] });
       qc.invalidateQueries({ queryKey: ['org-chart'] });
       qc.invalidateQueries({ queryKey: ['admin-users'] });
+      toast.success('Role assigned');
     },
+    onError: (e: Error) => toast.error(e.message || 'Failed to assign role'),
   });
 };
 
@@ -172,26 +197,32 @@ export const useSharingRules = (roleId: string | null) =>
 
 export const useSetDefaultVisibility = (roleId: string) => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: { visibilityScope: string; accessLevel?: string; recordTypes?: string[] }) =>
       adminApi.setDefaultVisibility(roleId, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['sharing-rules', roleId] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['sharing-rules', roleId] }); toast.success('Visibility rule saved'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to save visibility rule'),
   });
 };
 
 export const useAddExplicitSharingRule = (roleId: string) => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (data: { targetRoleId: string; accessLevel?: string; recordTypes?: string[] }) =>
       adminApi.addExplicitSharingRule(roleId, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['sharing-rules', roleId] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['sharing-rules', roleId] }); toast.success('Sharing rule added'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to add sharing rule'),
   });
 };
 
 export const useDeleteSharingRule = (roleId: string) => {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation({
     mutationFn: (ruleId: string) => adminApi.deleteSharingRule(ruleId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['sharing-rules', roleId] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['sharing-rules', roleId] }); toast.success('Sharing rule removed'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to remove sharing rule'),
   });
 };

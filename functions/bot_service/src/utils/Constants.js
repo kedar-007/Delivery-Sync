@@ -27,10 +27,9 @@ const LLM_CONFIG = Object.freeze({
   MODEL:           'crm-di-qwen_text_moe_30b',
   TOP_P:           0.9,
   TOP_K:           50,
-  TEMPERATURE:     0.8,   // Slightly higher for conversational tone
-  MAX_TOKENS:      1000,  // More tokens for chat responses
-  MAX_PLAN_TOKENS: 1500,  // More for daily plan generation
-  BEST_OF:         1,
+  TEMPERATURE:     0.8,
+  MAX_TOKENS:      1000,
+  MAX_PLAN_TOKENS: 1500,
   CACHE_KEY:       'ai_zoho_token',
   CACHE_TTL_HOURS: 1,
 });

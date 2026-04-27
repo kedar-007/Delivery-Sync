@@ -470,8 +470,37 @@ const ProfilePage = () => {
                     <input type="date" className="form-input" {...regExt('date_of_joining')} />
                   </div>
                   <div>
-                    <label className="form-label">Timezone</label>
-                    <input className="form-input" placeholder="e.g. Asia/Kolkata" {...regExt('timezone')} />
+                    <label className="form-label">Work Shift / Timezone</label>
+                    <select className="form-select" {...regExt('timezone')}>
+                      <option value="">Select shift…</option>
+                      <optgroup label="India">
+                        <option value="Asia/Kolkata">India Standard Time (IST, UTC+5:30)</option>
+                      </optgroup>
+                      <optgroup label="United States">
+                        <option value="America/New_York">US Eastern (EST/EDT, UTC-5/-4)</option>
+                        <option value="America/Chicago">US Central (CST/CDT, UTC-6/-5)</option>
+                        <option value="America/Denver">US Mountain (MST/MDT, UTC-7/-6)</option>
+                        <option value="America/Los_Angeles">US Pacific (PST/PDT, UTC-8/-7)</option>
+                      </optgroup>
+                      <optgroup label="United Kingdom &amp; Europe">
+                        <option value="Europe/London">UK / GMT (GMT/BST, UTC+0/+1)</option>
+                        <option value="Europe/Paris">Central Europe (CET/CEST, UTC+1/+2)</option>
+                        <option value="Europe/Athens">Eastern Europe (EET/EEST, UTC+2/+3)</option>
+                      </optgroup>
+                      <optgroup label="Middle East &amp; Africa">
+                        <option value="Asia/Dubai">Gulf Standard Time (GST, UTC+4)</option>
+                        <option value="Asia/Riyadh">Arabia Standard Time (AST, UTC+3)</option>
+                        <option value="Africa/Johannesburg">South Africa (SAST, UTC+2)</option>
+                      </optgroup>
+                      <optgroup label="Asia Pacific">
+                        <option value="Asia/Singapore">Singapore (SGT, UTC+8)</option>
+                        <option value="Asia/Shanghai">China (CST, UTC+8)</option>
+                        <option value="Asia/Tokyo">Japan (JST, UTC+9)</option>
+                        <option value="Australia/Sydney">Australia Eastern (AEST/AEDT, UTC+10/+11)</option>
+                        <option value="Pacific/Auckland">New Zealand (NZST/NZDT, UTC+12/+13)</option>
+                      </optgroup>
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1">This determines your work day boundaries for attendance tracking.</p>
                   </div>
                   <div>
                     <label className="form-label flex items-center gap-1.5"><FileText size={12} className="text-gray-400" /> Resume</label>

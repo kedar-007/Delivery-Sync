@@ -38,21 +38,24 @@ const AttendanceWidget: React.FC = () => {
   const activeBreak   = lunchInfo.active ?? shortInfo.active ?? null;
   const onBreak       = !!activeBreak;
 
-  // Work elapsed timer
+  // Work elapsed timer — ticks every second, shows HH:MM:SS
   const [elapsed, setElapsed] = useState('');
   const workRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
     if (workRef.current) clearInterval(workRef.current);
     const ciTime = today?.checkInTime ?? today?.check_in_time;
     if (!isWorking || !ciTime) { setElapsed(''); return; }
+    // Stored time is UTC — append 'Z' so it's always parsed as UTC regardless of browser timezone
+    const ciMs = new Date(String(ciTime).replace(' ', 'T').replace(/Z?$/, 'Z')).getTime();
     const calc = () => {
-      const diff = Math.max(0, Date.now() - new Date(ciTime).getTime());
+      const diff = Math.max(0, Date.now() - ciMs);
       const h = Math.floor(diff / 3600000);
       const m = Math.floor((diff % 3600000) / 60000);
-      setElapsed(`${fmt2(h)}:${fmt2(m)}`);
+      const s = Math.floor((diff % 60000) / 1000);
+      setElapsed(`${fmt2(h)}:${fmt2(m)}:${fmt2(s)}`);
     };
     calc();
-    workRef.current = setInterval(calc, 10000);
+    workRef.current = setInterval(calc, 1000);
     return () => { if (workRef.current) clearInterval(workRef.current); };
   }, [isWorking, today?.checkInTime, today?.check_in_time]);
 
@@ -62,8 +65,8 @@ const AttendanceWidget: React.FC = () => {
   useEffect(() => {
     if (breakRef.current) clearInterval(breakRef.current);
     if (!activeBreak?.break_start) { setBreakSecs(0); return; }
-    // No 'Z' suffix — stored time is local (IST), browser parses without explicit TZ as local
-    const tick = () => setBreakSecs(Math.max(0, Math.floor((Date.now() - new Date(activeBreak.break_start.replace(' ', 'T')).getTime()) / 1000)));
+    // Stored time is UTC — append 'Z' for correct parsing regardless of browser timezone
+    const tick = () => setBreakSecs(Math.max(0, Math.floor((Date.now() - new Date(String(activeBreak.break_start).replace(' ', 'T').replace(/Z?$/, 'Z')).getTime()) / 1000)));
     tick();
     breakRef.current = setInterval(tick, 1000);
     return () => { if (breakRef.current) clearInterval(breakRef.current); };
@@ -72,7 +75,8 @@ const AttendanceWidget: React.FC = () => {
   const [showWfhModal, setShowWfhModal] = useState(false);
   const [wfhReason, setWfhReason] = useState('');
 
-  const clientTime = () => new Date().toLocaleString('sv');
+  // Always send UTC so both backend and timer use the same reference frame
+  const clientTime = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
 
   const handleCheckIn    = () => checkIn.mutate({ client_time: clientTime() });
   const handleWfhCheckIn = () => { checkIn.mutate({ client_time: clientTime(), is_wfh: true, wfh_reason: wfhReason }); setShowWfhModal(false); setWfhReason(''); };

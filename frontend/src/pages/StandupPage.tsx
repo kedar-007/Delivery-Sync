@@ -90,6 +90,7 @@ const StandupPage = () => {
   if (projectsLoading) return <Layout><PageLoader /></Layout>;
 
   const submittedProjectIds = new Set(todayStandups.map((s: { projectId: string }) => s.projectId));
+  const standupProjects = (projects as any[]).filter((p) => p.standupEnabled !== false);
 
   return (
     <Layout>
@@ -149,7 +150,7 @@ const StandupPage = () => {
                     <label className="form-label">Project *</label>
                     <select className="form-select" {...register('project_id', { required: 'Select a project' })}>
                       <option value="">Select project…</option>
-                      {projects.map((p: { id: string; name: string }) => (
+                      {standupProjects.map((p: { id: string; name: string }) => (
                         <option key={p.id} value={p.id}>{p.name}</option>
                       ))}
                     </select>

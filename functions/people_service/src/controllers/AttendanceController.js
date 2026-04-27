@@ -77,20 +77,13 @@ class AttendanceController {
       return ResponseHelper.notFound(res, 'User not found');
     const userRowId = users[0].ROWID;
 
-    // Resolve the datetime to store:
-    //  1. client_time from the request body (browser local time, most accurate)
-    //  2. user's timezone from their profile → compute server-side in that zone
-    //  3. default: Asia/Kolkata (IST)
-    let formattedNow;
-    if (req.body.client_time) {
-      formattedNow = String(req.body.client_time).replace('T', ' ').slice(0, 19);
-    } else {
-      const profiles = await this.db.findWhere(TABLES.USER_PROFILES, tenantId,
-        `user_id = '${userRowId}'`, { limit: 1 });
-      const tz = profiles[0]?.timezone || 'Asia/Kolkata';
-      formattedNow = getNowInTZ(tz);
-    }
-    const today = formattedNow.split(' ')[0];
+    // Store check-in time as UTC so all clients parse it consistently.
+    // Use the user's shift timezone only to determine attendance_date (which day they're on).
+    const profiles = await this.db.findWhere(TABLES.USER_PROFILES, tenantId,
+      `user_id = '${userRowId}'`, { limit: 1 });
+    const tz = profiles[0]?.timezone || 'Asia/Kolkata';
+    const today = getNowInTZ(tz).split(' ')[0]; // attendance date in the user's shift timezone
+    const formattedNow = new Date().toISOString().replace('T', ' ').slice(0, 19); // UTC
 
     // Check for duplicate
     const existing = await this.db.findWhere(TABLES.ATTENDANCE_RECORDS, tenantId,
@@ -102,11 +95,25 @@ class AttendanceController {
     const ip = extractClientIp(req);
     const { is_wfh, wfh_reason } = req.body;
 
-    // IP validation before any DB write — prevents orphaned records on rejection
-    const ipCheck = await this._validateIpAllowed(req.tenantId, ip);
-    if (!ipCheck.allowed && !is_wfh) {
-      console.log(`[checkIn] IP blocked: detected="${ip}" headers=${JSON.stringify({ xfwd: req.headers['x-forwarded-for'], xreal: req.headers['x-real-ip'], remote: req.connection?.remoteAddress })}`);
-      return ResponseHelper.forbidden(res, `Check-in not allowed from this network (${ip || 'unknown IP'}). Please use the WFH option if working remotely.`);
+    // IP + Geo validation run concurrently before any DB write — prevents orphaned records on rejection
+    const [ipCheck, { countryCheck, zoneCheck }] = await Promise.all([
+      this._validateIpAllowed(req.tenantId, ip),
+      this._runLocationChecks(req.tenantId, ip),
+    ]);
+    if (!is_wfh) {
+      if (!ipCheck.allowed) {
+        console.log(`[checkIn] IP blocked: detected="${ip}" headers=${JSON.stringify({ xfwd: req.headers['x-forwarded-for'], xreal: req.headers['x-real-ip'], remote: req.connection?.remoteAddress })}`);
+        return ResponseHelper.forbidden(res, `Check-in not allowed from this network (${ip || 'unknown IP'}). Please use the WFH option if working remotely.`);
+      }
+      if (!countryCheck.allowed) {
+        console.log(`[checkIn] Country blocked: detected="${countryCheck.country}" (${countryCheck.countryCode}) ip="${ip}"`);
+        return ResponseHelper.forbidden(res, `Check-in not allowed from your country (${countryCheck.country || countryCheck.countryCode || 'unknown'}). Please use the WFH option if working remotely.`);
+      }
+      if (!zoneCheck.allowed) {
+        const loc = [zoneCheck.city, zoneCheck.regionName].filter(Boolean).join(', ') || 'unknown location';
+        console.log(`[checkIn] Zone blocked: detected="${loc}" ip="${ip}"`);
+        return ResponseHelper.forbidden(res, `Check-in not allowed from your location (${loc}). Please use the WFH option if working remotely.`);
+      }
     }
 
     let record;
@@ -183,22 +190,29 @@ class AttendanceController {
       return ResponseHelper.notFound(res, 'User not found');
     const userRowId = users[0].ROWID;
 
-    // Resolve checkout datetime (same priority as checkIn: client_time > profile tz > IST)
-    let formattedNow;
-    if (req.body.client_time) {
-      formattedNow = String(req.body.client_time).replace('T', ' ').slice(0, 19);
-    } else {
-      const profiles = await this.db.findWhere(TABLES.USER_PROFILES, tenantId,
-        `user_id = '${userRowId}'`, { limit: 1 });
-      const tz = profiles[0]?.timezone || 'Asia/Kolkata';
-      formattedNow = getNowInTZ(tz);
-    }
-    const today = formattedNow.split(' ')[0];
+    // Store checkout time as UTC; use shift timezone only for attendance_date lookup.
+    const coProfiles = await this.db.findWhere(TABLES.USER_PROFILES, tenantId,
+      `user_id = '${userRowId}'`, { limit: 1 });
+    const coTz = coProfiles[0]?.timezone || 'Asia/Kolkata';
+    const today = getNowInTZ(coTz).split(' ')[0];
+    const formattedNow = new Date().toISOString().replace('T', ' ').slice(0, 19); // UTC
 
-    const existing = await this.db.findWhere(TABLES.ATTENDANCE_RECORDS, tenantId,
+    // First try today's date; if not found, look for the most recent open check-in within 36 hours
+    // This handles cross-midnight shifts (e.g., US shift workers in India checking out the next morning)
+    let existing = await this.db.findWhere(TABLES.ATTENDANCE_RECORDS, tenantId,
       `user_id = '${userRowId}' AND attendance_date = '${today}'`, { limit: 1 });
-    if (existing.length === 0 || !existing[0].check_in_time)
-      return ResponseHelper.validationError(res, 'No check-in found for today');
+
+    if (existing.length === 0 || !existing[0].check_in_time) {
+      // Look for the most recent open record (checked in but not yet checked out) within last 36 hours
+      const cutoff = new Date(Date.now() - 36 * 3600000).toISOString().replace('T', ' ').slice(0, 19);
+      const recent = await this.db.findWhere(TABLES.ATTENDANCE_RECORDS, tenantId,
+        `user_id = '${userRowId}' AND check_in_time > '${cutoff}'`,
+        { orderBy: 'check_in_time DESC', limit: 5 });
+      const openRecord = recent.find(r => r.check_in_time && !r.check_out_time);
+      if (!openRecord) return ResponseHelper.validationError(res, 'No open check-in found (checked in within the last 36 hours)');
+      existing = [openRecord];
+    }
+
     if (existing[0].check_out_time)
       return ResponseHelper.conflict(res, 'Already checked out today');
 
@@ -335,28 +349,37 @@ class AttendanceController {
       return ResponseHelper.validationError(res, 'break_type must be LUNCH or SHORT');
     }
 
-    let formattedNow;
-    if (req.body.client_time) {
-      formattedNow = String(req.body.client_time).replace('T', ' ').slice(0, 19);
-    } else {
-      const profiles = await this.db.findWhere(TABLES.USER_PROFILES, tenantId, `user_id = '${userRowId}'`, { limit: 1 });
-      formattedNow = getNowInTZ(profiles[0]?.timezone);
-    }
-    const today = formattedNow.split(' ')[0];
+    // Store break time as UTC; use shift timezone only for attendance_date lookup.
+    const bsProfiles = await this.db.findWhere(TABLES.USER_PROFILES, tenantId, `user_id = '${userRowId}'`, { limit: 1 });
+    const bsTz = bsProfiles[0]?.timezone || 'Asia/Kolkata';
+    const today = getNowInTZ(bsTz).split(' ')[0];
+    const formattedNow = new Date().toISOString().replace('T', ' ').slice(0, 19); // UTC
 
     const existing = await this.db.findWhere(TABLES.ATTENDANCE_RECORDS, tenantId,
       `user_id = '${userRowId}' AND attendance_date = '${today}'`, { limit: 1 });
     if (!existing.length || !existing[0].check_in_time) return ResponseHelper.validationError(res, 'Must be checked in before starting a break');
     if (existing[0].check_out_time) return ResponseHelper.validationError(res, 'Already checked out');
 
-    // IP check for office workers only — WFH workers (is_wfh=true) are already remote.
+    // IP + Geo check for office workers only — WFH workers are already remote.
     const isWfhRecord = existing[0].is_wfh === 'true' || existing[0].is_wfh === true;
     if (!isWfhRecord) {
       const ip = extractClientIp(req);
-      const ipCheck = await this._validateIpAllowed(tenantId, ip);
+      const [ipCheck, { countryCheck, zoneCheck }] = await Promise.all([
+        this._validateIpAllowed(tenantId, ip),
+        this._runLocationChecks(tenantId, ip),
+      ]);
       if (!ipCheck.allowed) {
         console.log(`[breakStart] IP blocked: user=${req.currentUser.email} detected="${ip}" headers=${JSON.stringify({ xfwd: req.headers['x-forwarded-for'], xreal: req.headers['x-real-ip'] })}`);
         return ResponseHelper.forbidden(res, `Breaks can only be recorded from the office network. Detected IP: ${ip || 'unknown'}`);
+      }
+      if (!countryCheck.allowed) {
+        console.log(`[breakStart] Country blocked: user=${req.currentUser.email} country="${countryCheck.country}" ip="${ip}"`);
+        return ResponseHelper.forbidden(res, `Breaks can only be recorded from an allowed country. Detected: ${countryCheck.country || 'unknown'}`);
+      }
+      if (!zoneCheck.allowed) {
+        const loc = [zoneCheck.city, zoneCheck.regionName].filter(Boolean).join(', ') || 'unknown location';
+        console.log(`[breakStart] Zone blocked: user=${req.currentUser.email} location="${loc}" ip="${ip}"`);
+        return ResponseHelper.forbidden(res, `Breaks can only be recorded from an allowed zone. Detected: ${loc}`);
       }
     }
 
@@ -402,25 +425,34 @@ class AttendanceController {
     if (!users.length) return ResponseHelper.notFound(res, 'User not found');
     const userRowId = users[0].ROWID;
 
-    let formattedNow;
-    if (req.body.client_time) {
-      formattedNow = String(req.body.client_time).replace('T', ' ').slice(0, 19);
-    } else {
-      const profiles = await this.db.findWhere(TABLES.USER_PROFILES, tenantId, `user_id = '${userRowId}'`, { limit: 1 });
-      formattedNow = getNowInTZ(profiles[0]?.timezone);
-    }
-    const today = formattedNow.split(' ')[0];
+    // Store break-end time as UTC; use shift timezone only for attendance_date lookup.
+    const beProfiles = await this.db.findWhere(TABLES.USER_PROFILES, tenantId, `user_id = '${userRowId}'`, { limit: 1 });
+    const beTz = beProfiles[0]?.timezone || 'Asia/Kolkata';
+    const today = getNowInTZ(beTz).split(' ')[0];
+    const formattedNow = new Date().toISOString().replace('T', ' ').slice(0, 19); // UTC
 
-    // IP check for office workers only — WFH workers are already remote.
+    // IP + Geo check for office workers only — WFH workers are already remote.
     const todayRecord = await this.db.findWhere(TABLES.ATTENDANCE_RECORDS, tenantId,
       `user_id = '${userRowId}' AND attendance_date = '${today}'`, { limit: 1 });
     const isWfhRecord = todayRecord[0]?.is_wfh === 'true' || todayRecord[0]?.is_wfh === true;
     if (!isWfhRecord) {
       const ip = extractClientIp(req);
-      const ipCheck = await this._validateIpAllowed(tenantId, ip);
+      const [ipCheck, { countryCheck, zoneCheck }] = await Promise.all([
+        this._validateIpAllowed(tenantId, ip),
+        this._runLocationChecks(tenantId, ip),
+      ]);
       if (!ipCheck.allowed) {
         console.log(`[breakEnd] IP blocked: user=${req.currentUser.email} detected="${ip}" headers=${JSON.stringify({ xfwd: req.headers['x-forwarded-for'], xreal: req.headers['x-real-ip'] })}`);
         return ResponseHelper.forbidden(res, `Breaks can only be ended from the office network. Detected IP: ${ip || 'unknown'}`);
+      }
+      if (!countryCheck.allowed) {
+        console.log(`[breakEnd] Country blocked: user=${req.currentUser.email} country="${countryCheck.country}" ip="${ip}"`);
+        return ResponseHelper.forbidden(res, `Breaks can only be ended from an allowed country. Detected: ${countryCheck.country || 'unknown'}`);
+      }
+      if (!zoneCheck.allowed) {
+        const loc = [zoneCheck.city, zoneCheck.regionName].filter(Boolean).join(', ') || 'unknown location';
+        console.log(`[breakEnd] Zone blocked: user=${req.currentUser.email} location="${loc}" ip="${ip}"`);
+        return ResponseHelper.forbidden(res, `Breaks can only be ended from an allowed zone. Detected: ${loc}`);
       }
     }
 
@@ -633,6 +665,239 @@ class AttendanceController {
     } catch (_) {
       return { allowed: true }; // fail open on any error
     }
+  }
+
+  // ─── Geo restriction CRUD ────────────────────────────────────────────────────
+
+  // GET /api/people/attendance/geo-config/settings
+  async getGeoSettings(req, res) {
+    try {
+      const rows = await this.db.query(
+        `SELECT settings FROM ${TABLES.TENANTS} WHERE ROWID = ${req.tenantId} LIMIT 1`
+      );
+      const settings = rows.length > 0 ? JSON.parse(rows[0].settings || '{}') : {};
+      return ResponseHelper.success(res, { enabled: !!settings.geo_restrictions_enabled });
+    } catch (_) {
+      return ResponseHelper.success(res, { enabled: false });
+    }
+  }
+
+  // PUT /api/people/attendance/geo-config/settings
+  async updateGeoSettings(req, res) {
+    const enabled = !!req.body.enabled;
+    try {
+      const rows = await this.db.query(
+        `SELECT ROWID, settings FROM ${TABLES.TENANTS} WHERE ROWID = ${req.tenantId} LIMIT 1`
+      );
+      if (!rows.length) return ResponseHelper.notFound(res, 'Tenant not found');
+      const settings = JSON.parse(rows[0].settings || '{}');
+      settings.geo_restrictions_enabled = enabled;
+      await this.db.update(TABLES.TENANTS, { ROWID: rows[0].ROWID, settings: JSON.stringify(settings) });
+      return ResponseHelper.success(res, { enabled });
+    } catch (e) {
+      return ResponseHelper.serverError(res, e.message || 'Failed to update geo settings');
+    }
+  }
+
+  // GET /api/people/attendance/geo-config
+  async getGeoConfig(req, res) {
+    try {
+      const rows = await this.db.findWhere(TABLES.GEO_RESTRICTIONS, req.tenantId, `is_active = 'true'`, { orderBy: 'CREATEDTIME ASC', limit: 200 });
+      return ResponseHelper.success(res, rows);
+    } catch (_) {
+      return ResponseHelper.success(res, []);
+    }
+  }
+
+  // POST /api/people/attendance/geo-config
+  async addGeoConfig(req, res) {
+    const { country_code, country_name } = req.body;
+    if (!country_code || !country_name) return ResponseHelper.validationError(res, 'country_code and country_name are required');
+    try {
+      const existing = await this.db.findWhere(TABLES.GEO_RESTRICTIONS, req.tenantId,
+        `country_code = '${DataStoreService.escape(country_code)}' AND is_active = 'true'`, { limit: 1 });
+      if (existing.length > 0) return ResponseHelper.conflict(res, 'Country already added');
+      const row = await this.db.insert(TABLES.GEO_RESTRICTIONS, {
+        tenant_id:    String(req.tenantId),
+        country_code: DataStoreService.escape(country_code.toUpperCase()),
+        country_name: DataStoreService.escape(country_name),
+        is_active:    'true',
+        created_by:   String(req.currentUser.id),
+      });
+      return ResponseHelper.created(res, row);
+    } catch (e) {
+      if (e.message && e.message.includes('No privileges')) {
+        return ResponseHelper.serverError(res, 'The geo_restrictions table does not exist in Catalyst DataStore. Please create it first.');
+      }
+      return ResponseHelper.serverError(res, e.message || 'Failed to add country');
+    }
+  }
+
+  // DELETE /api/people/attendance/geo-config/:configId
+  async deleteGeoConfig(req, res) {
+    const row = await this.db.findById(TABLES.GEO_RESTRICTIONS, req.params.configId, req.tenantId);
+    if (!row) return ResponseHelper.notFound(res, 'Geo config not found');
+    await this.db.update(TABLES.GEO_RESTRICTIONS, { ROWID: req.params.configId, is_active: 'false' });
+    return ResponseHelper.success(res, { message: 'Country removed' });
+  }
+
+  // ─── Geo validation helpers ───────────────────────────────────────────────────
+
+  // Single GeoIP lookup — returns { country, countryCode, lat, lon, city, regionName } or null.
+  // Uses ip-api.com free tier (no API key, 150 req/min). Fails open for private/loopback IPs.
+  _lookupGeo(ip) {
+    const PRIVATE_RE = /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|::1$|fd[0-9a-f]{2}:)/i;
+    if (!ip || PRIVATE_RE.test(ip)) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const https = require('https');
+      const reqObj = https.get(
+        `https://ip-api.com/json/${ip}?fields=status,country,countryCode,lat,lon,city,regionName`,
+        { timeout: 4000 },
+        (httpRes) => {
+          let data = '';
+          httpRes.on('data', (chunk) => { data += chunk; });
+          httpRes.on('end', () => {
+            try {
+              const p = JSON.parse(data);
+              if (p.status === 'success') resolve({ country: p.country, countryCode: p.countryCode, lat: p.lat, lon: p.lon, city: p.city, regionName: p.regionName });
+              else resolve(null);
+            } catch { resolve(null); }
+          });
+        }
+      );
+      reqObj.on('error', () => resolve(null));
+      reqObj.on('timeout', () => { reqObj.destroy(); resolve(null); });
+    });
+  }
+
+  // Country-level check — accepts pre-fetched geoData (from _lookupGeo) to avoid a second API call.
+  async _validateGeoAllowed(tenantId, geoData) {
+    try {
+      const tenantRows = await this.db.query(
+        `SELECT settings FROM ${TABLES.TENANTS} WHERE ROWID = ${tenantId} LIMIT 1`
+      );
+      if (!tenantRows.length) return { allowed: true };
+      const settings = JSON.parse(tenantRows[0].settings || '{}');
+      if (!settings.geo_restrictions_enabled) return { allowed: true };
+
+      const rows = await this.db.findWhere(TABLES.GEO_RESTRICTIONS, tenantId, `is_active = 'true'`, { limit: 200 });
+      if (!rows || rows.length === 0) return { allowed: true };
+
+      if (!geoData) return { allowed: true }; // lookup failed — fail open
+      const allowed = rows.some((r) => r.country_code === geoData.countryCode);
+      return { allowed, countryCode: geoData.countryCode, country: geoData.country };
+    } catch (_) {
+      return { allowed: true };
+    }
+  }
+
+  // Haversine distance between two coordinates in km.
+  _haversineKm(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  // Zone-level (radius) check — accepts pre-fetched geoData.
+  async _validateZoneAllowed(tenantId, geoData) {
+    try {
+      const tenantRows = await this.db.query(
+        `SELECT settings FROM ${TABLES.TENANTS} WHERE ROWID = ${tenantId} LIMIT 1`
+      );
+      if (!tenantRows.length) return { allowed: true };
+      const settings = JSON.parse(tenantRows[0].settings || '{}');
+      if (!settings.geo_zones_enabled) return { allowed: true };
+
+      const zones = await this.db.findWhere(TABLES.GEO_ZONES, tenantId, `is_active = 'true'`, { limit: 100 });
+      if (!zones || zones.length === 0) return { allowed: true };
+
+      if (!geoData || geoData.lat == null || geoData.lon == null) return { allowed: true }; // fail open if no coords
+
+      for (const zone of zones) {
+        const dist = this._haversineKm(parseFloat(zone.latitude), parseFloat(zone.longitude), geoData.lat, geoData.lon);
+        if (dist <= parseFloat(zone.radius_km)) return { allowed: true, zone: zone.name };
+      }
+      return { allowed: false, city: geoData.city, regionName: geoData.regionName };
+    } catch (_) {
+      return { allowed: true };
+    }
+  }
+
+  // Run one GeoIP lookup then validate country + zone concurrently. Used by checkIn/breakStart/breakEnd.
+  async _runLocationChecks(tenantId, ip) {
+    const geoData = await this._lookupGeo(ip); // single external API call
+    const [countryCheck, zoneCheck] = await Promise.all([
+      this._validateGeoAllowed(tenantId, geoData),
+      this._validateZoneAllowed(tenantId, geoData),
+    ]);
+    return { countryCheck, zoneCheck };
+  }
+
+  // ─── Geo zone CRUD ────────────────────────────────────────────────────────────
+
+  async getGeoZoneSettings(req, res) {
+    try {
+      const rows = await this.db.query(`SELECT settings FROM ${TABLES.TENANTS} WHERE ROWID = ${req.tenantId} LIMIT 1`);
+      const settings = rows.length > 0 ? JSON.parse(rows[0].settings || '{}') : {};
+      return ResponseHelper.success(res, { enabled: !!settings.geo_zones_enabled });
+    } catch (_) { return ResponseHelper.success(res, { enabled: false }); }
+  }
+
+  async updateGeoZoneSettings(req, res) {
+    const enabled = !!req.body.enabled;
+    try {
+      const rows = await this.db.query(`SELECT ROWID, settings FROM ${TABLES.TENANTS} WHERE ROWID = ${req.tenantId} LIMIT 1`);
+      if (!rows.length) return ResponseHelper.notFound(res, 'Tenant not found');
+      const settings = JSON.parse(rows[0].settings || '{}');
+      settings.geo_zones_enabled = enabled;
+      await this.db.update(TABLES.TENANTS, { ROWID: rows[0].ROWID, settings: JSON.stringify(settings) });
+      return ResponseHelper.success(res, { enabled });
+    } catch (e) { return ResponseHelper.serverError(res, e.message || 'Failed to update geo zone settings'); }
+  }
+
+  async getGeoZones(req, res) {
+    try {
+      const rows = await this.db.findWhere(TABLES.GEO_ZONES, req.tenantId, `is_active = 'true'`, { orderBy: 'CREATEDTIME ASC', limit: 100 });
+      return ResponseHelper.success(res, rows);
+    } catch (_) { return ResponseHelper.success(res, []); }
+  }
+
+  async addGeoZone(req, res) {
+    const { name, latitude, longitude, radius_km } = req.body;
+    if (!name || latitude == null || longitude == null || !radius_km)
+      return ResponseHelper.validationError(res, 'name, latitude, longitude, and radius_km are required');
+    const lat = parseFloat(latitude);
+    const lon = parseFloat(longitude);
+    const radius = parseFloat(radius_km);
+    if (isNaN(lat) || lat < -90 || lat > 90) return ResponseHelper.validationError(res, 'latitude must be between -90 and 90');
+    if (isNaN(lon) || lon < -180 || lon > 180) return ResponseHelper.validationError(res, 'longitude must be between -180 and 180');
+    if (isNaN(radius) || radius <= 0 || radius > 500) return ResponseHelper.validationError(res, 'radius_km must be between 0.1 and 500');
+    try {
+      const row = await this.db.insert(TABLES.GEO_ZONES, {
+        tenant_id:  String(req.tenantId),
+        name:       DataStoreService.escape(name),
+        latitude:   String(lat),
+        longitude:  String(lon),
+        radius_km:  String(radius),
+        is_active:  'true',
+        created_by: String(req.currentUser.id),
+      });
+      return ResponseHelper.created(res, row);
+    } catch (e) {
+      if (e.message && e.message.includes('No privileges'))
+        return ResponseHelper.serverError(res, 'The geo_zones table does not exist in Catalyst DataStore. Please create it first.');
+      return ResponseHelper.serverError(res, e.message || 'Failed to add zone');
+    }
+  }
+
+  async deleteGeoZone(req, res) {
+    const row = await this.db.findById(TABLES.GEO_ZONES, req.params.zoneId, req.tenantId);
+    if (!row) return ResponseHelper.notFound(res, 'Geo zone not found');
+    await this.db.update(TABLES.GEO_ZONES, { ROWID: req.params.zoneId, is_active: 'false' });
+    return ResponseHelper.success(res, { message: 'Zone removed' });
   }
 
   // Simple exact IP or /24 CIDR check

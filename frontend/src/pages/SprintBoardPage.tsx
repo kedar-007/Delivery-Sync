@@ -49,6 +49,7 @@ import {
 import { useProject } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import SprintAnalysisModal from '../components/ui/SprintAnalysisModal';
 import { useAiSprintAnalysis } from '../hooks/useAiInsights';
 
@@ -383,7 +384,7 @@ interface TaskForm {
 export default function SprintBoardPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'TENANT_ADMIN' || user?.role === 'DELIVERY_LEAD' || user?.role === 'PMO';
+  const isAdmin = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TIME_APPROVE);
 
   const [activeSprint, setActiveSprint] = useState<Sprint | null>(null);
   const [activeTask, setActiveTask] = useState<Task | null>(null);       // dragging
@@ -408,10 +409,10 @@ export default function SprintBoardPage() {
   const [logTimeDate, setLogTimeDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [logTimeBillable, setLogTimeBillable] = useState(true);
   const [logTimePending, setLogTimePending] = useState(false);
-  const [logTimeSubmitPending, setLogTimeSubmitPending] = useState(false);
   const [submittingEntryId, setSubmittingEntryId] = useState<string | null>(null);
   const [timeError, setTimeError] = useState<string | null>(null);
-  const [logTimeAutoSubmit, setLogTimeAutoSubmit] = useState(false);
+  const [createTaskRequireApproval, setCreateTaskRequireApproval] = useState(false);
+  const [editTaskRequireApproval, setEditTaskRequireApproval] = useState(false);
   // task detail tabs / timer / AI
   const [detailTab, setDetailTab] = useState<'activity' | 'time' | 'ai'>('activity');
   const [taskTimeEntries, setTaskTimeEntries] = useState<any[]>([]);
@@ -592,8 +593,9 @@ export default function SprintBoardPage() {
       sprint_id: activeSprint?.id ?? null,
       status: createTaskStatus,
       assignee_ids: JSON.stringify(assigneeIds),
+      require_approval: createTaskRequireApproval ? 'true' : 'false',
     }, {
-      onSuccess: () => { setShowCreateTask(false); taskForm.reset(); setAssigneeIds([]); },
+      onSuccess: () => { setShowCreateTask(false); taskForm.reset(); setAssigneeIds([]); setCreateTaskRequireApproval(false); },
     });
   });
 
@@ -603,12 +605,13 @@ export default function SprintBoardPage() {
     setLogTimePending(true);
     try {
       await timeEntriesApi.create({
-        project_id: detailTask.projectId ?? projectId,
-        task_id: detailTask.id,
-        entry_date: logTimeDate,
-        hours: parseFloat(logTimeHours),
-        description: logTimeDesc || detailTask.title,
-        is_billable: logTimeBillable,
+        project_id:       detailTask.projectId ?? projectId,
+        task_id:          detailTask.id,
+        entry_date:       logTimeDate,
+        hours:            parseFloat(logTimeHours),
+        description:      logTimeDesc || detailTask.title,
+        is_billable:      logTimeBillable,
+        require_approval: (detailTask as any).requireApproval === true ? 'true' : 'false',
       });
       setLogTimeHours(''); setLogTimeDesc('');
       // Refresh time entries list
@@ -623,35 +626,6 @@ export default function SprintBoardPage() {
     }
   };
 
-  const handleLogTimeAndSubmit = async () => {
-    if (!detailTask || !logTimeHours) return;
-    setTimeError(null);
-    setLogTimeSubmitPending(true);
-    try {
-      const created = await timeEntriesApi.create({
-        project_id: detailTask.projectId ?? projectId,
-        task_id: detailTask.id,
-        entry_date: logTimeDate,
-        hours: parseFloat(logTimeHours),
-        description: logTimeDesc || detailTask.title,
-        is_billable: logTimeBillable,
-      }) as any;
-      const entryId = String(created?.ROWID ?? created?.id ?? '');
-      if (entryId) await submitTimeEntry.mutateAsync(entryId);
-      setLogTimeHours(''); setLogTimeDesc('');
-      if (taskDetailId) {
-        setTimeEntriesLoading(true);
-        timeEntriesApi.list({ task_id: taskDetailId })
-          .then((d: unknown) => setTaskTimeEntries(Array.isArray(d) ? d : []))
-          .catch(() => {}).finally(() => setTimeEntriesLoading(false));
-      }
-    } catch (err: any) {
-      const msg = err?.response?.data?.message ?? err?.message ?? 'Failed to submit entry';
-      setTimeError(msg);
-    } finally {
-      setLogTimeSubmitPending(false);
-    }
-  };
 
   const handleSubmitEntry = async (entryId: string) => {
     setTimeError(null);
@@ -734,6 +708,7 @@ export default function SprintBoardPage() {
         due_date: data.due_date || null,
         labels: data.labels ? JSON.stringify((data.labels as string).split(',').map(l => l.trim()).filter(Boolean)) : '[]',
         assignee_ids: JSON.stringify(editAssigneeIds),
+        require_approval: editTaskRequireApproval ? 'true' : 'false',
       },
     }, { onSuccess: () => setEditTask(null) });
   });
@@ -741,6 +716,7 @@ export default function SprintBoardPage() {
   const openEdit = (task: Task) => {
     setEditTask(task);
     setEditAssigneeIds(task.assigneeIds ?? (task.assigneeId ? [task.assigneeId] : []));
+    setEditTaskRequireApproval((task as any).requireApproval === true);
     editForm.reset({
       title: task.title,
       description: task.description,
@@ -1074,8 +1050,25 @@ export default function SprintBoardPage() {
               {COLUMNS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
             </select>
           </div>
+          {isAdmin && (
+            <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+              <div>
+                <p className="text-sm font-medium text-amber-900">Require time entry approval</p>
+                <p className="text-xs text-amber-600 mt-0.5">All time logged on this task will be sent to the assignee's manager for approval</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreateTaskRequireApproval((v) => !v)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${createTaskRequireApproval ? 'bg-amber-500' : 'bg-gray-300'}`}
+                role="switch"
+                aria-checked={createTaskRequireApproval}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${createTaskRequireApproval ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+          )}
           <ModalActions>
-            <Button variant="secondary" onClick={() => { setShowCreateTask(false); taskForm.reset(); setAssigneeIds([]); }}>Cancel</Button>
+            <Button variant="secondary" onClick={() => { setShowCreateTask(false); taskForm.reset(); setAssigneeIds([]); setCreateTaskRequireApproval(false); }}>Cancel</Button>
             <Button type="submit" variant="primary" loading={createTask.isPending}>Create Task</Button>
           </ModalActions>
         </form>
@@ -1406,34 +1399,15 @@ export default function SprintBoardPage() {
                             🔧 Non-billable
                           </label>
                         </div>
-                        {/* Submit for approval toggle */}
-                        <button
-                          type="button"
-                          onClick={() => setLogTimeAutoSubmit(v => !v)}
-                          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border-2 transition-all ${logTimeAutoSubmit ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 bg-white'}`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <Send size={12} className={logTimeAutoSubmit ? 'text-indigo-600' : 'text-gray-400'} />
-                            <div className="text-left">
-                              <p className={`text-xs font-semibold leading-tight ${logTimeAutoSubmit ? 'text-indigo-700' : 'text-gray-500'}`}>Send for Approval</p>
-                              <p className="text-[10px] text-gray-400 leading-tight">Notify your manager to review</p>
-                            </div>
-                          </div>
-                          {/* Toggle pill */}
-                          <div className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${logTimeAutoSubmit ? 'bg-indigo-500' : 'bg-gray-200'}`}>
-                            <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${logTimeAutoSubmit ? 'translate-x-4' : 'translate-x-0'}`} />
-                          </div>
-                        </button>
-
                         <Button
                           size="sm"
                           variant="primary"
-                          loading={logTimePending || logTimeSubmitPending}
+                          loading={logTimePending}
                           disabled={!logTimeHours || !logTimeDate}
-                          onClick={logTimeAutoSubmit ? handleLogTimeAndSubmit : handleLogTime}
+                          onClick={handleLogTime}
                           className="w-full"
                         >
-                          {logTimeAutoSubmit ? 'Save & Send for Approval' : 'Save Time Entry'}
+                          Save Time Entry
                         </Button>
                       </div>
                     </div>
@@ -1619,6 +1593,23 @@ export default function SprintBoardPage() {
               <label className="form-label">Labels <span className="text-gray-400 font-normal">(comma separated)</span></label>
               <input className="form-input" placeholder="frontend, urgent" {...editForm.register('labels')} />
             </div>
+            {isAdmin && (
+              <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-amber-900">Require time entry approval</p>
+                  <p className="text-xs text-amber-600 mt-0.5">All time logged on this task will be sent to the assignee's manager for approval</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditTaskRequireApproval((v) => !v)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${editTaskRequireApproval ? 'bg-amber-500' : 'bg-gray-300'}`}
+                  role="switch"
+                  aria-checked={editTaskRequireApproval}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${editTaskRequireApproval ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+            )}
             <ModalActions>
               <Button variant="secondary" onClick={() => setEditTask(null)}>Cancel</Button>
               <Button type="submit" variant="primary" loading={updateTask.isPending}>Save Changes</Button>

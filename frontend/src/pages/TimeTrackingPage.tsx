@@ -142,10 +142,8 @@ interface LogTimeModalProps {
 
 const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => {
   const [error, setError] = useState('');
-  const [sendForApproval, setSendForApproval] = useState(false);
   const createEntry = useCreateTimeEntry();
   const updateEntry = useUpdateTimeEntry();
-  const submitEntry = useSubmitTimeEntry();
 
   const { register, handleSubmit, reset, control, setValue, watch: watchForm, formState: { isSubmitting, errors } } = useForm<TimeEntryFormData>({
     defaultValues: {
@@ -181,7 +179,7 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
     watchedProjectId ? { project_id: watchedProjectId } : undefined,
     !!watchedProjectId,
   );
-  const tasks = (tasksRaw as Array<{ id: string; title: string }>).filter(Boolean);
+  const tasks = (tasksRaw as Array<{ id: string; title: string; require_approval?: string | boolean }>).filter(Boolean);
 
   React.useEffect(() => {
     if (open) {
@@ -197,25 +195,23 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
         notes: entry?.notes ?? '',
       });
       setError('');
-      setSendForApproval(false);
     }
   }, [open, entry, reset]);
 
   const onSubmit = async (data: TimeEntryFormData) => {
     try {
       setError('');
+      const selectedTask = data.task_id ? tasks.find(t => String((t as any).ROWID ?? t.id) === data.task_id) : null;
+      const requireApproval = selectedTask?.require_approval === 'true' || selectedTask?.require_approval === true;
       const payload = {
         ...data,
         task_id: data.task_id || undefined,
+        require_approval: requireApproval ? 'true' : 'false',
       };
       if (entry) {
         await updateEntry.mutateAsync({ id: entry.id, data: payload });
       } else {
-        const created = await createEntry.mutateAsync(payload) as { id?: string; ROWID?: string };
-        if (sendForApproval) {
-          const newId = created?.id ?? String((created as any)?.ROWID ?? '');
-          if (newId) await submitEntry.mutateAsync(newId);
-        }
+        await createEntry.mutateAsync(payload);
       }
       onClose();
     } catch (err: unknown) {
@@ -333,29 +329,10 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
           />
         </div>
 
-        {/* Send for approval toggle — only shown for new entries */}
-        {!entry && (
-          <div className="flex items-center justify-between rounded-lg bg-blue-50 border border-blue-100 px-4 py-3">
-            <div className="flex flex-col">
-              <span className="text-sm font-medium text-blue-900">Send for approval</span>
-              <span className="text-xs text-blue-600 mt-0.5">Your manager will be notified to review this entry</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSendForApproval((v) => !v)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${sendForApproval ? 'bg-blue-600' : 'bg-gray-300'}`}
-              role="switch"
-              aria-checked={sendForApproval}
-            >
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${sendForApproval ? 'translate-x-6' : 'translate-x-1'}`} />
-            </button>
-          </div>
-        )}
-
         <ModalActions>
           <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
-          <Button type="submit" loading={isSubmitting} icon={sendForApproval ? <Send size={16} /> : <Clock size={16} />}>
-            {entry ? 'Save Changes' : sendForApproval ? 'Log & Send for Approval' : 'Log Time'}
+          <Button type="submit" loading={isSubmitting} icon={<Clock size={16} />}>
+            {entry ? 'Save Changes' : 'Log Time'}
           </Button>
         </ModalActions>
       </form>
@@ -427,6 +404,7 @@ const PAGE_SIZE = 20;
 
 const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
   const { confirm: openConfirm } = useConfirm();
+  const { user } = useAuth();
   // Build id→name map for instant project name lookup
   const projectMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -457,12 +435,14 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
 
   const filterParams = useMemo(() => {
     const p: Record<string, string> = {};
+    // Always scope to the current user's own entries in this tab
+    if (user?.id) p.user_id = String(user.id);
     if (filterDateFrom) p.date_from = filterDateFrom;
     if (filterDateTo) p.date_to = filterDateTo;
     if (filterProject) p.project_id = filterProject;
     if (filterStatus) p.status = filterStatus;
     return p;
-  }, [filterDateFrom, filterDateTo, filterProject, filterStatus]);
+  }, [user?.id, filterDateFrom, filterDateTo, filterProject, filterStatus]);
 
   const { data: entriesRaw = [], isLoading, error } = useTimeEntries(filterParams);
   const deleteEntry = useDeleteTimeEntry();
