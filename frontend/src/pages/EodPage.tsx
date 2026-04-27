@@ -47,11 +47,16 @@ const EodPage = () => {
   const [submitError, setSubmitError] = useState('');
   const [aiResult, setAiResult] = useState<EodVoiceResult | null>(null);
   const [aiFilledFields, setAiFilledFields] = useState<Set<string>>(new Set());
+  const [eodDateFilter, setEodDateFilter] = useState('');
 
   const today = format(new Date(), 'yyyy-MM-dd');
   const { data: projects = [], isLoading: projectsLoading } = useProjects();
   const submitEod = useSubmitEod();
   const { data: myEods = [], isLoading: myLoading } = useEod();
+
+  const visibleEods = eodDateFilter
+    ? (myEods as Array<{ date: string; [key: string]: unknown }>).filter((e) => e.date === eodDateFilter)
+    : myEods;
   const { data: rollupData, isLoading: rollupLoading } = useEodRollup({ projectId: rollupProjectId });
   const processVoice = useProcessVoice();
 
@@ -254,18 +259,34 @@ const EodPage = () => {
 
         {tab === 'mine' && (
           <div className="space-y-4">
+            {/* Date filter */}
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                className="form-input max-w-[180px]"
+                value={eodDateFilter}
+                onChange={(e) => setEodDateFilter(e.target.value)}
+              />
+              {eodDateFilter && (
+                <button type="button" onClick={() => setEodDateFilter('')}
+                  className="text-xs text-gray-400 hover:text-gray-600 transition-colors">Clear</button>
+              )}
+            </div>
+
             {/* Count badge */}
             <div className="flex items-center gap-3 p-3 bg-indigo-50 rounded-xl border border-indigo-100">
               <History size={18} className="text-indigo-600 shrink-0" />
               <p className="text-sm font-medium text-indigo-800">
-                {myLoading ? 'Loading…' : `${myEods.length} EOD${myEods.length !== 1 ? 's' : ''} submitted`}
+                {myLoading ? 'Loading…'
+                  : eodDateFilter ? `${visibleEods.length} EOD${visibleEods.length !== 1 ? 's' : ''} on ${format(new Date(eodDateFilter + 'T00:00:00'), 'd MMM yyyy')}`
+                  : `${myEods.length} EOD${myEods.length !== 1 ? 's' : ''} submitted`}
               </p>
             </div>
 
-            {myLoading ? <PageLoader /> : myEods.length === 0 ? (
-              <EmptyState title="No EODs yet" description="Your submitted EODs will appear here." />
+            {myLoading ? <PageLoader /> : visibleEods.length === 0 ? (
+              <EmptyState title={eodDateFilter ? 'No EODs on this date' : 'No EODs yet'} description={eodDateFilter ? 'Try a different date.' : 'Your submitted EODs will appear here.'} />
             ) : (
-              (myEods as Array<{
+              (visibleEods as Array<{
                 id: string; date: string; projectName?: string; accomplishments: string;
                 plannedTomorrow?: string; blockers?: string; progressPercentage: number;
                 mood: string; submittedAt?: string;

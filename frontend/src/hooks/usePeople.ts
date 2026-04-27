@@ -149,7 +149,8 @@ export const useMyAttendanceRecord = () =>
     queryFn: async () => {
       const rows = await attendanceApi.myRecord();
       const history = Array.isArray(rows) ? rows.map(normaliseAttendance) : [];
-      const todayStr = new Date().toISOString().split('T')[0];
+      // Use browser local date (not UTC) — attendance_date is stored in the user's local timezone
+      const todayStr = new Date().toLocaleDateString('sv'); // 'sv' locale gives YYYY-MM-DD in local TZ
       const today = history.find((r: any) => r.date === todayStr) ?? null;
       return { today, history };
     },
@@ -361,6 +362,56 @@ export const useDeleteGeoZone = () => {
     mutationFn: (zoneId: string) => attendanceApi.deleteGeoZone(zoneId),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance', 'geo-zones'] }); toast.success('Zone removed'); },
     onError: (e: Error) => toast.error(e.message || 'Failed to remove zone'),
+  });
+};
+
+// ── Shifts ────────────────────────────────────────────────────────────────────
+export const useShifts = () =>
+  useQuery({
+    queryKey: ['attendance', 'shifts'],
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    queryFn: async () => {
+      const rows = await attendanceApi.getShifts();
+      if (!Array.isArray(rows)) return [];
+      return (rows as any[]).map((s) => ({
+        ...s,
+        id:            String(s.ROWID ?? s.id ?? ''),
+        name:          s.name ?? '',
+        startTime:     s.start_time ?? s.startTime ?? '',
+        endTime:       s.end_time ?? s.endTime ?? '',
+        timezone:      s.timezone ?? 'Asia/Kolkata',
+        graceMinutes:  parseInt(s.grace_minutes ?? s.graceMinutes ?? 15),
+      }));
+    },
+  });
+
+export const useAddShift = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (data: unknown) => attendanceApi.addShift(data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance', 'shifts'] }); toast.success('Shift created'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to create shift'),
+  });
+};
+
+export const useUpdateShift = (shiftId: string) => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (data: unknown) => attendanceApi.updateShift(shiftId, data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance', 'shifts'] }); toast.success('Shift updated'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update shift'),
+  });
+};
+
+export const useDeleteShift = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (shiftId: string) => attendanceApi.deleteShift(shiftId),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance', 'shifts'] }); toast.success('Shift deleted'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to delete shift'),
   });
 };
 

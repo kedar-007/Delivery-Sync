@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Settings, X, Send, ChevronDown, Pin, Check, Loader2, Cpu } from 'lucide-react';
+import { Settings, X, Send, ChevronDown, Pin, Check, Loader2, Cpu, Mic, MicOff } from 'lucide-react';
 import {
   botApi,
   BotProfile, BotScanResult, BotTodoItem, QuickAction,
@@ -109,6 +109,56 @@ const BOT_STYLES = `
   from { transform:rotate(0deg); }
   to   { transform:rotate(360deg); }
 }
+@keyframes bot-mic-pulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.6); }
+  50%     { box-shadow: 0 0 0 10px rgba(239,68,68,0); }
+}
+@keyframes bot-wave-bar {
+  0%,100% { transform: scaleY(0.35); }
+  50%     { transform: scaleY(1); }
+}
+@keyframes bot-time-entry-in {
+  from { opacity:0; transform:scale(0.92) translateY(8px); }
+  to   { opacity:1; transform:scale(1) translateY(0); }
+}
+@keyframes bot-form-in {
+  from { opacity:0; transform:translateY(12px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+@keyframes bot-data-card-in {
+  from { opacity:0; transform:translateY(8px) scale(0.98); }
+  to   { opacity:1; transform:translateY(0) scale(1); }
+}
+@keyframes bot-shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+@keyframes bot-number-pop {
+  0%   { transform: scale(0.7); opacity:0; }
+  60%  { transform: scale(1.1); }
+  100% { transform: scale(1); opacity:1; }
+}
+.bot-form-input {
+  width:100%; box-sizing:border-box;
+  padding:8px 12px; border-radius:10px;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.1);
+  color:#E2E8F0; font-size:12px;
+  font-family:'Syne',sans-serif;
+  outline:none; transition:border 0.2s;
+  resize:none;
+}
+.bot-form-input:focus { border-color: var(--bot-cyan); }
+.bot-form-input::placeholder { color:#475569; }
+.bot-form-select option { background:#0F1623; color:#E2E8F0; }
+.bot-data-card { animation: bot-data-card-in 0.4s cubic-bezier(0.34,1.56,0.64,1) both; }
+.bot-stat-num  { animation: bot-number-pop 0.5s cubic-bezier(0.34,1.56,0.64,1) both; animation-delay: 0.1s; }
+.bot-qa-chip:hover { transform: translateY(-1px); filter: brightness(1.15); }
+.bot-bubble-text { white-space: pre-wrap; word-break: break-word; line-height: 1.65; }
+.bot-bubble-text b { color: var(--bot-cyan); font-weight: 700; }
+.bot-bubble-text .bot-num { color: var(--bot-cyan); font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+.bot-bubble-text .bot-bullet { display:block; padding-left:12px; position:relative; margin-bottom:2px; }
+.bot-bubble-text .bot-bullet::before { content:'›'; position:absolute; left:0; color:var(--bot-cyan); font-weight:700; }
 
 .bot-widget-panel {
   font-family: 'Syne', sans-serif;
@@ -154,7 +204,18 @@ const BOT_STYLES = `
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type MessageType = 'text' | 'daily_plan' | 'data_response' | 'scanning' | 'quick_action';
+type MessageType = 'text' | 'daily_plan' | 'data_response' | 'scanning' | 'quick_action' | 'time_entry_created' | 'action_form' | 'action_executed' | 'leave_balance';
+
+interface ActionFieldOption { value: string; label: string; }
+interface ActionField {
+  key:          string;
+  label:        string;
+  type:         'text' | 'date' | 'select' | 'number' | 'textarea' | 'toggle';
+  options?:     ActionFieldOption[];
+  required?:    boolean;
+  placeholder?: string;
+  default?:     string;
+}
 
 interface ChatMessage {
   id:           string;
@@ -164,6 +225,8 @@ interface ChatMessage {
   scanResults?: BotScanResult[];
   todoItems?:   BotTodoItem[];
   data?:        Record<string, unknown> | null;
+  formFields?:  ActionField[];
+  actionType?:  string;
   isTyping?:    boolean;
   typedLen?:    number;
 }
@@ -183,6 +246,11 @@ const DEFAULT_QUICK_ACTIONS: QuickAction[] = [
   { icon: '⚠️',  label: 'Any overdue milestones?',        prompt_template: 'Are there any overdue milestones on my projects?', sort_order: 5 },
   { icon: '🕐', label: 'Did I submit my standup today?',  prompt_template: 'Did I submit my standup today?',            sort_order: 6 },
   { icon: '✅', label: "What check-ins did I miss?",     prompt_template: 'Which days did I miss check-in this week?', sort_order: 7 },
+  { icon: '⏰', label: 'How much time did I log today?', prompt_template: 'How much time did I log today?',            sort_order: 8 },
+  { icon: '🌴', label: 'My leave balance',              prompt_template: "What's my leave balance?",                   sort_order: 9 },
+  { icon: '📝', label: 'Apply for leave',               prompt_template: 'I want to apply for leave.',                 sort_order: 10 },
+  { icon: '🗣', label: 'Submit my standup',             prompt_template: 'Submit my daily standup for today.',         sort_order: 11 },
+  { icon: '🐛', label: 'Create a task',                 prompt_template: 'I want to create a new task.',               sort_order: 12 },
 ];
 
 function genId() {
@@ -723,6 +791,408 @@ function TodosTab({ todos, loading, accent, onRefresh }: {
   );
 }
 
+// ─── Leave Balance Card ────────────────────────────────────────────────────────
+
+function LeaveBalanceCard({ data, accent }: { data: Record<string, unknown>; accent: string }) {
+  const balances = (data.balances as any[]) || [];
+  if (balances.length === 0) {
+    return (
+      <div style={{ background:'rgba(255,255,255,.04)', border:'1px solid rgba(255,255,255,.08)', borderRadius:'4px 14px 14px 14px', padding:'12px 14px' }}>
+        <p style={{ margin:0, fontSize:12, color:'#64748B', fontFamily:"'JetBrains Mono',monospace" }}>No leave balance data found.</p>
+      </div>
+    );
+  }
+  return (
+    <div style={{ background:'linear-gradient(135deg,rgba(59,130,246,.1),rgba(59,130,246,.04))', border:'1px solid rgba(59,130,246,.25)', borderRadius:'4px 14px 14px 14px', padding:'12px 14px', animation:'bot-form-in 0.4s cubic-bezier(0.34,1.56,0.64,1) both' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+        <span style={{ fontSize:18 }}>🌴</span>
+        <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:13, color:'#60a5fa' }}>Leave Balance</span>
+      </div>
+      {balances.map((b: any, i: number) => {
+        const pct = b.allocated_days > 0 ? Math.min(100, (b.used_days / b.allocated_days) * 100) : 0;
+        const rem = b.remaining_days ?? (b.allocated_days - b.used_days - b.pending_days);
+        return (
+          <div key={i} style={{ marginBottom: i < balances.length - 1 ? 10 : 0 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:4 }}>
+              <span style={{ fontSize:12, fontWeight:700, color:'#E2E8F0', fontFamily:"'Syne',sans-serif" }}>{b.type_name}</span>
+              <span style={{ fontSize:11, fontWeight:700, color:'#60a5fa', fontFamily:"'JetBrains Mono',monospace" }}>
+                {rem} <span style={{ color:'#475569', fontWeight:400 }}>/ {b.allocated_days} days</span>
+              </span>
+            </div>
+            <div style={{ height:5, background:'rgba(255,255,255,.08)', borderRadius:4, overflow:'hidden', marginBottom:3 }}>
+              <div style={{ height:'100%', width:`${pct}%`, background:'linear-gradient(90deg,#3b82f6,#8b5cf6)', borderRadius:4, transition:'width 0.6s ease' }} />
+            </div>
+            <div style={{ display:'flex', gap:12, fontSize:9, color:'#475569', fontFamily:"'JetBrains Mono',monospace" }}>
+              <span>{b.used_days} used</span>
+              {b.pending_days > 0 && <span style={{ color:'#f59e0b' }}>{b.pending_days} pending</span>}
+              <span style={{ color:'#10b981', marginLeft:'auto' }}>{rem} available</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Action Form Card ──────────────────────────────────────────────────────────
+
+const ACTION_TITLES: Record<string, string> = {
+  create_leave:   '🌴 Apply for Leave',
+  submit_standup: '🗣 Submit Standup',
+  create_task:    '📌 Create Task',
+};
+
+function buildFormSummary(action: string, fields: ActionField[], values: Record<string, string>): string {
+  if (action === 'create_leave') {
+    const typeField = fields.find((f) => f.key === 'leave_type_id');
+    const typeName  = typeField?.options?.find((o) => o.value === values.leave_type_id)?.label ?? 'Leave';
+    const range     = values.start_date && values.end_date ? ` ${values.start_date} → ${values.end_date}` : '';
+    return `Applied for ${typeName}${range}`;
+  }
+  if (action === 'submit_standup') {
+    const projField = fields.find((f) => f.key === 'project_id');
+    const projName  = projField?.options?.find((o) => o.value === values.project_id)?.label ?? 'project';
+    return `Submitted standup for ${projName}`;
+  }
+  if (action === 'create_task') return `Creating task: "${values.title || 'untitled'}"`;
+  return `Submitted ${action} form`;
+}
+
+function ActionFormCard({ action, fields, accent, onSubmit }: {
+  action:   string;
+  fields:   ActionField[];
+  accent:   string;
+  onSubmit: (action: string, data: Record<string, string>, summary: string) => void;
+}) {
+  const [values,    setValues]    = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    fields.forEach((f) => { if (f.default) init[f.key] = f.default; });
+    return init;
+  });
+  const [error,     setError]     = useState('');
+  const [submitted, setSubmitted] = useState(false);
+
+  const set = (key: string, val: string) => setValues((prev) => ({ ...prev, [key]: val }));
+
+  const handleSubmit = () => {
+    const missing = fields.filter((f) => f.required && !values[f.key]?.trim());
+    if (missing.length > 0) { setError(`Please fill in: ${missing.map((f) => f.label).join(', ')}`); return; }
+    setSubmitted(true);
+    setError('');
+    onSubmit(action, values, buildFormSummary(action, fields, values));
+  };
+
+  if (submitted) {
+    return (
+      <div style={{ padding:'8px 12px', fontSize:11, color:'#475569', fontFamily:"'JetBrains Mono',monospace", display:'flex', alignItems:'center', gap:6 }}>
+        <div style={{ width:14, height:14, borderRadius:'50%', border:`2px solid ${accent}44`, borderTopColor:accent, animation:'bot-spin 1s linear infinite' }} />
+        Processing…
+      </div>
+    );
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width:'100%', boxSizing:'border-box', padding:'8px 12px', borderRadius:10,
+    background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.1)',
+    color:'#E2E8F0', fontSize:12, fontFamily:"'Syne',sans-serif", outline:'none',
+  };
+
+  return (
+    <div style={{ background:'rgba(255,255,255,.03)', border:`1px solid ${accent}18`, borderRadius:'4px 14px 14px 14px', padding:'12px 14px', animation:'bot-form-in 0.4s cubic-bezier(0.34,1.56,0.64,1) both' }}>
+      {/* Title */}
+      <p style={{ margin:'0 0 12px', fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:13, color:accent }}>
+        {ACTION_TITLES[action] || action}
+      </p>
+
+      {/* Fields */}
+      {fields.map((field) => (
+        <div key={field.key} style={{ marginBottom:10 }}>
+          <label style={{ display:'block', fontSize:9, fontWeight:700, color:'#475569', letterSpacing:'0.08em', textTransform:'uppercase', fontFamily:"'JetBrains Mono',monospace", marginBottom:4 }}>
+            {field.label}{field.required && <span style={{ color:accent }}>*</span>}
+          </label>
+
+          {field.type === 'select' && (
+            <select
+              value={values[field.key] ?? ''}
+              onChange={(e) => set(field.key, e.target.value)}
+              style={{ ...inputStyle, appearance:'none', cursor:'pointer' }}
+            >
+              <option value="">Select…</option>
+              {(field.options ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          )}
+
+          {field.type === 'textarea' && (
+            <textarea
+              value={values[field.key] ?? ''}
+              onChange={(e) => set(field.key, e.target.value)}
+              placeholder={field.placeholder}
+              rows={3}
+              style={{ ...inputStyle, resize:'vertical' }}
+            />
+          )}
+
+          {(field.type === 'text' || field.type === 'date' || field.type === 'number') && (
+            <input
+              type={field.type}
+              value={values[field.key] ?? ''}
+              onChange={(e) => set(field.key, e.target.value)}
+              placeholder={field.placeholder}
+              style={{ ...inputStyle }}
+            />
+          )}
+
+          {field.type === 'toggle' && (
+            <button
+              type="button"
+              onClick={() => set(field.key, values[field.key] === 'true' ? 'false' : 'true')}
+              style={{
+                display:'flex', alignItems:'center', gap:8, background:'none', border:'none', cursor:'pointer', padding:0,
+              }}
+            >
+              <div style={{
+                width:36, height:20, borderRadius:10, position:'relative', transition:'background 0.2s',
+                background: values[field.key] === 'true' ? accent : 'rgba(255,255,255,.1)',
+              }}>
+                <div style={{
+                  position:'absolute', top:2, left: values[field.key] === 'true' ? 18 : 2,
+                  width:16, height:16, borderRadius:'50%', background:'#fff',
+                  transition:'left 0.2s', boxShadow:'0 1px 3px rgba(0,0,0,.3)',
+                }} />
+              </div>
+              <span style={{ fontSize:11, color:'#94a3b8', fontFamily:"'Syne',sans-serif" }}>
+                {values[field.key] === 'true' ? 'Yes' : 'No'}
+              </span>
+            </button>
+          )}
+        </div>
+      ))}
+
+      {error && <p style={{ margin:'4px 0 8px', fontSize:11, color:'#ef4444', fontFamily:"'JetBrains Mono',monospace" }}>⚠ {error}</p>}
+
+      {/* Submit */}
+      <button
+        type="button"
+        onClick={handleSubmit}
+        style={{
+          width:'100%', marginTop:4, padding:'9px 0', borderRadius:10,
+          background:`linear-gradient(135deg,${accent}33,#9B59FF33)`,
+          border:`1px solid ${accent}55`,
+          color:accent, fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:12,
+          cursor:'pointer', letterSpacing:'0.04em', transition:'all 0.2s',
+        }}
+      >
+        Submit →
+      </button>
+    </div>
+  );
+}
+
+// ─── Action Executed Card ──────────────────────────────────────────────────────
+
+function ActionExecutedCard({ data, content }: { data: Record<string, unknown> | null; content: string }) {
+  const success = data?.success !== false;
+  const action  = String(data?.action ?? '');
+
+  return (
+    <div style={{
+      background: success ? 'linear-gradient(135deg,rgba(16,185,129,.12),rgba(16,185,129,.04))' : 'linear-gradient(135deg,rgba(239,68,68,.1),rgba(239,68,68,.04))',
+      border: `1px solid ${success ? 'rgba(16,185,129,.3)' : 'rgba(239,68,68,.3)'}`,
+      borderRadius:'4px 14px 14px 14px', padding:'12px 14px',
+      animation:'bot-form-in 0.4s cubic-bezier(0.34,1.56,0.64,1) both',
+    }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom: success && data ? 10 : 0 }}>
+        <span style={{ fontSize:18 }}>{success ? '✅' : '❌'}</span>
+        <p style={{ margin:0, fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:13, color: success ? '#10b981' : '#ef4444', flex:1 }}>
+          {content}
+        </p>
+      </div>
+
+      {success && action === 'create_leave' && data && (
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6 }}>
+          {[
+            { label:'From',   val: String(data.start_date ?? '') },
+            { label:'To',     val: String(data.end_date ?? '') },
+            { label:'Days',   val: String(data.days_count ?? '') },
+          ].map((item) => (
+            <div key={item.label} style={{ background:'rgba(16,185,129,.08)', borderRadius:8, padding:'6px 10px' }}>
+              <p style={{ margin:0, fontSize:9, color:'#64748B', fontFamily:"'JetBrains Mono',monospace", textTransform:'uppercase', letterSpacing:'0.06em' }}>{item.label}</p>
+              <p style={{ margin:'2px 0 0', fontSize:12, fontWeight:700, color:'#E2E8F0', fontFamily:"'Syne',sans-serif" }}>{item.val}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {success && action === 'create_task' && data && (
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+          <span style={{ fontSize:10, padding:'3px 10px', borderRadius:100, background:'rgba(16,185,129,.15)', color:'#10b981', fontFamily:"'JetBrains Mono',monospace" }}>TODO</span>
+          <span style={{ fontSize:10, padding:'3px 10px', borderRadius:100, background:'rgba(255,255,255,.06)', color:'#94a3b8', fontFamily:"'JetBrains Mono',monospace" }}>
+            {String(data.task_priority ?? 'MEDIUM')}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Time Entry Card ──────────────────────────────────────────────────────────
+
+function TimeEntryCard({ data, accent }: { data: Record<string, unknown>; accent: string }) {
+  return (
+    <div style={{
+      background: 'linear-gradient(135deg, rgba(16,185,129,.12), rgba(16,185,129,.06))',
+      border: '1px solid rgba(16,185,129,.3)',
+      borderRadius: '4px 14px 14px 14px',
+      padding: '12px 14px',
+      animation: 'bot-time-entry-in 0.4s cubic-bezier(0.34,1.56,0.64,1) both',
+      marginTop: 6,
+    }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+        <span style={{ fontSize:18 }}>⏱</span>
+        <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:13, color:'#10b981' }}>
+          Time Entry Logged
+        </span>
+        <span style={{
+          marginLeft:'auto', fontSize:9, fontWeight:700, padding:'2px 8px', borderRadius:100,
+          background:'rgba(16,185,129,.2)', color:'#10b981',
+          fontFamily:"'JetBrains Mono',monospace", letterSpacing:'0.06em',
+        }}>DRAFT</span>
+      </div>
+
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:6 }}>
+        <div style={{ background:'rgba(16,185,129,.08)', borderRadius:8, padding:'6px 10px' }}>
+          <p style={{ margin:0, fontSize:9, color:'#64748B', fontFamily:"'JetBrains Mono',monospace", letterSpacing:'0.06em', textTransform:'uppercase' }}>Hours</p>
+          <p style={{ margin:'2px 0 0', fontSize:20, fontWeight:800, color:'#10b981', fontFamily:"'Syne',sans-serif", lineHeight:1 }}>
+            {typeof data.hours === 'number' ? (data.hours as number).toFixed(1) : String(data.hours)}h
+          </p>
+        </div>
+        <div style={{ background:'rgba(16,185,129,.08)', borderRadius:8, padding:'6px 10px' }}>
+          <p style={{ margin:0, fontSize:9, color:'#64748B', fontFamily:"'JetBrains Mono',monospace", letterSpacing:'0.06em', textTransform:'uppercase' }}>Billable</p>
+          <p style={{ margin:'2px 0 0', fontSize:13, fontWeight:700, color: data.is_billable ? '#10b981' : '#f59e0b', fontFamily:"'Syne',sans-serif" }}>
+            {data.is_billable ? '✓ Yes' : '✗ No'}
+          </p>
+        </div>
+      </div>
+
+      {!!data.project_name && (
+        <div style={{ padding:'6px 10px', background:'rgba(16,185,129,.08)', borderRadius:8, marginBottom:6 }}>
+          <p style={{ margin:0, fontSize:9, color:'#64748B', fontFamily:"'JetBrains Mono',monospace", letterSpacing:'0.06em', textTransform:'uppercase' }}>Project</p>
+          <p style={{ margin:'2px 0 0', fontSize:12, fontWeight:700, color:'#E2E8F0', fontFamily:"'Syne',sans-serif" }}>{String(data.project_name)}</p>
+        </div>
+      )}
+
+      {!!data.description && (
+        <div style={{ padding:'6px 10px', background:'rgba(255,255,255,.04)', borderRadius:8 }}>
+          <p style={{ margin:0, fontSize:9, color:'#64748B', fontFamily:"'JetBrains Mono',monospace", letterSpacing:'0.06em', textTransform:'uppercase' }}>Description</p>
+          <p style={{ margin:'2px 0 0', fontSize:11, color:'#94a3b8', fontFamily:"'JetBrains Mono',monospace", lineHeight:1.4 }}>{String(data.description)}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Formatted Text Renderer ─────────────────────────────────────────────────
+
+function FormattedText({ text, accent }: { text: string; accent: string }) {
+  const lines = text.split('\n');
+  return (
+    <span className="bot-bubble-text">
+      {lines.map((line, li) => {
+        const isBullet = /^[\s]*[-•*]\s/.test(line) || /^[\s]*\d+\.\s/.test(line);
+        const cleanLine = isBullet ? line.replace(/^[\s]*[-•*\d.]+\s/, '') : line;
+
+        // Parse inline bold (**text** or __text__) and highlight numbers
+        const parseInline = (raw: string): React.ReactNode[] => {
+          const parts: React.ReactNode[] = [];
+          const re = /\*\*([^*]+)\*\*|__([^_]+)__|(\b\d+\.?\d*\s*(?:h|hours?|days?|%|hrs?)?\b)/gi;
+          let last = 0;
+          let m: RegExpExecArray | null;
+          while ((m = re.exec(raw)) !== null) {
+            if (m.index > last) parts.push(raw.slice(last, m.index));
+            if (m[1] || m[2]) {
+              parts.push(<b key={m.index}>{m[1] || m[2]}</b>);
+            } else if (m[3]) {
+              parts.push(<span key={m.index} className="bot-num">{m[3]}</span>);
+            }
+            last = m.index + m[0].length;
+          }
+          if (last < raw.length) parts.push(raw.slice(last));
+          return parts;
+        };
+
+        const content = parseInline(cleanLine);
+
+        return (
+          <React.Fragment key={li}>
+            {isBullet
+              ? <span className="bot-bullet">{content}</span>
+              : <>{content}</>
+            }
+            {li < lines.length - 1 && !isBullet && <br />}
+          </React.Fragment>
+        );
+      })}
+    </span>
+  );
+}
+
+// ─── Data Response Card ───────────────────────────────────────────────────────
+
+function DataResponseCard({ content, data, accent }: { content: string; data: Record<string, unknown> | null; accent: string }) {
+  const entries = data ? Object.entries(data).filter(([, v]) => v !== null && v !== undefined && v !== '') : [];
+
+  const formatKey = (k: string) =>
+    k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const formatVal = (v: unknown): string => {
+    if (typeof v === 'number') return v % 1 === 0 ? String(v) : v.toFixed(1);
+    if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+    if (Array.isArray(v)) return v.join(', ');
+    return String(v);
+  };
+
+  return (
+    <div className="bot-data-card" style={{ borderRadius: '4px 14px 14px 14px', overflow: 'hidden' }}>
+      {/* Content summary */}
+      <div style={{
+        padding: '10px 14px',
+        background: `linear-gradient(135deg, ${accent}0E, rgba(155,89,255,.06))`,
+        borderBottom: entries.length > 0 ? `1px solid ${accent}12` : 'none',
+        border: `1px solid ${accent}1A`,
+        borderRadius: entries.length > 0 ? '4px 14px 0 0' : '4px 14px 14px 14px',
+      }}>
+        <FormattedText text={content} accent={accent} />
+      </div>
+
+      {/* Data grid */}
+      {entries.length > 0 && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: entries.length === 1 ? '1fr' : entries.length === 2 ? '1fr 1fr' : 'repeat(auto-fit, minmax(100px, 1fr))',
+          gap: 1,
+          background: `${accent}08`,
+          border: `1px solid ${accent}1A`,
+          borderTop: 'none',
+          borderRadius: '0 0 14px 14px',
+          overflow: 'hidden',
+        }}>
+          {entries.map(([k, v], i) => (
+            <div key={k} className="bot-stat-num" style={{
+              padding: '8px 12px',
+              background: 'rgba(8,11,20,.6)',
+              borderRight: i % 2 === 0 && entries.length > 1 ? `1px solid ${accent}10` : 'none',
+              animationDelay: `${i * 0.07}s`,
+            }}>
+              <p style={{ margin:0, fontSize:9, color:'#475569', fontFamily:"'JetBrains Mono',monospace", textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:3 }}>{formatKey(k)}</p>
+              <p style={{ margin:0, fontSize:14, fontWeight:800, color: accent, fontFamily:"'Syne',sans-serif", lineHeight:1 }}>{formatVal(v)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Thinking / Scanning animation ───────────────────────────────────────────
 
 const SCAN_STEPS = [
@@ -742,7 +1212,7 @@ const THINKING_PHRASES = [
 
 const ORB_SIZE  = 56;
 const PANEL_W   = 420;
-const PANEL_H   = 560;
+const PANEL_H   = 600;
 
 function ThinkingBubble({ isDailyPlan, accent }: { isDailyPlan: boolean; accent: string }) {
   const [currentStep, setCurrentStep] = useState(0);
@@ -914,11 +1384,12 @@ function ThinkingBubble({ isDailyPlan, accent }: { isDailyPlan: boolean; accent:
 
 // ─── Chat Bubble ─────────────────────────────────────────────────────────────
 
-function ChatBubble({ msg, isLast, accent, onSaveTodos }: {
-  msg:         ChatMessage;
-  isLast:      boolean;
-  accent:      string;
-  onSaveTodos: (items: BotTodoItem[]) => void;
+function ChatBubble({ msg, isLast, accent, onSaveTodos, onSubmitForm }: {
+  msg:            ChatMessage;
+  isLast:         boolean;
+  accent:         string;
+  onSaveTodos:    (items: BotTodoItem[]) => void;
+  onSubmitForm?:  (action: string, data: Record<string, string>, summary: string) => void;
 }) {
   const isUser = msg.role === 'user';
 
@@ -972,24 +1443,71 @@ function ChatBubble({ msg, isLast, accent, onSaveTodos }: {
           </div>
         )}
 
+        {/* Action form — render instead of text bubble */}
+        {msg.type === 'action_form' && msg.formFields && msg.formFields.length > 0 && (
+          <>
+            {msg.content && (
+              <div style={{ marginBottom:8, padding:'8px 12px', background:'rgba(255,255,255,.03)', border:`1px solid ${accent}12`, borderRadius:'4px 14px 4px 14px' }}>
+                <p style={{ margin:0, fontSize:12, color:'#94a3b8', fontFamily:"'Syne',sans-serif" }}>{msg.content}</p>
+              </div>
+            )}
+            <ActionFormCard
+              action={msg.actionType ?? ''}
+              fields={msg.formFields}
+              accent={accent}
+              onSubmit={onSubmitForm ?? (() => {})}
+            />
+          </>
+        )}
+
+        {/* Leave balance card */}
+        {msg.type === 'leave_balance' && msg.data && (
+          <>
+            {msg.content && (
+              <div style={{ marginBottom:8, padding:'8px 12px', background:'rgba(255,255,255,.03)', border:`1px solid ${accent}12`, borderRadius:'4px 14px 4px 14px' }}>
+                <p style={{ margin:0, fontSize:12, color:'#94a3b8', fontFamily:"'Syne',sans-serif" }}>{msg.content}</p>
+              </div>
+            )}
+            <LeaveBalanceCard data={msg.data} accent={accent} />
+          </>
+        )}
+
+        {/* Action executed card */}
+        {msg.type === 'action_executed' && (
+          <ActionExecutedCard data={msg.data ?? null} content={msg.content} />
+        )}
+
+        {/* Data response card */}
+        {msg.type === 'data_response' && msg.content && (
+          <div className={msg.isTyping && isLast ? 'bot-cursor' : ''}>
+            <DataResponseCard content={displayed} data={msg.data ?? null} accent={accent} />
+          </div>
+        )}
+
         {/* Main text bubble */}
-        {msg.type !== 'scanning' && msg.content && (
+        {msg.type !== 'scanning' && msg.type !== 'action_form' && msg.type !== 'leave_balance' && msg.type !== 'action_executed' && msg.type !== 'data_response' && msg.content && (
           <div style={{
             background: isUser
               ? `linear-gradient(135deg, ${accent}30, #9B59FF28)`
-              : 'rgba(255,255,255,.04)',
-            border: `1px solid ${isUser ? `${accent}30` : 'rgba(255,255,255,.07)'}`,
+              : 'rgba(255,255,255,.05)',
+            border: `1px solid ${isUser ? `${accent}35` : `${accent}10`}`,
             borderRadius: isUser ? '14px 4px 14px 14px' : '4px 14px 14px 14px',
             padding: '10px 14px',
             marginBottom: msg.todoItems && msg.todoItems.length > 0 ? 8 : 0,
           }}>
-            <p style={{
-              margin: 0, fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap',
-              color: '#E2E8F0', fontFamily: "'Syne', sans-serif",
-              wordBreak: 'break-word',
-            }} className={msg.isTyping && isLast ? 'bot-cursor' : ''}>
-              {displayed}
-            </p>
+            {isUser ? (
+              <p style={{
+                margin: 0, fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap',
+                color: '#E2E8F0', fontFamily: "'Syne', sans-serif", wordBreak: 'break-word',
+              }}>
+                {displayed}
+              </p>
+            ) : (
+              <p style={{ margin: 0, fontSize: 13, color: '#D1D9E6', fontFamily: "'Syne', sans-serif" }}
+                className={msg.isTyping && isLast ? 'bot-cursor' : ''}>
+                <FormattedText text={displayed} accent={accent} />
+              </p>
+            )}
           </div>
         )}
 
@@ -1004,6 +1522,11 @@ function ChatBubble({ msg, isLast, accent, onSaveTodos }: {
           }}>
             <TodoPlanView items={msg.todoItems} onSaved={onSaveTodos} accent={accent} />
           </div>
+        )}
+
+        {/* Time entry confirmation card */}
+        {msg.type === 'time_entry_created' && msg.data && (
+          <TimeEntryCard data={msg.data} accent={accent} />
         )}
       </div>
     </div>
@@ -1273,6 +1796,10 @@ export default function BotWidget() {
   const [activeTab,       setActiveTab]       = useState<'chat' | 'todos'>('chat');
   const [allTodos,        setAllTodos]        = useState<BotTodoItem[]>([]);
   const [todosLoading,    setTodosLoading]    = useState(false);
+  const [isRecording,     setIsRecording]     = useState(false);
+  const [recordingText,   setRecordingText]   = useState('');
+  const recognitionRef   = useRef<any>(null);
+  const recordingTextRef = useRef('');
   const sessionId   = useRef(getOrCreateSessionId());
   const chatRef     = useRef<HTMLDivElement>(null);
   const inputRef    = useRef<HTMLInputElement>(null);
@@ -1404,6 +1931,9 @@ export default function BotWidget() {
   const accent = profile.bot_accent_color || '#00F5FF';
   const pendingCount = allTodos.filter((t) => String(t.is_completed) !== 'true').length;
 
+  // Keep recordingTextRef in sync so the onend closure reads the latest transcript
+  useEffect(() => { recordingTextRef.current = recordingText; }, [recordingText]);
+
   // Animate assistant message word by word
   const animateTyping = useCallback((id: string, fullText: string) => {
     let pos = 0;
@@ -1422,16 +1952,16 @@ export default function BotWidget() {
   }, []);
 
   // Send a message
-  const sendMessage = useCallback(async (text: string, messageType: string = 'text') => {
+  const sendMessage = useCallback(async (text: string, messageType: string = 'text', displayMessage?: string) => {
     if (!text.trim() || isThinking) return;
 
     const isDailyPlan = messageType === 'daily_plan' || text.toLowerCase().includes('daily plan');
 
-    // Add user message
+    // Add user message (show displayMessage in chat for action_submit, raw text otherwise)
     const userMsgId = genId();
     setMessages((prev) => [
       ...prev,
-      { id: userMsgId, role: 'user', type: 'text', content: text },
+      { id: userMsgId, role: 'user', type: 'text', content: displayMessage || text },
     ]);
     setInput('');
     setIsThinking(true);
@@ -1451,21 +1981,29 @@ export default function BotWidget() {
       });
 
       // Remove scanning placeholder, add real response
-      const replyId = genId();
+      const replyId  = genId();
+      const respType = (resp.message_type || 'text') as MessageType;
+      // For structural cards skip the typing animation
+      const skipTyping = ['action_form', 'action_executed', 'leave_balance', 'time_entry_created'].includes(respType);
+      const formFields = respType === 'action_form' ? (resp.data as any)?.fields as ActionField[] : undefined;
+      const actionType = respType === 'action_form' ? (resp.data as any)?.action as string : undefined;
+
       setMessages((prev) => {
         const filtered = prev.filter((m) => m.id !== thinkingId);
         return [
           ...filtered,
           {
             id:          replyId,
-            role:        'assistant',
-            type:        resp.message_type || 'text',
+            role:        'assistant' as const,
+            type:        respType,
             content:     resp.reply || '',
             scanResults: resp.scan_results?.length ? resp.scan_results : undefined,
             todoItems:   resp.items?.length ? resp.items : undefined,
             data:        resp.data,
-            isTyping:    true,
-            typedLen:    0,
+            formFields,
+            actionType,
+            isTyping:    !skipTyping,
+            typedLen:    skipTyping ? undefined : 0,
           },
         ];
       });
@@ -1480,7 +2018,7 @@ export default function BotWidget() {
         setActiveTab('todos');
       }
 
-      animateTyping(replyId, resp.reply || '');
+      if (!skipTyping) animateTyping(replyId, resp.reply || '');
     } catch (err) {
       setMessages((prev) => {
         const filtered = prev.filter((m) => m.id !== thinkingId);
@@ -1498,6 +2036,37 @@ export default function BotWidget() {
       setIsThinking(false);
     }
   }, [isThinking, animateTyping]);
+
+  // Voice recording via Web Speech API
+  const startRecording = useCallback(() => {
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRec) return;
+    const rec = new SpeechRec();
+    rec.lang = 'en-US';
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+    rec.continuous = false;
+    rec.onresult = (event: any) => {
+      const transcript = Array.from(event.results as any[])
+        .map((r: any) => r[0].transcript)
+        .join('');
+      setRecordingText(transcript);
+    };
+    rec.onend = () => {
+      setIsRecording(false);
+      const text = recordingTextRef.current.trim();
+      setRecordingText('');
+      if (text) sendMessage(text, 'text'); // plain text so LLM uses full conversation context
+    };
+    rec.onerror = () => { setIsRecording(false); setRecordingText(''); };
+    recognitionRef.current = rec;
+    rec.start();
+    setIsRecording(true);
+  }, [sendMessage]);
+
+  const stopRecording = useCallback(() => {
+    recognitionRef.current?.stop();
+  }, []);
 
   const handleQuickAction = (qa: QuickAction) => {
     const isDP = qa.prompt_template === 'daily_plan';
@@ -1540,21 +2109,30 @@ export default function BotWidget() {
             {/* Header */}
             <div style={{
               display: 'flex', alignItems: 'center', gap: 10,
-              padding: '12px 16px',
-              borderBottom: `1px solid ${accent}14`,
+              padding: '13px 16px',
+              borderBottom: `1px solid ${accent}18`,
               flexShrink: 0,
-              background: `linear-gradient(135deg, ${accent}08, rgba(155,89,255,.06))`,
+              background: `linear-gradient(135deg, ${accent}10, rgba(155,89,255,.08), ${accent}06)`,
+              backgroundSize: '200% 100%',
             }}>
               <BotOrb profile={profile} size={34} isOpen={true} />
               <div style={{ flex:1, minWidth:0 }}>
                 <p style={{
-                  margin:0, fontWeight:800, fontSize:14, color: accent,
-                  fontFamily:"'Syne',sans-serif", letterSpacing:'-0.3px',
+                  margin:0, fontWeight:800, fontSize:15, color: accent,
+                  fontFamily:"'Syne',sans-serif", letterSpacing:'-0.4px', lineHeight:1.2,
                 }}>{profile.bot_name || 'ARIA'}</p>
-                <p style={{ margin:0, fontSize:9, color:'#475569', fontFamily:"'JetBrains Mono',monospace", letterSpacing:'0.06em' }}>
+                <p style={{ margin:'2px 0 0', fontSize:9, fontFamily:"'JetBrains Mono',monospace", letterSpacing:'0.07em', display:'flex', alignItems:'center', gap:4 }}>
                   {isThinking ? (
-                    <span style={{ color: accent }}>● THINKING…</span>
-                  ) : '● ONLINE'}
+                    <>
+                      <span style={{ width:5, height:5, borderRadius:'50%', background:accent, display:'inline-block', animation:'bot-blink 0.7s ease-in-out infinite' }} />
+                      <span style={{ color: accent }}>THINKING…</span>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ width:5, height:5, borderRadius:'50%', background:'#10b981', display:'inline-block' }} />
+                      <span style={{ color:'#10b981' }}>ONLINE</span>
+                    </>
+                  )}
                 </p>
               </div>
               <button type="button"
@@ -1606,14 +2184,37 @@ export default function BotWidget() {
                   }}
                 >
                   {messages.length === 0 && (
-                    <div style={{ textAlign:'center', paddingTop:32 }}>
-                      <BotOrb profile={profile} size={56} isOpen={true} />
-                      <p style={{ marginTop:12, fontSize:14, fontWeight:700, color: accent, fontFamily:"'Syne',sans-serif" }}>
+                    <div style={{ textAlign:'center', paddingTop:28 }}>
+                      <BotOrb profile={profile} size={60} isOpen={true} />
+                      <p style={{ marginTop:14, fontSize:16, fontWeight:800, color: accent, fontFamily:"'Syne',sans-serif", letterSpacing:'-0.3px' }}>
                         Hey! I'm {profile.bot_name || 'ARIA'} ✨
                       </p>
-                      <p style={{ fontSize:11, color:'#64748B', fontFamily:"'JetBrains Mono',monospace", margin:'4px 0 0' }}>
-                        Your AI work assistant. How can I help?
+                      <p style={{ fontSize:11, color:'#64748B', fontFamily:"'JetBrains Mono',monospace", margin:'4px 0 20px' }}>
+                        Your AI work assistant — ask me anything about your work.
                       </p>
+                      {/* Suggested topic pills */}
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:6, justifyContent:'center', padding:'0 16px' }}>
+                        {[
+                          { icon:'⏱', label:'Time logged today', q:'How much time did I log today?' },
+                          { icon:'🌴', label:'Leave balance',     q:"What's my leave balance?" },
+                          { icon:'📌', label:'Pending tasks',    q:'Show me my pending tasks.' },
+                          { icon:'✅', label:'Attendance',        q:'What is my attendance this week?' },
+                          { icon:'📊', label:'Sprint status',    q:'What is my current sprint status?' },
+                          { icon:'🗣', label:'Submit standup',   q:'I want to submit my standup.' },
+                        ].map((s) => (
+                          <button key={s.label} type="button"
+                            onClick={() => sendMessage(s.q)}
+                            style={{
+                              padding:'5px 11px', borderRadius:100, cursor:'pointer',
+                              background:`${accent}10`, border:`1px solid ${accent}25`,
+                              color:'#94a3b8', fontSize:11, fontFamily:"'Syne',sans-serif", fontWeight:600,
+                              transition:'all 0.2s ease', whiteSpace:'nowrap',
+                            }}
+                          >
+                            {s.icon} {s.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )}
                   {messages.map((msg, i) => (
@@ -1623,42 +2224,78 @@ export default function BotWidget() {
                       isLast={i === messages.length - 1}
                       accent={accent}
                       onSaveTodos={() => setPendingTodos(0)}
+                      onSubmitForm={(action, data, summary) =>
+                        sendMessage(JSON.stringify({ action, ...data }), 'action_submit', summary)
+                      }
                     />
                   ))}
                 </div>
 
                 {/* Quick action pills */}
                 <div style={{
-                  padding: '6px 12px',
+                  padding: '7px 10px',
                   borderTop: `1px solid ${accent}10`,
-                  overflowX: 'auto', scrollbarWidth: 'none',
+                  overflowX: 'auto',
                   display: 'flex', gap: 6, flexShrink: 0,
-                  background: 'rgba(0,0,0,.15)',
+                  background: 'rgba(0,0,0,.2)',
+                  scrollbarWidth: 'none',
                 }}>
-                  {quickActions.map((qa) => (
+                  <style>{`.bot-qa-scroll::-webkit-scrollbar{display:none}`}</style>
+                  {quickActions.slice(0, 8).map((qa) => (
                     <button type="button"
                       key={qa.label}
+                      className="bot-qa-chip"
                       onClick={() => handleQuickAction(qa)}
                       disabled={isThinking}
                       style={{
-                        flexShrink: 0, padding: '5px 10px', borderRadius: 100,
-                        background: `${accent}0F`, border: `1px solid ${accent}22`,
+                        flexShrink: 0, padding: '5px 11px', borderRadius: 100,
+                        background: `${accent}12`, border: `1px solid ${accent}28`,
                         color: '#94a3b8', fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap',
                         fontFamily: "'Syne', sans-serif", fontWeight: 600,
                         transition: 'all 0.2s ease',
-                        opacity: isThinking ? 0.4 : 1,
+                        opacity: isThinking ? 0.35 : 1,
+                        pointerEvents: isThinking ? 'none' : 'auto',
+                        display: 'flex', alignItems: 'center', gap: 4,
                       }}
                     >
-                      {qa.icon} {qa.label}
+                      <span style={{ fontSize: 13 }}>{qa.icon}</span>
+                      <span>{qa.label}</span>
                     </button>
                   ))}
                 </div>
 
+                {/* Voice recording overlay */}
+                {isRecording && (
+                  <div style={{
+                    padding: '7px 14px',
+                    borderTop: '1px solid rgba(239,68,68,.2)',
+                    flexShrink: 0,
+                    background: 'rgba(239,68,68,.05)',
+                    display: 'flex', alignItems: 'center', gap: 10,
+                  }}>
+                    <div style={{ display:'flex', gap:2, alignItems:'center', height:16 }}>
+                      {[0,1,2,3,4].map((i) => (
+                        <div key={i} style={{
+                          width: 3, height: 14, borderRadius: 2,
+                          background: '#ef4444', transformOrigin:'center',
+                          animation: `bot-wave-bar 0.55s ease-in-out infinite`,
+                          animationDelay: `${i * 0.1}s`,
+                        }} />
+                      ))}
+                    </div>
+                    <span style={{ flex:1, fontSize:11, color: recordingText ? '#E2E8F0' : '#ef4444', fontFamily:"'Syne',monospace", overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontStyle: recordingText ? 'normal' : 'italic' }}>
+                      {recordingText || 'Listening…'}
+                    </span>
+                    <span style={{ fontSize:9, color:'rgba(239,68,68,.5)', fontFamily:"'JetBrains Mono',monospace", flexShrink:0 }}>tap mic to finish</span>
+                  </div>
+                )}
+
                 {/* Input row */}
                 <div style={{
-                  display: 'flex', gap: 8, padding: '10px 12px',
-                  borderTop: `1px solid ${accent}10`,
-                  flexShrink: 0, background: 'rgba(0,0,0,.2)',
+                  display: 'flex', gap: 7, padding: '10px 12px',
+                  borderTop: `1px solid ${accent}12`,
+                  flexShrink: 0,
+                  background: `linear-gradient(to top, rgba(0,0,0,.35), rgba(0,0,0,.15))`,
                 }}>
                   <input
                     ref={inputRef}
@@ -1666,34 +2303,56 @@ export default function BotWidget() {
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="Ask anything about your work…"
-                    disabled={isThinking}
+                    placeholder={isRecording ? 'Listening for voice input…' : 'Ask anything about your work…'}
+                    disabled={isThinking || isRecording}
                     style={{
-                      flex: 1, padding: '9px 14px', borderRadius: 12, border: `1px solid ${accent}20`,
-                      background: 'rgba(255,255,255,.04)', color: '#E2E8F0',
+                      flex: 1, padding: '10px 14px', borderRadius: 12,
+                      border: `1px solid ${isRecording ? 'rgba(239,68,68,.4)' : input.trim() ? `${accent}35` : `${accent}18`}`,
+                      background: 'rgba(255,255,255,.05)', color: '#E2E8F0',
                       fontSize: 13, outline: 'none',
                       fontFamily: "'Syne', sans-serif",
-                      transition: 'border 0.2s',
+                      transition: 'border 0.2s, box-shadow 0.2s',
                       opacity: isThinking ? 0.5 : 1,
+                      boxShadow: input.trim() && !isThinking ? `0 0 0 3px ${accent}10` : 'none',
                     }}
                   />
                   <button type="button"
                     onClick={() => sendMessage(input)}
-                    disabled={!input.trim() || isThinking}
+                    disabled={!input.trim() || isThinking || isRecording}
                     style={{
                       width: 40, height: 40, borderRadius: 12, flexShrink: 0,
-                      background: input.trim() && !isThinking
+                      background: input.trim() && !isThinking && !isRecording
                         ? `linear-gradient(135deg, ${accent}AA, #9B59FFAA)`
                         : 'rgba(255,255,255,.06)',
-                      border: `1px solid ${input.trim() && !isThinking ? `${accent}44` : 'rgba(255,255,255,.08)'}`,
-                      cursor: input.trim() && !isThinking ? 'pointer' : 'not-allowed',
+                      border: `1px solid ${input.trim() && !isThinking && !isRecording ? `${accent}44` : 'rgba(255,255,255,.08)'}`,
+                      cursor: input.trim() && !isThinking && !isRecording ? 'pointer' : 'not-allowed',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       transition: 'all 0.2s ease',
                     }}
                   >
                     {isThinking
                       ? <Loader2 size={16} color={accent} style={{ animation:'bot-spin 1s linear infinite' }} />
-                      : <Send size={15} color={input.trim() ? '#fff' : '#475569'} />
+                      : <Send size={15} color={input.trim() && !isRecording ? '#fff' : '#475569'} />
+                    }
+                  </button>
+                  <button type="button"
+                    onClick={isRecording ? stopRecording : startRecording}
+                    disabled={isThinking}
+                    title={isRecording ? 'Stop recording' : 'Record voice time entry'}
+                    style={{
+                      width: 40, height: 40, borderRadius: 12, flexShrink: 0,
+                      background: isRecording ? 'rgba(239,68,68,.2)' : 'rgba(255,255,255,.06)',
+                      border: `1px solid ${isRecording ? 'rgba(239,68,68,.5)' : 'rgba(255,255,255,.08)'}`,
+                      cursor: isThinking ? 'not-allowed' : 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      transition: 'all 0.2s ease',
+                      animation: isRecording ? 'bot-mic-pulse 1.5s ease-in-out infinite' : 'none',
+                      opacity: isThinking ? 0.4 : 1,
+                    }}
+                  >
+                    {isRecording
+                      ? <MicOff size={15} color="#ef4444" />
+                      : <Mic size={15} color="#64748B" />
                     }
                   </button>
                 </div>

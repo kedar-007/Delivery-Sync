@@ -11,6 +11,7 @@ const { TABLES, AUDIT_ACTION, PROJECT_STATUS } = require('../utils/Constants');
  */
 class ProjectController {
   constructor(catalystApp) {
+    this.catalystApp = catalystApp;
     this.db = new DataStoreService(catalystApp);
     this.audit = new AuditService(this.db);
   }
@@ -82,6 +83,69 @@ class ProjectController {
   /**
    * GET /api/projects?page=1&pageSize=20&status=
    */
+  /**
+   * GET /api/projects/search?q=<term>
+   * Uses Catalyst Search — requires 'name' and 'description' columns to have Search Index enabled in Data Store.
+   */
+  async searchProjects(req, res) {
+    try {
+      const { tenantId, id: userId, role } = req.currentUser;
+      const q = (req.query.q || '').trim();
+
+      if (!q || q.length < 2) {
+        return ResponseHelper.validationError(res, 'Search term must be at least 2 characters');
+      }
+
+      // Catalyst Search across name + description indexed columns
+      const results = await this.catalystApp.search().executeSearchQuery({
+        search: q,
+        search_table_columns: { [TABLES.PROJECTS]: ['name', 'description'] },
+        select_table_columns: {
+          [TABLES.PROJECTS]: [
+            'ROWID', 'name', 'description', 'rag_status', 'status',
+            'start_date', 'end_date', 'owner_user_id', 'tenant_id',
+            'standup_enabled', 'eod_enabled',
+          ],
+        },
+      });
+
+      // Filter to this tenant only
+      let hits = (results[TABLES.PROJECTS] ?? []).filter(
+        (r) => String(r.tenant_id) === String(tenantId)
+      );
+
+      // RBAC: non-admins see only projects they're members of
+      const hasOrgWideAccess = role === 'TENANT_ADMIN'
+        || req.currentUser.dataScope === 'ORG_WIDE'
+        || req.currentUser.dataScope === 'SUBORDINATES';
+
+      if (!hasOrgWideAccess) {
+        const memberships = await this.db.findAll(TABLES.PROJECT_MEMBERS,
+          { tenant_id: tenantId, user_id: userId }, { limit: 200 });
+        const memberSet = new Set(memberships.map((m) => String(m.project_id)));
+        hits = hits.filter((r) => memberSet.has(String(r.ROWID)));
+      }
+
+      return ResponseHelper.success(res, {
+        projects: hits.map((p) => ({
+          id: String(p.ROWID),
+          name: p.name,
+          description: p.description,
+          ragStatus: p.rag_status,
+          status: p.status,
+          startDate: p.start_date,
+          endDate: p.end_date,
+          ownerUserId: p.owner_user_id,
+          standupEnabled: p.standup_enabled !== 'false',
+          eodEnabled: p.eod_enabled !== 'false',
+        })),
+        total: hits.length,
+      });
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
   async getProjects(req, res) {
     try {
       const { tenantId, id: userId, role } = req.currentUser;

@@ -16,6 +16,14 @@ export const useProjectsPaginated = (params: { page?: number; pageSize?: number;
     queryFn: () => projectsApi.list(params as Record<string, string | number>),
   });
 
+export const useSearchProjects = (q: string) =>
+  useQuery({
+    queryKey: [PROJECTS_KEY, 'search', q],
+    queryFn: () => projectsApi.search(q),
+    enabled: q.trim().length >= 2,
+    staleTime: 30_000,
+  });
+
 export const useProject = (id: string) =>
   useQuery({
     queryKey: [PROJECTS_KEY, id],

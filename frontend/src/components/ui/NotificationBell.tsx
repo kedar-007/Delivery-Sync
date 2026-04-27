@@ -143,6 +143,36 @@ const NotifRow = ({ n, onRead, onDelete }: {
   </div>
 );
 
+// ─── Catalyst push registration (module-level singleton) ─────────────────────
+// Only call enableNotification() once per page load — calling it repeatedly
+// causes duplicate WebSocket connections and can break message delivery.
+let _catalystPushRegistered = false;
+
+function initCatalystPush(onMessage: () => void) {
+  const w = window as any;
+  if (!w.catalyst?.notification?.enableNotification) return;
+
+  if (_catalystPushRegistered) {
+    // Already registered — just refresh the handler reference
+    w.catalyst.notification.messageHandler = onMessage;
+    return;
+  }
+
+  _catalystPushRegistered = true;
+
+  // Set handler BEFORE calling enableNotification so no messages are missed
+  w.catalyst.notification.messageHandler = onMessage;
+
+  w.catalyst.notification.enableNotification()
+    .then(() => {
+      console.log('[Push] Catalyst web push registered');
+    })
+    .catch((err: unknown) => {
+      console.warn('[Push] enableNotification failed:', err);
+      _catalystPushRegistered = false;
+    });
+}
+
 // ─── Bell ─────────────────────────────────────────────────────────────────────
 
 const MUTE_KEY = 'ds_notif_muted';
@@ -153,10 +183,30 @@ const NotificationBell = () => {
   const ref = useRef<HTMLDivElement>(null);
   const prevUnread = useRef<number | null>(null);
 
-  const { data } = useNotifications();
+  const { data, refetch } = useNotifications();
   const markRead = useMarkRead();
   const markAll = useMarkAllRead();
   const del = useDeleteNotification();
+
+  // Refetch immediately when the tab becomes visible (handles the "switched back" case)
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') refetch(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [refetch]);
+
+  // Register for Catalyst web push — use a ref so the closure always calls
+  // the latest refetch without re-running enableNotification() on each render
+  const refetchRef = useRef(refetch);
+  useEffect(() => { refetchRef.current = refetch; });
+
+  useEffect(() => {
+    const handler = () => refetchRef.current();
+    // Try immediately; SDK may not be ready on first render, retry after 2s
+    initCatalystPush(handler);
+    const t = setTimeout(() => initCatalystPush(handler), 2000);
+    return () => clearTimeout(t);
+  }, []); // empty — runs once per mount
 
   const notifications = data?.notifications ?? [];
   const unread = data?.unreadCount ?? 0;

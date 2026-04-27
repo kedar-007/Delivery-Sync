@@ -29,6 +29,10 @@ router.put('/geo-zones/settings',          RBACMiddleware.require(PERMISSIONS.IP
 router.get('/geo-zones',                   RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),    (req, res) => ctrl(req).getGeoZones(req, res));
 router.post('/geo-zones',                  RBACMiddleware.require(PERMISSIONS.IP_CONFIG_WRITE),   (req, res) => ctrl(req).addGeoZone(req, res));
 router.delete('/geo-zones/:zoneId',        RBACMiddleware.require(PERMISSIONS.IP_CONFIG_WRITE),   (req, res) => ctrl(req).deleteGeoZone(req, res));
+router.get('/shifts',                      RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).getShifts(req, res));
+router.post('/shifts',                     RBACMiddleware.require(PERMISSIONS.ATTENDANCE_ADMIN), (req, res) => ctrl(req).addShift(req, res));
+router.put('/shifts/:shiftId',             RBACMiddleware.require(PERMISSIONS.ATTENDANCE_ADMIN), (req, res) => ctrl(req).updateShift(req, res));
+router.delete('/shifts/:shiftId',          RBACMiddleware.require(PERMISSIONS.ATTENDANCE_ADMIN), (req, res) => ctrl(req).deleteShift(req, res));
 router.patch('/:recordId/override',        RBACMiddleware.require(PERMISSIONS.ATTENDANCE_ADMIN), (req, res) => ctrl(req).override(req, res));
 router.get('/anomalies',                   RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).anomalies(req, res));
 router.get('/summary',                     RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).summary(req, res));

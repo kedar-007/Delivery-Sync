@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Plus, Search, Calendar, Pencil } from 'lucide-react';
+import { Plus, Search, Calendar, Pencil, Loader2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
@@ -11,7 +11,7 @@ import Modal, { ModalActions } from '../components/ui/Modal';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
-import { useProjectsPaginated, useCreateProject, useUpdateProject } from '../hooks/useProjects';
+import { useProjectsPaginated, useSearchProjects, useCreateProject, useUpdateProject } from '../hooks/useProjects';
 import Pagination from '../components/ui/Pagination';
 import { useAuth } from '../contexts/AuthContext';
 import { format } from 'date-fns';
@@ -34,6 +34,7 @@ const ProjectsPage = () => {
   const canCreateProject = ['TENANT_ADMIN', 'DELIVERY_LEAD', 'PMO', 'EXEC'].includes(user?.role ?? '');
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [createError, setCreateError] = useState('');
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 18;
@@ -42,10 +43,28 @@ const ProjectsPage = () => {
   const [renamingProject, setRenamingProject] = useState<{ id: string; name: string } | null>(null);
   const [renameError, setRenameError] = useState('');
 
-  const { data: pagedData, isLoading, error } = useProjectsPaginated({ page, pageSize: PAGE_SIZE });
-  const projects = pagedData?.projects ?? [];
-  const total: number = pagedData?.total ?? 0;
-  const totalPages: number = pagedData?.totalPages ?? 1;
+  // Debounce the search input — 350ms
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const isSearchMode = debouncedSearch.length >= 2;
+
+  const { data: pagedData, isLoading: listLoading, error: listError } = useProjectsPaginated(
+    !isSearchMode ? { page, pageSize: PAGE_SIZE } : {}
+  );
+  const { data: searchData, isLoading: searchLoading, error: searchError } = useSearchProjects(debouncedSearch);
+
+  const isLoading = isSearchMode ? searchLoading : listLoading;
+  const error = isSearchMode ? searchError : listError;
+
+  const projects = isSearchMode
+    ? (searchData?.projects ?? [])
+    : (pagedData?.projects ?? []);
+  const total: number = isSearchMode ? (searchData?.total ?? 0) : (pagedData?.total ?? 0);
+  const totalPages: number = isSearchMode ? 1 : (pagedData?.totalPages ?? 1);
+
   const createProject = useCreateProject();
 
   // Updating the project
@@ -62,10 +81,7 @@ const ProjectsPage = () => {
     formState: { errors: renameErrors, isSubmitting: isRenaming },
   } = useForm<{ name: string }>();
 
-  const filtered = projects.filter((p: { name: string }) =>
-    p.name.toLowerCase().includes(search.toLowerCase())
-  );
-  // Reset to page 1 when search changes - handled in the input onChange
+  const filtered = projects;
 
   const onSubmit = async (data: ProjectForm) => {
     try {
@@ -99,13 +115,13 @@ const ProjectsPage = () => {
     }
   };
 
-  if (isLoading) return <Layout><PageSkeleton /></Layout>;
+  if (listLoading && !isSearchMode) return <Layout><PageSkeleton /></Layout>;
 
   return (
     <Layout>
       <Header
         title="Projects"
-        subtitle={`${total} project${total !== 1 ? 's' : ''}`}
+        subtitle={isSearchMode ? `${total} result${total !== 1 ? 's' : ''} for "${debouncedSearch}"` : `${total} project${total !== 1 ? 's' : ''}`}
         actions={
           canCreateProject ? (
             <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>
@@ -120,13 +136,25 @@ const ProjectsPage = () => {
 
         {/* Search */}
         <div className="relative max-w-sm">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          {searchLoading && isSearchMode
+            ? <Loader2 size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-500 animate-spin" />
+            : <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          }
           <input
             className="form-input pl-9"
             placeholder="Search projects…"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
+          {isSearchMode && (
+            <button
+              type="button"
+              onClick={() => { setSearch(''); setDebouncedSearch(''); }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+            >
+              ✕
+            </button>
+          )}
         </div>
 
         {/* Projects Grid */}
@@ -177,7 +205,7 @@ const ProjectsPage = () => {
           </div>
         )}
 
-        <Pagination page={page} totalPages={totalPages} total={total} pageSize={PAGE_SIZE} onPageChange={setPage} />
+        {!isSearchMode && <Pagination page={page} totalPages={totalPages} total={total} pageSize={PAGE_SIZE} onPageChange={setPage} />}
       </div>
 
       {/* Create Project Modal */}

@@ -166,13 +166,18 @@ class AdminController {
         assignments.forEach((a) => { orgRoleMap[String(a.user_id)] = String(a.org_role_id); });
       } catch (_) {}
 
-      // Fetch timezones from user_profiles
+      // Fetch timezones and shift assignments from user_profiles
       let timezoneMap = {};
+      let shiftIdMap = {};
       try {
         const profiles = await this.db.query(
-          `SELECT user_id, timezone FROM ${TABLES.USER_PROFILES} WHERE tenant_id = '${tenantId}' LIMIT 300`
+          `SELECT user_id, timezone, shift_id FROM ${TABLES.USER_PROFILES} WHERE tenant_id = '${tenantId}' LIMIT 300`
         );
-        profiles.forEach((p) => { if (p.timezone) timezoneMap[String(p.user_id)] = p.timezone; });
+        profiles.forEach((p) => {
+          const uid = String(p.user_id);
+          if (p.timezone) timezoneMap[uid] = p.timezone;
+          if (p.shift_id && String(p.shift_id) !== '0') shiftIdMap[uid] = String(p.shift_id);
+        });
       } catch (_) {}
 
       return ResponseHelper.success(res, {
@@ -182,6 +187,7 @@ class AdminController {
           invitedBy: u.invited_by, createdAt: u.CREATEDTIME,
           orgRoleId: orgRoleMap[String(u.ROWID)] || null,
           timezone: timezoneMap[String(u.ROWID)] || '',
+          shiftId: shiftIdMap[String(u.ROWID)] || null,
         })),
       });
     } catch (err) {
@@ -201,7 +207,7 @@ class AdminController {
       const existing = await this.db.findById(TABLES.USERS, userId, tenantId);
       if (!existing) return ResponseHelper.notFound(res, 'User not found');
 
-      const { role, status, timezone } = req.body;
+      const { role, status, timezone, shift_id } = req.body;
 
       if (role && !Object.values(ROLES).includes(role)) {
         return ResponseHelper.validationError(res, `Invalid role: ${role}`);
@@ -215,23 +221,27 @@ class AdminController {
         await this.db.update(TABLES.USERS, updatePayload);
       }
 
-      // Update timezone in user_profiles (separate table)
-      if (timezone !== undefined) {
+      // Update timezone / shift_id in user_profiles (separate table)
+      if (timezone !== undefined || shift_id !== undefined) {
         try {
           const profiles = await this.db.query(
             `SELECT ROWID FROM ${TABLES.USER_PROFILES} WHERE user_id = '${userId}' AND tenant_id = '${tenantId}' LIMIT 1`
           );
+          const profileUpdate = {};
+          if (timezone !== undefined) profileUpdate.timezone = String(timezone || '');
+          if (shift_id !== undefined) profileUpdate.shift_id = shift_id ? String(shift_id) : '';
           if (profiles.length > 0) {
-            await this.db.update(TABLES.USER_PROFILES, { ROWID: profiles[0].ROWID, timezone: String(timezone || '') });
+            await this.db.update(TABLES.USER_PROFILES, { ROWID: profiles[0].ROWID, ...profileUpdate });
           } else {
             await this.db.insert(TABLES.USER_PROFILES, {
-              tenant_id: tenantId, user_id: userId, timezone: String(timezone || ''),
+              tenant_id: tenantId, user_id: userId,
+              timezone: String(timezone || ''), shift_id: shift_id ? String(shift_id) : '',
               bio: '', photo_url: '', skills: '[]', experience: '[]', certifications: '[]',
               resume_url: '', social_links: '{}', is_profile_public: 'false',
             });
           }
-        } catch (tzErr) {
-          console.warn('[AdminController.updateUser] timezone update failed:', tzErr.message);
+        } catch (profileErr) {
+          console.warn('[AdminController.updateUser] profile update failed:', profileErr.message);
         }
       }
 

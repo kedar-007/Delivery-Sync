@@ -16,7 +16,7 @@ import Alert from '../components/ui/Alert';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../components/ui/ConfirmDialog';
-import { useMyTasks, useUpdateTask, useCreateTask, useDeleteTask, useTask, useTaskComments, useAddTaskComment, useUpdateTaskStatus } from '../hooks/useTaskSprint';
+import { useMyTasks, useSearchMyTasks, useUpdateTask, useCreateTask, useDeleteTask, useTask, useTaskComments, useAddTaskComment, useUpdateTaskStatus } from '../hooks/useTaskSprint';
 import { useProjects } from '../hooks/useProjects';
 import { useUsers, TenantUser } from '../hooks/useUsers';
 import { timeEntriesApi, tasksApi, aiApi } from '../lib/api';
@@ -838,25 +838,43 @@ export default function MyTasksPage() {
   const [filterProject, setFilterProject]   = useState('');
   const [showFilters, setShowFilters]       = useState(false);
 
+  // Debounced server-side text search
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+  const isSearchMode = debouncedSearch.length >= 2;
+  const { data: rawSearchTasks, isLoading: searchLoading } = useSearchMyTasks(debouncedSearch);
+
   const now            = new Date();
   const dueSoonCutoff  = addDays(now, 7);
 
+  // When search mode is active, use Catalyst Search results as the base list
+  const baseTaskList: Task[] = useMemo(() => {
+    if (isSearchMode) {
+      const arr = Array.isArray(rawSearchTasks) ? rawSearchTasks : (rawSearchTasks as any)?.data ?? [];
+      return arr as Task[];
+    }
+    return allMyTasks;
+  }, [isSearchMode, rawSearchTasks, allMyTasks]);
+
   const tabFiltered = useMemo(() => {
-    if (activeTab === 'in_progress') return allMyTasks.filter((t) => t.status === 'IN_PROGRESS');
-    if (activeTab === 'due_soon') return allMyTasks.filter((t) => {
+    if (activeTab === 'in_progress') return baseTaskList.filter((t) => t.status === 'IN_PROGRESS');
+    if (activeTab === 'due_soon') return baseTaskList.filter((t) => {
       if (!t.dueDate || t.status === 'DONE') return false;
       return isBefore(parseISO(t.dueDate), dueSoonCutoff);
     });
-    return allMyTasks;
-  }, [allMyTasks, activeTab, dueSoonCutoff]);
+    return baseTaskList;
+  }, [baseTaskList, activeTab, dueSoonCutoff]);
 
   const filtered = useMemo(() => tabFiltered.filter((t) => {
-    if (search && !t.title.toLowerCase().includes(search.toLowerCase())) return false;
+    // Text search is now server-side — only apply dropdown filters here
     if (filterStatus   && t.status    !== filterStatus)   return false;
     if (filterPriority && t.priority  !== filterPriority) return false;
     if (filterProject  && t.projectId !== filterProject)  return false;
     return true;
-  }), [tabFiltered, search, filterStatus, filterPriority, filterProject]);
+  }), [tabFiltered, filterStatus, filterPriority, filterProject]);
 
   // Reset page when filters change
   useEffect(() => setPage(1), [search, filterStatus, filterPriority, filterProject]);
@@ -1112,7 +1130,10 @@ export default function MyTasksPage() {
         {/* Toolbar */}
         <div className="flex flex-wrap gap-3 items-center">
           <div className="relative flex-1 min-w-48">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            {searchLoading && isSearchMode
+              ? <svg className="absolute left-3 top-1/2 -translate-y-1/2 animate-spin text-indigo-500" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+              : <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            }
             <input className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none"
               placeholder="Search my tasks…" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>

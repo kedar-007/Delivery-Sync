@@ -52,6 +52,7 @@ export const dashboardApi = {
 
 export const projectsApi = {
   list: (params?: Record<string, string | number>) => api.get('/projects', { params }).then((r) => r.data.data),
+  search: (q: string) => api.get('/projects/search', { params: { q } }).then((r) => r.data.data),
   get: (id: string) => api.get(`/projects/${id}`).then((r) => r.data.data),
   create: (data: unknown) => api.post('/projects', data).then((r) => r.data.data),
   update: (id: string, data: unknown) => api.put(`/projects/${id}`, data).then((r) => r.data.data),
@@ -81,6 +82,7 @@ export const standupsApi = {
     api.get('/standups/rollup', { params }).then((r) => r.data.data),
   myToday: (projectId?: string) =>
     api.get('/standups/my-today', { params: projectId ? { projectId } : {} }).then((r) => r.data.data),
+  search: (q: string) => api.get('/standups/search', { params: { q } }).then((r) => r.data.data),
 };
 
 // ─── EOD ──────────────────────────────────────────────────────────────────────
@@ -93,6 +95,7 @@ export const eodApi = {
     api.get('/eod/rollup', { params }).then((r) => r.data.data),
   myToday: (projectId?: string) =>
     api.get('/eod/my-today', { params: projectId ? { projectId } : {} }).then((r) => r.data.data),
+  search: (q: string) => api.get('/eod/search', { params: { q } }).then((r) => r.data.data),
 };
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
@@ -449,6 +452,11 @@ export const attendanceApi = {
   getGeoZones:           () => peopleClient.get('/attendance/geo-zones').then((r) => r.data.data),
   addGeoZone:            (data: unknown) => peopleClient.post('/attendance/geo-zones', data).then((r) => r.data.data),
   deleteGeoZone:         (zoneId: string) => peopleClient.delete(`/attendance/geo-zones/${zoneId}`).then((r) => r.data.data),
+  // Shifts
+  getShifts:      () => peopleClient.get('/attendance/shifts').then((r) => r.data.data),
+  addShift:       (data: unknown) => peopleClient.post('/attendance/shifts', data).then((r) => r.data.data),
+  updateShift:    (shiftId: string, data: unknown) => peopleClient.put(`/attendance/shifts/${shiftId}`, data).then((r) => r.data.data),
+  deleteShift:    (shiftId: string) => peopleClient.delete(`/attendance/shifts/${shiftId}`).then((r) => r.data.data),
   override:       (recordId: string, data: unknown) => peopleClient.patch(`/attendance/${recordId}/override`, data).then((r) => r.data.data),
   anomalies:      () => peopleClient.get('/attendance/anomalies').then((r) => r.data.data),
   summary:        (params?: Record<string, string>) => peopleClient.get('/attendance/summary', { params }).then((r) => r.data.data),
@@ -538,6 +546,7 @@ export const sprintsApi = {
 export const tasksApi = {
   list:         (params?: Record<string, string>) => taskClient.get('/tasks', { params }).then((r) => r.data.data),
   myTasks:      () => taskClient.get('/tasks/my-tasks').then((r) => r.data.data),
+  search:       (q: string) => taskClient.get('/tasks/search', { params: { q } }).then((r) => r.data.data),
   overdue:      () => taskClient.get('/tasks/overdue').then((r) => r.data.data),
   backlog:      (projectId: string) => taskClient.get(`/backlog?project_id=${projectId}`).then((r) => r.data.data),
   get:          (id: string) => taskClient.get(`/tasks/${id}`).then((r) => r.data.data),

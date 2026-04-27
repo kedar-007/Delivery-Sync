@@ -11,10 +11,10 @@ import { PageLoader } from '../components/ui/Spinner';
 import VoiceRecorder from '../components/voice/VoiceRecorder';
 import VoiceAiInsights from '../components/voice/VoiceAiInsights';
 import { useProjects } from '../hooks/useProjects';
-import { useSubmitStandup, useStandupRollup, useMyTodayStandup, useStandups } from '../hooks/useStandups';
+import { useSubmitStandup, useStandupRollup, useMyTodayStandup, useStandups, useSearchStandups } from '../hooks/useStandups';
 import { useProcessVoice, type StandupVoiceResult } from '../hooks/useVoiceAI';
 import { format } from 'date-fns';
-import { CheckCircle, Clock, Sparkles, History } from 'lucide-react';
+import { CheckCircle, Clock, Sparkles, History, Search } from 'lucide-react';
 
 interface StandupForm {
   project_id: string;
@@ -39,11 +39,22 @@ const StandupPage = () => {
   const [submitError, setSubmitError] = useState('');
   const [aiResult, setAiResult] = useState<StandupVoiceResult | null>(null);
   const [aiFilledFields, setAiFilledFields] = useState<Set<string>>(new Set());
+  const [standupSearch, setStandupSearch] = useState('');
+  const [debouncedStandupSearch, setDebouncedStandupSearch] = useState('');
 
   const today = format(new Date(), 'yyyy-MM-dd');
   const { data: projects = [], isLoading: projectsLoading } = useProjects();
   const { data: todayStandups = [] } = useMyTodayStandup();
   const { data: myStandups = [], isLoading: myLoading } = useStandups();
+  const { data: searchStandups = [], isLoading: searchStandupLoading } = useSearchStandups(debouncedStandupSearch);
+
+  // Debounce standup search
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebouncedStandupSearch(standupSearch.trim()), 350);
+    return () => clearTimeout(t);
+  }, [standupSearch]);
+  const isStandupSearchMode = debouncedStandupSearch.length >= 2;
+  const visibleStandups = isStandupSearchMode ? searchStandups : myStandups;
   const submitStandup = useSubmitStandup();
   const { data: rollupData, isLoading: rollupLoading } = useStandupRollup({ projectId: rollupProjectId });
   const processVoice = useProcessVoice();
@@ -222,18 +233,38 @@ const StandupPage = () => {
 
         {tab === 'mine' && (
           <div className="space-y-4">
+            {/* Search bar */}
+            <div className="relative">
+              {searchStandupLoading && isStandupSearchMode
+                ? <svg className="absolute left-3 top-1/2 -translate-y-1/2 animate-spin text-blue-500" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                : <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              }
+              <input
+                className="w-full pl-9 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-200 outline-none"
+                placeholder="Search yesterday, today, blockers…"
+                value={standupSearch}
+                onChange={(e) => setStandupSearch(e.target.value)}
+              />
+              {standupSearch && (
+                <button type="button" onClick={() => { setStandupSearch(''); setDebouncedStandupSearch(''); }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs">✕</button>
+              )}
+            </div>
+
             {/* Count badge */}
             <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
               <History size={18} className="text-blue-600 shrink-0" />
               <p className="text-sm font-medium text-blue-800">
-                {myLoading ? 'Loading…' : `${myStandups.length} standup${myStandups.length !== 1 ? 's' : ''} submitted`}
+                {(myLoading || searchStandupLoading) ? 'Loading…'
+                  : isStandupSearchMode ? `${visibleStandups.length} result${visibleStandups.length !== 1 ? 's' : ''} for "${debouncedStandupSearch}"`
+                  : `${myStandups.length} standup${myStandups.length !== 1 ? 's' : ''} submitted`}
               </p>
             </div>
 
-            {myLoading ? <PageLoader /> : myStandups.length === 0 ? (
-              <EmptyState title="No standups yet" description="Your submitted standups will appear here." />
+            {(myLoading && !isStandupSearchMode) ? <PageLoader /> : visibleStandups.length === 0 ? (
+              <EmptyState title={isStandupSearchMode ? 'No results found' : 'No standups yet'} description={isStandupSearchMode ? 'Try a different search term.' : 'Your submitted standups will appear here.'} />
             ) : (
-              (myStandups as Array<{
+              (visibleStandups as Array<{
                 id: string; date: string; projectName?: string; yesterday: string;
                 today: string; blockers?: string; submittedAt?: string;
               }>).map((entry) => (

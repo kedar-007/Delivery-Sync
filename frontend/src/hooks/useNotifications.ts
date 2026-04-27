@@ -22,14 +22,16 @@ export const useNotifications = (unreadOnly = false) =>
       notificationsApi.list(unreadOnly ? { unreadOnly: 'true' } : {}).then(
         (d) => d as { notifications: Notification[]; unreadCount: number }
       ),
-    refetchInterval: 30_000, // poll every 30s for real-time feel
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: true,
   });
 
 export const useUnreadCount = () =>
   useQuery({
     queryKey: [KEY, 'count'],
     queryFn: () => notificationsApi.count().then((d) => (d as { count: number }).count),
-    refetchInterval: 30_000,
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: true,
   });
 
 export const useMarkRead = () => {

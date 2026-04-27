@@ -866,10 +866,86 @@ const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
 
   const periodLabel = period === 'week' ? 'This Week' : period === 'month' ? format(now, 'MMMM yyyy') : 'All Time';
 
+  // Today's data — always derived from the week snapshot regardless of selected period
+  const todayData = week?.days?.find((d) => d.date === todayStr());
+  const todayHours = Math.round((todayData?.hours ?? 0) * 100) / 100;
+  const todayEntryCount = todayData?.entries?.length ?? 0;
+  const todayProjects = todayData?.entries ?? [];
+  const todayBillable = useMemo(() => {
+    if (!week?.entries) return 0;
+    return Math.round(
+      week.entries
+        .filter((e) => e.date === todayStr() && (e as TimeEntry).isBillable)
+        .reduce((s, e) => s + (parseFloat(String((e as TimeEntry).hours)) || 0), 0) * 100
+    ) / 100;
+  }, [week]);
+  const todayPct = Math.min((todayHours / 8) * 100, 100);
+  const todayFull = todayHours >= 8;
+
   if (isLoading) return <PageSkeleton />;
 
   return (
     <div className="space-y-5">
+      {/* Today at a Glance */}
+      <div className="rounded-xl border border-blue-100 bg-gradient-to-br from-blue-50 via-indigo-50 to-white p-4 shadow-sm">
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <p className="text-[11px] font-semibold text-blue-500 uppercase tracking-widest mb-0.5">Today</p>
+            <p className="text-xs text-gray-500">{format(new Date(), 'EEEE, MMMM d')}</p>
+          </div>
+          <div className="text-right">
+            <p className={`text-3xl font-bold leading-none ${todayFull ? 'text-green-600' : 'text-blue-700'}`}>
+              {todayHours}<span className="text-lg font-medium">h</span>
+            </p>
+            <p className="text-[11px] text-gray-400 mt-0.5">logged today</p>
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        <div className="h-2 bg-blue-100 rounded-full overflow-hidden mb-3">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${todayFull ? 'bg-green-500' : 'bg-blue-500'}`}
+            style={{ width: `${todayPct}%` }}
+          />
+        </div>
+
+        <div className="flex items-center justify-between text-[11px] text-gray-500 mb-3">
+          <span>{todayEntryCount} entr{todayEntryCount !== 1 ? 'ies' : 'y'}</span>
+          <div className="flex items-center gap-3">
+            {todayBillable > 0 && (
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
+                {todayBillable}h billable
+              </span>
+            )}
+            {todayHours - todayBillable > 0 && (
+              <span className="flex items-center gap-1">
+                <span className="inline-block w-2 h-2 rounded-full bg-amber-400" />
+                {Math.round((todayHours - todayBillable) * 100) / 100}h non-billable
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Per-project pills */}
+        {todayProjects.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {todayProjects.map((p, idx) => (
+              <span
+                key={idx}
+                className="text-[11px] bg-white border border-blue-100 text-blue-700 px-2.5 py-0.5 rounded-full shadow-sm font-medium"
+              >
+                {p.projectName || '—'} · {p.hours}h
+              </span>
+            ))}
+          </div>
+        ) : weekLoading ? (
+          <p className="text-xs text-gray-400">Loading…</p>
+        ) : (
+          <p className="text-xs text-gray-400 italic">No time logged yet today. Go make it count!</p>
+        )}
+      </div>
+
       {/* Sub-tab switcher */}
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
         {(['week', 'month', 'overall'] as AnalyticsPeriod[]).map((p) => (

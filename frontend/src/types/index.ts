@@ -29,6 +29,7 @@ export interface User {
   createdAt?: string;
   orgRoleId?: string | null;
   timezone?: string;
+  shiftId?: string | null;
 }
 
 // ─── Tenant ───────────────────────────────────────────────────────────────────

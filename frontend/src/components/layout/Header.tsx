@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, Component, ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Settings, Sun, Moon, X, BellRing, Bug } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -11,6 +11,13 @@ import ReportBugWidget from '../bugs/ReportBugWidget';
 import { useMyProfile } from '../../hooks/useUsers';
 import { useAnnouncements, useMarkAnnouncementRead } from '../../hooks/usePeople';
 import { useFestival } from '../../contexts/FestivalContext';
+
+class NotificationBellBoundary extends Component<{ children: ReactNode }, { crashed: boolean }> {
+  state = { crashed: false };
+  static getDerivedStateFromError() { return { crashed: true }; }
+  componentDidCatch(err: unknown) { console.warn('[NotificationBell] boundary caught:', err); }
+  render() { return this.state.crashed ? null : this.props.children; }
+}
 
 interface HeaderProps {
   title: string;
@@ -156,7 +163,7 @@ const Header = ({ title, subtitle, actions }: HeaderProps) => {
                 ))}
               </select>
             </div>
-            <NotificationBell />
+            <NotificationBellBoundary><NotificationBell /></NotificationBellBoundary>
             <button
               onClick={() => setBugOpen(true)}
               title="Report a bug or give feedback"

@@ -13,6 +13,7 @@ const can = RBACMiddleware.require;
 const ctrl = (req) => new EodController(req.catalystApp);
 
 router.post('/', auth, can(PERMISSIONS.EOD_SUBMIT), asyncHandler((req, res) => ctrl(req).submitEod(req, res)));
+router.get('/search', auth, can(PERMISSIONS.EOD_READ), asyncHandler((req, res) => ctrl(req).searchMyEod(req, res)));
 router.get('/', auth, can(PERMISSIONS.EOD_READ), asyncHandler((req, res) => ctrl(req).getEod(req, res)));
 router.get('/rollup', auth, can(PERMISSIONS.EOD_READ), asyncHandler((req, res) => ctrl(req).getEodRollup(req, res)));
 router.get('/my-today', auth, asyncHandler((req, res) => ctrl(req).getMyTodayEod(req, res)));

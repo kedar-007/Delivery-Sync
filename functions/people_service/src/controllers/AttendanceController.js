@@ -151,6 +151,25 @@ class AttendanceController {
       performedBy: userRowId,
     });
 
+    // Late check-in detection — runs after record is created, non-blocking
+    if (!is_wfh) {
+      try {
+        const shift = await this._getUserShift(tenantId, userRowId);
+        if (shift) {
+          const shiftStartUTC = this._shiftStartUTC(today, shift.start_time, shift.timezone || 'Asia/Kolkata');
+          const checkInUTC = new Date(formattedNow.replace(' ', 'T') + 'Z');
+          const diffMs = checkInUTC.getTime() - shiftStartUTC.getTime();
+          const graceMs = (parseInt(shift.grace_minutes) || 15) * 60000;
+          if (diffMs > graceMs) {
+            const minutesLate = Math.floor(diffMs / 60000);
+            await this._handleLateCheckIn(tenantId, userRowId, req, record, minutesLate, shift);
+          }
+        }
+      } catch (lateErr) {
+        console.warn('[checkIn] late detection error (non-fatal):', lateErr.message);
+      }
+    }
+
     // Notify reporting manager when checking in as WFH
     if (is_wfh) {
       try {
@@ -898,6 +917,147 @@ class AttendanceController {
     if (!row) return ResponseHelper.notFound(res, 'Geo zone not found');
     await this.db.update(TABLES.GEO_ZONES, { ROWID: req.params.zoneId, is_active: 'false' });
     return ResponseHelper.success(res, { message: 'Zone removed' });
+  }
+
+  // ─── Shift helpers ────────────────────────────────────────────────────────────
+
+  // Convert "HH:MM" in a named timezone to a UTC Date for a given attendanceDate (YYYY-MM-DD).
+  _shiftStartUTC(dateStr, startTimeStr, timezone) {
+    try {
+      const safeZone = timezone && timezone.trim() ? timezone.trim() : 'Asia/Kolkata';
+      // Treat start time as if it were UTC to get a reference point, then correct for the actual offset.
+      const asUTC = new Date(`${dateStr}T${startTimeStr}:00Z`);
+      const inTZ = new Intl.DateTimeFormat('sv', {
+        timeZone: safeZone,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+      }).format(asUTC);
+      const tzMs = new Date(inTZ.replace(' ', 'T') + 'Z').getTime();
+      const offsetMs = tzMs - asUTC.getTime();
+      return new Date(asUTC.getTime() - offsetMs);
+    } catch (_) {
+      return new Date(`${dateStr}T${startTimeStr}:00Z`);
+    }
+  }
+
+  // Look up the shift assigned to a user via user_profiles.shift_id.
+  async _getUserShift(tenantId, userRowId) {
+    try {
+      const profiles = await this.db.findWhere(TABLES.USER_PROFILES, tenantId,
+        `user_id = '${userRowId}'`, { limit: 1 });
+      const shiftId = profiles[0]?.shift_id;
+      if (!shiftId || String(shiftId) === '0' || String(shiftId) === '') return null;
+      const shifts = await this.db.findWhere(TABLES.SHIFTS, tenantId,
+        `ROWID = '${DataStoreService.escape(String(shiftId))}' AND is_active = 'true'`, { limit: 1 });
+      return shifts[0] || null;
+    } catch (_) { return null; }
+  }
+
+  // Mark attendance LATE and send email + in-app notification to reporting manager.
+  async _handleLateCheckIn(tenantId, userRowId, req, record, minutesLate, shift) {
+    await this.db.update(TABLES.ATTENDANCE_RECORDS, {
+      ROWID: record.ROWID, status: ATTENDANCE_STATUS.LATE,
+    });
+    try {
+      const profiles = await this.db.findWhere(TABLES.USER_PROFILES, tenantId,
+        `user_id = '${userRowId}'`, { limit: 1 });
+      const rmId = profiles[0]?.reporting_manager_id;
+      if (!rmId) return;
+      const rmRows = await this.db.query(
+        `SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${rmId}' LIMIT 1`
+      );
+      if (!rmRows[0]) return;
+
+      const safeZone = shift.timezone || 'Asia/Kolkata';
+      const checkInLocalTime = new Intl.DateTimeFormat('en-GB', {
+        timeZone: safeZone, hour: '2-digit', minute: '2-digit', hour12: false,
+      }).format(new Date(record.check_in_time.replace(' ', 'T') + 'Z'));
+
+      const totalSecs = minutesLate * 60;
+      const hh = String(Math.floor(totalSecs / 3600)).padStart(2, '0');
+      const mm = String(Math.floor((totalSecs % 3600) / 60)).padStart(2, '0');
+      const ss = String(totalSecs % 60).padStart(2, '0');
+      const lateFormatted = `${hh}:${mm}:${ss}`;
+
+      const userName = req.currentUser.name || req.currentUser.email;
+      const subject  = `[Delivery Sync] ${userName} checked in late — ${lateFormatted} late (${shift.name})`;
+      const htmlBody = `<p>Hi ${rmRows[0].name},</p>
+<p><strong>${userName}</strong> checked in late today.</p>
+<ul>
+  <li><strong>Shift:</strong> ${shift.name}</li>
+  <li><strong>Expected by:</strong> ${shift.start_time} + ${shift.grace_minutes || 15} min grace</li>
+  <li><strong>Actual check-in:</strong> ${checkInLocalTime} (${safeZone})</li>
+  <li><strong>Late by:</strong> ${lateFormatted}</li>
+</ul>`;
+
+      await this.notif.send({ toEmail: rmRows[0].email, subject, htmlBody });
+      await this.notif.sendInApp({
+        tenantId, userId: rmId,
+        title: 'Late Check-in',
+        message: `${userName} checked in ${lateFormatted} late (${shift.name})`,
+        type: NOTIFICATION_TYPE.GENERAL,
+        entityType: 'ATTENDANCE', entityId: record.ROWID,
+      });
+    } catch (err) {
+      console.warn('[_handleLateCheckIn] notification failed (non-fatal):', err.message);
+    }
+  }
+
+  // ─── Shift CRUD ───────────────────────────────────────────────────────────────
+
+  async getShifts(req, res) {
+    try {
+      const rows = await this.db.findWhere(TABLES.SHIFTS, req.tenantId,
+        `is_active = 'true'`, { orderBy: 'CREATEDTIME ASC', limit: 50 });
+      return ResponseHelper.success(res, rows);
+    } catch (_) { return ResponseHelper.success(res, []); }
+  }
+
+  async addShift(req, res) {
+    const { name, start_time, end_time, timezone, grace_minutes } = req.body;
+    if (!name || !start_time || !timezone)
+      return ResponseHelper.validationError(res, 'name, start_time, and timezone are required');
+    if (!/^\d{2}:\d{2}$/.test(start_time))
+      return ResponseHelper.validationError(res, 'start_time must be HH:MM (e.g. 06:00)');
+    try {
+      const row = await this.db.insert(TABLES.SHIFTS, {
+        tenant_id:     String(req.tenantId),
+        name:          DataStoreService.escape(name),
+        start_time:    start_time,
+        end_time:      end_time || '',
+        timezone:      DataStoreService.escape(timezone),
+        grace_minutes: String(parseInt(grace_minutes) || 15),
+        is_active:     'true',
+        created_by:    String(req.currentUser.id),
+      });
+      return ResponseHelper.created(res, row);
+    } catch (e) {
+      if (e.message && e.message.includes('No privileges'))
+        return ResponseHelper.serverError(res, 'The shifts table does not exist. Please create it in Catalyst DataStore.');
+      return ResponseHelper.serverError(res, e.message || 'Failed to add shift');
+    }
+  }
+
+  async updateShift(req, res) {
+    const { shiftId } = req.params;
+    const { name, start_time, end_time, timezone, grace_minutes } = req.body;
+    const row = await this.db.findById(TABLES.SHIFTS, shiftId, req.tenantId);
+    if (!row) return ResponseHelper.notFound(res, 'Shift not found');
+    const updates = { ROWID: shiftId };
+    if (name)          updates.name          = DataStoreService.escape(name);
+    if (start_time)    updates.start_time    = start_time;
+    if (end_time !== undefined) updates.end_time = end_time;
+    if (timezone)      updates.timezone      = DataStoreService.escape(timezone);
+    if (grace_minutes !== undefined) updates.grace_minutes = String(parseInt(grace_minutes) || 15);
+    await this.db.update(TABLES.SHIFTS, updates);
+    return ResponseHelper.success(res, { message: 'Shift updated' });
+  }
+
+  async deleteShift(req, res) {
+    const row = await this.db.findById(TABLES.SHIFTS, req.params.shiftId, req.tenantId);
+    if (!row) return ResponseHelper.notFound(res, 'Shift not found');
+    await this.db.update(TABLES.SHIFTS, { ROWID: req.params.shiftId, is_active: 'false' });
+    return ResponseHelper.success(res, { message: 'Shift deleted' });
   }
 
   // Simple exact IP or /24 CIDR check

@@ -58,8 +58,21 @@ class NotificationService {
         entity_id: entityId ? String(entityId) : '',
         metadata: JSON.stringify(metadata),
       });
+      this._sendWebPush(userId, title, message).catch(() => {});
     } catch (err) {
       console.error('[NotificationService] sendInApp failed:', err.message);
+    }
+  }
+
+  async _sendWebPush(userId, title, message) {
+    try {
+      const uid = Number(userId);
+      if (!uid) return;
+      await this.catalystApp.pushNotification().web().sendNotification(
+        `${title}: ${message}`, [uid]
+      );
+    } catch (err) {
+      console.warn('[NotificationService] web push failed:', err.message);
     }
   }
 

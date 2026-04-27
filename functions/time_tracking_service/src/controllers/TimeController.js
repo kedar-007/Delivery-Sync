@@ -170,29 +170,38 @@ class TimeController {
         const needsApproval = reqApproval === 'true' || reqApproval === true || reqApproval === 1;
 
         if (needsApproval) {
-          const profileRows = await this.db.findWhere(TABLES.USER_PROFILES, tenantId, `user_id = '${userId}'`, { limit: 1 });
-          const rmId = profileRows[0]?.reporting_manager_id ? String(profileRows[0].reporting_manager_id) : '';
+          // Resolve approver: task owner (created_by) takes priority over reporting manager
+          let approverId = '';
+          try {
+            const taskRows = await this.db.query(`SELECT created_by FROM ${TABLES.TASKS} WHERE ROWID = ${taskIdNum} LIMIT 1`);
+            if (taskRows[0]?.created_by) approverId = String(taskRows[0].created_by);
+          } catch (_) { /* fall through to RM */ }
 
-          // Mark as SUBMITTED regardless of whether a manager is assigned
+          if (!approverId) {
+            const profileRows = await this.db.findWhere(TABLES.USER_PROFILES, tenantId, `user_id = '${userId}'`, { limit: 1 });
+            approverId = profileRows[0]?.reporting_manager_id ? String(profileRows[0].reporting_manager_id) : '';
+          }
+
+          // Mark as SUBMITTED regardless of whether an approver is found
           await this.db.update(TABLES.TIME_ENTRIES, { ROWID: row.ROWID, status: TIME_STATUS.SUBMITTED, submitted_at: DataStoreService.fmtDT(new Date()) });
           row.status = TIME_STATUS.SUBMITTED;
 
-          if (rmId) {
+          if (approverId) {
             await this.db.insert(TABLES.TIME_APPROVAL_REQUESTS, {
               tenant_id: String(tenantId),
               time_entry_id: String(row.ROWID),
               requested_by: String(userId),
-              assigned_to: rmId,
+              assigned_to: approverId,
               status: 'PENDING',
             });
-            const rmRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = ${rmId} LIMIT 1`);
-            if (rmRows[0]) {
+            const approverRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = ${approverId} LIMIT 1`);
+            if (approverRows[0]) {
               const userName = req.currentUser.name || 'A team member';
-              await this.notif.send({ toEmail: rmRows[0].email, subject: `[Delivery Sync] Time entry awaiting your approval`, htmlBody: `<p>Hi ${rmRows[0].name}, ${userName} has submitted a time entry of ${effectiveHours} hours for approval.</p>` });
-              await this.notif.sendInApp({ tenantId, userId: rmId, title: 'Time Approval Needed', message: `${userName} submitted ${effectiveHours}h for approval`, type: NOTIFICATION_TYPE.TIME_APPROVAL_NEEDED, entityType: 'TIME_ENTRY', entityId: String(row.ROWID) });
+              await this.notif.send({ toEmail: approverRows[0].email, subject: `[Delivery Sync] Time entry awaiting your approval`, htmlBody: `<p>Hi ${approverRows[0].name}, ${userName} has submitted a time entry of ${effectiveHours} hours for approval.</p>` });
+              await this.notif.sendInApp({ tenantId, userId: approverId, title: 'Time Approval Needed', message: `${userName} submitted ${effectiveHours}h for approval`, type: NOTIFICATION_TYPE.TIME_APPROVAL_NEEDED, entityType: 'TIME_ENTRY', entityId: String(row.ROWID) });
             }
           } else {
-            console.warn(`[TimeController.create] user ${userId} has no reporting_manager_id — entry submitted but no approval request created`);
+            console.warn(`[TimeController.create] no approver found for task ${taskIdNum} / user ${userId} — entry submitted but no approval request created`);
           }
         }
       } catch (autoSubmitErr) {
@@ -242,23 +251,32 @@ class TimeController {
       return ResponseHelper.validationError(res, 'Only DRAFT or REJECTED entries can be submitted');
     if (String(entry.user_id) !== req.currentUser.id) return ResponseHelper.forbidden(res, 'Cannot submit another user\'s entry');
 
-    // Find RM
-    const profileRows = await this.db.findWhere(TABLES.USER_PROFILES, req.tenantId, `user_id = '${req.currentUser.id}'`, { limit: 1 });
-    const rmId = profileRows[0]?.reporting_manager_id || '';
+    // Resolve approver: task owner (created_by) takes priority over reporting manager
+    let approverId = '';
+    if (entry.task_id) {
+      try {
+        const taskRows = await this.db.query(`SELECT created_by FROM ${TABLES.TASKS} WHERE ROWID = ${parseInt(entry.task_id, 10)} LIMIT 1`);
+        if (taskRows[0]?.created_by) approverId = String(taskRows[0].created_by);
+      } catch (_) { /* fall through to RM */ }
+    }
+    if (!approverId) {
+      const profileRows = await this.db.findWhere(TABLES.USER_PROFILES, req.tenantId, `user_id = '${req.currentUser.id}'`, { limit: 1 });
+      approverId = profileRows[0]?.reporting_manager_id ? String(profileRows[0].reporting_manager_id) : '';
+    }
 
     await this.db.update(TABLES.TIME_ENTRIES, { ROWID: req.params.entryId, status: TIME_STATUS.SUBMITTED, submitted_at: DataStoreService.fmtDT(new Date()) });
 
     // Create approval request
-    if (rmId) {
-      const approval = await this.db.insert(TABLES.TIME_APPROVAL_REQUESTS, {
+    if (approverId) {
+      await this.db.insert(TABLES.TIME_APPROVAL_REQUESTS, {
         tenant_id: req.tenantId, time_entry_id: req.params.entryId,
-        requested_by: req.currentUser.id, assigned_to: rmId, status: 'PENDING',
+        requested_by: req.currentUser.id, assigned_to: approverId, status: 'PENDING',
       });
 
-      const rmRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = ${rmId} LIMIT 1`);
-      if (rmRows[0]) {
-        await this.notif.send({ toEmail: rmRows[0].email, subject: `[Delivery Sync] Time entry awaiting your approval`, htmlBody: `<p>Hi ${rmRows[0].name}, ${req.currentUser.name} has submitted a time entry of ${entry.hours} hours for approval.</p>` });
-        await this.notif.sendInApp({ tenantId: req.tenantId, userId: rmId, title: 'Time Approval Needed', message: `${req.currentUser.name} submitted ${entry.hours}h for approval`, type: NOTIFICATION_TYPE.TIME_APPROVAL_NEEDED, entityType: 'TIME_ENTRY', entityId: req.params.entryId });
+      const approverRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = ${approverId} LIMIT 1`);
+      if (approverRows[0]) {
+        await this.notif.send({ toEmail: approverRows[0].email, subject: `[Delivery Sync] Time entry awaiting your approval`, htmlBody: `<p>Hi ${approverRows[0].name}, ${req.currentUser.name} has submitted a time entry of ${entry.hours} hours for approval.</p>` });
+        await this.notif.sendInApp({ tenantId: req.tenantId, userId: approverId, title: 'Time Approval Needed', message: `${req.currentUser.name} submitted ${entry.hours}h for approval`, type: NOTIFICATION_TYPE.TIME_APPROVAL_NEEDED, entityType: 'TIME_ENTRY', entityId: req.params.entryId });
       }
     }
 

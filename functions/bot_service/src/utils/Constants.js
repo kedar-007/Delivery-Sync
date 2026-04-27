@@ -13,6 +13,34 @@ const TABLES = Object.freeze({
   TIME_ENTRIES:       'time_entries',
   ATTENDANCE_RECORDS: 'attendance_records',
   SPRINTS:            'sprints',
+  LEAVE_REQUESTS:     'leave_requests',
+  LEAVE_TYPES:        'leave_types',
+  LEAVE_BALANCES:     'leave_balances',
+
+  // People & org
+  TEAMS:              'teams',
+  TEAM_MEMBERS:       'team_members',
+  USER_PROFILES:      'user_profiles',
+  ANNOUNCEMENTS:      'announcements',
+  ANNOUNCEMENT_READS: 'announcement_reads',
+
+  // RAID (delivery_sync)
+  EOD_ENTRIES:        'eod_entries',
+  ACTIONS:            'actions',
+  BLOCKERS:           'blockers',
+  RISKS:              'risks',
+  ISSUES:             'issues',
+
+  // Assets
+  ASSETS:             'assets',
+  ASSET_ASSIGNMENTS:  'asset_assignments',
+
+  // Badges
+  USER_BADGES:        'user_badges',
+  BADGE_DEFINITIONS:  'badge_definitions',
+
+  // Sprints
+  SPRINT_MEMBERS:     'sprint_members',
 
   // Bot-specific tables (create these in Catalyst Datastore console)
   BOT_PROFILES:       'bot_profiles',

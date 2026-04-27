@@ -180,6 +180,14 @@ export const useMyTasks = () =>
     queryFn: () => tasksApi.myTasks().then(applyNorm(normaliseTask)),
   });
 
+export const useSearchMyTasks = (q: string) =>
+  useQuery({
+    queryKey: ['tasks', 'search', q],
+    queryFn: () => tasksApi.search(q).then(applyNorm(normaliseTask)),
+    enabled: q.trim().length >= 2,
+    staleTime: 30_000,
+  });
+
 export const useOverdueTasks = () =>
   useQuery({
     queryKey: ['tasks', 'overdue'],

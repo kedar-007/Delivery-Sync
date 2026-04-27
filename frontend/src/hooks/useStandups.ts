@@ -20,6 +20,14 @@ export const useMyTodayStandup = (projectId?: string) =>
     queryFn: () => standupsApi.myToday(projectId).then((d) => d.standups),
   });
 
+export const useSearchStandups = (q: string) =>
+  useQuery({
+    queryKey: ['standups', 'search', q],
+    queryFn: () => standupsApi.search(q).then((d) => d.standups ?? []),
+    enabled: q.trim().length >= 2,
+    staleTime: 30_000,
+  });
+
 export const useSubmitStandup = () => {
   const qc = useQueryClient();
   return useMutation({

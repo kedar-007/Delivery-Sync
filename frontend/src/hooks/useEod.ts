@@ -20,6 +20,14 @@ export const useMyTodayEod = (projectId?: string) =>
     queryFn: () => eodApi.myToday(projectId).then((d) => d.eods),
   });
 
+export const useSearchEod = (q: string) =>
+  useQuery({
+    queryKey: ['eod', 'search', q],
+    queryFn: () => eodApi.search(q).then((d) => d.eods ?? []),
+    enabled: q.trim().length >= 2,
+    staleTime: 30_000,
+  });
+
 export const useSubmitEod = () => {
   const qc = useQueryClient();
   return useMutation({

@@ -10,6 +10,7 @@ const { PERMISSIONS } = require('../utils/Constants');
 const ctrl = (req) => new TaskController(req.catalystApp);
 
 router.get('/my-tasks',                         RBACMiddleware.require(PERMISSIONS.TASK_READ),         (req, res) => ctrl(req).myTasks(req, res));
+router.get('/search',                           RBACMiddleware.require(PERMISSIONS.TASK_READ),         (req, res) => ctrl(req).searchMyTasks(req, res));
 router.get('/overdue',                          RBACMiddleware.require(PERMISSIONS.TASK_READ),         (req, res) => ctrl(req).overdue(req, res));
 router.get('/',                                 RBACMiddleware.require(PERMISSIONS.TASK_READ),         (req, res) => ctrl(req).list(req, res));
 router.post('/',                                RBACMiddleware.require(PERMISSIONS.TASK_WRITE),        (req, res) => ctrl(req).create(req, res));

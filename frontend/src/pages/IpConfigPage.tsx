@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import { Shield, Plus, Trash2, Wifi, Info, ToggleLeft, ToggleRight, Globe, MapPin, Search, Target } from 'lucide-react';
+import { Shield, Plus, Trash2, Wifi, Info, ToggleLeft, ToggleRight, Globe, MapPin, Search, Target, Clock, Edit2, Check, X } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
@@ -14,6 +14,7 @@ import {
   useGeoConfig, useAddGeoConfig, useDeleteGeoConfig,
   useGeoZoneSettings, useUpdateGeoZoneSettings,
   useGeoZones, useAddGeoZone, useDeleteGeoZone,
+  useShifts, useAddShift, useUpdateShift, useDeleteShift,
 } from '../hooks/usePeople';
 
 const COUNTRIES = [
@@ -93,8 +94,27 @@ const IpConfigPage = () => {
   const [zoneLng,    setZoneLng]    = useState('');
   const [zoneRadius, setZoneRadius] = useState('1');
 
+  // Shifts
+  const { data: shifts = [], isLoading: shiftsLoading } = useShifts();
+  const addShift    = useAddShift();
+  const deleteShift = useDeleteShift();
+  const [shiftName,    setShiftName]    = useState('');
+  const [shiftStart,   setShiftStart]   = useState('09:00');
+  const [shiftEnd,     setShiftEnd]     = useState('18:00');
+  const [shiftTz,      setShiftTz]      = useState('Asia/Kolkata');
+  const [shiftGrace,   setShiftGrace]   = useState('15');
+  const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
+  const [editShiftName,  setEditShiftName]  = useState('');
+  const [editShiftStart, setEditShiftStart] = useState('');
+  const [editShiftGrace, setEditShiftGrace] = useState('');
+  const updateShiftMutation = useUpdateShift(editingShiftId ?? '');
+
   const [err,     setErr]     = useState('');
   const [success, setSuccess] = useState('');
+
+  type TabId = 'ip' | 'geo' | 'zones' | 'shifts';
+  const [activeTab, setActiveTab] = useState<TabId>('ip');
+  const tab = activeTab;
 
   const ipEnabled   = !!(ipSettings   as any)?.enabled;
   const geoEnabled  = !!(geoSettings  as any)?.enabled;
@@ -116,6 +136,39 @@ const IpConfigPage = () => {
 
   const notify = (msg: string) => { setErr(''); setSuccess(msg); };
   const errMsg = (msg: string) => { setSuccess(''); setErr(msg); };
+
+  const handleAddShift = async () => {
+    if (!shiftName.trim()) return errMsg('Shift name is required.');
+    if (!/^\d{2}:\d{2}$/.test(shiftStart)) return errMsg('Start time must be HH:MM.');
+    try {
+      await addShift.mutateAsync({ name: shiftName.trim(), start_time: shiftStart, end_time: shiftEnd, timezone: shiftTz, grace_minutes: shiftGrace });
+      setShiftName(''); setShiftStart('09:00'); setShiftEnd('18:00'); setShiftTz('Asia/Kolkata'); setShiftGrace('15');
+      notify('Shift created.');
+    } catch (e: any) { errMsg(e?.message ?? 'Failed to create shift.'); }
+  };
+
+  const handleDeleteShift = async (id: string) => {
+    try {
+      await deleteShift.mutateAsync(id);
+      notify('Shift deleted.');
+    } catch (e: any) { errMsg(e?.message ?? 'Failed to delete shift.'); }
+  };
+
+  const startEditShift = (shift: any) => {
+    setEditingShiftId(String(shift.ROWID ?? shift.id ?? ''));
+    setEditShiftName(shift.name);
+    setEditShiftStart(shift.start_time ?? shift.startTime ?? '');
+    setEditShiftGrace(String(shift.grace_minutes ?? shift.graceMinutes ?? 15));
+  };
+
+  const saveEditShift = async () => {
+    if (!editingShiftId) return;
+    try {
+      await updateShiftMutation.mutateAsync({ name: editShiftName, start_time: editShiftStart, grace_minutes: editShiftGrace });
+      setEditingShiftId(null);
+      notify('Shift updated.');
+    } catch (e: any) { errMsg(e?.message ?? 'Failed to update shift.'); }
+  };
 
   const handleIpToggle = async () => {
     try {
@@ -191,17 +244,40 @@ const IpConfigPage = () => {
   return (
     <Layout>
       <Header
-        title="Access Restrictions"
-        subtitle="Control which networks and locations employees can check in from"
+        title="People Settings"
+        subtitle="Manage attendance restrictions, locations, and work shifts"
       />
 
-      <div className="p-6 space-y-8 max-w-2xl">
+      <div className="p-6 max-w-2xl space-y-6">
 
         {err     && <Alert type="error"   message={err} />}
         {success && <Alert type="success" message={success} />}
 
+        {/* ── Tab bar ─────────────────────────────────────────────────── */}
+        <div className="flex gap-1 bg-gray-100 p-1 rounded-2xl">
+          {([
+            { id: 'ip' as const,     label: 'IP Restrictions',  icon: <Wifi size={15} />,    activeClass: 'border-indigo-500 text-indigo-700 bg-indigo-50' },
+            { id: 'geo' as const,    label: 'Geo Restrictions',  icon: <Globe size={15} />,   activeClass: 'border-emerald-500 text-emerald-700 bg-emerald-50' },
+            { id: 'zones' as const,  label: 'Zone Restrictions', icon: <Target size={15} />,  activeClass: 'border-violet-500 text-violet-700 bg-violet-50' },
+            { id: 'shifts' as const, label: 'Work Shifts',       icon: <Clock size={15} />,   activeClass: 'border-amber-500 text-amber-700 bg-amber-50' },
+          ] as const).map((t) => (
+            <button
+              key={t.id}
+              onClick={() => { setActiveTab(t.id); setErr(''); setSuccess(''); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all border ${
+                tab === t.id
+                  ? t.activeClass + ' shadow-sm border-current'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-white/60'
+              }`}
+            >
+              {t.icon}
+              <span className="hidden sm:inline">{t.label}</span>
+            </button>
+          ))}
+        </div>
+
         {/* ── IP Restrictions ─────────────────────────────────────────────── */}
-        <section className="space-y-4">
+        {tab === 'ip' && <section className="space-y-4">
           <div className="flex items-center gap-2">
             <Wifi size={16} className="text-indigo-500" />
             <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide">IP Restrictions</h2>
@@ -320,10 +396,10 @@ const IpConfigPage = () => {
               </div>
             )}
           </Card>
-        </section>
+        </section>}
 
         {/* ── Geo Restrictions ────────────────────────────────────────────── */}
-        <section className="space-y-4">
+        {tab === 'geo' && <section className="space-y-4">
           <div className="flex items-center gap-2">
             <Globe size={16} className="text-emerald-500" />
             <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Geo Restrictions</h2>
@@ -461,10 +537,10 @@ const IpConfigPage = () => {
               </div>
             )}
           </Card>
-        </section>
+        </section>}
 
         {/* ── Zone Restrictions ───────────────────────────────────────────── */}
-        <section className="space-y-4">
+        {tab === 'zones' && <section className="space-y-4">
           <div className="flex items-center gap-2">
             <Target size={16} className="text-violet-500" />
             <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Zone Restrictions</h2>
@@ -621,7 +697,124 @@ const IpConfigPage = () => {
               </div>
             )}
           </Card>
-        </section>
+        </section>}
+
+        {/* ── Shift Management ─────────────────────────────────────── */}
+        {tab === 'shifts' && <section>
+          <div className="flex items-center gap-2 mb-3">
+            <Clock size={16} className="text-amber-500" />
+            <h2 className="text-base font-semibold text-gray-900">Work Shifts</h2>
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            Define shifts with start times. Users can be assigned a shift from the Users admin page.
+            Check-ins more than the grace period after shift start are marked <strong>Late</strong> and the reporting manager is notified.
+          </p>
+
+          {/* Add shift form */}
+          <Card className="mb-4 p-4">
+            <h3 className="text-sm font-medium text-gray-700 mb-3">Add Shift</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Shift Name</label>
+                <input className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-amber-200"
+                  placeholder="e.g. AU Shift" value={shiftName} onChange={(e) => setShiftName(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Start Time (HH:MM)</label>
+                <input type="time" className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-amber-200"
+                  value={shiftStart} onChange={(e) => setShiftStart(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">End Time (HH:MM)</label>
+                <input type="time" className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-amber-200"
+                  value={shiftEnd} onChange={(e) => setShiftEnd(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Reference Timezone</label>
+                <select className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-amber-200"
+                  value={shiftTz} onChange={(e) => setShiftTz(e.target.value)}>
+                  <option value="Asia/Kolkata">India IST (UTC+5:30)</option>
+                  <option value="Australia/Sydney">AU Eastern (AEST/AEDT)</option>
+                  <option value="Australia/Perth">AU Western (AWST)</option>
+                  <option value="America/New_York">US Eastern</option>
+                  <option value="America/Los_Angeles">US Pacific</option>
+                  <option value="Europe/London">UK / GMT</option>
+                  <option value="Asia/Dubai">Gulf (GST)</option>
+                  <option value="Asia/Singapore">Singapore (SGT)</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Grace Period (minutes)</label>
+                <input type="number" min="0" max="60" className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-amber-200"
+                  value={shiftGrace} onChange={(e) => setShiftGrace(e.target.value)} />
+              </div>
+            </div>
+            <Button size="sm" onClick={handleAddShift} disabled={addShift.isPending}>
+              <Plus size={14} /> {addShift.isPending ? 'Adding…' : 'Add Shift'}
+            </Button>
+          </Card>
+
+          {/* Shifts list */}
+          <Card>
+            {shiftsLoading ? (
+              <div className="p-6 text-center text-sm text-gray-400">Loading shifts…</div>
+            ) : (shifts as any[]).length === 0 ? (
+              <div className="p-8 text-center text-gray-400 flex flex-col items-center gap-2">
+                <Clock size={28} className="opacity-30" />
+                <p className="text-sm">No shifts defined</p>
+                <p className="text-xs text-gray-400">Create a shift above, then assign it to users in the Users admin tab.</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-50">
+                {(shifts as any[]).map((shift: any) => {
+                  const id = String(shift.ROWID ?? shift.id ?? '');
+                  const isEditing = editingShiftId === id;
+                  return (
+                    <div key={id} className="flex items-center gap-4 px-4 py-3.5 hover:bg-gray-50 transition-colors">
+                      <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
+                        <Clock size={15} className="text-amber-500" />
+                      </div>
+                      {isEditing ? (
+                        <div className="flex-1 flex items-center gap-2 flex-wrap">
+                          <input className="text-sm border border-gray-200 rounded-lg px-2 py-1 w-32 outline-none focus:ring-2 focus:ring-amber-200"
+                            value={editShiftName} onChange={(e) => setEditShiftName(e.target.value)} placeholder="Name" />
+                          <input type="time" className="text-sm border border-gray-200 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-amber-200"
+                            value={editShiftStart} onChange={(e) => setEditShiftStart(e.target.value)} />
+                          <input type="number" min="0" max="60" className="text-sm border border-gray-200 rounded-lg px-2 py-1 w-20 outline-none focus:ring-2 focus:ring-amber-200"
+                            value={editShiftGrace} onChange={(e) => setEditShiftGrace(e.target.value)} placeholder="Grace (min)" />
+                          <button onClick={saveEditShift} disabled={updateShiftMutation.isPending}
+                            className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors"><Check size={14} /></button>
+                          <button onClick={() => setEditingShiftId(null)}
+                            className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 transition-colors"><X size={14} /></button>
+                        </div>
+                      ) : (
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-gray-800">{shift.name}</p>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            Start: {shift.start_time ?? shift.startTime} · End: {(shift.end_time ?? shift.endTime) || '—'} ·
+                            Timezone: {shift.timezone} · Grace: {shift.grace_minutes ?? (shift.graceMinutes ?? 15)} min
+                          </p>
+                        </div>
+                      )}
+                      {!isEditing && (
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => startEditShift(shift)}
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium text-gray-500 hover:text-blue-700 hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-colors">
+                            <Edit2 size={12} /> Edit
+                          </button>
+                          <button onClick={() => handleDeleteShift(id)} disabled={deleteShift.isPending}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors disabled:opacity-50">
+                            <Trash2 size={13} /> Remove
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+        </section>}
 
       </div>
     </Layout>

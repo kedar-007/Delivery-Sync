@@ -11,6 +11,7 @@ const { TABLES } = require('../utils/Constants');
  */
 class StandupController {
   constructor(catalystApp) {
+    this.catalystApp = catalystApp;
     this.db = new DataStoreService(catalystApp);
   }
 
@@ -89,7 +90,7 @@ class StandupController {
       const standups = await this.db.findWhere(
         TABLES.STANDUP_ENTRIES, tenantId,
         whereExtra,
-        { orderBy: 'CREATEDTIME DESC', limit: 100 }
+        { orderBy: 'entry_date DESC, CREATEDTIME DESC', limit: 100 }
       );
 
       // Enrich with project names
@@ -201,6 +202,54 @@ class StandupController {
         standups: standups.map((s) => ({
           id: String(s.ROWID), projectId: s.project_id, date: s.entry_date,
           yesterday: s.yesterday, today: s.today, blockers: s.blockers, status: s.status,
+        })),
+      });
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  // GET /api/standups/search?q=<term>
+  // Requires Search Index enabled on 'yesterday', 'today', 'blockers' columns of 'standup_entries'.
+  async searchMyStandups(req, res) {
+    try {
+      const { tenantId, id: userId } = req.currentUser;
+      const q = (req.query.q || '').trim();
+      if (!q || q.length < 2) return ResponseHelper.validationError(res, 'Search term must be at least 2 characters');
+
+      const results = await this.catalystApp.search().executeSearchQuery({
+        search: q,
+        search_table_columns: { [TABLES.STANDUP_ENTRIES]: ['yesterday', 'today', 'blockers'] },
+        select_table_columns: {
+          [TABLES.STANDUP_ENTRIES]: ['ROWID', 'yesterday', 'today', 'blockers',
+            'entry_date', 'project_id', 'user_id', 'tenant_id', 'submitted_at'],
+        },
+      });
+
+      const hits = (results[TABLES.STANDUP_ENTRIES] ?? []).filter(
+        (s) => String(s.tenant_id) === String(tenantId) && String(s.user_id) === String(userId)
+      );
+
+      // Enrich with project name
+      const projectIds = [...new Set(hits.map((s) => s.project_id).filter(Boolean))];
+      const projectMap = {};
+      if (projectIds.length) {
+        const rows = await this.db.query(
+          `SELECT ROWID, name FROM ${TABLES.PROJECTS} WHERE ROWID IN (${projectIds.map((id) => `'${id}'`).join(',')}) LIMIT 50`
+        );
+        rows.forEach((p) => { projectMap[String(p.ROWID)] = p.name; });
+      }
+
+      return ResponseHelper.success(res, {
+        standups: hits.map((s) => ({
+          id: String(s.ROWID),
+          date: s.entry_date,
+          projectId: s.project_id,
+          projectName: projectMap[String(s.project_id)] || null,
+          yesterday: s.yesterday,
+          today: s.today,
+          blockers: s.blockers,
+          submittedAt: s.submitted_at,
         })),
       });
     } catch (err) {

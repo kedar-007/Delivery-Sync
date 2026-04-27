@@ -71,7 +71,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Directory',     to: '/directory',     icon: <Users size={16} />,        permission: PERMISSIONS.TEAM_READ },
       { label: 'Org Chart',     to: '/org-chart',     icon: <GitBranch size={16} />,    permission: PERMISSIONS.ORG_READ },
       { label: 'Announcements',   to: '/announcements', icon: <Megaphone size={16} />, permission: PERMISSIONS.ANNOUNCEMENT_READ },
-      { label: 'IP Restrictions', to: '/ip-config',   icon: <Shield size={16} />,    permission: PERMISSIONS.IP_CONFIG_WRITE },
+      { label: 'People Settings', to: '/ip-config',   icon: <Shield size={16} />,    permission: PERMISSIONS.IP_CONFIG_WRITE },
     ],
   },
 
@@ -106,7 +106,7 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { label: 'User Management',    to: '/admin',        icon: <Users size={16} /> },
       { label: 'Config & Workflows', to: '/admin-config', icon: <GitBranch size={16} /> },
-      { label: 'IP Restrictions',    to: '/ip-config',    icon: <Shield size={16} />, permission: PERMISSIONS.IP_CONFIG_WRITE },
+      { label: 'People Settings',    to: '/ip-config',    icon: <Shield size={16} />, permission: PERMISSIONS.IP_CONFIG_WRITE },
       { label: 'Data Seeder',        to: '/data-seed',    icon: <FlaskConical size={16} /> },
     ],
   },

@@ -24,6 +24,7 @@ import {
   useSetOrgRolePermissions, useAssignUserOrgRole, useOrgChart, useAllPermissions,
   useSharingRules, useSetDefaultVisibility, useAddExplicitSharingRule, useDeleteSharingRule,
 } from '../hooks/useAdmin';
+import { useShifts } from '../hooks/usePeople';
 import UserPermissionsModal from '../components/ui/UserPermissionsModal';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../components/ui/ConfirmDialog';
@@ -1630,13 +1631,14 @@ const TZ_SHORT: Record<string, string> = {
 
 // ─── UserRow ──────────────────────────────────────────────────────────────────
 const UserRow = ({
-  user, currentUserId, allowedInviteRoles, orgRoles,
+  user, currentUserId, allowedInviteRoles, orgRoles, shifts,
   isEditingRole, editingRole, onStartEdit, onCancelEdit, onRoleChange, onSaveRoleDone, onDeactivate, onActivate,
 }: {
   user: UserType;
   currentUserId: string;
   allowedInviteRoles: string[];
   orgRoles: OrgRole[];
+  shifts: { id: string; name: string; startTime: string; timezone: string }[];
   isEditingRole: boolean;
   editingRole: string;
   onStartEdit: () => void;
@@ -1652,6 +1654,7 @@ const UserRow = ({
   const [showPerms, setShowPerms] = useState(false);
   const [editingTz, setEditingTz] = useState(false);
   const [tzValue, setTzValue] = useState(user.timezone || '');
+  const [shiftValue, setShiftValue] = useState(user.shiftId || '');
 
   const saveRole = async () => {
     try { await updateUser.mutateAsync({ role: editingRole }); } catch { /* */ }
@@ -1659,7 +1662,7 @@ const UserRow = ({
   };
 
   const saveTz = async () => {
-    try { await updateUser.mutateAsync({ timezone: tzValue }); } catch { /* */ }
+    try { await updateUser.mutateAsync({ timezone: tzValue, shift_id: shiftValue || null }); } catch { /* */ }
     setEditingTz(false);
   };
 
@@ -1722,13 +1725,13 @@ const UserRow = ({
         {/* Shift / timezone column */}
         <td className="px-4 py-3">
           {editingTz ? (
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-col gap-1.5">
               <select
                 className="form-select text-xs py-1 px-2 border-gray-300 rounded-lg max-w-[160px]"
                 value={tzValue}
                 onChange={(e) => setTzValue(e.target.value)}
               >
-                <option value="">— no shift —</option>
+                <option value="">— timezone —</option>
                 <optgroup label="India"><option value="Asia/Kolkata">India IST (UTC+5:30)</option></optgroup>
                 <optgroup label="United States">
                   <option value="America/New_York">US Eastern</option>
@@ -1754,23 +1757,43 @@ const UserRow = ({
                   <option value="Pacific/Auckland">New Zealand</option>
                 </optgroup>
               </select>
-              <button onClick={saveTz} disabled={updateUser.isPending}
-                className="p-1 rounded text-emerald-600 hover:bg-emerald-50 transition-colors" title="Save">
-                <Check size={13} />
-              </button>
-              <button onClick={() => { setEditingTz(false); setTzValue(user.timezone || ''); }}
-                className="p-1 rounded text-gray-400 hover:bg-gray-100 transition-colors" title="Cancel">
-                <X size={13} />
-              </button>
+              <select
+                className="form-select text-xs py-1 px-2 border-gray-300 rounded-lg max-w-[160px]"
+                value={shiftValue}
+                onChange={(e) => setShiftValue(e.target.value)}
+              >
+                <option value="">— no shift —</option>
+                {shifts.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name} ({s.startTime})</option>
+                ))}
+              </select>
+              <div className="flex items-center gap-1">
+                <button onClick={saveTz} disabled={updateUser.isPending}
+                  className="p-1 rounded text-emerald-600 hover:bg-emerald-50 transition-colors" title="Save">
+                  <Check size={13} />
+                </button>
+                <button onClick={() => { setEditingTz(false); setTzValue(user.timezone || ''); setShiftValue(user.shiftId || ''); }}
+                  className="p-1 rounded text-gray-400 hover:bg-gray-100 transition-colors" title="Cancel">
+                  <X size={13} />
+                </button>
+              </div>
             </div>
           ) : (
             <div className="flex items-center gap-1.5">
-              <span className="text-xs text-gray-500 flex items-center gap-1">
-                <Globe size={11} className="text-gray-400" />
-                {user.timezone ? TZ_SHORT[user.timezone] || user.timezone.split('/')[1] : <span className="text-gray-300">—</span>}
-              </span>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs text-gray-500 flex items-center gap-1">
+                  <Globe size={11} className="text-gray-400" />
+                  {user.timezone ? TZ_SHORT[user.timezone] || user.timezone.split('/')[1] : <span className="text-gray-300">—</span>}
+                </span>
+                {user.shiftId && shifts.find(s => s.id === user.shiftId) && (
+                  <span className="text-xs text-indigo-600 flex items-center gap-1">
+                    <Clock size={10} />
+                    {shifts.find(s => s.id === user.shiftId)?.name}
+                  </span>
+                )}
+              </div>
               <button onClick={() => setEditingTz(true)}
-                className="p-1 rounded text-gray-300 hover:text-blue-600 hover:bg-blue-50 transition-colors" title="Set work shift">
+                className="p-1 rounded text-gray-300 hover:text-blue-600 hover:bg-blue-50 transition-colors" title="Set shift/timezone">
                 <Edit2 size={11} />
               </button>
             </div>
@@ -1865,6 +1888,7 @@ const AdminPage = () => {
   const [editingRole, setEditingRole] = useState('');
 
   const { data: users = [], isLoading } = useAdminUsers();
+  const { data: shifts = [] } = useShifts();
   const { data: rawLogs = [], isLoading: auditLoading, refetch: refetchLogs } =
     useAuditLogs(auditParams, tab === 'audit');
   const inviteUser = useInviteUser();
@@ -2010,6 +2034,7 @@ const AdminPage = () => {
                       currentUserId={currentUser?.id ?? ''}
                       allowedInviteRoles={allowedInviteRoles}
                       orgRoles={orgRoles}
+                      shifts={shifts as any}
                       isEditingRole={editingRoleId === u.id}
                       editingRole={editingRole}
                       onStartEdit={() => startEditRole(u.id, u.role)}

@@ -8,6 +8,7 @@ const { TABLES, TASK_STATUS, TASK_TYPE, AUDIT_ACTION, NOTIFICATION_TYPE } = requ
 
 class TaskController {
   constructor(catalystApp) {
+    this.catalystApp = catalystApp;
     this.db = new DataStoreService(catalystApp);
     this.audit = new AuditService(this.db);
     this.notif = new NotificationService(catalystApp, this.db);
@@ -338,6 +339,36 @@ class TaskController {
       `project_id = '${DataStoreService.escape(project_id)}' AND sprint_id = 0 AND parent_task_id = 0 AND status != 'DONE' AND status != 'CANCELLED'`,
       { orderBy: 'CREATEDTIME DESC', limit: 200 });
     return ResponseHelper.success(res, tasks);
+  }
+
+  // GET /api/ts/tasks/search?q=<term>
+  // Requires Search Index enabled on 'title' and 'description' columns of the 'tasks' table.
+  async searchMyTasks(req, res) {
+    try {
+      const { id: userId } = req.currentUser;
+      const q = (req.query.q || '').trim();
+      if (!q || q.length < 2) return ResponseHelper.validationError(res, 'Search term must be at least 2 characters');
+
+      const results = await this.catalystApp.search().executeSearchQuery({
+        search: q,
+        search_table_columns: { [TABLES.TASKS]: ['title', 'description'] },
+        select_table_columns: {
+          [TABLES.TASKS]: ['ROWID', 'title', 'description', 'type', 'status', 'task_priority',
+            'assignee_ids', 'created_by', 'due_date', 'project_id', 'sprint_id',
+            'story_points', 'estimated_hours', 'labels', 'tenant_id'],
+        },
+      });
+
+      const hits = (results[TABLES.TASKS] ?? []).filter((t) => {
+        if (String(t.tenant_id) !== String(req.tenantId)) return false;
+        if (String(t.created_by) === userId) return true;
+        try { return JSON.parse(t.assignee_ids || '[]').map(String).includes(userId); } catch { return false; }
+      });
+
+      return ResponseHelper.success(res, hits);
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
   }
 }
 
