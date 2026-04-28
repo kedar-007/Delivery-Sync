@@ -12,8 +12,9 @@ const auth   = AuthMiddleware.authenticate;
 const can    = RBACMiddleware.require;
 const ctrl   = (req) => new DataSeedController(req.catalystApp);
 
-router.get('/stats',  auth, can(PERMISSIONS.DATA_SEED), asyncHandler((req, res) => ctrl(req).stats(req, res)));
-router.post('/run',   auth, can(PERMISSIONS.DATA_SEED), asyncHandler((req, res) => ctrl(req).run(req, res)));
-router.delete('/clear', auth, can(PERMISSIONS.DATA_SEED), asyncHandler((req, res) => ctrl(req).clear(req, res)));
+router.get('/stats',       auth, can(PERMISSIONS.DATA_SEED), asyncHandler((req, res) => ctrl(req).stats(req, res)));
+router.post('/run',        auth, can(PERMISSIONS.DATA_SEED), asyncHandler((req, res) => ctrl(req).run(req, res)));
+router.delete('/clear',    auth, can(PERMISSIONS.DATA_SEED), asyncHandler((req, res) => ctrl(req).clear(req, res)));
+router.post('/seed-org-roles', auth, can(PERMISSIONS.DATA_SEED), asyncHandler((req, res) => ctrl(req).seedOrgRoles(req, res)));
 
 module.exports = router;

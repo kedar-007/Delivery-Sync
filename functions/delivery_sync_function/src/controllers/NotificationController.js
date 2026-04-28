@@ -27,10 +27,17 @@ class NotificationController {
       let where = `user_id = '${userId}'`;
       if (unreadOnly === 'true') where += ` AND is_read = 'false'`;
 
-      const notifications = await this.db.findWhere(
-        TABLES.NOTIFICATIONS, tenantId, where,
-        { orderBy: 'CREATEDTIME DESC', limit: 50 }
-      );
+      let notifications = [];
+      try {
+        notifications = await this.db.findWhere(
+          TABLES.NOTIFICATIONS, tenantId, where,
+          { orderBy: 'CREATEDTIME DESC', limit: 50 }
+        );
+      } catch (dbErr) {
+        // Table may not exist yet — return empty list instead of 500
+        console.error('[NotificationController] getNotifications DB error (notifications table may not exist in Catalyst DataStore):', dbErr.message);
+        return ResponseHelper.success(res, { notifications: [], unreadCount: 0 });
+      }
 
       const unreadCount = notifications.filter((n) => n.is_read === 'false').length;
 
@@ -112,6 +119,23 @@ class NotificationController {
       return ResponseHelper.success(res, { marked: unread.length }, 'All marked as read');
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
+   * GET /api/notifications/status  — diagnostic: checks if the notifications table exists
+   */
+  async tableStatus(req, res) {
+    try {
+      await this.db.query(`SELECT ROWID FROM ${TABLES.NOTIFICATIONS} LIMIT 1`);
+      return ResponseHelper.success(res, { tableExists: true, table: TABLES.NOTIFICATIONS });
+    } catch (err) {
+      return ResponseHelper.success(res, {
+        tableExists: false,
+        table: TABLES.NOTIFICATIONS,
+        error: err.message,
+        fix: `Create a table named "${TABLES.NOTIFICATIONS}" in Catalyst DataStore Console with columns: tenant_id, user_id, title, message, type, is_read, entity_type, entity_id, metadata (all TEXT).`,
+      });
     }
   }
 

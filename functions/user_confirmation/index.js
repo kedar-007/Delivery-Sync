@@ -35,23 +35,35 @@ module.exports = async (event, context) => {
     console.log('[user_confirmation] getData:', JSON.stringify(evtData));
     console.log('[user_confirmation] getRawData:', JSON.stringify(rawData));
 
-    // ── 1. Guard: only proceed for UserConfirmation action ──────────────────
-    // Catalyst fires this function for all UserManagement events if configured
-    // broadly; skip anything that isn't a confirmation.
-    if (action && !String(action).toLowerCase().includes('confirm')) {
-      console.log(`[user_confirmation] Action "${action}" is not a confirmation event. Skipping.`);
+    // ── 1. Extract event payload ─────────────────────────────────────────────
+    // Catalyst Signals-style events nest data inside rawData.events[0].data.
+    // The standard event methods (getSource, getData, getSourceEntityId) return
+    // null for this trigger type — rawData is the only reliable source.
+    const eventPayload = rawData && Array.isArray(rawData.events) && rawData.events[0]
+      ? rawData.events[0].data
+      : null;
+    const eventApiName = rawData && Array.isArray(rawData.events) && rawData.events[0]
+      ? (rawData.events[0].event_config && rawData.events[0].event_config.api_name)
+      : null;
+
+    console.log('[user_confirmation] eventApiName:', eventApiName, '| eventPayload:', JSON.stringify(eventPayload));
+
+    // ── 2. Guard: only proceed for user_confirmed events ────────────────────
+    const resolvedAction = action || eventApiName || '';
+    if (resolvedAction && !String(resolvedAction).toLowerCase().includes('confirm')) {
+      console.log(`[user_confirmation] Action "${resolvedAction}" is not a confirmation event. Skipping.`);
       return context.closeWithSuccess();
     }
 
-    // ── 2. Resolve catalyst user ID ─────────────────────────────────────────
+    // ── 3. Resolve catalyst user ID ─────────────────────────────────────────
     // Priority:
-    //   a) getSourceEntityId() — the standard carrier for UserManagement events
-    //   b) getData().user_id   — populated in some SDK versions
-    //   c) getRawData().user_id — populated via Signals-style payloads
+    //   a) getSourceEntityId()          — standard UserManagement events
+    //   b) getData().user_id            — some SDK versions
+    //   c) rawData.events[0].data.user_id — Signals-style payload (this project)
     let catalystUserId =
       entityId ||
-      (evtData  && evtData.user_id)  ||
-      (rawData  && rawData.user_id)  ||
+      (evtData       && evtData.user_id)       ||
+      (eventPayload  && eventPayload.user_id)  ||
       null;
 
     if (!catalystUserId) {
@@ -61,8 +73,11 @@ module.exports = async (event, context) => {
 
     catalystUserId = String(catalystUserId);
 
-    // ── 3. Try to get the user email for logging (best-effort via API) ──────
-    let userEmail = (evtData && evtData.email_id) || (rawData && rawData.email_id) || null;
+    // ── 4. Resolve user email ────────────────────────────────────────────────
+    let userEmail =
+      (evtData      && evtData.email_id)      ||
+      (eventPayload && eventPayload.email_id) ||
+      null;
     if (!userEmail) {
       try {
         const umUser = await app.userManagement().getUserDetails(catalystUserId);
@@ -74,16 +89,23 @@ module.exports = async (event, context) => {
 
     console.log(`[user_confirmation] Processing confirmation for catalystUserId=${catalystUserId} email=${userEmail}`);
 
-    // ── 4. Fetch matching row from users table ───────────────────────────────
-    const zcql   = app.zcql();
-    const result = await zcql.executeZCQLQuery(
+    // ── 5. Fetch matching row from users table ───────────────────────────────
+    const zcql = app.zcql();
+    let result = await zcql.executeZCQLQuery(
       `SELECT ROWID, status, tenant_id FROM users WHERE catalyst_user_id = ${catalystUserId} LIMIT 1`
     );
+    console.log('[user_confirmation] ZCQL by catalyst_user_id result:', JSON.stringify(result));
 
-    console.log('[user_confirmation] ZCQL result:', JSON.stringify(result));
+    // Fallback: look up by email if catalyst_user_id lookup returned nothing
+    if ((!result || result.length === 0) && userEmail) {
+      result = await zcql.executeZCQLQuery(
+        `SELECT ROWID, status, tenant_id FROM users WHERE email = '${userEmail}' LIMIT 1`
+      );
+      console.log('[user_confirmation] ZCQL by email result:', JSON.stringify(result));
+    }
 
     if (!result || result.length === 0) {
-      console.warn(`[user_confirmation] No user row found for catalyst_user_id=${catalystUserId}. Skipping.`);
+      console.warn(`[user_confirmation] No user row found for catalyst_user_id=${catalystUserId} or email=${userEmail}. Skipping.`);
       return context.closeWithSuccess();
     }
 

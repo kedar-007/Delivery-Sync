@@ -204,7 +204,7 @@ const BOT_STYLES = `
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type MessageType = 'text' | 'daily_plan' | 'data_response' | 'scanning' | 'quick_action' | 'time_entry_created' | 'action_form' | 'action_executed' | 'leave_balance';
+type MessageType = 'text' | 'daily_plan' | 'data_response' | 'scanning' | 'quick_action' | 'time_entry_created' | 'action_form' | 'action_executed' | 'leave_balance' | 'choice_list';
 
 interface ActionFieldOption { value: string; label: string; }
 interface ActionField {
@@ -227,6 +227,7 @@ interface ChatMessage {
   data?:        Record<string, unknown> | null;
   formFields?:  ActionField[];
   actionType?:  string;
+  choices?:     { label: string; value: string }[];
   isTyping?:    boolean;
   typedLen?:    number;
 }
@@ -1091,6 +1092,74 @@ function TimeEntryCard({ data, accent }: { data: Record<string, unknown>; accent
   );
 }
 
+// ─── Choice List Card ─────────────────────────────────────────────────────────
+
+function ChoiceListCard({ content, choices, accent, onPick }: {
+  content:  string;
+  choices:  { label: string; value: string }[];
+  accent:   string;
+  onPick:   (label: string, value: string) => void;
+}) {
+  const [picked, setPicked] = useState<string | null>(null);
+
+  const handlePick = (label: string, value: string) => {
+    if (picked) return;
+    setPicked(label);
+    onPick(label, value);
+  };
+
+  return (
+    <div className="bot-data-card" style={{ borderRadius: '4px 14px 14px 14px', overflow: 'hidden' }}>
+      {/* Question */}
+      <div style={{
+        padding: '10px 14px 8px',
+        background: `linear-gradient(135deg, ${accent}0E, rgba(155,89,255,.06))`,
+        border: `1px solid ${accent}1A`,
+        borderBottom: 'none',
+        borderRadius: '4px 14px 0 0',
+      }}>
+        <p style={{ margin: 0, fontSize: 13, color: '#D1D9E6', fontFamily: "'Syne',sans-serif", lineHeight: 1.5 }}>
+          {content}
+        </p>
+      </div>
+      {/* Choice buttons */}
+      <div style={{
+        padding: '10px 12px 12px',
+        background: 'rgba(8,11,20,.7)',
+        border: `1px solid ${accent}1A`,
+        borderTop: 'none',
+        borderRadius: '0 0 14px 14px',
+        display: 'flex', flexWrap: 'wrap', gap: 7,
+      }}>
+        {choices.map((c) => {
+          const isSelected = picked === c.label;
+          return (
+            <button
+              key={c.value}
+              type="button"
+              onClick={() => handlePick(c.label, c.value)}
+              disabled={!!picked}
+              style={{
+                padding: '7px 14px', borderRadius: 100, cursor: picked ? 'default' : 'pointer',
+                background: isSelected
+                  ? `linear-gradient(135deg, ${accent}33, #9B59FF33)`
+                  : `${accent}0F`,
+                border: `1px solid ${isSelected ? accent : `${accent}28`}`,
+                color: isSelected ? accent : '#94a3b8',
+                fontSize: 12, fontFamily: "'Syne',sans-serif", fontWeight: 700,
+                transition: 'all 0.2s ease',
+                opacity: picked && !isSelected ? 0.4 : 1,
+              }}
+            >
+              {c.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Formatted Text Renderer ─────────────────────────────────────────────────
 
 function FormattedText({ text, accent }: { text: string; accent: string }) {
@@ -1384,12 +1453,13 @@ function ThinkingBubble({ isDailyPlan, accent }: { isDailyPlan: boolean; accent:
 
 // ─── Chat Bubble ─────────────────────────────────────────────────────────────
 
-function ChatBubble({ msg, isLast, accent, onSaveTodos, onSubmitForm }: {
+function ChatBubble({ msg, isLast, accent, onSaveTodos, onSubmitForm, onChoice }: {
   msg:            ChatMessage;
   isLast:         boolean;
   accent:         string;
   onSaveTodos:    (items: BotTodoItem[]) => void;
   onSubmitForm?:  (action: string, data: Record<string, string>, summary: string) => void;
+  onChoice?:      (label: string, value: string) => void;
 }) {
   const isUser = msg.role === 'user';
 
@@ -1443,6 +1513,16 @@ function ChatBubble({ msg, isLast, accent, onSaveTodos, onSubmitForm }: {
           </div>
         )}
 
+        {/* Choice list — tappable option buttons */}
+        {msg.type === 'choice_list' && msg.choices && msg.choices.length > 0 && (
+          <ChoiceListCard
+            content={msg.content}
+            choices={msg.choices}
+            accent={accent}
+            onPick={(label, value) => (onChoice ?? (() => {}))(label, value)}
+          />
+        )}
+
         {/* Action form — render instead of text bubble */}
         {msg.type === 'action_form' && msg.formFields && msg.formFields.length > 0 && (
           <>
@@ -1485,7 +1565,7 @@ function ChatBubble({ msg, isLast, accent, onSaveTodos, onSubmitForm }: {
         )}
 
         {/* Main text bubble */}
-        {msg.type !== 'scanning' && msg.type !== 'action_form' && msg.type !== 'leave_balance' && msg.type !== 'action_executed' && msg.type !== 'data_response' && msg.content && (
+        {msg.type !== 'scanning' && msg.type !== 'action_form' && msg.type !== 'leave_balance' && msg.type !== 'action_executed' && msg.type !== 'data_response' && msg.type !== 'choice_list' && msg.content && (
           <div style={{
             background: isUser
               ? `linear-gradient(135deg, ${accent}30, #9B59FF28)`
@@ -1984,9 +2064,10 @@ export default function BotWidget() {
       const replyId  = genId();
       const respType = (resp.message_type || 'text') as MessageType;
       // For structural cards skip the typing animation
-      const skipTyping = ['action_form', 'action_executed', 'leave_balance', 'time_entry_created'].includes(respType);
+      const skipTyping = ['action_form', 'action_executed', 'leave_balance', 'time_entry_created', 'choice_list'].includes(respType);
       const formFields = respType === 'action_form' ? (resp.data as any)?.fields as ActionField[] : undefined;
       const actionType = respType === 'action_form' ? (resp.data as any)?.action as string : undefined;
+      const choices    = respType === 'choice_list' ? (resp as any).choices as { label: string; value: string }[] : undefined;
 
       setMessages((prev) => {
         const filtered = prev.filter((m) => m.id !== thinkingId);
@@ -2002,6 +2083,7 @@ export default function BotWidget() {
             data:        resp.data,
             formFields,
             actionType,
+            choices,
             isTyping:    !skipTyping,
             typedLen:    skipTyping ? undefined : 0,
           },
@@ -2227,6 +2309,7 @@ export default function BotWidget() {
                       onSubmitForm={(action, data, summary) =>
                         sendMessage(JSON.stringify({ action, ...data }), 'action_submit', summary)
                       }
+                      onChoice={(label, value) => sendMessage(`[SELECTED] ${label} (id:${value || label})`)}
                     />
                   ))}
                 </div>

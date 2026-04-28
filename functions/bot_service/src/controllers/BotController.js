@@ -9,9 +9,9 @@ const ResponseHelper    = require('../utils/ResponseHelper');
 const { TABLES, LLM_CONFIG, SCAN_STATUS, DEFAULT_QUICK_ACTIONS } = require('../utils/Constants');
 
 const PERSONALITY_TONES = {
-  FRIENDLY:     'You are warm, encouraging, and upbeat. Use light emoji occasionally. Celebrate wins.',
-  PROFESSIONAL: 'You are precise, data-driven, and formal. No emoji. Use bullet points and structured summaries.',
-  CONCISE:      'You are extremely brief and direct. Short sentences only. No fluff. Get to the point immediately.',
+  FRIENDLY:     'Warm, encouraging. Light emoji ok.',
+  PROFESSIONAL: 'Precise, formal, no emoji.',
+  CONCISE:      'Brief and direct only.',
 };
 
 class BotController {
@@ -66,7 +66,7 @@ class BotController {
 
     // Step 2: load conversation history for context
     console.log('[BotController] message Step 2 — loading conversation history');
-    const history = await this.bot.getConversationHistory(userId, tenantId, session_id, 20);
+    const history = await this.bot.getConversationHistory(userId, tenantId, session_id, 6);
     console.log(`[BotController] message Step 2 ✓ — ${history.length} prior messages loaded`);
 
     // Step 3: build context block (scan vs smart)
@@ -127,73 +127,36 @@ class BotController {
     const dayOfWeek  = new Date().toLocaleDateString('en-US', { weekday: 'long' });
     const tone       = PERSONALITY_TONES[personality] || PERSONALITY_TONES.FRIENDLY;
 
-    const systemPrompt = `You are ${botName}, an AI-powered personal work assistant embedded in DeliverSync — a project management platform.
+    // Truncate context to keep total input tokens within the model's 1106-token context window
+    const ctxSnippet = contextBlock.slice(0, 600);
+    const projSnippet = projectsForLLM ? projectsForLLM.slice(0, 200) : '';
 
-USER CONTEXT:
-- Name: ${userName}
-- Role: ${role}
-- Today: ${dayOfWeek}, ${today}
+    const systemPrompt = `You are ${botName}, AI work assistant in DeliverSync. User: ${userName} (${role}). Today: ${today}. ${tone}
 
-PERSONALITY: ${tone}
+DATA:
+${ctxSnippet}${projSnippet}
 
-CURRENT WORKSPACE DATA (live data covering leave, tasks, projects, time tracking, attendance, standup, EOD, team, assets, RAID, sprints, badges, and announcements):
-${contextBlock}
+Reply ONLY as JSON. Schemas:
+{"type":"text","content":"<full answer with real numbers>"}
+{"type":"daily_plan","content":"<intro>","items":[{"title":"","description":"","module":"timelogs|standup|tasks|milestones|checkin","todo_priority":"high|medium|low","due_date":"YYYY-MM-DD or null"}]}
+{"type":"leave_balance","content":""}
+{"type":"choice_list","content":"<question>","choices":[{"label":"<name>","value":"<id>"}]}
+{"type":"action_execute","content":"<msg>","action":"create_leave|submit_standup|create_task","data":{...}}
+{"type":"create_time_entry","content":"<msg>","data":{"project_name":"","project_id":"","hours":0,"description":"","is_billable":true}}
 
-CRITICAL RESPONSE RULES — READ CAREFULLY:
-1. ALWAYS include the actual data values directly in the "content" field. NEVER say "Here is your X:" without including the actual X.
-   BAD: {"type":"text","content":"Here is your attendance this week:"}
-   GOOD: {"type":"text","content":"You checked in 4 out of 5 days this week. Mon–Thu all present, no check-in recorded for Friday."}
-   BAD: {"type":"text","content":"Here is your billable time for this week:"}
-   GOOD: {"type":"text","content":"This week you logged 14.5h total — 10h billable and 4.5h non-billable across 8 entries."}
-2. For data queries, give 2–4 concise sentences with the REAL numbers from the workspace data above.
-3. Never truncate or defer to a follow-up message. Complete the answer in one response.
-
-RESPONSE FORMAT:
-Return ONLY a valid JSON object with no surrounding text or markdown. Use one of these schemas:
-
-For regular responses:
-{"type":"text","content":"Your full answer with actual numbers and facts here"}
-
-For daily plan generation:
-{"type":"daily_plan","content":"Brief intro (1-2 sentences)","items":[{"title":"...","description":"...","module":"timelogs|standup|tasks|milestones|checkin","todo_priority":"high|medium|low","due_date":"YYYY-MM-DD or null"}]}
-
-For data responses (time, tasks, attendance, project details, etc.) — use this when you have structured data to show:
-{"type":"data_response","content":"Natural language summary with actual numbers","data":{"key":"value"}}
-
-For logging a time entry (when user says they worked N hours on something):
-{"type":"create_time_entry","content":"Brief confirmation message","data":{"project_name":"<exact project name>","project_id":"<numeric id from project list>","hours":<decimal number>,"description":"<concise work description>","is_billable":true}}
-${projectsForLLM}
-
-For showing leave balance (when user asks about leave balance, PTO, days off, vacation days):
-{"type":"leave_balance","content":"Here is your current leave balance:"}
-
-CONVERSATIONAL ACTION COLLECTION — VERY IMPORTANT:
-When the user wants to apply for leave / take time off / book vacation, submit a standup, or create a task:
-- Guide them step by step through conversation. Ask ONE question per reply using {"type":"text","content":"..."}.
-- Always list available options from the app data above before asking the user to choose.
-- Do NOT show all questions at once. Ask → wait → ask next → wait → execute.
-- Once you have every required field, immediately execute using action_execute (no confirmation step needed).
-
-Example flow for leave:
-  Turn 1 — user: "apply for leave" → you: list leave types from context and ask which one
-  Turn 2 — user picks type → you: ask for start date and end date
-  Turn 3 — user gives dates → you: return action_execute immediately
-
-For executing an action once all info is collected through conversation:
-{"type":"action_execute","content":"Brief confirmation (e.g. Applying 3 days Annual Leave…)","action":"create_leave|submit_standup|create_task","data":{...all fields...}}
-
-Required data per action:
-create_leave   → leave_type_id (numeric ID from context), start_date (YYYY-MM-DD), end_date (YYYY-MM-DD), reason ("" if none), is_half_day ("true"/"false")
-submit_standup → project_id (numeric ID), yesterday (text), today (text), blockers ("" if none)
-create_task    → title (text), project_id (numeric ID), task_priority (HIGH|MEDIUM|LOW), type (TASK|BUG|STORY), description (""), due_date (YYYY-MM-DD or "")
-
-Keep responses concise and actionable. For daily plans, generate 3-8 prioritized items.`;
+Rules:
+- Always put REAL numbers in content. Never say "here is your data:" without the actual data.
+- When user message starts with "[SELECTED]", they picked that option from the previous choice_list. NEVER show the same choice_list again. Treat it as answered and move to the NEXT required field immediately.
+- For leave: use leave_type_id = leave type NAME (e.g. "Sick Leave"), start_date(YYYY-MM-DD), end_date(YYYY-MM-DD), reason, is_half_day("true"/"false"). Show choice_list of names for type. After selection ask for dates.
+- submit_standup: project_id(numeric),yesterday,today,blockers
+- create_task: title,project_id(numeric),task_priority(HIGH|MEDIUM|LOW),type(TASK|BUG|STORY),description,due_date
+- Execute via action_execute only when ALL required fields are collected.`;
     console.log(`[BotController] message Step 4 ✓ — system_prompt_len=${systemPrompt.length}`);
 
     // Step 5: call LLM
     console.log('[BotController] message Step 5 — calling LLM');
     const messages = [
-      ...history.map((h) => ({ role: h.role, content: h.message })),
+      ...history.map((h) => ({ role: h.role, content: h.content || h.message || '' })),
       { role: 'user', content: isDailyPlan ? 'Generate my daily plan based on the module scan data provided.' : userMessage },
     ];
 
@@ -251,9 +214,14 @@ Keep responses concise and actionable. For daily plans, generate 3-8 prioritized
 
     // Step 7: persist conversation messages
     console.log('[BotController] message Step 7 — persisting conversation messages');
+    // For choice_list, append the options to the saved content so history gives LLM full context
+    const assistantContent = (parsedReply.type === 'choice_list' && Array.isArray(parsedReply.choices) && parsedReply.choices.length > 0)
+      ? `${parsedReply.content} [Options: ${parsedReply.choices.map((c) => `${c.label}(id:${c.value})`).join('|')}]`
+      : (parsedReply.content || llmResponse);
+
     await Promise.allSettled([
-      this.bot.saveMessage(userId, tenantId, session_id, 'user',      userMessage,                              message_type),
-      this.bot.saveMessage(userId, tenantId, session_id, 'assistant', parsedReply.content || llmResponse, parsedReply.type || 'text'),
+      this.bot.saveMessage(userId, tenantId, session_id, 'user',      userMessage,    message_type),
+      this.bot.saveMessage(userId, tenantId, session_id, 'assistant', assistantContent, parsedReply.type || 'text'),
     ]);
     console.log('[BotController] message Step 7 ✓ — messages persisted');
 
@@ -284,6 +252,7 @@ Keep responses concise and actionable. For daily plans, generate 3-8 prioritized
       reply:        parsedReply.content || llmResponse,
       message_type: parsedReply.type    || 'text',
       data:         parsedReply.data    || null,
+      choices:      parsedReply.choices  || [],
       items:        parsedReply.items   || [],
       scan_results: scanResults,
       saved_todos:  savedTodos.map((t) => ({ id: t?.ROWID || null })),
@@ -468,12 +437,14 @@ Keep responses concise and actionable. For daily plans, generate 3-8 prioritized
     const resolved = { ...data };
 
     try {
-      // Resolve leave_type_id if the LLM returned a name instead of a numeric ID
-      if (action === 'create_leave' && resolved.leave_type_id && isNaN(Number(resolved.leave_type_id))) {
+      // Resolve leave_type_id: LLM sends the leave type name (e.g. "Sick Leave").
+      // Look up the real ROWID by name to avoid float64 precision loss on 17-digit IDs.
+      if (action === 'create_leave' && resolved.leave_type_id) {
+        const nameHint = String(resolved.leave_type_id).trim().toLowerCase();
         const rows = await this.bot.db.query(
           `SELECT ROWID FROM ${TABLES.LEAVE_TYPES}
-           WHERE tenant_id = '${DataStoreService.escape(tenantId)}'
-             AND LOWER(name) LIKE '%${DataStoreService.escape(String(resolved.leave_type_id).toLowerCase())}%'
+           WHERE tenant_id='${DataStoreService.escape(tenantId)}'
+             AND LOWER(name) LIKE '%${DataStoreService.escape(nameHint)}%'
            LIMIT 1`
         );
         if (rows.length > 0) resolved.leave_type_id = String(rows[0].ROWID);

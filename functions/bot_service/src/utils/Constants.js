@@ -56,8 +56,8 @@ const LLM_CONFIG = Object.freeze({
   TOP_P:           0.9,
   TOP_K:           50,
   TEMPERATURE:     0.8,
-  MAX_TOKENS:      1000,
-  MAX_PLAN_TOKENS: 1500,
+  MAX_TOKENS:      350,
+  MAX_PLAN_TOKENS: 450,
   CACHE_KEY:       'ai_zoho_token',
   CACHE_TTL_HOURS: 1,
 });

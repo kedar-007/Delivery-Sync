@@ -23,23 +23,24 @@ const TOOLS = [
     name:     'leave_info',
     keywords: ['leave', 'pto', 'vacation', 'annual', 'sick', 'holiday', 'day off', 'time off', 'balance', 'remaining days', 'days left'],
     async run(userId, tenantId, db) {
-      // Fetch balances, types, and upcoming leaves in parallel; avoid year filter / join issues
+      const year = new Date().getFullYear();
+      // Match LeaveController pattern: unquoted numeric user_id + year filter
       const [rawBalances, types, upcoming] = await Promise.all([
         db.query(
           `SELECT allocated_days, used_days, pending_days, remaining_days, leave_type_id
            FROM ${TABLES.LEAVE_BALANCES}
-           WHERE tenant_id = '${e(tenantId)}' AND user_id = '${e(userId)}'
-           ORDER BY MODIFIEDTIME DESC LIMIT 20`
+           WHERE tenant_id = '${e(tenantId)}' AND user_id = ${Number(userId)} AND year = '${year}'
+           LIMIT 20`
         ),
         db.query(
           `SELECT ROWID, name FROM ${TABLES.LEAVE_TYPES} WHERE tenant_id = '${e(tenantId)}' LIMIT 20`
         ),
         db.query(
-          `SELECT lr.start_date, lr.end_date, lr.days_count, lr.status, lr.leave_type_id
-           FROM ${TABLES.LEAVE_REQUESTS} lr
-           WHERE lr.tenant_id = '${e(tenantId)}' AND lr.user_id = '${e(userId)}'
-             AND lr.status IN ('PENDING','APPROVED')
-           ORDER BY lr.start_date ASC LIMIT 5`
+          `SELECT start_date, end_date, days_count, status, leave_type_id
+           FROM ${TABLES.LEAVE_REQUESTS}
+           WHERE tenant_id = '${e(tenantId)}' AND user_id = '${e(userId)}'
+             AND status IN ('PENDING','APPROVED')
+           ORDER BY start_date ASC LIMIT 5`
         ),
       ]);
 
@@ -50,7 +51,7 @@ const TOOLS = [
       const lines = ['--- LEAVE ---'];
 
       if (types.length > 0) {
-        lines.push('Leave types available: ' + types.map((t) => `${t.name} [id:${t.ROWID}]`).join(', '));
+        lines.push('Leave types available: ' + types.map((t) => t.name).join(', '));
       }
 
       if (rawBalances.length > 0) {
@@ -429,27 +430,33 @@ class MCPService {
    * Pick which tools to run based on message + last few bot turns.
    * Always run project_overview as a lightweight base (provides IDs for actions).
    */
+  // Max chars per tool output — keeps total LLM input within the 1106-token context window
+  static TOOL_CHAR_LIMIT = 280;
+
   _selectTools(message, history = []) {
     const text = [
       message,
-      ...history.slice(-4).map((h) => h.message || ''),
+      ...history.slice(-2).map((h) => h.message || ''),
     ].join(' ').toLowerCase();
 
-    const selected = new Set(['project_overview']); // always included
+    // Score each non-base tool by keyword matches
+    const scored = TOOLS
+      .filter((t) => t.name !== 'project_overview')
+      .map((t) => ({
+        tool:  t,
+        score: t.keywords.filter((kw) => text.includes(kw)).length,
+      }))
+      .filter((s) => s.score > 0)
+      .sort((a, b) => b.score - a.score);
 
-    for (const tool of TOOLS) {
-      if (tool.name === 'project_overview') continue; // already in
-      if (tool.keywords.some((kw) => text.includes(kw))) {
-        selected.add(tool.name);
-      }
-    }
-
-    return TOOLS.filter((t) => selected.has(t.name));
+    // Always include project_overview; add at most 1 additional tool to stay within token budget
+    const base = TOOLS.find((t) => t.name === 'project_overview');
+    return scored.length > 0 ? [base, scored[0].tool] : [base];
   }
 
   /**
-   * Build the full context block for the LLM.
-   * Runs selected tools in parallel; failures are silently dropped.
+   * Build the compact context block for the LLM.
+   * Runs at most 2 tools in parallel; truncates each to TOOL_CHAR_LIMIT.
    */
   async buildContext(userId, tenantId, message, history = []) {
     const tools = this._selectTools(message, history);
@@ -463,15 +470,16 @@ class MCPService {
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
       if (r.status === 'fulfilled' && r.value) {
-        parts.push(r.value);
+        // Truncate each tool's output to stay within token budget
+        parts.push(String(r.value).slice(0, MCPService.TOOL_CHAR_LIMIT));
       } else if (r.status === 'rejected') {
         console.warn(`[MCPService] tool "${tools[i].name}" failed (non-fatal):`, r.reason?.message);
       }
     }
 
-    const context = parts.join('\n\n');
+    const context = parts.join('\n');
     console.log(`[MCPService] buildContext ✓ — ${tools.length} tools, ${context.length} chars`);
-    return context || 'No relevant workspace data available.';
+    return context || '';
   }
 
   /**
@@ -496,7 +504,9 @@ class MCPService {
       lines.push('User\'s projects: ' + projects.value.map((p) => `${p.name} [id:${p.ROWID}]`).join(', '));
     }
     if (leaveTypes.status === 'fulfilled' && leaveTypes.value.length > 0) {
-      lines.push('Leave types: ' + leaveTypes.value.map((t) => `${t.name} [id:${t.ROWID}]`).join(', '));
+      // Use the name as the id value so the LLM echoes it back as leave_type_id — avoids
+      // float64 precision loss on 17-digit Catalyst ROWIDs when the LLM serialises them.
+      lines.push('Leave types (use name as leave_type_id): ' + leaveTypes.value.map((t) => `${t.name}`).join(', '));
     }
     return lines.join('\n');
   }

@@ -167,9 +167,15 @@ class AuthMiddleware {
           const userId = String(user.ROWID);
           const tenantId = String(user.tenant_id);
 
-          const assignment = await db.query(
-            `SELECT org_role_id FROM ${TABLES.USER_ORG_ROLES} WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = 'true' LIMIT 1`
+          let assignment = await db.query(
+            `SELECT org_role_id FROM ${TABLES.USER_ORG_ROLES} WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active != 'false' LIMIT 1`
           );
+          // Fallback: tenant_id stored with precision loss (Number() rounding on old records) — query by user_id only
+          if (assignment.length === 0) {
+            assignment = await db.query(
+              `SELECT org_role_id FROM ${TABLES.USER_ORG_ROLES} WHERE user_id = '${userId}' AND is_active != 'false' LIMIT 1`
+            );
+          }
           console.log(`[AuthMiddleware] org role lookup for user=${userId} tenant=${tenantId}: found=${assignment.length} rows`, assignment.length > 0 ? assignment[0] : 'none');
 
           if (assignment.length > 0) {

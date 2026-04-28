@@ -71,8 +71,8 @@ class AdminController {
       const signupConfig = {
         platform_type: 'web',
         template_details: {
-          senders_mail: process.env.FROM_EMAIL || 'noreply@deliverysync.app',
-          subject: `${inviterName} invited you to join ${tenantName} on Delivery Sync`,
+          senders_mail: process.env.FROM_EMAIL || 'noreply@dsvopspulse.app',
+          subject: `${inviterName} invited you to join ${tenantName} on DSV OpsPulse`,
           message: buildInviteEmailHtml({ firstName, lastName, inviterName, tenantName, orgRoleName }),
         },
         redirect_url: `${process.env.APP_BASE_URL}`,
@@ -108,11 +108,11 @@ class AdminController {
       if (data.orgRoleId) {
         try {
           await this.db.insert(TABLES.USER_ORG_ROLES, {
-            tenant_id:   Number(tenantId),
+            tenant_id:   String(tenantId),
             user_id:     userId,
             org_role_id: String(data.orgRoleId),
             assigned_by: String(invitedBy),
-            is_active:   true,
+            is_active:   'true',
           });
         } catch (_) { /* non-fatal — user is still invited */ }
       }
@@ -529,7 +529,7 @@ class AdminController {
         });
       } else {
         await this.db.insert(TABLES.PERMISSION_OVERRIDES, {
-          tenant_id: Number(tenantId),
+          tenant_id: String(tenantId),
           user_id: String(userId),
           role: user.role,
           permissions: permJson,
@@ -632,209 +632,128 @@ function buildInviteEmailHtml({ firstName, lastName, inviterName, tenantName, or
   firstName = firstName || 'there';
   lastName  = lastName  || '';
   const fullName        = lastName ? `${firstName} ${lastName}` : firstName;
-  const inviterInitials = (inviterName || 'DS').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-  const features        = ROLE_FEATURES.TEAM_MEMBER;
-  const featureRows = features.map(f =>
-    `<tr><td style="padding:6px 0;vertical-align:top;font-size:20px;width:32px">${f.icon}</td>` +
-    `<td style="padding:6px 0;font-size:14px;color:#475569;line-height:1.6">${f.text}</td></tr>`
-  ).join('');
+  const inviterInitials = (inviterName || 'OP').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  const roleBadge       = orgRoleName || 'Team Member';
+  const ctaUrl          = '%LINK%';
 
-  // %LINK% is replaced by Catalyst with the actual activation URL
-  const ctaUrl = '%LINK%';
+  const roleStr = orgRoleName ? ` as <strong style="color:#374151">${escapeHtml(orgRoleName)}</strong>` : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>${escapeHtml(inviterName)} invited you to Delivery Sync</title>
 </head>
-<body style="margin:0;padding:0;background:#f0f4ff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1e293b">
+<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:Arial,Helvetica,sans-serif">
 
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4ff;padding:32px 0">
-<tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
+<table width="100%" border="0" cellpadding="0" cellspacing="0" bgcolor="#f1f5f9">
+<tr><td align="center" style="padding:20px 0">
 
-  <!-- Card -->
-  <tr><td style="background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.10)">
+  <table width="100%" border="0" cellpadding="0" cellspacing="0" style="max-width:520px">
 
     <!-- Top accent bar -->
-    <table width="100%" cellpadding="0" cellspacing="0">
-    <tr>
-      <td style="background:linear-gradient(90deg,#2563eb,#7c3aed,#db2777);height:5px;font-size:0">&nbsp;</td>
-    </tr>
-    </table>
+    <tr><td height="4" bgcolor="#4f46e5" style="font-size:0;line-height:0">&nbsp;</td></tr>
 
     <!-- Header -->
-    <table width="100%" cellpadding="0" cellspacing="0">
-    <tr>
-      <td style="background:linear-gradient(135deg,#1e3a8a 0%,#4f46e5 50%,#7c3aed 100%);padding:40px 48px 36px">
+    <tr><td bgcolor="#1e1b4b" style="padding:28px 20px 22px">
+      <table width="100%" border="0" cellpadding="0" cellspacing="0">
+      <tr>
+        <td width="36" height="36" bgcolor="#4f46e5" style="border-radius:8px;text-align:center;vertical-align:middle;font-size:18px;font-weight:bold;color:#ffffff;line-height:36px">
+          &#9889;
+        </td>
+        <td style="padding-left:10px;vertical-align:middle">
+          <div style="color:#ffffff;font-size:15px;font-weight:bold;margin:0;padding:0">DSV OpsPulse</div>
+          <div style="color:#a5b4fc;font-size:10px;margin-top:2px">Delivery Intelligence Platform</div>
+        </td>
+      </tr>
+      </table>
+      <div style="color:#ffffff;font-size:20px;font-weight:bold;line-height:1.3;margin-top:18px">You're invited to join</div>
+      <div style="color:#a5b4fc;font-size:20px;font-weight:bold;line-height:1.3;margin-bottom:8px">${escapeHtml(tenantName)}</div>
+      <div style="color:#c7d2fe;font-size:13px;line-height:1.5">${escapeHtml(inviterName)} has added you to this workspace.</div>
+    </td></tr>
 
-        <!-- Logo row -->
-        <table cellpadding="0" cellspacing="0" style="margin-bottom:32px">
-        <tr>
-          <td style="vertical-align:middle">
-            <table cellpadding="0" cellspacing="0">
-            <tr>
-              <td style="background:rgba(255,255,255,.15);border-radius:12px;width:44px;height:44px;text-align:center;vertical-align:middle">
-                <span style="font-size:22px;line-height:44px">📦</span>
-              </td>
-              <td style="padding-left:12px;vertical-align:middle">
-                <div style="color:#fff;font-size:18px;font-weight:700;letter-spacing:-.3px">Delivery Sync</div>
-                <div style="color:rgba(255,255,255,.55);font-size:11px;margin-top:1px">Delivery Intelligence Platform</div>
-              </td>
-            </tr>
-            </table>
-          </td>
-        </tr>
-        </table>
-
-        <!-- Inviter callout -->
-        <table cellpadding="0" cellspacing="0" style="background:rgba(255,255,255,.12);border-radius:14px;padding:20px 24px;margin-bottom:24px;width:100%">
-        <tr>
-          <td style="vertical-align:middle;width:52px">
-            <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#f59e0b,#ef4444);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:#fff;text-align:center;line-height:48px">${escapeHtml(inviterInitials)}</div>
-          </td>
-          <td style="padding-left:16px;vertical-align:middle">
-            <div style="color:rgba(255,255,255,.7);font-size:12px;text-transform:uppercase;letter-spacing:.8px;font-weight:600">Personal invitation from</div>
-            <div style="color:#fff;font-size:20px;font-weight:700;margin-top:3px">${escapeHtml(inviterName)}</div>
-          </td>
-        </tr>
-        </table>
-
-        <div style="color:#fff;font-size:28px;font-weight:800;line-height:1.25;letter-spacing:-.5px">
-          You're invited to join<br/>${escapeHtml(tenantName)}
-        </div>
-        <div style="color:rgba(255,255,255,.7);font-size:15px;margin-top:10px;line-height:1.6">
-          ${orgRoleName ? `You've been assigned the role of <strong style="color:#fff">${escapeHtml(orgRoleName)}</strong>.` : `${escapeHtml(inviterName)} has added you as a team member on Delivery Sync.`}
-        </div>
-
-      </td>
-    </tr>
-    </table>
-
-    <!-- Role badge strip -->
-    <table width="100%" cellpadding="0" cellspacing="0">
-    <tr>
-      <td style="background:#f8f5ff;border-bottom:1px solid #ede9fe;padding:16px 48px">
-        <table cellpadding="0" cellspacing="0">
-        <tr>
-          ${orgRoleName ? `
-          <td style="color:#6d28d9;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding-right:12px">Your role</td>
-          <td>
-            <span style="display:inline-block;background:#4f46e5;color:#fff;border-radius:20px;padding:5px 18px;font-size:13px;font-weight:700;letter-spacing:.2px">${escapeHtml(orgRoleName)}</span>
-          </td>
-          ` : `
-          <td style="color:#6d28d9;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding-right:12px">Access</td>
-          <td>
-            <span style="display:inline-block;background:#ede9fe;color:#5b21b6;border:1.5px solid #c4b5fd;border-radius:20px;padding:5px 16px;font-size:13px;font-weight:700;letter-spacing:.2px">Team Member</span>
-          </td>
-          `}
-        </tr>
-        </table>
-      </td>
-    </tr>
-    </table>
+    <!-- Inviter strip — single column, no letter-spacing -->
+    <tr><td bgcolor="#f5f3ff" style="border-bottom:1px solid #e5e7eb;padding:14px 20px">
+      <table border="0" cellpadding="0" cellspacing="0">
+      <tr>
+        <td width="36" height="36" bgcolor="#4f46e5" style="border-radius:18px;text-align:center;line-height:36px;font-size:13px;font-weight:bold;color:#ffffff;vertical-align:middle">
+          ${escapeHtml(inviterInitials)}
+        </td>
+        <td style="padding-left:10px;vertical-align:middle">
+          <div style="font-size:11px;color:#7c3aed;font-weight:bold">Invited by</div>
+          <div style="font-size:14px;font-weight:bold;color:#1e1b4b;margin-top:2px">${escapeHtml(inviterName)}</div>
+          <table border="0" cellpadding="0" cellspacing="0" style="margin-top:6px">
+          <tr>
+            <td bgcolor="#4f46e5" style="border-radius:12px;padding:3px 12px">
+              <span style="color:#ffffff;font-size:11px;font-weight:bold;white-space:nowrap">${escapeHtml(roleBadge)}</span>
+            </td>
+          </tr>
+          </table>
+        </td>
+      </tr>
+      </table>
+    </td></tr>
 
     <!-- Body -->
-    <table width="100%" cellpadding="0" cellspacing="0">
-    <tr>
-      <td style="padding:36px 48px">
+    <tr><td bgcolor="#ffffff" style="padding:24px 20px 20px">
 
-        <!-- Greeting -->
-        <p style="font-size:16px;color:#374151;margin:0 0 8px;line-height:1.7">
-          Hi <strong>${escapeHtml(fullName)}</strong>,
-        </p>
-        <p style="font-size:15px;color:#4b5563;margin:0 0 28px;line-height:1.7">
-          <strong>${escapeHtml(inviterName)}</strong> has personally invited you to collaborate on the
-          <strong>${escapeHtml(tenantName)}</strong> delivery workspace${orgRoleName ? ` as <strong>${escapeHtml(orgRoleName)}</strong>` : ''}. Here's what you'll be able to do:
-        </p>
+      <p style="margin:0 0 6px;font-size:15px;color:#111827;font-weight:bold">Hi ${escapeHtml(fullName)},</p>
+      <p style="margin:0 0 24px;font-size:14px;color:#6b7280;line-height:1.6">
+        <strong style="color:#374151">${escapeHtml(inviterName)}</strong> has invited you to collaborate on the <strong style="color:#374151">${escapeHtml(tenantName)}</strong> workspace${roleStr}. Accept your invitation below to get started.
+      </p>
 
-        <!-- Role features -->
-        <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:20px 24px;margin-bottom:28px">
-        <tr><td>
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#64748b;margin-bottom:14px">What you can do</div>
-          <table cellpadding="0" cellspacing="0" style="width:100%">
-          ${featureRows}
-          </table>
-        </td></tr>
-        </table>
-
-        <!-- CTA -->
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px">
+      <!-- CTA — table-based button so Gmail can't break the text -->
+      <table width="100%" border="0" cellpadding="0" cellspacing="0" style="margin-bottom:24px">
+      <tr><td align="center">
+        <table border="0" cellpadding="0" cellspacing="0">
         <tr>
-          <td align="center">
-            <a href="${ctaUrl}" style="display:inline-block;background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;text-decoration:none;font-size:16px;font-weight:700;padding:16px 44px;border-radius:14px;box-shadow:0 6px 20px rgba(99,102,241,.4);letter-spacing:.1px">
-              Accept invitation &amp; sign in &rarr;
-            </a>
-            <div style="font-size:12px;color:#94a3b8;margin-top:10px">
-              Button not working? <a href="${ctaUrl}" style="color:#6366f1;text-decoration:underline">Copy this link</a>
-            </div>
+          <td bgcolor="#4f46e5" style="border-radius:8px;padding:0">
+            <a href="${ctaUrl}" style="display:block;color:#ffffff;text-decoration:none;font-size:15px;font-weight:bold;padding:14px 36px;white-space:nowrap">Accept Invitation</a>
           </td>
         </tr>
         </table>
+        <p style="margin:8px 0 0;font-size:11px;color:#9ca3af">Button not working? <a href="${ctaUrl}" style="color:#4f46e5;text-decoration:underline">Copy this link</a></p>
+      </td></tr>
+      </table>
 
-        <!-- Steps -->
-        <table width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #f1f5f9;padding-top:24px">
-        <tr><td>
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#64748b;margin-bottom:16px">How to get started</div>
-          <table cellpadding="0" cellspacing="0">
-          <tr>
-            <td style="vertical-align:top;padding-bottom:14px">
-              <table cellpadding="0" cellspacing="0">
-              <tr>
-                <td style="width:30px;height:30px;background:#e0e7ff;border-radius:50%;text-align:center;vertical-align:middle;font-size:13px;font-weight:700;color:#4f46e5;line-height:30px">1</td>
-                <td style="padding-left:12px;font-size:14px;color:#475569;line-height:1.6">Click <strong>Accept invitation</strong> above — you'll be taken to the Delivery Sync login page.</td>
-              </tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="vertical-align:top;padding-bottom:14px">
-              <table cellpadding="0" cellspacing="0">
-              <tr>
-                <td style="width:30px;height:30px;background:#e0e7ff;border-radius:50%;text-align:center;vertical-align:middle;font-size:13px;font-weight:700;color:#4f46e5;line-height:30px">2</td>
-                <td style="padding-left:12px;font-size:14px;color:#475569;line-height:1.6">Sign in with your Zoho account — or create a free one if you don't have one yet.</td>
-              </tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="vertical-align:top">
-              <table cellpadding="0" cellspacing="0">
-              <tr>
-                <td style="width:30px;height:30px;background:#e0e7ff;border-radius:50%;text-align:center;vertical-align:middle;font-size:13px;font-weight:700;color:#4f46e5;line-height:30px">3</td>
-                <td style="padding-left:12px;font-size:14px;color:#475569;line-height:1.6">You'll land directly on the <strong>${escapeHtml(tenantName)}</strong> workspace, ready to go.</td>
-              </tr>
-              </table>
-            </td>
-          </tr>
-          </table>
-        </td></tr>
-        </table>
+      <!-- Divider -->
+      <table width="100%" border="0" cellpadding="0" cellspacing="0"><tr><td style="border-top:1px solid #f3f4f6;font-size:0;line-height:0;padding-bottom:18px">&nbsp;</td></tr></table>
 
-      </td>
-    </tr>
-    </table>
+      <div style="font-size:11px;font-weight:bold;color:#9ca3af;margin-bottom:14px">HOW TO GET STARTED</div>
+
+      <!-- Steps — no letter-spacing anywhere -->
+      <table border="0" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom:10px">
+      <tr>
+        <td width="26" height="26" bgcolor="#ede9fe" style="border-radius:13px;text-align:center;line-height:26px;font-size:11px;font-weight:bold;color:#4f46e5;vertical-align:middle">1</td>
+        <td style="padding-left:10px;font-size:13px;color:#4b5563;line-height:1.5">Click <strong style="color:#374151">Accept Invitation</strong> in this email.</td>
+      </tr>
+      </table>
+      <table border="0" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom:10px">
+      <tr>
+        <td width="26" height="26" bgcolor="#ede9fe" style="border-radius:13px;text-align:center;line-height:26px;font-size:11px;font-weight:bold;color:#4f46e5;vertical-align:middle">2</td>
+        <td style="padding-left:10px;font-size:13px;color:#4b5563;line-height:1.5">Set your password on the next screen.</td>
+      </tr>
+      </table>
+      <table border="0" cellpadding="0" cellspacing="0" width="100%">
+      <tr>
+        <td width="26" height="26" bgcolor="#ede9fe" style="border-radius:13px;text-align:center;line-height:26px;font-size:11px;font-weight:bold;color:#4f46e5;vertical-align:middle">3</td>
+        <td style="padding-left:10px;font-size:13px;color:#4b5563;line-height:1.5">Log in and start collaborating on <strong style="color:#374151">${escapeHtml(tenantName)}</strong>.</td>
+      </tr>
+      </table>
+
+    </td></tr>
 
     <!-- Footer -->
-    <table width="100%" cellpadding="0" cellspacing="0">
-    <tr>
-      <td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:24px 48px;text-align:center">
-        <p style="font-size:12px;color:#94a3b8;margin:0;line-height:1.8">
-          This invitation was sent by <strong style="color:#64748b">${escapeHtml(inviterName)}</strong>
-          on behalf of <strong style="color:#64748b">${escapeHtml(tenantName)}</strong>.<br/>
-          If you weren't expecting this, you can safely ignore this email.<br/>
-          &copy; ${new Date().getFullYear()} Delivery Sync &mdash; Delivery Intelligence Platform
-        </p>
-      </td>
-    </tr>
-    </table>
+    <tr><td bgcolor="#f9fafb" style="border-top:1px solid #e5e7eb;padding:16px 20px;text-align:center">
+      <p style="margin:0;font-size:11px;color:#9ca3af;line-height:1.7">
+        Sent by <strong style="color:#6b7280">${escapeHtml(inviterName)}</strong> on behalf of <strong style="color:#6b7280">${escapeHtml(tenantName)}</strong>.<br/>
+        If you weren't expecting this, you can safely ignore this email.<br/>
+        &copy; ${new Date().getFullYear()} DSV OpsPulse
+      </p>
+    </td></tr>
 
-  </td></tr>
-  <!-- End card -->
+  </table>
 
-</table>
 </td></tr>
 </table>
 

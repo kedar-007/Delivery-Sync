@@ -459,6 +459,7 @@ export const attendanceApi = {
   deleteShift:    (shiftId: string) => peopleClient.delete(`/attendance/shifts/${shiftId}`).then((r) => r.data.data),
   override:       (recordId: string, data: unknown) => peopleClient.patch(`/attendance/${recordId}/override`, data).then((r) => r.data.data),
   anomalies:      () => peopleClient.get('/attendance/anomalies').then((r) => r.data.data),
+  notCheckedIn:   () => peopleClient.get('/attendance/not-checked-in').then((r) => r.data.data),
   summary:        (params?: Record<string, string>) => peopleClient.get('/attendance/summary', { params }).then((r) => r.data.data),
   exportCsv:      (params?: Record<string, string>) => peopleClient.get('/attendance/export', { params, responseType: 'blob' }).then((r) => r.data),
 };

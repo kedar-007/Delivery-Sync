@@ -74,12 +74,12 @@ class OrgRolesController {
 
       // Catalyst DataStore rejects null values in INSERT — omit optional fields when absent
       const insertPayload = {
-        tenant_id: Number(tenantId),
+        tenant_id: String(tenantId),
         name: name.trim(),
         description: description.trim(),
         color: roleColor,
         level: Number(level) || 0,
-        is_active: true,
+        is_active: 'true',
       };
       if (parentRoleId) insertPayload.parent_role_id = String(parentRoleId);
 
@@ -165,7 +165,7 @@ class OrgRolesController {
       if (!existing) return ResponseHelper.notFound(res, 'Role not found');
 
       // Soft-delete
-      await this.db.update(TABLES.ORG_ROLES, { ROWID: roleId, is_active: false });
+      await this.db.update(TABLES.ORG_ROLES, { ROWID: roleId, is_active: 'false' });
 
       // Un-assign all users from this role
       const assignments = await this.db.query(
@@ -267,11 +267,11 @@ class OrgRolesController {
         }
 
         await this.db.insert(TABLES.USER_ORG_ROLES, {
-          tenant_id: Number(tenantId),
+          tenant_id: String(tenantId),
           user_id: String(userId),
           org_role_id: String(orgRoleId),
           assigned_by: String(performedBy),
-          is_active: true,
+          is_active: 'true',
         });
       }
 
@@ -301,21 +301,24 @@ class OrgRolesController {
       }
 
       const roleIds = roles.map((r) => String(r.ROWID));
-      const permsMap   = await this._fetchRolePermissionsMap(tenantId, roleIds);
-      const countMap   = await this._fetchUserCountMap(tenantId);
+      const permsMap  = await this._fetchRolePermissionsMap(tenantId, roleIds);
+      const usersMap  = await this._fetchUsersPerRole(roleIds);
 
-      const nodes = roles.map((r) => ({
-        id:           String(r.ROWID),
-        name:         r.name,
-        description:  r.description || '',
-        color:        r.color || '#4F46E5',
-        level:        Number(r.level) || 0,
-        parentRoleId: r.parent_role_id ? String(r.parent_role_id) : null,
-        permissions:  permsMap[String(r.ROWID)] || [],
-        userCount:    countMap[String(r.ROWID)]  || 0,
-      }));
+      const nodes = roles.map((r) => {
+        const users = usersMap[String(r.ROWID)] || [];
+        return {
+          id:           String(r.ROWID),
+          name:         r.name,
+          description:  r.description || '',
+          color:        r.color || '#4F46E5',
+          level:        Number(r.level) || 0,
+          parentRoleId: r.parent_role_id ? String(r.parent_role_id) : null,
+          permissions:  permsMap[String(r.ROWID)] || [],
+          users,
+          userCount:    users.length,
+        };
+      });
 
-      // Edges from parent→child relationships
       const edges = nodes
         .filter((n) => n.parentRoleId)
         .map((n) => ({ from: n.parentRoleId, to: n.id }));
@@ -497,20 +500,35 @@ class OrgRolesController {
 
   async _fetchRoles(tenantId) {
     try {
-      return await this.db.query(
-        `SELECT * FROM ${TABLES.ORG_ROLES} WHERE tenant_id = '${tenantId}' ` +
-        `AND is_active = 'true' ORDER BY level ASC, ROWID ASC LIMIT 300`
+      let rows = await this.db.query(
+        `SELECT * FROM ${TABLES.ORG_ROLES} WHERE tenant_id = '${tenantId}' ORDER BY level ASC, ROWID ASC LIMIT 300`
       );
-    } catch (_) { return []; }
+      // Recovery: old records were inserted with Number(tenantId) which rounds 17-digit IDs.
+      // If nothing found with the exact string, try the Number()-rounded value.
+      if (rows.length === 0) {
+        const rounded = String(Number(tenantId));
+        if (rounded !== tenantId) {
+          rows = await this.db.query(
+            `SELECT * FROM ${TABLES.ORG_ROLES} WHERE tenant_id = '${rounded}' ORDER BY level ASC, ROWID ASC LIMIT 300`
+          );
+        }
+      }
+      return rows.filter((r) => r.is_active !== false && r.is_active !== 'false' && r.is_active !== 0);
+    } catch (err) {
+      console.error('[OrgRolesController] _fetchRoles error:', err.message);
+      return [];
+    }
   }
 
   async _fetchRolePermissionsMap(tenantId, roleIds) {
     if (!roleIds.length) return {};
     try {
       const inClause = roleIds.map((id) => `'${id}'`).join(',');
+      // No tenant_id filter — role IDs are already specific; avoids missing records
+      // stored with Number()-rounded tenant_id
       const rows = await this.db.query(
         `SELECT org_role_id, permissions FROM ${TABLES.ORG_ROLE_PERMISSIONS} ` +
-        `WHERE tenant_id = '${tenantId}' AND org_role_id IN (${inClause}) LIMIT 300`
+        `WHERE org_role_id IN (${inClause}) LIMIT 300`
       );
       const map = {};
       rows.forEach((r) => {
@@ -522,9 +540,17 @@ class OrgRolesController {
 
   async _fetchUserCountMap(tenantId) {
     try {
-      const rows = await this.db.query(
-        `SELECT org_role_id FROM ${TABLES.USER_ORG_ROLES} WHERE tenant_id = '${tenantId}' AND is_active = 'true' LIMIT 300`
+      let rows = await this.db.query(
+        `SELECT org_role_id FROM ${TABLES.USER_ORG_ROLES} WHERE tenant_id = '${tenantId}' AND is_active != 'false' LIMIT 300`
       );
+      if (rows.length === 0) {
+        const rounded = String(Number(tenantId));
+        if (rounded !== tenantId) {
+          rows = await this.db.query(
+            `SELECT org_role_id FROM ${TABLES.USER_ORG_ROLES} WHERE tenant_id = '${rounded}' AND is_active != 'false' LIMIT 300`
+          );
+        }
+      }
       const map = {};
       rows.forEach((r) => {
         const id = String(r.org_role_id);
@@ -534,11 +560,46 @@ class OrgRolesController {
     } catch (_) { return {}; }
   }
 
+  async _fetchUsersPerRole(roleIds) {
+    if (!roleIds.length) return {};
+    try {
+      const inClause = roleIds.map((id) => `'${id}'`).join(',');
+      // No tenant_id filter — avoids precision-loss mismatch on records created with Number(tenantId)
+      const assignments = await this.db.query(
+        `SELECT user_id, org_role_id FROM ${TABLES.USER_ORG_ROLES} ` +
+        `WHERE org_role_id IN (${inClause}) AND is_active != 'false' LIMIT 500`
+      );
+      if (!assignments.length) return {};
+
+      const userIds = [...new Set(assignments.map((a) => String(a.user_id)))];
+      const userInClause = userIds.map((id) => `'${id}'`).join(',');
+      const users = await this.db.query(
+        `SELECT ROWID, name, avatar_url FROM ${TABLES.USERS} WHERE ROWID IN (${userInClause}) LIMIT 500`
+      );
+      const userMap = {};
+      users.forEach((u) => { userMap[String(u.ROWID)] = u; });
+
+      const map = {};
+      assignments.forEach((a) => {
+        const roleId = String(a.org_role_id);
+        const user   = userMap[String(a.user_id)];
+        if (!user) return;
+        if (!map[roleId]) map[roleId] = [];
+        map[roleId].push({
+          id:        String(user.ROWID),
+          name:      user.name || 'Unknown',
+          avatarUrl: user.avatar_url || null,
+          initials:  (user.name || 'U').split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase(),
+        });
+      });
+      return map;
+    } catch (_) { return {}; }
+  }
+
   async _loadRolePermissions(tenantId, roleId) {
     try {
       const rows = await this.db.query(
-        `SELECT permissions FROM ${TABLES.ORG_ROLE_PERMISSIONS} WHERE tenant_id = '${tenantId}' ` +
-        `AND org_role_id = '${roleId}' LIMIT 1`
+        `SELECT permissions FROM ${TABLES.ORG_ROLE_PERMISSIONS} WHERE org_role_id = '${roleId}' LIMIT 1`
       );
       if (!rows.length) return [];
       return JSON.parse(rows[0].permissions || '[]');
@@ -555,7 +616,7 @@ class OrgRolesController {
       await this.db.update(TABLES.ORG_ROLE_PERMISSIONS, { ROWID: String(existing[0].ROWID), permissions: permJson });
     } else {
       await this.db.insert(TABLES.ORG_ROLE_PERMISSIONS, {
-        tenant_id: Number(tenantId),
+        tenant_id: String(tenantId),
         org_role_id: String(roleId),
         permissions: permJson,
       });

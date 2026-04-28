@@ -12,6 +12,7 @@ const auth = AuthMiddleware.authenticate;
 const can = RBACMiddleware.require;
 const ctrl = (req) => new NotificationController(req.catalystApp);
 
+router.get('/status',   auth, asyncHandler((req, res) => ctrl(req).tableStatus(req, res)));
 router.get('/',         auth, can(PERMISSIONS.NOTIFICATION_READ), asyncHandler((req, res) => ctrl(req).getNotifications(req, res)));
 router.get('/count',    auth, can(PERMISSIONS.NOTIFICATION_READ), asyncHandler((req, res) => ctrl(req).getUnreadCount(req, res)));
 router.patch('/read-all', auth, can(PERMISSIONS.NOTIFICATION_READ), asyncHandler((req, res) => ctrl(req).markAllRead(req, res)));

@@ -58,10 +58,11 @@ class NotificationService {
         entity_id: entityId ? String(entityId) : '',
         metadata: JSON.stringify(metadata),
       });
+      console.log(`[NotificationService] sendInApp OK | tenant=${tenantId} user=${userId} type=${type} title="${title}"`);
       // Fire-and-forget web push to active browser sessions
       this._sendWebPush(userId, title, message).catch(() => {});
     } catch (err) {
-      console.error('[NotificationService] sendInApp failed:', err.message);
+      console.error(`[NotificationService] sendInApp FAILED (notifications table may not exist in Catalyst DataStore) | tenant=${tenantId} user=${userId} type=${type} | error: ${err.message}`);
     }
   }
 

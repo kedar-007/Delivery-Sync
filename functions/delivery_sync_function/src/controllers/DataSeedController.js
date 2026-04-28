@@ -1270,6 +1270,132 @@ class DataSeedController {
       return ResponseHelper.serverError(res, err.message);
     }
   }
+
+  /**
+   * POST /api/data-seed/seed-org-roles
+   * Body: { tenantId: "17682000001002706" }   (optional — falls back to currentUser.tenantId)
+   * Creates Delivery Lead, Team Lead, Developer, BA roles with appropriate permissions.
+   * Skips roles that already exist (idempotent).
+   */
+  async seedOrgRoles(req, res) {
+    try {
+      const targetTenantId = (req.body && req.body.tenantId) ? String(req.body.tenantId) : req.currentUser.tenantId;
+
+      const DELIVERY_LEAD_PERMS = [
+        'PROJECT_READ','PROJECT_WRITE','SPRINT_READ','SPRINT_WRITE',
+        'TASK_READ','TASK_WRITE','TASK_COMMENT_WRITE',
+        'STANDUP_SUBMIT','STANDUP_READ','EOD_SUBMIT','EOD_READ',
+        'ACTION_READ','ACTION_WRITE','BLOCKER_READ','BLOCKER_WRITE',
+        'RAID_READ','RAID_WRITE','DECISION_READ','DECISION_WRITE',
+        'MILESTONE_READ','MILESTONE_WRITE','REPORT_READ','REPORT_WRITE',
+        'DASHBOARD_READ','TEAM_READ','TEAM_WRITE',
+        'ATTENDANCE_READ','ATTENDANCE_WRITE','ATTENDANCE_ADMIN',
+        'LEAVE_READ','LEAVE_WRITE','LEAVE_APPROVE',
+        'TIME_READ','TIME_WRITE','TIME_APPROVE','TIME_ANALYTICS',
+        'BADGE_READ','BADGE_WRITE','BADGE_AWARD',
+        'ANNOUNCEMENT_READ','ANNOUNCEMENT_WRITE',
+        'ORG_READ','INVITE_USER','NOTIFICATION_READ',
+        'PROFILE_READ','ASSET_READ',
+        'AI_INSIGHTS','AI_PERFORMANCE','AI_TEAM_ANALYSIS',
+      ];
+      const TEAM_LEAD_PERMS = [
+        'PROJECT_READ','PROJECT_WRITE','SPRINT_READ','SPRINT_WRITE',
+        'TASK_READ','TASK_WRITE','TASK_COMMENT_WRITE',
+        'STANDUP_SUBMIT','STANDUP_READ','EOD_SUBMIT','EOD_READ',
+        'ACTION_READ','ACTION_WRITE','BLOCKER_READ','BLOCKER_WRITE',
+        'RAID_READ','DECISION_READ','DECISION_WRITE',
+        'MILESTONE_READ','MILESTONE_WRITE','REPORT_READ',
+        'DASHBOARD_READ','TEAM_READ','TEAM_WRITE',
+        'ATTENDANCE_READ','ATTENDANCE_WRITE',
+        'LEAVE_READ','LEAVE_WRITE','LEAVE_APPROVE',
+        'TIME_READ','TIME_WRITE','TIME_APPROVE',
+        'BADGE_READ','BADGE_AWARD',
+        'ANNOUNCEMENT_READ','ORG_READ','INVITE_USER','NOTIFICATION_READ',
+        'PROFILE_READ','ASSET_READ',
+        'AI_INSIGHTS','AI_PERFORMANCE',
+      ];
+      const DEVELOPER_PERMS = [
+        'PROJECT_READ','SPRINT_READ',
+        'TASK_READ','TASK_WRITE','TASK_COMMENT_WRITE',
+        'STANDUP_SUBMIT','STANDUP_READ','EOD_SUBMIT','EOD_READ',
+        'ACTION_READ','ACTION_WRITE','BLOCKER_READ',
+        'RAID_READ','DECISION_READ','MILESTONE_READ',
+        'DASHBOARD_READ','NOTIFICATION_READ',
+        'ATTENDANCE_READ','ATTENDANCE_WRITE',
+        'LEAVE_READ','LEAVE_WRITE',
+        'TIME_READ','TIME_WRITE',
+        'BADGE_READ','PROFILE_READ','ASSET_READ',
+        'ANNOUNCEMENT_READ','ORG_READ',
+        'AI_INSIGHTS',
+      ];
+      const BA_PERMS = [
+        'PROJECT_READ','PROJECT_WRITE','SPRINT_READ',
+        'TASK_READ','TASK_WRITE','TASK_COMMENT_WRITE',
+        'STANDUP_SUBMIT','STANDUP_READ','EOD_SUBMIT','EOD_READ',
+        'ACTION_READ','ACTION_WRITE','BLOCKER_READ','BLOCKER_WRITE',
+        'RAID_READ','RAID_WRITE','DECISION_READ','DECISION_WRITE',
+        'MILESTONE_READ','MILESTONE_WRITE','REPORT_READ',
+        'DASHBOARD_READ','NOTIFICATION_READ',
+        'ATTENDANCE_READ','LEAVE_READ','LEAVE_WRITE',
+        'TIME_READ','TIME_WRITE',
+        'BADGE_READ','PROFILE_READ','ASSET_READ',
+        'ANNOUNCEMENT_READ','ORG_READ',
+        'AI_INSIGHTS','AI_PERFORMANCE',
+      ];
+
+      const ROLE_DEFS = [
+        { name: 'Delivery Lead', description: 'Delivery Lead — oversees end-to-end project delivery', color: '#4F46E5', perms: DELIVERY_LEAD_PERMS },
+        { name: 'Team Lead',     description: 'Team Lead — manages a squad and coordinates delivery',  color: '#0EA5E9', perms: TEAM_LEAD_PERMS },
+        { name: 'Developer',     description: 'Developer — individual contributor',                     color: '#10B981', perms: DEVELOPER_PERMS },
+        { name: 'BA',            description: 'Business Analyst — requirements and process analysis',   color: '#F59E0B', perms: BA_PERMS },
+      ];
+
+      const ALL_PERM_KEYS = Object.values(PERMISSIONS).filter((p) => p !== 'DATA_SEED');
+      const created = [];
+      const skipped = [];
+
+      for (const def of ROLE_DEFS) {
+        // Idempotent — skip if role already exists
+        const existing = await this.db.query(
+          `SELECT ROWID FROM ${TABLES.ORG_ROLES} WHERE tenant_id = '${targetTenantId}' ` +
+          `AND name = '${DataStoreService.escape(def.name)}' AND is_active = 'true' LIMIT 1`
+        );
+        if (existing.length > 0) { skipped.push(def.name); continue; }
+
+        const row    = await this.db.insert(TABLES.ORG_ROLES, {
+          tenant_id:   String(targetTenantId),
+          name:        def.name,
+          description: def.description,
+          color:       def.color,
+          level:       0,
+          is_active:   'true',
+        });
+        const roleId = String(row.ROWID);
+
+        // Insert permissions
+        const cleanPerms = def.perms.filter((p) => ALL_PERM_KEYS.includes(p));
+        try {
+          await this.db.insert(TABLES.ORG_ROLE_PERMISSIONS, {
+            tenant_id:    String(targetTenantId),
+            org_role_id:  roleId,
+            permissions:  JSON.stringify(cleanPerms),
+          });
+        } catch (_) {}
+
+        created.push({ name: def.name, id: roleId, permissions: cleanPerms.length });
+      }
+
+      return ResponseHelper.success(res, {
+        tenant_id: targetTenantId,
+        created,
+        skipped,
+        message: `${created.length} role(s) created, ${skipped.length} already existed`,
+      });
+    } catch (err) {
+      console.error('[DataSeedController] seedOrgRoles:', err.message);
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
 }
 
 module.exports = DataSeedController;

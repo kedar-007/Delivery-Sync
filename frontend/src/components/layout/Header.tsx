@@ -1,6 +1,6 @@
 import React, { useState, Component, ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Settings, Sun, Moon, X, BellRing, Bug } from 'lucide-react';
+import { Bell, Settings, Sun, Moon, X, BellRing, Bug } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useI18n, LOCALES, LocaleCode } from '../../contexts/I18nContext';
@@ -15,8 +15,17 @@ import { useFestival } from '../../contexts/FestivalContext';
 class NotificationBellBoundary extends Component<{ children: ReactNode }, { crashed: boolean }> {
   state = { crashed: false };
   static getDerivedStateFromError() { return { crashed: true }; }
-  componentDidCatch(err: unknown) { console.warn('[NotificationBell] boundary caught:', err); }
-  render() { return this.state.crashed ? null : this.props.children; }
+  componentDidCatch(err: unknown) { console.error('[NotificationBell] crashed:', err); }
+  render() {
+    if (this.state.crashed) {
+      return (
+        <button className="relative p-2 rounded-lg transition-colors" style={{ color: 'rgb(var(--ds-text-muted))' }} title="Notifications unavailable">
+          <Bell size={18} />
+        </button>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 interface HeaderProps {

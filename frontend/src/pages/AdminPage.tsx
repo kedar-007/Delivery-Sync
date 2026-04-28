@@ -997,8 +997,8 @@ const DataSharingModal = ({
 };
 
 // ─── Org Chart — visual tree with SVG connectors ─────────────────────────────
-const ORG_NODE_W  = 164;   // card width  (px)
-const ORG_CARD_H  = 208;   // approx card height (px) — used for SVG line origins
+const ORG_NODE_W  = 172;   // card width  (px)
+const ORG_CARD_H  = 240;   // approx card height (px) — used for SVG line origins
 const ORG_V_GAP   = 80;    // vertical gap between a card bottom and the next level top
 const ORG_H_GAP   = 20;    // horizontal gap between sibling subtrees
 
@@ -1208,10 +1208,35 @@ const OrgChartView = () => {
           {node.name}
         </span>
 
-        {/* Member count */}
-        <span className="text-xs text-gray-400">
-          {node.userCount ?? 0} {(node.userCount ?? 0) === 1 ? 'member' : 'members'}
-        </span>
+        {/* Member avatars */}
+        {Array.isArray(node.users) && node.users.length > 0 ? (
+          <div className="w-full mt-1">
+            <div className="flex flex-wrap justify-center gap-1 mb-1">
+              {node.users.slice(0, 6).map((u: any) => (
+                <div
+                  key={u.id}
+                  title={u.name}
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold ring-2 ring-white shrink-0"
+                  style={{ background: node.color }}
+                >
+                  {u.avatarUrl
+                    ? <img src={u.avatarUrl} alt={u.name} className="w-7 h-7 rounded-full object-cover" />
+                    : u.initials}
+                </div>
+              ))}
+              {node.users.length > 6 && (
+                <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-500 ring-2 ring-white shrink-0">
+                  +{node.users.length - 6}
+                </div>
+              )}
+            </div>
+            <span className="text-xs text-gray-400">
+              {node.users.length} {node.users.length === 1 ? 'member' : 'members'}
+            </span>
+          </div>
+        ) : (
+          <span className="text-xs text-gray-400">No members yet</span>
+        )}
       </div>
     );
   };

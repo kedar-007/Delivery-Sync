@@ -14,16 +14,21 @@ class OrgController {
   // GET /api/people/org/hierarchy — flat list enriched with manager info
   async hierarchy(req, res) {
     try {
-      const profiles = await this.db.findWhere(TABLES.USER_PROFILES, req.tenantId, '', { limit: 200 });
       const users    = await this.db.findAll(TABLES.USERS, { tenant_id: req.tenantId }, { limit: 200 });
-      const userMap  = {};
+      const profiles = await this.db.findWhere(TABLES.USER_PROFILES, req.tenantId, '', { limit: 200 });
+
+      const profileMap = {};
+      profiles.forEach(p => { profileMap[String(p.user_id)] = p; });
+
+      const userMap = {};
       users.forEach(u => { userMap[String(u.ROWID)] = u; });
 
-      const tree = profiles.map(p => {
-        const u = userMap[String(p.user_id)] || {};
+      const tree = users.map(u => {
+        const uid = String(u.ROWID);
+        const p   = profileMap[uid] || {};
         const mgr = p.reporting_manager_id ? (userMap[String(p.reporting_manager_id)] || {}) : null;
         return {
-          user_id: String(p.user_id),
+          user_id: uid,
           name: u.name || '',
           email: u.email || '',
           avatar_url: u.avatar_url || p.photo_url || '',

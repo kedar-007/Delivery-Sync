@@ -259,6 +259,22 @@ const SCHEMA = {
       { name: 'metadata',          type: 'TEXT', nullable: true, note: 'JSON string' },
     ],
   },
+
+  // In-app notification inbox (bell dropdown).
+  // Must be created in Catalyst DataStore console with these exact column names.
+  notifications: {
+    columns: [
+      { name: 'tenant_id',    type: 'TEXT', nullable: false, indexed: true },
+      { name: 'user_id',      type: 'TEXT', nullable: false, indexed: true },
+      { name: 'title',        type: 'TEXT', nullable: false },
+      { name: 'message',      type: 'TEXT', nullable: true },
+      { name: 'type',         type: 'TEXT', nullable: false, indexed: true, note: 'NOTIFICATION_TYPE enum' },
+      { name: 'is_read',      type: 'TEXT', nullable: false, note: "'true'|'false'" },
+      { name: 'entity_type',  type: 'TEXT', nullable: true },
+      { name: 'entity_id',    type: 'TEXT', nullable: true },
+      { name: 'metadata',     type: 'TEXT', nullable: true, note: 'JSON string' },
+    ],
+  },
 };
 
 module.exports = SCHEMA;

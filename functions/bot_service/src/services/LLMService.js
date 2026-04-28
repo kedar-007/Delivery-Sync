@@ -118,8 +118,10 @@ class LLMService {
     const token = await this.getAccessToken();
 
     const maxTokens = options.max_tokens ?? LLM_CONFIG.MAX_TOKENS;
-    const inputEst  = Math.ceil(prompt.length / 2.5);
-    const effective = Math.min(2048, inputEst + maxTokens);
+    // Include systemPrompt length in estimate — Zoho validates input against max_tokens
+    // and system_prompt is sent separately but counts toward the input token budget
+    const inputEst  = Math.ceil((prompt.length + (systemPrompt?.length || 0)) / 2.5);
+    const effective = Math.min(1050, inputEst + maxTokens);
 
     const payload = {
       prompt,

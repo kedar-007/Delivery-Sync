@@ -1140,11 +1140,24 @@ class AttendanceController {
   async anomalies(req, res) {
     try {
       const today = todayIST();
-      const absent = await this.db.findWhere(TABLES.ATTENDANCE_RECORDS, req.tenantId,
-        `attendance_date = '${today}' AND (status = 'ABSENT' OR status = 'LATE')`, { limit: 100 });
+      // Fetch absent/late records AND all today's check-in records in parallel
+      const [absentRecords, checkedInRecords, users] = await Promise.all([
+        this.db.findWhere(TABLES.ATTENDANCE_RECORDS, req.tenantId,
+          `attendance_date = '${today}' AND (status = 'ABSENT' OR status = 'LATE') AND (check_in_time IS NULL OR check_in_time = '')`,
+          { limit: 100 }),
+        // Any record today with a check_in_time means that user is actually present
+        this.db.findWhere(TABLES.ATTENDANCE_RECORDS, req.tenantId,
+          `attendance_date = '${today}' AND check_in_time IS NOT NULL AND check_in_time != ''`,
+          { limit: 200 }),
+        this.db.findAll(TABLES.USERS, { tenant_id: req.tenantId }, { limit: 200 }),
+      ]);
 
-      // Enrich with user name and avatar
-      const users = await this.db.findAll(TABLES.USERS, { tenant_id: req.tenantId }, { limit: 200 });
+      // Build set of user_ids who have actually checked in today (handles two-record scenario)
+      const checkedInUserIds = new Set(checkedInRecords.map(r => String(r.user_id)));
+
+      // Filter out anyone who has checked in under any record
+      const absent = absentRecords.filter(r => !checkedInUserIds.has(String(r.user_id)));
+
       const userMap = {};
       users.forEach(u => { userMap[String(u.ROWID)] = u; });
 
@@ -1155,6 +1168,31 @@ class AttendanceController {
       return ResponseHelper.success(res, enriched);
     } catch (err) {
       console.error('[AttendanceController.anomalies]', err.message);
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  // GET /api/people/attendance/not-checked-in
+  async notCheckedIn(req, res) {
+    try {
+      const today = todayIST();
+      const [allUsers, checkedInRecords] = await Promise.all([
+        this.db.findAll(TABLES.USERS, { tenant_id: req.tenantId }, { limit: 200 }),
+        this.db.findWhere(TABLES.ATTENDANCE_RECORDS, req.tenantId,
+          `attendance_date = '${today}' AND check_in_time IS NOT NULL AND check_in_time != ''`,
+          { limit: 200 }),
+      ]);
+      const checkedInUserIds = new Set(checkedInRecords.map(r => String(r.user_id)));
+      const notIn = allUsers.filter(u => !checkedInUserIds.has(String(u.ROWID)));
+      return ResponseHelper.success(res, notIn.map(u => ({
+        id:        u.ROWID,
+        userId:    u.ROWID,
+        name:      u.name      || 'Unknown',
+        email:     u.email     || '',
+        avatarUrl: u.avatar_url || '',
+      })));
+    } catch (err) {
+      console.error('[AttendanceController.notCheckedIn]', err.message);
       return ResponseHelper.serverError(res, err.message);
     }
   }

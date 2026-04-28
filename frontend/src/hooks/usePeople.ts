@@ -190,6 +190,16 @@ export const useAttendanceAnomalies = () =>
     },
   });
 
+export const useAttendanceNotCheckedIn = () =>
+  useQuery({
+    queryKey: ['attendance', 'not-checked-in'],
+    queryFn: async () => {
+      const rows = await attendanceApi.notCheckedIn();
+      return Array.isArray(rows) ? rows : [];
+    },
+    refetchInterval: 30_000,
+  });
+
 export const useCheckIn = () => {
   const qc = useQueryClient();
   const toast = useToast();

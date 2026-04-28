@@ -179,34 +179,34 @@ const MUTE_KEY = 'ds_notif_muted';
 
 const NotificationBell = () => {
   const [open, setOpen] = useState(false);
-  const [muted, setMuted] = useState(() => localStorage.getItem(MUTE_KEY) === 'true');
+  const [muted, setMuted] = useState(() => { try { return localStorage.getItem(MUTE_KEY) === 'true'; } catch { return false; } });
   const ref = useRef<HTMLDivElement>(null);
   const prevUnread = useRef<number | null>(null);
+  const refetchRef = useRef<(() => void) | null>(null);
 
   const { data, refetch } = useNotifications();
   const markRead = useMarkRead();
   const markAll = useMarkAllRead();
   const del = useDeleteNotification();
 
-  // Refetch immediately when the tab becomes visible (handles the "switched back" case)
+  // Keep refetchRef current so all handlers always call the latest refetch
+  useEffect(() => { refetchRef.current = refetch; }, [refetch]);
+
+  // Refetch when user switches back to this tab
   useEffect(() => {
-    const onVisible = () => { if (document.visibilityState === 'visible') refetch(); };
+    const onVisible = () => { if (document.visibilityState === 'visible') refetchRef.current?.(); };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [refetch]);
+  }, []);
 
-  // Register for Catalyst web push — use a ref so the closure always calls
-  // the latest refetch without re-running enableNotification() on each render
-  const refetchRef = useRef(refetch);
-  useEffect(() => { refetchRef.current = refetch; });
-
+  // Register for Catalyst web push once on mount — instant delivery for active users
   useEffect(() => {
-    const handler = () => refetchRef.current();
-    // Try immediately; SDK may not be ready on first render, retry after 2s
+    const handler = () => { refetchRef.current?.(); };
     initCatalystPush(handler);
+    // Retry after 2 s in case SDK isn't ready on first render
     const t = setTimeout(() => initCatalystPush(handler), 2000);
     return () => clearTimeout(t);
-  }, []); // empty — runs once per mount
+  }, []);
 
   const notifications = data?.notifications ?? [];
   const unread = data?.unreadCount ?? 0;
@@ -214,7 +214,6 @@ const NotificationBell = () => {
   // Play chime when unread count increases (new notification arrived)
   useEffect(() => {
     if (prevUnread.current === null) {
-      // First load — just record baseline, don't play
       prevUnread.current = unread;
       return;
     }
@@ -227,7 +226,7 @@ const NotificationBell = () => {
   const toggleMute = useCallback(() => {
     setMuted((m) => {
       const next = !m;
-      localStorage.setItem(MUTE_KEY, String(next));
+      try { localStorage.setItem(MUTE_KEY, String(next)); } catch { /* ignore */ }
       return next;
     });
   }, []);
@@ -247,11 +246,9 @@ const NotificationBell = () => {
       <button
         onClick={() => {
           ensureAudioUnlocked();
-          setOpen((o) => {
-            // Play chime when opening if there are unread notifications
-            if (!o && unread > 0 && !muted) playChime();
-            return !o;
-          });
+          // Move playChime OUT of the state updater — side effects must not run inside updaters
+          if (!open && unread > 0 && !muted) playChime();
+          setOpen((o) => !o);
         }}
         aria-label={`Notifications${unread > 0 ? ` (${unread} unread)` : ''}`}
         className="relative p-2 rounded-lg transition-colors"

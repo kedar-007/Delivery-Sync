@@ -19,6 +19,7 @@ import {
   useAttendanceRecords,
   useAttendanceSummary,
   useAttendanceAnomalies,
+  useAttendanceNotCheckedIn,
   useCheckIn,
   useCheckOut,
   useMarkWfh,
@@ -282,16 +283,21 @@ const MyAttendanceTab = () => {
   useEffect(() => {
     if (breakTimerRef.current) clearInterval(breakTimerRef.current);
     if (!activeBreak?.break_start) { setBreakSecs(0); return; }
-    const tick = () => setBreakSecs(Math.max(0, Math.floor((Date.now() - new Date(activeBreak.break_start.replace(' ', 'T')).getTime()) / 1000)));
+    const tick = () => setBreakSecs(Math.max(0, Math.floor((Date.now() - new Date(String(activeBreak.break_start).replace(' ', 'T').replace(/Z?$/, 'Z')).getTime()) / 1000)));
     tick();
     breakTimerRef.current = setInterval(tick, 1000);
     return () => { if (breakTimerRef.current) clearInterval(breakTimerRef.current); };
   }, [activeBreak?.break_start]);
 
-  const breakElapsedMins = Math.floor(breakSecs / 60);
   const activeAllowance  = activeBreak ? (BREAK_ALLOWANCES[activeBreak.break_type as keyof typeof BREAK_ALLOWANCES] ?? 15) : 0;
-  const isOverBreak      = breakElapsedMins > activeAllowance;
-  const overMins         = Math.max(0, breakElapsedMins - activeAllowance);
+  const allowanceSecs    = activeAllowance * 60;
+  const isOverBreak      = breakSecs > allowanceSecs;
+  const remSecs          = Math.max(0, allowanceSecs - breakSecs);
+  const remMins          = Math.floor(remSecs / 60);
+  const remRemSecs       = remSecs % 60;
+  const overTotalSecs    = Math.max(0, breakSecs - allowanceSecs);
+  const overDispMins     = Math.floor(overTotalSecs / 60);
+  const overDispSecs     = overTotalSecs % 60;
   const fmt2 = (n: number) => String(Math.max(0, Math.floor(n))).padStart(2, '0');
 
   const clientTime = () => new Date().toLocaleString('sv');
@@ -392,13 +398,22 @@ const MyAttendanceTab = () => {
                     {activeBreak?.break_type === 'LUNCH' ? 'Lunch break' : 'Short break'} in progress
                     {` · ${activeAllowance}m allowance`}
                   </p>
-                  <p className={`text-3xl font-bold font-mono tabular-nums tracking-widest ${isOverBreak ? 'text-red-600' : 'text-orange-500'}`}>
-                    {fmt2(Math.floor(breakSecs / 60))}:{fmt2(breakSecs % 60)}
-                  </p>
-                  {isOverBreak && (
-                    <p className="text-xs text-red-500 mt-1 font-medium flex items-center justify-center gap-1">
-                      <AlertTriangle size={11} /> Over by {overMins}m — please return to your desk
-                    </p>
+                  {isOverBreak ? (
+                    <>
+                      <p className="text-3xl font-bold font-mono tabular-nums tracking-widest text-red-600">
+                        {fmt2(overDispMins)}:{fmt2(overDispSecs)}
+                      </p>
+                      <p className="text-xs text-red-500 mt-1 font-medium flex items-center justify-center gap-1">
+                        <AlertTriangle size={11} /> Over by {overDispMins}m {overDispSecs}s — please return
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-3xl font-bold font-mono tabular-nums tracking-widest text-orange-500">
+                        {fmt2(remMins)}:{fmt2(remRemSecs)}
+                      </p>
+                      <p className="text-xs text-orange-400 mt-1">remaining</p>
+                    </>
                   )}
                 </div>
               ) : (
@@ -564,9 +579,21 @@ const MyAttendanceTab = () => {
 const TeamLiveTab = () => {
   const { data, isLoading, error } = useAttendanceLive();
   const { data: anomaliesData } = useAttendanceAnomalies();
+  const { data: notCheckedInData } = useAttendanceNotCheckedIn();
 
   const liveUsers: LiveUser[] = Array.isArray(data) ? (data as unknown as LiveUser[]) : [];
-  const anomalies: AnomalyUser[] = (anomaliesData as AnomalyUser[]) ?? [];
+
+  // Safety net: never show a checked-in user as absent.
+  // Use userId (the person), not id (the record ROWID) — a user can have two records
+  // on the same day (one ABSENT from the morning cron, one PRESENT from check-in).
+  const liveUserIds = new Set(liveUsers.map((u) => String((u as any).userId || u.id)));
+  const anomalies: AnomalyUser[] = ((anomaliesData as AnomalyUser[]) ?? []).filter(
+    (u) => !liveUserIds.has(String((u as any).userId || u.id))
+  );
+
+  // Not-checked-in: backend already subtracts checked-in users; de-duplicate against live list for safety
+  const notCheckedIn: { id: string; name: string; email: string; avatarUrl: string }[] =
+    ((notCheckedInData as any[]) ?? []).filter((u) => !liveUserIds.has(String(u.userId || u.id)));
 
   if (isLoading) return <PageSkeleton />;
 
@@ -614,6 +641,28 @@ const TeamLiveTab = () => {
                 <UserAvatar name={u.name} avatarUrl={u.avatarUrl} size="sm" />
                 <p className="text-sm text-gray-700">{u.name}</p>
                 <Badge variant="danger" className="ml-auto">ABSENT</Badge>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {notCheckedIn.length > 0 && (
+        <Card>
+          <div className="flex items-center gap-2 mb-4">
+            <Clock size={16} className="text-gray-400" />
+            <h3 className="text-sm font-semibold text-gray-900">Not Checked In Yet</h3>
+            <Badge variant="warning">{notCheckedIn.length}</Badge>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {notCheckedIn.map((u) => (
+              <div key={u.id} className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-100 rounded-lg">
+                <UserAvatar name={u.name} avatarUrl={u.avatarUrl} size="md" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-600 truncate">{u.name}</p>
+                  <p className="text-xs text-gray-400">Not checked in</p>
+                </div>
+                <span className="ml-auto w-2 h-2 rounded-full bg-gray-300 shrink-0" />
               </div>
             ))}
           </div>
