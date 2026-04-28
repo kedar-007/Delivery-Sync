@@ -68,11 +68,19 @@ class NotificationService {
 
   async _sendWebPush(userId, title, message) {
     try {
-      const uid = Number(userId);
-      if (!uid) return;
+      const rows = await this.db.query(
+        `SELECT catalyst_user_id FROM users WHERE ROWID = '${userId}' LIMIT 1`
+      );
+      const catalystUserId = rows[0]?.catalyst_user_id;
+      const uid = Number(catalystUserId);
+      if (!uid) {
+        console.warn(`[NotificationService] web push skipped: no catalyst_user_id for userId=${userId}`);
+        return;
+      }
       await this.catalystApp.pushNotification().web().sendNotification(
         `${title}: ${message}`, [uid]
       );
+      console.log(`[NotificationService] web push sent to catalystUserId=${uid}`);
     } catch (err) {
       console.warn('[NotificationService] web push failed:', err.message);
     }

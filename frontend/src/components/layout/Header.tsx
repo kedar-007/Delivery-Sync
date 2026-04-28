@@ -47,7 +47,7 @@ const InternalBanner = () => {
 
   if (internals.length === 0) return null;
 
-  const a = internals[0]; // show the highest-priority unread internal one
+  const a = internals[0];
 
   const dismiss = () => {
     markRead.mutate(a.id);
@@ -113,7 +113,6 @@ const Header = ({ title, subtitle, actions }: HeaderProps) => {
 
   return (
     <div>
-      {/* Festival gradient stripe */}
       {festival && (
         <div
           aria-hidden="true"
