@@ -1912,8 +1912,24 @@ const AdminPage = () => {
   const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
   const [editingRole, setEditingRole] = useState('');
 
+  const [userSearch, setUserSearch] = useState('');
+  const [userPage, setUserPage]   = useState(1);
+
   const { data: users = [], isLoading } = useAdminUsers();
   const { data: shifts = [] } = useShifts();
+
+  const filteredUsers = useMemo(() => {
+    const q = userSearch.trim().toLowerCase();
+    if (!q) return users as UserType[];
+    return (users as UserType[]).filter((u) =>
+      (u.name ?? '').toLowerCase().includes(q) ||
+      (u.email ?? '').toLowerCase().includes(q) ||
+      (u.role ?? '').toLowerCase().includes(q)
+    );
+  }, [users, userSearch]);
+
+  const userTotalPages = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE));
+  const pagedUsers     = filteredUsers.slice((userPage - 1) * PAGE_SIZE, userPage * PAGE_SIZE);
   const { data: rawLogs = [], isLoading: auditLoading, refetch: refetchLogs } =
     useAuditLogs(auditParams, tab === 'audit');
   const inviteUser = useInviteUser();
@@ -2017,7 +2033,7 @@ const AdminPage = () => {
           ? <Button onClick={() => setShowInvite(true)} icon={<Plus size={16} />}>Invite User</Button>
           : <span className="flex items-center gap-1.5 text-sm text-gray-400"><Lock size={14} />No permission to invite users</span>)}
       />
-      <div className="p-6 space-y-5">
+      <div className="py-5 px-8 space-y-5">
 
         {/* Tabs */}
         <div className="flex gap-2 border-b border-gray-200 overflow-x-auto">
@@ -2038,40 +2054,105 @@ const AdminPage = () => {
 
         {/* ── Users tab ─────────────────────────────────────────────────────── */}
         {tab === 'users' && (
-          users.length === 0 ? (
+          (users as UserType[]).length === 0 ? (
             <EmptyState title="No users" description="Invite your first team member."
               action={canInvite ? <Button onClick={() => setShowInvite(true)} icon={<Plus size={16} />}>Invite User</Button> : undefined} />
           ) : (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    {['Name', 'Email', 'Role', 'Shift', 'Status', 'Actions'].map((h) => (
-                      <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
+            <div className="space-y-3">
+              {/* Search bar */}
+              <div className="relative max-w-xs">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Search by name, email or role…"
+                  value={userSearch}
+                  onChange={(e) => { setUserSearch(e.target.value); setUserPage(1); }}
+                  className="w-full pl-9 pr-3 py-2 text-sm rounded-xl border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400"
+                />
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      {['Name', 'Email', 'Role', 'Shift', 'Status', 'Actions'].map((h) => (
+                        <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {pagedUsers.length === 0 ? (
+                      <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">No users match "{userSearch}"</td></tr>
+                    ) : pagedUsers.map((u: UserType) => (
+                      <UserRow
+                        key={u.id}
+                        user={u}
+                        currentUserId={currentUser?.id ?? ''}
+                        allowedInviteRoles={allowedInviteRoles}
+                        orgRoles={orgRoles}
+                        shifts={shifts as any}
+                        isEditingRole={editingRoleId === u.id}
+                        editingRole={editingRole}
+                        onStartEdit={() => startEditRole(u.id, u.role)}
+                        onCancelEdit={cancelEditRole}
+                        onRoleChange={setEditingRole}
+                        onSaveRoleDone={cancelEditRole}
+                        onDeactivate={() => handleDeactivate(u.id)}
+                        onActivate={() => handleActivate(u.id)}
+                      />
                     ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {users.map((u: UserType) => (
-                    <UserRow
-                      key={u.id}
-                      user={u}
-                      currentUserId={currentUser?.id ?? ''}
-                      allowedInviteRoles={allowedInviteRoles}
-                      orgRoles={orgRoles}
-                      shifts={shifts as any}
-                      isEditingRole={editingRoleId === u.id}
-                      editingRole={editingRole}
-                      onStartEdit={() => startEditRole(u.id, u.role)}
-                      onCancelEdit={cancelEditRole}
-                      onRoleChange={setEditingRole}
-                      onSaveRoleDone={cancelEditRole}
-                      onDeactivate={() => handleDeactivate(u.id)}
-                      onActivate={() => handleActivate(u.id)}
-                    />
-                  ))}
-                </tbody>
-              </table>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              {userTotalPages > 1 && (
+                <div className="flex items-center justify-between px-1">
+                  <p className="text-xs text-gray-500">
+                    Showing {(userPage - 1) * PAGE_SIZE + 1}–{Math.min(userPage * PAGE_SIZE, filteredUsers.length)} of {filteredUsers.length} users
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setUserPage((p) => Math.max(1, p - 1))}
+                      disabled={userPage === 1}
+                      className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <ChevronLeft size={14} />
+                    </button>
+                    {Array.from({ length: userTotalPages }, (_, i) => i + 1)
+                      .filter((p) => p === 1 || p === userTotalPages || Math.abs(p - userPage) <= 1)
+                      .reduce<(number | '…')[]>((acc, p, idx, arr) => {
+                        if (idx > 0 && (p as number) - (arr[idx - 1] as number) > 1) acc.push('…');
+                        acc.push(p);
+                        return acc;
+                      }, [])
+                      .map((p, i) =>
+                        p === '…' ? (
+                          <span key={`ellipsis-${i}`} className="px-1 text-xs text-gray-400">…</span>
+                        ) : (
+                          <button
+                            key={p}
+                            onClick={() => setUserPage(p as number)}
+                            className={`min-w-[28px] h-7 rounded-lg text-xs font-medium border transition-colors ${
+                              userPage === p
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        )
+                      )}
+                    <button
+                      onClick={() => setUserPage((p) => Math.min(userTotalPages, p + 1))}
+                      disabled={userPage === userTotalPages}
+                      className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <ChevronRight size={14} />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )
         )}
@@ -2237,11 +2318,10 @@ const AdminPage = () => {
             )}
           </div>
         )}
-      </div>
 
         {/* ── Roles tab ──────────────────────────────────────────────────────── */}
         {tab === 'roles' && (
-          <div className="space-y-4">
+          <div className="space-y-5">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <p className="text-sm text-gray-500">
                 Custom org roles with their own permission sets. Assign members to positions in the hierarchy.
@@ -2364,6 +2444,7 @@ const AdminPage = () => {
             <OrgChartView />
           </div>
         )}
+      </div>
 
       {/* Invite Modal */}
       <Modal open={showInvite} onClose={() => { setShowInvite(false); reset(); setInviteError(''); setInviteSuccess(''); }} title="Invite User">

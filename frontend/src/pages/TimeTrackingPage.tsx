@@ -36,6 +36,7 @@ interface TimeEntry {
   id: string;
   projectId: string;
   projectName?: string;
+  taskId?: string | null;
   description: string;
   date: string;
   hours: number;
@@ -148,7 +149,7 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
   const { register, handleSubmit, reset, control, setValue, watch: watchForm, formState: { isSubmitting, errors } } = useForm<TimeEntryFormData>({
     defaultValues: {
       project_id: entry?.projectId ?? '',
-      task_id: '',
+      task_id: entry?.taskId ?? '',
       description: entry?.description ?? '',
       date: entry?.date ?? todayStr(),
       hours: entry?.hours ?? 1,
@@ -185,7 +186,7 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
     if (open) {
       reset({
         project_id: entry?.projectId ?? '',
-        task_id: '',
+        task_id: entry?.taskId ?? '',
         description: entry?.description ?? '',
         date: entry?.date ?? todayStr(),
         hours: entry?.hours ?? 1,
@@ -657,11 +658,11 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
-                        {(entry.status === 'DRAFT' || entry.status === 'REJECTED') && (
+                        {(entry.status === 'DRAFT' || entry.status === 'REJECTED' || entry.status === 'SUBMITTED') && (
                           <button
                             onClick={() => openEdit(entry)}
                             className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors rounded"
-                            title="Edit"
+                            title={entry.status === 'SUBMITTED' ? 'Edit (retracts submission)' : 'Edit'}
                           >
                             <Edit2 size={14} />
                           </button>

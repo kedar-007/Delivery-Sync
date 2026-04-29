@@ -196,6 +196,14 @@ export const useRequestAsset = () => {
   });
 };
 
+export const useUpdateAssetRequest = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: unknown }) => assetsApi.requests.update(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assets', 'requests'] }),
+  });
+};
+
 export const useApproveAssetRequest = () => {
   const qc = useQueryClient();
   return useMutation({

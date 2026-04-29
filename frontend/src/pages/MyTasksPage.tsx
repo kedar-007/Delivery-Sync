@@ -103,8 +103,16 @@ type TabFilter = 'all' | 'in_progress' | 'due_soon';
 function AssigneeMultiSelect({
   users, value, onChange,
 }: { users: TenantUser[]; value: string[]; onChange: (ids: string[]) => void }) {
+  const [search, setSearch] = useState('');
   const toggle = (id: string) =>
     onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
+
+  const filtered = search.trim()
+    ? users.filter((u) =>
+        (u.name ?? '').toLowerCase().includes(search.toLowerCase()) ||
+        (u.email ?? '').toLowerCase().includes(search.toLowerCase())
+      )
+    : users;
 
   return (
     <div className="space-y-2">
@@ -123,10 +131,20 @@ function AssigneeMultiSelect({
           })}
         </div>
       )}
+      <div className="relative">
+        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search users…"
+          className="w-full pl-7 pr-3 py-1.5 text-xs rounded-lg border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400/40 focus:border-indigo-400"
+        />
+      </div>
       <div className="flex flex-wrap gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg max-h-36 overflow-y-auto">
-        {users.length === 0
-          ? <p className="text-xs text-gray-400">No users available.</p>
-          : users.map((u) => {
+        {filtered.length === 0
+          ? <p className="text-xs text-gray-400">{search ? `No users match "${search}"` : 'No users available.'}</p>
+          : filtered.map((u) => {
               const id = String(u.id);
               const selected = value.includes(id);
               return (
@@ -960,10 +978,14 @@ export default function MyTasksPage() {
       const start = parseInt(stored, 10);
       setTimerStart(start);
       setTimerRunning(true);
+      const d = new Date(start);
+      setLogTimeStartTime(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`);
     } else {
       setTimerRunning(false);
       setTimerStart(null);
       setTimerDisplay('00:00:00');
+      setLogTimeStartTime('');
+      setLogTimeEndTime('');
     }
     setDetailTab('activity');
     setAiInsight(null);
@@ -1025,18 +1047,28 @@ export default function MyTasksPage() {
       .finally(() => setAiLoading(false));
   }, [detailTab, taskDetailId, detailTask]);
 
+  const fmtHHMM = (ts: number) => {
+    const d = new Date(ts);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+
   const handleStartTimer = () => {
     const ts = Date.now();
     localStorage.setItem(`ds_timer_${taskDetailId}`, String(ts));
-    setTimerStart(ts); setTimerRunning(true);
+    setTimerStart(ts);
+    setTimerRunning(true);
+    setLogTimeStartTime(fmtHHMM(ts));
+    setLogTimeEndTime('');
   };
 
   const handleStopTimer = () => {
     if (!timerStart) return;
-    const elapsed = (Date.now() - timerStart) / 3600000;
+    const endTs = Date.now();
+    const elapsed = (endTs - timerStart) / 3600000;
     localStorage.removeItem(`ds_timer_${taskDetailId}`);
     setTimerRunning(false); setTimerStart(null); setTimerDisplay('00:00:00');
     setLogTimeHours(Math.max(0.25, Math.round(elapsed * 4) / 4).toFixed(2));
+    setLogTimeEndTime(fmtHHMM(endTs));
     setDetailTab('time');
   };
 

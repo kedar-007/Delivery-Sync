@@ -4,7 +4,7 @@ import {
   Package, Plus, Edit2, Wrench, CheckCircle2, XCircle,
   RotateCcw, AlertTriangle, Calendar, Tag, Upload, ChevronRight, MapPin,
   Eye, Clock, User, FileText, Hash, Search, Key, Monitor, Truck,
-  ClipboardCheck, Shield, ChevronDown, ChevronUp, Lock,
+  ClipboardCheck, Shield, ChevronDown, ChevronUp, Lock, Info,
 } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 import { useForm } from 'react-hook-form';
@@ -23,7 +23,7 @@ import UserAvatar from '../components/ui/UserAvatar';
 import {
   useAssetCategories, useCreateCategory, useAssetInventory, useAvailableAssets, useMyAssets,
   useCreateAsset, useUpdateAsset, useBulkCreateAssets,
-  useAssetRequests, useRequestAsset, useApproveAssetRequest, useRejectAssetRequest,
+  useAssetRequests, useRequestAsset, useUpdateAssetRequest, useApproveAssetRequest, useRejectAssetRequest,
   useAssignOpsRequest, useStartProcessingRequest, useHandoverAssetRequest,
   useInitiateReturn, useVerifyReturn,
   useReturnAsset,
@@ -451,6 +451,7 @@ interface RequestModalProps {
   onClose: () => void;
   categories: AssetCategory[];
   availableAssets: Asset[];
+  editRequest?: AssetRequest | null;
 }
 
 const conditionColor = (c?: string) => {
@@ -463,13 +464,15 @@ const conditionColor = (c?: string) => {
   return map[(c ?? '').toUpperCase()] ?? 'bg-gray-100 text-gray-600';
 };
 
-const RequestModal = ({ open, onClose, categories, availableAssets }: RequestModalProps) => {
+const RequestModal = ({ open, onClose, categories, availableAssets, editRequest }: RequestModalProps) => {
+  const isEditMode = !!editRequest;
   const [step, setStep] = useState<1 | 2>(1);
   const [filterCat, setFilterCat] = useState('');
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [anyInCat, setAnyInCat] = useState(false); // "any available" chosen
   const [error, setError] = useState('');
   const requestAsset = useRequestAsset();
+  const updateRequest = useUpdateAssetRequest();
 
   const { register, handleSubmit, reset, watch, setValue, formState: { isSubmitting, errors } } = useForm<RequestFormData>({
     defaultValues: { category_id: '', asset_id: '', reason: '', priority: 'MEDIUM', needed_by: '', notes: '' },
@@ -477,10 +480,30 @@ const RequestModal = ({ open, onClose, categories, availableAssets }: RequestMod
 
   React.useEffect(() => {
     if (open) {
-      reset({ category_id: '', asset_id: '', reason: '', priority: 'MEDIUM', needed_by: '', notes: '' });
-      setStep(1); setFilterCat(''); setSelectedAsset(null); setAnyInCat(false); setError('');
+      if (isEditMode && editRequest) {
+        setStep(2);
+        setFilterCat(editRequest.categoryId ?? '');
+        const origAsset = (availableAssets as Asset[]).find((a) => a.id === editRequest.assetId);
+        setSelectedAsset(origAsset ?? null);
+        setAnyInCat(!editRequest.assetId && !!editRequest.categoryId);
+        const neededByDate = editRequest.neededBy
+          ? editRequest.neededBy.split('T')[0]
+          : '';
+        reset({
+          category_id: editRequest.categoryId ?? '',
+          asset_id: editRequest.assetId ?? '',
+          reason: editRequest.reason ?? '',
+          priority: (editRequest.priority as Priority) || 'MEDIUM',
+          needed_by: neededByDate,
+          notes: editRequest.reqNotes ?? '',
+        });
+      } else {
+        reset({ category_id: '', asset_id: '', reason: '', priority: 'MEDIUM', needed_by: '', notes: '' });
+        setStep(1); setFilterCat(''); setSelectedAsset(null); setAnyInCat(false);
+      }
+      setError('');
     }
-  }, [open, reset]);
+  }, [open, isEditMode, editRequest, reset]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filteredAssets = useMemo(() =>
     (availableAssets as Asset[]).filter((a) => !filterCat || String(a.categoryId) === filterCat),
@@ -523,7 +546,11 @@ const RequestModal = ({ open, onClose, categories, availableAssets }: RequestMod
   const onSubmit = async (data: RequestFormData) => {
     try {
       setError('');
-      await requestAsset.mutateAsync(data);
+      if (isEditMode && editRequest) {
+        await updateRequest.mutateAsync({ id: editRequest.id, data });
+      } else {
+        await requestAsset.mutateAsync(data);
+      }
       onClose();
     } catch (err: unknown) {
       setError((err as Error).message ?? 'Something went wrong');
@@ -531,23 +558,25 @@ const RequestModal = ({ open, onClose, categories, availableAssets }: RequestMod
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Request New Asset" size="xl">
-      {/* Step progress */}
-      <div className="flex items-center gap-2 mb-5">
-        {[{ n: 1, label: 'Browse & Select' }, { n: 2, label: 'Request Details' }].map(({ n, label }, i) => (
-          <React.Fragment key={n}>
-            <div className={`flex items-center gap-1.5 ${step === n ? 'text-indigo-600' : step > n ? 'text-green-600' : 'text-gray-400'}`}>
-              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border-2 ${
-                step === n ? 'border-indigo-600 bg-indigo-50' : step > n ? 'border-green-500 bg-green-50' : 'border-gray-300 bg-white'
-              }`}>
-                {step > n ? '✓' : n}
+    <Modal open={open} onClose={onClose} title={isEditMode ? 'Edit Asset Request' : 'Request New Asset'} size="xl">
+      {/* Step progress — hidden in edit mode */}
+      {!isEditMode && (
+        <div className="flex items-center gap-2 mb-5">
+          {[{ n: 1, label: 'Browse & Select' }, { n: 2, label: 'Request Details' }].map(({ n, label }, i) => (
+            <React.Fragment key={n}>
+              <div className={`flex items-center gap-1.5 ${step === n ? 'text-indigo-600' : step > n ? 'text-green-600' : 'text-gray-400'}`}>
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border-2 ${
+                  step === n ? 'border-indigo-600 bg-indigo-50' : step > n ? 'border-green-500 bg-green-50' : 'border-gray-300 bg-white'
+                }`}>
+                  {step > n ? '✓' : n}
+                </div>
+                <span className="text-xs font-medium hidden sm:inline">{label}</span>
               </div>
-              <span className="text-xs font-medium hidden sm:inline">{label}</span>
-            </div>
-            {i < 1 && <div className={`flex-1 h-px ${step > n ? 'bg-green-400' : 'bg-gray-200'}`} />}
-          </React.Fragment>
-        ))}
-      </div>
+              {i < 1 && <div className={`flex-1 h-px ${step > n ? 'bg-green-400' : 'bg-gray-200'}`} />}
+            </React.Fragment>
+          ))}
+        </div>
+      )}
 
       {error && <Alert type="error" message={error} className="mb-4" />}
 
@@ -708,7 +737,11 @@ const RequestModal = ({ open, onClose, categories, availableAssets }: RequestMod
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-indigo-800 truncate">
-                {selectedAsset ? selectedAsset.assetName : `Any available · ${selCatName}`}
+                {selectedAsset
+                  ? selectedAsset.assetName
+                  : (isEditMode && editRequest?.assetId && editRequest?.assetName)
+                    ? editRequest.assetName
+                    : `Any available · ${selCatName}`}
               </p>
               {selectedAsset && (
                 <p className="text-xs text-indigo-500">
@@ -773,9 +806,11 @@ const RequestModal = ({ open, onClose, categories, availableAssets }: RequestMod
           </div>
 
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setStep(1)}>Back</Button>
-            <Button type="submit" loading={isSubmitting} icon={<Plus size={16} />}>
-              Submit Request
+            {!isEditMode && (
+              <Button variant="outline" type="button" onClick={() => setStep(1)}>Back</Button>
+            )}
+            <Button type="submit" loading={isSubmitting} icon={isEditMode ? <Edit2 size={16} /> : <Plus size={16} />}>
+              {isEditMode ? 'Save Changes' : 'Submit Request'}
             </Button>
           </ModalActions>
         </form>
@@ -1490,7 +1525,7 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
                       {asset.purchaseCost != null
-                        ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(asset.purchaseCost)
+                        ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(asset.purchaseCost)
                         : '—'
                       }
                     </td>
@@ -1984,7 +2019,7 @@ const VerifyReturnModal = ({ open, onClose, request, onDone }: VerifyReturnModal
 
 // ── Request Detail Modal ──────────────────────────────────────────────────────
 
-function RequestDetailModal({ req, open, onClose, canApprove, canAssign, currentUserId, availableAssets, onActionDone }: {
+function RequestDetailModal({ req, open, onClose, canApprove, canAssign, currentUserId, availableAssets, onActionDone, onEdit }: {
   req: AssetRequest | null;
   open: boolean;
   onClose: () => void;
@@ -1993,6 +2028,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
   currentUserId?: string;
   availableAssets: Asset[];
   onActionDone: () => void;
+  onEdit?: (req: AssetRequest) => void;
 }) {
   const rejectRequest  = useRejectAssetRequest();
   const initiateReturn = useInitiateReturn();
@@ -2230,6 +2266,23 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
 
           {/* Action buttons based on status & permissions */}
           <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
+            {isRequester && onEdit && ['APPROVED', 'ASSIGNED_TO_OPS', 'PROCESSING'].includes(req.status) && (
+              <div className="w-full flex items-start gap-2.5 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
+                <Info size={14} className="text-blue-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-blue-700 leading-relaxed">
+                  This request is currently being processed by the ops team and can no longer be edited.
+                </p>
+              </div>
+            )}
+            {isRequester && req.status === 'REJECTED' && req.rejectionNotes && (
+              <div className="w-full flex items-start gap-2.5 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+                <XCircle size={14} className="text-red-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs font-medium text-red-700 mb-0.5">Request Rejected</p>
+                  <p className="text-xs text-red-600">{req.rejectionNotes}</p>
+                </div>
+              </div>
+            )}
             {/* Approve/Reject — for PENDING */}
             {canApprove && req.status === 'PENDING' && (
               <>
@@ -2311,9 +2364,13 @@ interface RequestsTabProps {
 }
 
 const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availableAssets }: RequestsTabProps) => {
+  const [viewMode, setViewMode]             = useState<'all' | 'mine'>(canApprove ? 'all' : 'mine');
   const [filterStatus, setFilterStatus]     = useState('');
   const [detailReq, setDetailReq]           = useState<AssetRequest | null>(null);
   const [requestModalOpen, setRequestModalOpen] = useState(false);
+  const [editRequest, setEditRequest]       = useState<AssetRequest | null>(null);
+
+  const isMyView = !canApprove || viewMode === 'mine';
 
   const params = useMemo<Record<string, string>>(() => {
     const p: Record<string, string> = {};
@@ -2326,8 +2383,10 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
   if (isLoading) return <SkeletonTable rows={4} />;
   if (error) return <Alert type="error" message={(error as Error).message} />;
 
-  const reqList = requests as AssetRequest[];
-  const isPrivileged = canApprove || canAssign;
+  const allReqList = requests as AssetRequest[];
+  const reqList = isMyView
+    ? allReqList.filter((r) => String(r.requestedBy) === String(currentUserId))
+    : allReqList;
 
   const statusOptions: Array<{ value: string; label: string }> = [
     { value: '',               label: 'All Statuses' },
@@ -2343,15 +2402,34 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
 
   return (
     <div className="space-y-4">
+      {/* Sub-tabs for approvers */}
+      {canApprove && (
+        <div className="flex gap-1 border-b border-gray-200">
+          {(['all', 'mine'] as const).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => { setViewMode(mode); setFilterStatus(''); }}
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                viewMode === mode
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {mode === 'all' ? 'All Requests' : 'My Requests'}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="flex items-center justify-between flex-wrap gap-3">
-        {isPrivileged ? (
+        {!isMyView ? (
           <select className="form-select max-w-[180px]" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
             {statusOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         ) : (
           <div />
         )}
-        {!canApprove && (
+        {isMyView && (
           <Button icon={<Plus size={14} />} onClick={() => setRequestModalOpen(true)}>
             New Request
           </Button>
@@ -2361,7 +2439,7 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-900">
-            {canApprove ? 'Asset Requests' : 'My Requests'}
+            {isMyView ? 'My Requests' : 'All Asset Requests'}
           </h3>
           <span className="text-xs text-gray-400">{reqList.length} request{reqList.length !== 1 ? 's' : ''}</span>
         </div>
@@ -2370,9 +2448,9 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
           <EmptyState
             icon={<Package size={36} />}
             title="No requests"
-            description={canApprove ? 'No asset requests match the current filter.' : 'You have not submitted any asset requests.'}
+            description={isMyView ? 'You have not submitted any asset requests.' : 'No asset requests match the current filter.'}
             action={
-              !canApprove ? (
+              isMyView ? (
                 <Button size="sm" icon={<Plus size={14} />} onClick={() => setRequestModalOpen(true)}>
                   Request Asset
                 </Button>
@@ -2389,7 +2467,8 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
                   className="px-5 py-4 flex items-center gap-4 hover:bg-gray-50 transition-colors cursor-pointer"
                   onClick={() => setDetailReq(req)}
                 >
-                  {(canApprove || isOpsAssignee) && (
+
+                  {(!isMyView || isOpsAssignee) && (
                     <div className="shrink-0">
                       <UserAvatar name={req.requestedByName ?? ''} avatarUrl={req.requestedByAvatar ?? undefined} size="md" />
                     </div>
@@ -2397,7 +2476,7 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
-                      {(canApprove || isOpsAssignee) && (
+                      {(!isMyView || isOpsAssignee) && (
                         <span className="text-sm font-semibold text-gray-900">{req.requestedByName ?? '—'}</span>
                       )}
                       <span className="text-xs text-gray-400">{req.categoryName ?? 'Unknown category'}</span>
@@ -2419,7 +2498,7 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
                           <Truck size={11} /> Handed over by {req.handoverByName}
                         </span>
                       )}
-                      {req.opsAssigneeDetails && req.opsAssigneeDetails.length > 0 && canApprove && (
+                      {req.opsAssigneeDetails && req.opsAssigneeDetails.length > 0 && !isMyView && (
                         <span className="text-xs text-blue-500 flex items-center gap-1">
                           <User size={11} /> Ops: {req.opsAssigneeDetails.map((u) => u.name).join(', ')}
                         </span>
@@ -2433,7 +2512,17 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
                     <Badge variant={priorityVariant(req.priority)}>{req.priority || 'NORMAL'}</Badge>
                   </div>
 
-                  <Eye size={15} className="text-gray-300 shrink-0" />
+                  {isMyView && req.status === 'PENDING' ? (
+                    <button
+                      title="Edit request"
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors shrink-0"
+                      onClick={(e) => { e.stopPropagation(); setEditRequest(req); }}
+                    >
+                      <Edit2 size={14} />
+                    </button>
+                  ) : (
+                    <Eye size={15} className="text-gray-300 shrink-0" />
+                  )}
                 </div>
               );
             })}
@@ -2441,24 +2530,34 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
         )}
       </div>
 
-      {!canApprove && (
-        <RequestModal
-          open={requestModalOpen}
-          onClose={() => setRequestModalOpen(false)}
-          categories={categories}
-          availableAssets={availableAssets}
-        />
+      {isMyView && (
+        <>
+          <RequestModal
+            open={requestModalOpen}
+            onClose={() => setRequestModalOpen(false)}
+            categories={categories}
+            availableAssets={availableAssets}
+          />
+          <RequestModal
+            open={!!editRequest}
+            onClose={() => setEditRequest(null)}
+            categories={categories}
+            availableAssets={availableAssets}
+            editRequest={editRequest}
+          />
+        </>
       )}
 
       <RequestDetailModal
         req={detailReq}
         open={detailReq !== null}
         onClose={() => setDetailReq(null)}
-        canApprove={canApprove}
-        canAssign={canAssign}
+        canApprove={canApprove && !isMyView}
+        canAssign={canAssign && !isMyView}
         currentUserId={currentUserId}
         availableAssets={availableAssets}
         onActionDone={() => { refetch(); setDetailReq(null); }}
+        onEdit={isMyView ? (r) => { setDetailReq(null); setEditRequest(r); } : undefined}
       />
     </div>
   );

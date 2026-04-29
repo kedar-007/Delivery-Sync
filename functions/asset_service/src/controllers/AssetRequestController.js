@@ -138,17 +138,79 @@ class AssetRequestController {
     if (asset_id && String(asset_id) !== '0') insertData.asset_id = String(asset_id);
 
     const row = await this.db.insert(TABLES.ASSET_REQUESTS, insertData);
+
+    // Notify the requester
     await this.notif.sendInApp({
       tenantId: req.tenantId, userId: req.currentUser.id,
       title: 'Asset Request Submitted',
       message: 'Your asset request has been submitted and is under review',
       type: NOTIFICATION_TYPE.ASSET_REQUEST_RAISED, entityType: 'ASSET_REQUEST', entityId: row.ROWID,
     });
+
+    // Notify the requester's reporting manager
+    try {
+      const profileRows = await this.db.findWhere(
+        TABLES.USER_PROFILES, req.tenantId,
+        `user_id = '${req.currentUser.id}'`, { limit: 1 }
+      );
+      const rmId = profileRows[0]?.reporting_manager_id
+        ? String(profileRows[0].reporting_manager_id)
+        : null;
+      if (rmId) {
+        await this.notif.sendInApp({
+          tenantId: req.tenantId, userId: rmId,
+          title: 'New Asset Request',
+          message: `${req.currentUser.name} has submitted an asset request`,
+          type: NOTIFICATION_TYPE.ASSET_REQUEST_RAISED, entityType: 'ASSET_REQUEST', entityId: row.ROWID,
+        });
+      }
+    } catch (_) { /* non-critical — don't fail the request if RM lookup fails */ }
+
     await this.audit.log({
       tenantId: req.tenantId, entityType: 'ASSET_REQUEST', entityId: row.ROWID,
       action: AUDIT_ACTION.CREATE, newValue: row, performedBy: req.currentUser.id,
     });
     return ResponseHelper.created(res, row);
+  }
+
+  // ── PATCH /requests/:id ──────────────────────────────────────────────────────
+  async update(req, res) {
+    const { requestId } = req.params;
+    const existing = await this.db.findById(TABLES.ASSET_REQUESTS, requestId, req.tenantId);
+    if (!existing) return ResponseHelper.notFound(res, 'Request not found');
+
+    if (String(existing.requested_by) !== String(req.currentUser.id)) {
+      return ResponseHelper.forbidden(res, 'You can only edit your own requests');
+    }
+    if (existing.status !== ASSET_REQ_STATUS.PENDING) {
+      return ResponseHelper.validationError(res, 'Only pending requests can be edited');
+    }
+
+    const { category_id, reason, priority, asset_id, needed_by, notes } = req.body;
+    if (!category_id || !reason) return ResponseHelper.validationError(res, 'category_id and reason required');
+
+    let fullReason = String(reason);
+    if (needed_by) fullReason += `\nNeeded by: ${needed_by}`;
+    if (notes)     fullReason += `\nNotes: ${notes}`;
+
+    const updateData = {
+      ROWID:       requestId,
+      category_id: String(category_id),
+      reason:      fullReason,
+      urgency:     priority || 'NORMAL',
+    };
+    if (asset_id && String(asset_id) !== '0') {
+      updateData.asset_id = String(asset_id);
+    } else {
+      updateData.asset_id = null;
+    }
+
+    const updated = await this.db.update(TABLES.ASSET_REQUESTS, updateData);
+    await this.audit.log({
+      tenantId: req.tenantId, entityType: 'ASSET_REQUEST', entityId: requestId,
+      action: AUDIT_ACTION.UPDATE, newValue: updateData, performedBy: req.currentUser.id,
+    });
+    return ResponseHelper.success(res, updated);
   }
 
   // ── PATCH /requests/:id/approve ───────────────────────────────────────────────

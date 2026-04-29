@@ -216,10 +216,21 @@ class TimeController {
   async update(req, res) {
     const entry = await this.db.findById(TABLES.TIME_ENTRIES, req.params.entryId, req.tenantId);
     if (!entry) return ResponseHelper.notFound(res, 'Time entry not found');
-    if (entry.status !== TIME_STATUS.DRAFT && entry.status !== TIME_STATUS.REJECTED)
-      return ResponseHelper.validationError(res, 'Only DRAFT or REJECTED entries can be edited');
+    if (![TIME_STATUS.DRAFT, TIME_STATUS.REJECTED, TIME_STATUS.SUBMITTED].includes(entry.status))
+      return ResponseHelper.validationError(res, 'Only DRAFT, REJECTED, or SUBMITTED entries can be edited');
     if (String(entry.user_id) !== req.currentUser.id)
       return ResponseHelper.forbidden(res, 'Cannot edit another user\'s time entry');
+
+    // Auto-retract: cancel pending approval when editing a submitted entry
+    if (entry.status === TIME_STATUS.SUBMITTED) {
+      const approvalRows = await this.db.findWhere(
+        TABLES.TIME_APPROVAL_REQUESTS, req.tenantId,
+        `time_entry_id = ${req.params.entryId} AND status = 'PENDING'`, { limit: 1 }
+      );
+      if (approvalRows[0]) {
+        await this.db.update(TABLES.TIME_APPROVAL_REQUESTS, { ROWID: approvalRows[0].ROWID, status: 'CANCELLED' });
+      }
+    }
 
     const { hours, description, is_billable, task_id, start_time, end_time } = req.body;
     const updates = {};

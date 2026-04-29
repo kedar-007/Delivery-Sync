@@ -660,6 +660,7 @@ export const assetsApi = {
   requests:        {
     list:            (params?: Record<string, string>) => assetClient.get('/requests', { params }).then((r) => r.data.data),
     create:          (data: unknown) => assetClient.post('/requests', data).then((r) => r.data.data),
+    update:          (id: string, data: unknown) => assetClient.patch(`/requests/${id}`, data).then((r) => r.data.data),
     approve:         (id: string, data?: unknown) => assetClient.patch(`/requests/${id}/approve`, data ?? {}).then((r) => r.data),
     reject:          (id: string, data: unknown) => assetClient.patch(`/requests/${id}/reject`, data).then((r) => r.data.data),
     assignOps:       (id: string, data: unknown) => assetClient.patch(`/requests/${id}/assign-ops`, data).then((r) => r.data.data),
