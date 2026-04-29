@@ -691,6 +691,10 @@ const SuperAdminPage: React.FC = () => {
   const [cfgSaved,       setCfgSaved]       = useState(false);
 
   const [expandedBugId,  setExpandedBugId]  = useState<string | null>(null);
+  const [replyBugId,     setReplyBugId]     = useState<string | null>(null);
+  const [replyNote,      setReplyNote]      = useState('');
+  const [resolvingBugId, setResolvingBugId] = useState<string | null>(null);
+  const [resolveNote,    setResolveNote]    = useState('');
 
   const [lockTarget,     setLockTarget]     = useState<{ id: string; name: string } | null>(null);
   const [unlockTarget,   setUnlockTarget]   = useState<{ id: string; name: string } | null>(null);
@@ -784,6 +788,25 @@ const SuperAdminPage: React.FC = () => {
   }, [bugCfgData]);
 
   // ── Mutations ─────────────────────────────────────────────────────────────────
+  const resolveBug = useMutation({
+    mutationFn: ({ id, notes }: { id: string; notes: string }) => bugApi.resolve(id, notes),
+    onSuccess:  () => {
+      qc.invalidateQueries({ queryKey: ['sa-bug-reports'] });
+      setResolvingBugId(null);
+      setResolveNote('');
+      setExpandedBugId(null);
+    },
+  });
+
+  const replyBug = useMutation({
+    mutationFn: ({ id, notes }: { id: string; notes: string }) => bugApi.reply(id, notes),
+    onSuccess:  () => {
+      qc.invalidateQueries({ queryKey: ['sa-bug-reports'] });
+      setReplyBugId(null);
+      setReplyNote('');
+    },
+  });
+
   const updateStatus = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => superAdminApi.updateTenantStatus(id, status),
     onSuccess:  () => { qc.invalidateQueries({ queryKey: ['sa-tenants'] }); qc.invalidateQueries({ queryKey: ['sa-stats'] }); },
@@ -828,13 +851,17 @@ const SuperAdminPage: React.FC = () => {
       label: f.label, value: f.events, color: MOD_HEX[f.key] ?? '#94a3b8',
     })), [featureUsage]);
 
-  const BUG_PAGE_SIZE = 20;
+  const BUG_PAGE_SIZE = 10;
 
   const filteredBugs = useMemo(() => {
-    let rows = bugReports as any[];
+    let rows = (bugReports as any[]).slice().sort((a: any, b: any) => {
+      const ta = a.CREATEDTIME ? new Date(a.CREATEDTIME).getTime() : 0;
+      const tb = b.CREATEDTIME ? new Date(b.CREATEDTIME).getTime() : 0;
+      return tb - ta;
+    });
     if (bugSearch) {
       const q = bugSearch.toLowerCase();
-      rows = rows.filter(r =>
+      rows = rows.filter((r: any) =>
         r.title?.toLowerCase().includes(q) ||
         r.reporter_name?.toLowerCase().includes(q) ||
         r.tenant_name?.toLowerCase().includes(q)
@@ -1632,6 +1659,96 @@ const SuperAdminPage: React.FC = () => {
 
                                     {/* Attachments */}
                                     <BugDetailAttachments reportId={rowId} />
+
+                                    {/* Resolution note (if saved) */}
+                                    {r.resolution_notes && (
+                                      <div>
+                                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Resolution Note</p>
+                                        <div className="bg-emerald-50 border-l-4 border-emerald-400 rounded-r-xl px-4 py-3 text-xs text-emerald-800 whitespace-pre-wrap leading-relaxed">
+                                          {r.resolution_notes}
+                                        </div>
+                                        {r.resolved_by && (
+                                          <p className="text-[11px] text-gray-400 mt-1">Resolved by {r.resolved_by}</p>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* Reply inline panel */}
+                                    {replyBugId === rowId && (
+                                      <div className="bg-white border border-indigo-200 rounded-xl p-4 space-y-3">
+                                        <p className="text-xs font-semibold text-gray-700">Add a note / reply</p>
+                                        <textarea
+                                          rows={3}
+                                          value={replyNote}
+                                          onChange={e => setReplyNote(e.target.value)}
+                                          placeholder="Write an internal note or reply to the reporter…"
+                                          className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                                        />
+                                        <div className="flex gap-2 justify-end">
+                                          <button
+                                            onClick={() => { setReplyBugId(null); setReplyNote(''); }}
+                                            className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700"
+                                          >Cancel</button>
+                                          <button
+                                            onClick={() => replyBug.mutate({ id: rowId, notes: replyNote })}
+                                            disabled={!replyNote.trim() || replyBug.isPending}
+                                            className="px-4 py-1.5 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                                          >{replyBug.isPending ? 'Saving…' : 'Save Note'}</button>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Resolve inline panel */}
+                                    {resolvingBugId === rowId && (
+                                      <div className="bg-white border border-emerald-200 rounded-xl p-4 space-y-3">
+                                        <div className="flex items-center gap-2">
+                                          <CheckCircle2 size={14} className="text-emerald-500" />
+                                          <p className="text-xs font-semibold text-gray-700">Mark as Resolved</p>
+                                        </div>
+                                        <p className="text-[11px] text-gray-400">A thank-you email will be sent to <strong>{r.reporter_email}</strong></p>
+                                        <textarea
+                                          rows={3}
+                                          value={resolveNote}
+                                          onChange={e => setResolveNote(e.target.value)}
+                                          placeholder="Optional resolution note for the reporter…"
+                                          className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                                        />
+                                        <div className="flex gap-2 justify-end">
+                                          <button
+                                            onClick={() => { setResolvingBugId(null); setResolveNote(''); }}
+                                            className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700"
+                                          >Cancel</button>
+                                          <button
+                                            onClick={() => resolveBug.mutate({ id: rowId, notes: resolveNote })}
+                                            disabled={resolveBug.isPending}
+                                            className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                                          ><CheckCircle2 size={12} />{resolveBug.isPending ? 'Resolving…' : 'Confirm Resolve'}</button>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Action buttons */}
+                                    {r.status !== 'RESOLVED' && r.status !== 'CLOSED' && replyBugId !== rowId && resolvingBugId !== rowId && (
+                                      <div className="flex gap-2 pt-1">
+                                        <button
+                                          onClick={() => { setReplyBugId(rowId); setReplyNote(r.resolution_notes || ''); setResolvingBugId(null); }}
+                                          className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors"
+                                        >
+                                          <Mail size={13} /> Reply
+                                        </button>
+                                        <button
+                                          onClick={() => { setResolvingBugId(rowId); setResolveNote(''); setReplyBugId(null); }}
+                                          className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
+                                        >
+                                          <CheckCircle2 size={13} /> Mark as Resolved
+                                        </button>
+                                      </div>
+                                    )}
+                                    {(r.status === 'RESOLVED' || r.status === 'CLOSED') && (
+                                      <div className="flex items-center gap-2 text-xs text-emerald-600 font-medium">
+                                        <CheckCircle2 size={14} /> This report has been resolved
+                                      </div>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
@@ -1644,7 +1761,10 @@ const SuperAdminPage: React.FC = () => {
                       )}
                     </tbody>
                   </table>
-                  <div className="px-5 pb-4 pt-2">
+                  <div className="px-5 py-3 flex items-center justify-between border-t border-gray-100 bg-gray-50/50">
+                    <span className="text-xs text-gray-400">
+                      Showing {filteredBugs.length === 0 ? 0 : (bugPage - 1) * BUG_PAGE_SIZE + 1}–{Math.min(bugPage * BUG_PAGE_SIZE, filteredBugs.length)} of {filteredBugs.length} reports · newest first
+                    </span>
                     <Pagination page={bugPage} total={filteredBugs.length} pageSize={BUG_PAGE_SIZE} onChange={setBugPage} />
                   </div>
                 </div>

@@ -985,6 +985,12 @@ export const bugApi = {
   update:           (id: string, data: Partial<BugReport>) =>
     bugClient.patch(`/reports/${id}`, data).then((r) => r.data.data),
 
+  resolve:          (id: string, resolution_notes?: string) =>
+    bugClient.post(`/reports/${id}/resolve`, { resolution_notes }).then((r) => r.data.data),
+
+  reply:            (id: string, resolution_notes: string) =>
+    bugClient.post(`/reports/${id}/reply`, { resolution_notes }).then((r) => r.data.data),
+
   listAll:          (params?: Record<string, string>) =>
     bugClient.get('/reports/all', { params }).then((r) => r.data.data),
 

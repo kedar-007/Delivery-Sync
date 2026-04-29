@@ -609,6 +609,112 @@ class BugReportController {
     console.log('[BugReportCtrl] listAllReports ✓ — complete');
     return ResponseHelper.success(res, { reports });
   }
+
+  // ─── POST /api/bugs/reports/:id/resolve ───────────────────────────────────
+  async resolveReport(req, res) {
+    const { id: reportId } = req.params;
+    const { id: userId, name: userName, role } = req.currentUser;
+    const { resolution_notes = '' } = req.body;
+
+    console.log(`[BugReportCtrl] resolveReport Step 1 — reportId=${reportId} userId=${userId} role=${role}`);
+
+    if (role !== 'SUPER_ADMIN' && !ADMIN_ROLES.includes(role)) {
+      return ResponseHelper.forbidden(res, 'Admin access required');
+    }
+
+    // Step 2: fetch report
+    let report;
+    try {
+      const raw = await req.catalystApp.zcql().executeZCQLQuery(
+        `SELECT * FROM ${TABLES.BUG_REPORTS} WHERE ROWID = '${esc(reportId)}' LIMIT 1`
+      );
+      const rows = flattenRows(raw);
+      if (!rows[0]) return ResponseHelper.notFound(res, 'Bug report not found');
+      report = rows[0];
+    } catch (dbErr) {
+      console.error('[BugReportCtrl] resolveReport Step 2 ✗ — DB error:', dbErr.message);
+      return ResponseHelper.serverError(res, 'Failed to fetch bug report');
+    }
+    console.log(`[BugReportCtrl] resolveReport Step 2 ✓ — report found title="${report.title}"`);
+
+    // Step 3: update status to RESOLVED
+    const resolvedAt = new Date().toISOString();
+    try {
+      await req.catalystApp.zcql().executeZCQLQuery(
+        `UPDATE ${TABLES.BUG_REPORTS}
+         SET status = 'RESOLVED',
+             resolved_by = '${esc(userName)}',
+             resolved_at = '${esc(resolvedAt)}',
+             resolution_notes = '${esc(String(resolution_notes).slice(0, 2000))}'
+         WHERE ROWID = '${esc(reportId)}'`
+      );
+    } catch (dbErr) {
+      console.error('[BugReportCtrl] resolveReport Step 3 ✗ — UPDATE failed:', dbErr.message);
+      return ResponseHelper.serverError(res, 'Failed to resolve bug report');
+    }
+    console.log('[BugReportCtrl] resolveReport Step 3 ✓ — status set to RESOLVED');
+
+    // Step 4: send thank-you email to reporter
+    const reporterEmail = report.reporter_email;
+    if (reporterEmail && reporterEmail.includes('@')) {
+      const fromEmail = process.env.FROM_EMAIL || 'catalystadmin@dsv360.ai';
+      const htmlBody  = _buildResolvedEmailHtml({
+        reporterName:     report.reporter_name || 'there',
+        reportTitle:      report.title,
+        reportType:       report.report_type || 'BUG',
+        resolutionNotes:  resolution_notes,
+        resolvedAt,
+      });
+      try {
+        await req.catalystApp.email().sendMail({
+          from_email: fromEmail,
+          to_email:   [reporterEmail],
+          subject:    `Your report has been resolved — ${report.title}`,
+          content:    htmlBody,
+          html_mode:  true,
+        });
+        console.log(`[BugReportCtrl] resolveReport Step 4 ✓ — email sent to ${reporterEmail}`);
+      } catch (mailErr) {
+        console.error(`[BugReportCtrl] resolveReport Step 4 ✗ — email failed:`, mailErr.message);
+      }
+    } else {
+      console.warn('[BugReportCtrl] resolveReport Step 4 — no reporter email, skipping');
+    }
+
+    console.log('[BugReportCtrl] resolveReport ✓ — complete');
+    return ResponseHelper.success(res, { resolved: true, reportId }, 'Bug report resolved successfully');
+  }
+
+  // ─── POST /api/bugs/reports/:id/reply ─────────────────────────────────────
+  async replyReport(req, res) {
+    const { id: reportId } = req.params;
+    const { id: userId, name: userName, role } = req.currentUser;
+    const { resolution_notes } = req.body;
+
+    console.log(`[BugReportCtrl] replyReport Step 1 — reportId=${reportId} userId=${userId}`);
+
+    if (role !== 'SUPER_ADMIN' && !ADMIN_ROLES.includes(role)) {
+      return ResponseHelper.forbidden(res, 'Admin access required');
+    }
+    if (!resolution_notes || !String(resolution_notes).trim()) {
+      return ResponseHelper.validationError(res, 'resolution_notes is required');
+    }
+
+    try {
+      await req.catalystApp.zcql().executeZCQLQuery(
+        `UPDATE ${TABLES.BUG_REPORTS}
+         SET resolution_notes = '${esc(String(resolution_notes).slice(0, 2000))}',
+             resolved_by = '${esc(userName)}'
+         WHERE ROWID = '${esc(reportId)}'`
+      );
+    } catch (dbErr) {
+      console.error('[BugReportCtrl] replyReport ✗ — UPDATE failed:', dbErr.message);
+      return ResponseHelper.serverError(res, 'Failed to save reply');
+    }
+
+    console.log('[BugReportCtrl] replyReport ✓ — complete');
+    return ResponseHelper.success(res, { saved: true }, 'Reply saved');
+  }
 }
 
 // ─── Private helpers ──────────────────────────────────────────────────────────
@@ -714,6 +820,90 @@ function _htmlEsc(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function _buildResolvedEmailHtml({ reporterName, reportTitle, reportType, resolutionNotes, resolvedAt }) {
+  const typeLabel = {
+    BUG:             'Bug Report',
+    ISSUE:           'Issue Report',
+    FEEDBACK:        'Feedback',
+    FEATURE_REQUEST: 'Feature Request',
+  }[reportType] || 'Report';
+
+  const dateStr = new Date(resolvedAt).toLocaleDateString('en-US', {
+    year: 'numeric', month: 'long', day: 'numeric',
+  });
+
+  const notesBlock = resolutionNotes && resolutionNotes.trim()
+    ? `<div style="margin:24px 0 0;">
+         <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.5px;">Resolution Note</p>
+         <div style="background:#f0fdf4;border-left:4px solid #22c55e;border-radius:0 8px 8px 0;padding:14px 16px;font-size:14px;color:#166534;white-space:pre-wrap;line-height:1.6;">${_htmlEsc(resolutionNotes)}</div>
+       </div>`
+    : '';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Your report has been resolved</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f3f4f6;padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
+
+          <!-- Header -->
+          <tr>
+            <td style="background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);border-radius:16px 16px 0 0;padding:36px 40px 32px;text-align:center;">
+              <div style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;background:rgba(255,255,255,0.15);border-radius:50%;margin-bottom:16px;">
+                <span style="font-size:26px;">✅</span>
+              </div>
+              <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">Report Resolved</h1>
+              <p style="margin:0;font-size:14px;color:rgba(255,255,255,0.8);">Your ${_htmlEsc(typeLabel)} has been reviewed &amp; closed</p>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="background:#ffffff;padding:32px 40px;">
+              <p style="margin:0 0 20px;font-size:15px;color:#374151;line-height:1.6;">
+                Hi <strong>${_htmlEsc(reporterName)}</strong>,
+              </p>
+              <p style="margin:0 0 24px;font-size:15px;color:#374151;line-height:1.6;">
+                Great news! Your ${_htmlEsc(typeLabel.toLowerCase())} has been reviewed by our team and marked as <strong style="color:#16a34a;">resolved</strong>. We truly appreciate you taking the time to reach out — reports like yours help us improve the platform for everyone.
+              </p>
+
+              <!-- Report summary card -->
+              <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:20px 24px;margin-bottom:4px;">
+                <p style="margin:0 0 4px;font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;">${_htmlEsc(typeLabel)}</p>
+                <p style="margin:0 0 12px;font-size:16px;font-weight:600;color:#111827;">${_htmlEsc(reportTitle)}</p>
+                <p style="margin:0;font-size:12px;color:#6b7280;">Resolved on ${_htmlEsc(dateStr)}</p>
+              </div>
+
+              ${notesBlock}
+
+              <p style="margin:28px 0 0;font-size:14px;color:#6b7280;line-height:1.6;">
+                If you have any follow-up questions or notice the issue persisting, please don't hesitate to submit another report — we're here to help.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background:#f9fafb;border-radius:0 0 16px 16px;padding:24px 40px;text-align:center;border-top:1px solid #e5e7eb;">
+              <p style="margin:0 0 4px;font-size:13px;font-weight:600;color:#4f46e5;">DSVOps Pulse team</p>
+              <p style="margin:0;font-size:12px;color:#9ca3af;">Delivering operational excellence, one fix at a time.</p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
 }
 
 module.exports = BugReportController;
