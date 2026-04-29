@@ -6,6 +6,7 @@ import {
   CheckSquare, GitBranch, ClipboardList, Clock, Users, Package,
   BarChart3, Sparkles, Shield, AlertTriangle, CalendarDays, Megaphone,
   Timer, Milestone, Settings, Search, Info,
+  Bell, Bot, Trophy, TrendingUp, Globe, Bug, Wifi,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -575,6 +576,273 @@ const SECTIONS: Section[] = [
     ],
   },
   {
+    id: 'team-analytics',
+    icon: <TrendingUp size={18} />,
+    title: 'Team Analytics',
+    color: 'bg-violet-50 text-violet-600',
+    intro: 'Deep-dive analytics on your team\'s performance — sprint velocity, workload distribution, productivity trends, and more.',
+    items: [
+      {
+        label: 'Accessing Team Analytics',
+        content: (
+          <div className="space-y-2">
+            <Step n={1}>Go to <strong>Reports & AI → Team Analytics</strong>.</Step>
+            <Step n={2}>Select a <strong>Project</strong> and a <strong>Time Range</strong> (last 30 / 60 / 90 days).</Step>
+            <Step n={3}>Browse the charts and metrics below.</Step>
+            <Tip>TENANT_ADMIN and PMO roles see data across all projects. DELIVERY_LEAD sees only their assigned projects.</Tip>
+          </div>
+        ),
+      },
+      {
+        label: 'Metrics available',
+        content: (
+          <ul className="list-disc pl-4 space-y-1">
+            <li><strong>Sprint Velocity</strong> – story points completed per sprint over time</li>
+            <li><strong>Task Completion Rate</strong> – percentage of tasks finished within their due dates</li>
+            <li><strong>Workload Distribution</strong> – tasks and story points per team member</li>
+            <li><strong>Standup Submission Rate</strong> – how consistently the team submits daily standups</li>
+            <li><strong>Blocker Trends</strong> – count of blockers raised and resolved per week</li>
+            <li><strong>Time Logged vs Estimated</strong> – billed hours vs story point estimates</li>
+          </ul>
+        ),
+      },
+      {
+        label: 'Individual performance breakdown',
+        content: (
+          <div className="space-y-2">
+            <p>Click a team member's name in the Workload chart to see their personal breakdown:</p>
+            <ul className="list-disc pl-4 space-y-1">
+              <li>Tasks assigned vs completed</li>
+              <li>Average task cycle time</li>
+              <li>Attendance and leave summary</li>
+              <li>Standup and EOD submission consistency</li>
+            </ul>
+            <Tip>This view is only visible to admins and leads — team members see only their own data.</Tip>
+          </div>
+        ),
+      },
+    ],
+  },
+  {
+    id: 'notifications',
+    icon: <Bell size={18} />,
+    title: 'Notifications',
+    color: 'bg-blue-50 text-blue-600',
+    intro: 'Real-time in-app notifications keep you informed when tasks are assigned, blockers are raised, sprints start, and more.',
+    items: [
+      {
+        label: 'The notification bell',
+        content: (
+          <div className="space-y-2">
+            <p>The <strong>bell icon</strong> in the top-right header shows your unread notification count (red badge). Click it to open the notification panel.</p>
+            <ul className="list-disc pl-4 space-y-1">
+              <li>Unread notifications are highlighted in blue and have a blue dot</li>
+              <li>Click the <strong>checkmark</strong> icon on a notification to mark it as read</li>
+              <li>Click the <strong>trash</strong> icon to delete a notification</li>
+              <li>Click <strong>Mark all read</strong> to clear all unread at once</li>
+            </ul>
+          </div>
+        ),
+      },
+      {
+        label: 'Notification types',
+        content: (
+          <ul className="list-disc pl-4 space-y-1">
+            <li><strong>Task Assignment</strong> – you have been assigned to a task</li>
+            <li><strong>Blocker Added</strong> – a new blocker is raised on your project</li>
+            <li><strong>Blocker Escalation</strong> – a blocker has been escalated</li>
+            <li><strong>Member Added</strong> – you have been added to a project or team</li>
+            <li><strong>Standup Reminder</strong> – daily reminder to submit your standup</li>
+            <li><strong>EOD Reminder</strong> – daily reminder to submit your EOD report</li>
+            <li><strong>Action Overdue</strong> – an action item you own has passed its due date</li>
+            <li><strong>Daily Summary</strong> – morning digest of the day's work and events</li>
+          </ul>
+        ),
+      },
+      {
+        label: 'Muting sounds',
+        content: (
+          <div className="space-y-2">
+            <p>Click the small <strong>bell</strong> icon inside the notification panel header to <strong>mute</strong> the chime sound. The panel still shows new notifications — only the audio is silenced.</p>
+            <p>Click the <strong>bell-off</strong> icon again to unmute. Your mute preference is saved in the browser.</p>
+          </div>
+        ),
+      },
+      {
+        label: 'Real-time push notifications',
+        content: (
+          <div className="space-y-2">
+            <p>When you are active in the browser, new notifications arrive <strong>instantly</strong> via Catalyst web push — no page refresh needed.</p>
+            <p>A chime sound plays when a new notification arrives (unless muted). The badge count on the bell updates automatically.</p>
+            <Tip>Push notifications require your browser to allow notifications from this site. If you denied the permission, reset it in your browser settings → Site Settings → Notifications.</Tip>
+          </div>
+        ),
+      },
+    ],
+  },
+  {
+    id: 'bot',
+    icon: <Bot size={18} />,
+    title: 'AI Bot / Assistant',
+    color: 'bg-emerald-50 text-emerald-600',
+    intro: 'The built-in AI assistant helps you create tasks, get project summaries, and answer questions about your work — using natural language.',
+    items: [
+      {
+        label: 'Opening the AI bot',
+        content: (
+          <div className="space-y-2">
+            <p>Click the <strong>Bot icon</strong> (sparkle/robot) in the top-right header to open the chat panel.</p>
+            <Tip>The bot is context-aware — it knows which tenant and user you are, so you can ask "what are my open tasks?" without specifying your name.</Tip>
+          </div>
+        ),
+      },
+      {
+        label: 'What you can ask',
+        content: (
+          <ul className="list-disc pl-4 space-y-1">
+            <li>"What tasks are assigned to me?" — lists your open tasks</li>
+            <li>"Create a task: Fix login bug for [project]" — creates a task via natural language</li>
+            <li>"Summarise [project name]" — project health, open blockers, sprint status</li>
+            <li>"Who submitted standup today?" — attendance and standup status</li>
+            <li>"What's overdue in [project]?" — overdue tasks and actions</li>
+            <li>"How many hours did I log this week?" — your time tracking summary</li>
+          </ul>
+        ),
+      },
+      {
+        label: 'AI task creation',
+        content: (
+          <div className="space-y-2">
+            <p>The bot can create tasks for you. Just describe what needs to be done:</p>
+            <p className="italic text-gray-500 text-xs">"Add a bug task to Sprint 3 of Project Alpha: API timeout on login endpoint, assigned to Rahul, high priority, due Friday."</p>
+            <p>The bot confirms the details before saving. You can correct any field by replying.</p>
+          </div>
+        ),
+      },
+      {
+        label: 'Limitations',
+        content: (
+          <ul className="list-disc pl-4 space-y-1">
+            <li>The bot cannot delete data — it can only read and create</li>
+            <li>Responses are based on your live data at the time of asking</li>
+            <li>Complex multi-step actions (e.g., "move all tasks to sprint 4") may need to be done manually</li>
+          </ul>
+        ),
+      },
+    ],
+  },
+  {
+    id: 'badges',
+    icon: <Trophy size={18} />,
+    title: 'Badges & Leaderboard',
+    color: 'bg-yellow-50 text-yellow-600',
+    intro: 'Earn badges for completing tasks, maintaining streaks, and contributing to the team. Compete on the leaderboard.',
+    items: [
+      {
+        label: 'How badges are earned',
+        content: (
+          <ul className="list-disc pl-4 space-y-1">
+            <li><strong>Task Finisher</strong> – complete 10 / 50 / 100 tasks</li>
+            <li><strong>Standup Streak</strong> – submit standup 5 / 10 / 30 days in a row</li>
+            <li><strong>EOD Streak</strong> – submit EOD reports consistently</li>
+            <li><strong>Sprint MVP</strong> – highest story points completed in a sprint</li>
+            <li><strong>Zero Blocker</strong> – sprint completed with no blockers raised</li>
+            <li><strong>Early Bird</strong> – submit standup before 9 AM for 7 consecutive days</li>
+            <li><strong>Time Tracker</strong> – log time every day for a week</li>
+          </ul>
+        ),
+      },
+      {
+        label: 'Viewing the leaderboard',
+        content: (
+          <div className="space-y-2">
+            <Step n={1}>Go to <strong>People → Directory</strong>.</Step>
+            <Step n={2}>Click the <strong>Leaderboard</strong> tab.</Step>
+            <p>Users are ranked by total <strong>badge points</strong>. Points are weighted by badge tier (Bronze → Silver → Gold).</p>
+            <Tip>The leaderboard resets monthly. An all-time leaderboard is also available.</Tip>
+          </div>
+        ),
+      },
+      {
+        label: 'Your badge profile',
+        content: (
+          <p>Click your avatar → <strong>Profile</strong> to see all your earned badges, current streaks, and leaderboard position. Badges are also shown on your Directory card so colleagues can see your achievements.</p>
+        ),
+      },
+    ],
+  },
+  {
+    id: 'ip-config',
+    icon: <Wifi size={18} />,
+    title: 'IP Whitelisting & Access Control',
+    color: 'bg-slate-50 text-slate-600',
+    intro: 'Restrict platform access to approved IP addresses or networks. Only TENANT_ADMIN can configure IP rules.',
+    items: [
+      {
+        label: 'What IP whitelisting does',
+        content: (
+          <div className="space-y-2">
+            <p>When enabled, only users connecting from <strong>whitelisted IPs or CIDR ranges</strong> can access the platform. All other connections are blocked at the API level.</p>
+            <Tip>This is useful for organisations that want to enforce office-network-only access or restrict logins to a known VPN range.</Tip>
+          </div>
+        ),
+      },
+      {
+        label: 'Adding an IP rule',
+        content: (
+          <div className="space-y-2">
+            <Step n={1}>Go to <strong>Administration → IP Configuration</strong>.</Step>
+            <Step n={2}>Click <strong>Add IP Rule</strong>.</Step>
+            <Step n={3}>Enter a single IP (e.g. <code>203.0.113.42</code>) or a CIDR range (e.g. <code>10.0.0.0/24</code>).</Step>
+            <Step n={4}>Add an optional <strong>Label</strong> (e.g. "Office VPN") and click <strong>Save</strong>.</Step>
+          </div>
+        ),
+      },
+      {
+        label: 'Enabling / disabling whitelisting',
+        content: (
+          <div className="space-y-2">
+            <p>Use the <strong>Enable IP Restrictions</strong> toggle at the top of the IP Configuration page to turn the feature on or off without deleting your rules.</p>
+            <p><strong>Warning:</strong> Before enabling, make sure your own current IP is in the whitelist — otherwise you will lock yourself out.</p>
+          </div>
+        ),
+      },
+      {
+        label: 'Removing an IP rule',
+        content: (
+          <p>Click the <strong>delete</strong> icon next to any IP rule to remove it. Changes take effect immediately.</p>
+        ),
+      },
+    ],
+  },
+  {
+    id: 'bug-reporting',
+    icon: <Bug size={18} />,
+    title: 'Bug Reporting',
+    color: 'bg-rose-50 text-rose-600',
+    intro: 'Found a platform issue? Use the built-in bug reporter to send a report to the DSV OpsPulse team directly from the app.',
+    items: [
+      {
+        label: 'How to report a bug',
+        content: (
+          <div className="space-y-2">
+            <Step n={1}>Click the <strong>bug icon</strong> in the top-right header.</Step>
+            <Step n={2}>Describe the issue: what happened, what you expected, and what page/feature is affected.</Step>
+            <Step n={3}>Attach a screenshot if available.</Step>
+            <Step n={4}>Click <strong>Submit Report</strong>.</Step>
+            <Tip>Your browser, OS, and current page URL are automatically included in the report to help with diagnosis.</Tip>
+          </div>
+        ),
+      },
+      {
+        label: 'What happens after you submit',
+        content: (
+          <p>The report is sent to the DSV OpsPulse support team. You will receive a confirmation email. For urgent issues, contact your system administrator directly.</p>
+        ),
+      },
+    ],
+  },
+  {
     id: 'admin',
     icon: <Settings size={18} />,
     title: 'Administration',
@@ -610,20 +878,21 @@ const SECTIONS: Section[] = [
               <li><strong>Custom Workflows</strong> – Define approval flows for leaves, assets, or reports</li>
               <li><strong>Custom Forms</strong> – Create additional data-capture forms for your organisation</li>
               <li><strong>Notification Settings</strong> – Control which events send email or in-app notifications</li>
+              <li><strong>IP Whitelisting</strong> – Restrict access to approved networks (see the <em>IP Whitelisting</em> section for details)</li>
             </ul>
           </div>
         ),
       },
       {
-        label: 'Profile settings',
+        label: 'Profile & theme settings',
         content: (
           <div className="space-y-2">
-            <p>Each user can update their own profile via the avatar → <strong>Profile</strong> or <strong>Settings</strong>:</p>
+            <p>Each user can update their own profile via the avatar menu → <strong>Profile</strong> or <strong>Settings</strong>:</p>
             <ul className="list-disc pl-4 space-y-1">
               <li>Update <strong>Name</strong>, <strong>Department</strong>, <strong>Job Title</strong>, <strong>Phone</strong></li>
               <li>Add <strong>Skills</strong> (shown on the Directory and Leaderboard)</li>
               <li>Upload a <strong>Profile Photo</strong> (avatar URL)</li>
-              <li>Change <strong>Theme</strong> (light / dark / system)</li>
+              <li>Change <strong>Theme</strong> (light / dark / system) — also accessible via the sun/moon icon in the header</li>
             </ul>
           </div>
         ),

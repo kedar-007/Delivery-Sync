@@ -139,6 +139,101 @@ class MemberController {
   }
 
   /**
+   * POST /api/projects/:projectId/members/team
+   * Adds all members of a team to the project at once (skips existing members).
+   */
+  async addTeamMembers(req, res) {
+    try {
+      const { tenantId, id: addedBy } = req.currentUser;
+      const { projectId } = req.params;
+      const { team_id } = req.body;
+
+      if (!team_id) return ResponseHelper.validationError(res, 'team_id is required');
+
+      const project = await this.db.findById(TABLES.PROJECTS, projectId, tenantId);
+      if (!project) return ResponseHelper.notFound(res, 'Project not found');
+
+      const teamMembers = await this.db.findAll(TABLES.TEAM_MEMBERS,
+        { tenant_id: tenantId, team_id }, { limit: 200 });
+
+      if (teamMembers.length === 0) {
+        return ResponseHelper.success(res, { added: 0, skipped: 0 }, 'Team has no members');
+      }
+
+      const existingRows = await this.db.query(
+        `SELECT user_id FROM ${TABLES.PROJECT_MEMBERS} WHERE tenant_id = '${tenantId}' AND project_id = '${projectId}' LIMIT 500`
+      );
+      const existingUserIds = new Set(existingRows.map((r) => String(r.user_id)));
+
+      const userIds = teamMembers.map((m) => String(m.user_id));
+      const usersRows = await this.db.query(
+        `SELECT ROWID, name, email, catalyst_user_id FROM ${TABLES.USERS} WHERE tenant_id = '${tenantId}' AND ROWID IN (${userIds.map((id) => `'${id}'`).join(',')}) LIMIT 200`
+      );
+      const userMap = {};
+      usersRows.forEach((u) => { userMap[String(u.ROWID)] = u; });
+
+      const adder = await this.db.findById(TABLES.USERS, addedBy, tenantId);
+      const adderName = adder?.name || 'An admin';
+
+      let added = 0;
+      let skipped = 0;
+
+      for (const tm of teamMembers) {
+        const uid = String(tm.user_id);
+        if (existingUserIds.has(uid)) { skipped++; continue; }
+
+        const memberRole = tm.role || 'MEMBER';
+
+        await this.db.insert(TABLES.PROJECT_MEMBERS, {
+          tenant_id: tenantId,
+          project_id: projectId,
+          user_id: uid,
+          role: memberRole,
+          added_by: addedBy,
+        });
+        added++;
+
+        const u = userMap[uid];
+        if (u && String(uid) !== String(addedBy)) {
+          (async () => {
+            try {
+              await Promise.all([
+                this.notifier.sendInApp({
+                  tenantId,
+                  userId: uid,
+                  title: `Added to project "${project.name}"`,
+                  message: `${adderName} added you to project "${project.name}" as ${memberRole}.`,
+                  type: NOTIFICATION_TYPE.MEMBER_ADDED,
+                  entityType: 'project',
+                  entityId: projectId,
+                  metadata: { projectName: project.name, role: memberRole },
+                }),
+                u.email
+                  ? this.notifier.sendMemberAdded({
+                      tenantId,
+                      userId: uid,
+                      toEmail: u.email,
+                      toName: u.name || u.email,
+                      projectName: project.name,
+                      addedBy: adderName,
+                      projectRole: memberRole,
+                    })
+                  : Promise.resolve(),
+              ]);
+            } catch (e) {
+              console.error('[MemberController] addTeamMembers notify failed:', e.message);
+            }
+          })();
+        }
+      }
+
+      return ResponseHelper.success(res, { added, skipped }, `${added} member(s) added, ${skipped} already in project`);
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
    * DELETE /api/projects/:projectId/members/:memberId
    */
   async removeMember(req, res) {

@@ -68,6 +68,8 @@ export const projectsApi = {
     api.get(`/projects/${projectId}/members`).then((r) => r.data.data),
   addMember: (projectId: string, data: unknown) =>
     api.post(`/projects/${projectId}/members`, data).then((r) => r.data.data),
+  addTeam: (projectId: string, data: unknown) =>
+    api.post(`/projects/${projectId}/members/team`, data).then((r) => r.data.data),
   removeMember: (projectId: string, memberId: string) =>
     api.delete(`/projects/${projectId}/members/${memberId}`).then((r) => r.data.data),
 };

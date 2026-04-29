@@ -28,19 +28,15 @@ class TeamController {
       const { name, description, project_id, lead_user_id } = req.body;
 
       if (!name) return ResponseHelper.validationError(res, 'Team name is required');
-      if (!project_id) return ResponseHelper.validationError(res, 'project_id is required');
-
-      const project = await this.db.findById(TABLES.PROJECTS, project_id, tenantId);
-      if (!project) return ResponseHelper.notFound(res, 'Project not found');
 
       const { standup_time, eod_time, timezone } = req.body;
 
       const basePayload = {
         tenant_id: tenantId,
-        project_id,
         name: name.trim(),
         created_by: userId,
       };
+      if (project_id) basePayload.project_id = project_id;
       if (description)  basePayload.description = description;
       if (lead_user_id) basePayload.lead_user_id = lead_user_id;
 
@@ -70,7 +66,7 @@ class TeamController {
           id: String(team.ROWID),
           name: basePayload.name,
           description: description || '',
-          projectId: project_id,
+          projectId: project_id || null,
           leadUserId: lead_user_id || null,
           standupTime: standup_time || null,
           eodTime: eod_time || null,

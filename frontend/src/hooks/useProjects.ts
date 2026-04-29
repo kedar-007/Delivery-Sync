@@ -153,6 +153,19 @@ export const useAddMember = (projectId: string) => {
   });
 };
 
+export const useAddTeamToProject = (projectId: string) => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (data: unknown) => projectsApi.addTeam(projectId, data),
+    onSuccess: (d: any) => {
+      qc.invalidateQueries({ queryKey: [PROJECTS_KEY, projectId, 'members'] });
+      toast.success(d?.message || 'Team members added');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to add team'),
+  });
+};
+
 export const useRemoveMember = (projectId: string) => {
   const qc = useQueryClient();
   const toast = useToast();
