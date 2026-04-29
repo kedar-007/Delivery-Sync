@@ -312,6 +312,8 @@ export const teamsApi = {
   delete: (teamId: string) => api.delete(`/teams/${teamId}`).then((r) => r.data.data),
   addMember: (teamId: string, data: unknown) =>
     api.post(`/teams/${teamId}/members`, data).then((r) => r.data.data),
+  updateMember: (teamId: string, memberId: string, data: unknown) =>
+    api.patch(`/teams/${teamId}/members/${memberId}`, data).then((r) => r.data.data),
   removeMember: (teamId: string, memberId: string) =>
     api.delete(`/teams/${teamId}/members/${memberId}`).then((r) => r.data.data),
 };

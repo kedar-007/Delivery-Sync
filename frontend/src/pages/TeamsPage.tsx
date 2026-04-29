@@ -16,7 +16,7 @@ import UserHoverCard from '../components/ui/UserHoverCard';
 import UserPicker from '../components/ui/UserPicker';
 import {
   useTeams, useCreateTeam, useUpdateTeam, useDeleteTeam,
-  useTeam, useAddTeamMember, useRemoveTeamMember,
+  useTeam, useAddTeamMember, useUpdateTeamMember, useRemoveTeamMember,
 } from '../hooks/useTeams';
 import { useProjects } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
@@ -225,8 +225,11 @@ const TeamDetailModal = ({
   const eodTime = detail?.eodTime ?? team.eodTime;
   const timezone = detail?.timezone ?? team.timezone;
 
-  const leads = members.filter((m: any) => m.role === 'LEAD');
-  const others = members.filter((m: any) => m.role !== 'LEAD');
+  // DELIVERY_LEAD → prominent banner profile
+  // LEAD         → crown badge in member list below
+  const deliveryLeads = members.filter((m: any) => m.role === 'DELIVERY_LEAD');
+  const teamLeads     = members.filter((m: any) => m.role === 'LEAD');
+  const others        = members.filter((m: any) => m.role !== 'DELIVERY_LEAD' && m.role !== 'LEAD');
 
   return (
     <Modal open onClose={onClose} size="2xl" title="">
@@ -261,15 +264,55 @@ const TeamDetailModal = ({
           )}
         </div>
 
-        {/* Lead profile — prominent */}
-        {leadInfo ? (
+        {/* Delivery Lead — big profile banner */}
+        {deliveryLeads.length > 0 ? (
+          deliveryLeads.length === 1 ? (
+            <div className="flex items-center gap-4 bg-white/10 backdrop-blur-sm rounded-2xl px-5 py-4 mb-5 border border-white/20">
+              <div className="ring-4 ring-white/30 rounded-full shrink-0">
+                <UserAvatar name={deliveryLeads[0].name || deliveryLeads[0].email} avatarUrl={deliveryLeads[0].avatarUrl} size="xl" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <Crown size={13} className="text-amber-300 shrink-0" />
+                  <span className="text-[11px] font-bold text-amber-200 uppercase tracking-widest">Delivery Lead</span>
+                </div>
+                <p className="text-white font-bold text-lg leading-tight truncate">
+                  {deliveryLeads[0].name || deliveryLeads[0].email}
+                </p>
+                {deliveryLeads[0].email && (
+                  <p className="text-blue-200 text-xs mt-0.5 flex items-center gap-1 truncate">
+                    <Mail size={10} />{deliveryLeads[0].email}
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+            /* Multiple delivery leads — row layout */
+            <div className="bg-white/10 backdrop-blur-sm rounded-2xl px-5 py-4 mb-5 border border-white/20">
+              <div className="flex items-center gap-2 mb-3">
+                <Crown size={13} className="text-amber-300 shrink-0" />
+                <span className="text-[11px] font-bold text-amber-200 uppercase tracking-widest">Delivery Leads</span>
+              </div>
+              <div className="flex flex-wrap gap-5">
+                {deliveryLeads.map((dl: any) => (
+                  <div key={dl.id} className="flex items-center gap-3">
+                    <div className="ring-2 ring-white/30 rounded-full shrink-0">
+                      <UserAvatar name={dl.name || dl.email} avatarUrl={dl.avatarUrl} size="lg" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-white font-semibold text-sm truncate">{dl.name || dl.email}</p>
+                      {dl.email && <p className="text-blue-200 text-xs truncate">{dl.email}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        ) : leadInfo ? (
+          /* Fallback: designated lead_user_id when no DELIVERY_LEAD role member exists */
           <div className="flex items-center gap-4 bg-white/10 backdrop-blur-sm rounded-2xl px-5 py-4 mb-5 border border-white/20">
             <div className="ring-4 ring-white/30 rounded-full shrink-0">
-              <UserAvatar
-                name={leadInfo.name || leadInfo.email}
-                avatarUrl={leadInfo.avatarUrl}
-                size="xl"
-              />
+              <UserAvatar name={leadInfo.name || leadInfo.email} avatarUrl={leadInfo.avatarUrl} size="xl" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
@@ -333,21 +376,35 @@ const TeamDetailModal = ({
         </div>
       ) : (
         <div className="space-y-4">
-          {/* Leads section */}
-          {leads.length > 0 && (
+          {/* Team Leads — crown badge per card */}
+          {teamLeads.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1">
-                <Crown size={11} className="text-amber-500" /> Leads
+                <Crown size={11} className="text-amber-500" /> Team Leads
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {leads.map((m: any) => (
+                {teamLeads.map((m: any) => (
+                  <MemberCard key={m.id} member={m} showCrown />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Delivery Leads in member list (if any — they also appear in banner) */}
+          {deliveryLeads.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1">
+                <Crown size={11} className="text-blue-500" /> Delivery Leads
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {deliveryLeads.map((m: any) => (
                   <MemberCard key={m.id} member={m} />
                 ))}
               </div>
             </div>
           )}
 
-          {/* Team members section */}
+          {/* Rest of team members */}
           {others.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1">
@@ -372,8 +429,8 @@ const TeamDetailModal = ({
 
 // ─── Member Card (inside Team Detail) ────────────────────────────────────────
 
-const MemberCard = ({ member }: { member: any }) => (
-  <div className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:border-blue-200 hover:bg-blue-50/30 transition-all group">
+const MemberCard = ({ member, showCrown }: { member: any; showCrown?: boolean }) => (
+  <div className={`flex items-center gap-3 p-3 rounded-xl border transition-all group ${showCrown ? 'border-amber-100 hover:border-amber-300 hover:bg-amber-50/30' : 'border-gray-100 hover:border-blue-200 hover:bg-blue-50/30'}`}>
     <UserHoverCard
       name={member.name || member.email}
       role={member.role}
@@ -382,7 +439,10 @@ const MemberCard = ({ member }: { member: any }) => (
       size="md"
     />
     <div className="flex-1 min-w-0">
-      <p className="text-sm font-medium text-gray-900 truncate">{member.name || member.email}</p>
+      <div className="flex items-center gap-1.5">
+        {showCrown && <Crown size={11} className="text-amber-500 shrink-0" />}
+        <p className="text-sm font-medium text-gray-900 truncate">{member.name || member.email}</p>
+      </div>
       {member.email && (
         <p className="text-xs text-gray-400 truncate flex items-center gap-1">
           <Mail size={9} />{member.email}
@@ -418,7 +478,8 @@ const TeamsPage = () => {
   const createTeam = useCreateTeam();
   const updateTeam = useUpdateTeam(editTeam?.id ?? '');
   const deleteTeam = useDeleteTeam();
-  const addMember = useAddTeamMember(manageTeam?.id ?? '');
+  const addMember    = useAddTeamMember(manageTeam?.id ?? '');
+  const updateMember = useUpdateTeamMember(manageTeam?.id ?? '');
   const removeMember = useRemoveTeamMember(manageTeam?.id ?? '');
   const { data: manageDetail } = useTeam(manageTeam?.id ?? '');
 
@@ -490,6 +551,11 @@ const TeamsPage = () => {
       await addMember.mutateAsync(data);
       memberForm.reset({ role: 'DEVELOPER' });
     } catch (err: any) { setMemberError(err.message); }
+  };
+
+  const handleUpdateMemberRole = async (memberId: string, role: string) => {
+    try { await updateMember.mutateAsync({ memberId, role }); }
+    catch (err: any) { setMemberError(err.message); }
   };
 
   const handleRemoveMember = async (memberId: string) => {
@@ -732,11 +798,23 @@ const TeamsPage = () => {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${ROLE_COLORS[m.role] ?? 'bg-gray-100 text-gray-500'}`}>
-                          {formatRole(m.role)}
-                        </span>
+                        {canWrite ? (
+                          <select
+                            className={`text-[11px] font-medium px-2 py-0.5 rounded-full border-0 cursor-pointer focus:ring-1 focus:ring-blue-400 ${ROLE_COLORS[m.role] ?? 'bg-gray-100 text-gray-500'}`}
+                            value={m.role}
+                            onChange={(e) => handleUpdateMemberRole(m.id, e.target.value)}
+                          >
+                            {TEAM_MEMBER_ROLES.map((r) => (
+                              <option key={r.value} value={r.value}>{r.label}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${ROLE_COLORS[m.role] ?? 'bg-gray-100 text-gray-500'}`}>
+                            {formatRole(m.role)}
+                          </span>
+                        )}
                         {canWrite && (
-                          <button onClick={() => handleRemoveMember(m.id)} className="p-1 text-gray-300 hover:text-red-500 transition-colors">
+                          <button onClick={() => handleRemoveMember(m.id)} className="p-1 text-gray-300 hover:text-red-500 transition-colors" title="Remove member">
                             <Trash2 size={13} />
                           </button>
                         )}

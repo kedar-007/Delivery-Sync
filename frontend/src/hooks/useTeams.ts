@@ -53,6 +53,15 @@ export const useAddTeamMember = (teamId: string) => {
   });
 };
 
+export const useUpdateTeamMember = (teamId: string) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ memberId, role }: { memberId: string; role: string }) =>
+      teamsApi.updateMember(teamId, memberId, { role }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY, teamId] }),
+  });
+};
+
 export const useRemoveTeamMember = (teamId: string) => {
   const qc = useQueryClient();
   return useMutation({

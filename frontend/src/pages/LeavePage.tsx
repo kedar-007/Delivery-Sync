@@ -47,6 +47,7 @@ interface LeaveBalance {
   used: number;
   pending: number;
   total_available: number;
+  remaining: number;
 }
 
 interface LeaveRequest {
@@ -305,7 +306,7 @@ const ApplyTab = () => {
           {selectedBalance && (
             <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg flex items-center justify-between">
               <span className="text-sm text-blue-700 font-medium">{selectedBalance.leaveTypeName} Balance</span>
-              <span className="text-sm text-blue-900 font-bold">{selectedBalance.total_available} days remaining</span>
+              <span className="text-sm text-blue-900 font-bold">{selectedBalance.remaining ?? selectedBalance.total_available} days remaining</span>
             </div>
           )}
 
@@ -770,7 +771,7 @@ const BalanceTab = () => {
               <Card key={b.leaveTypeId}>
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-semibold text-gray-900">{b.leaveTypeName}</h3>
-                  <span className="text-lg font-bold text-blue-700">{b.total_available}</span>
+                  <span className="text-lg font-bold text-blue-700">{b.remaining ?? b.total_available}</span>
                 </div>
                 <p className="text-xs text-gray-500 mb-3">days remaining</p>
 

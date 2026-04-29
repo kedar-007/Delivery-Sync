@@ -35,6 +35,7 @@ import {
 } from '../hooks/useAdminConfig';
 import { adminConfigApi, adminApi } from '../lib/api';
 import { useBugConfig, useSaveBugConfig } from '../hooks/useBugReports';
+import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../components/ui/ConfirmDialog';
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
@@ -1573,6 +1574,8 @@ function BadgeCatalogTab() {
 // ── Bug Report Config Tab ─────────────────────────────────────────────────────
 
 function BugReportConfigTab() {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const { data: config, isLoading } = useBugConfig();
   const { mutateAsync: saveConfig, isPending: saving } = useSaveBugConfig();
 
@@ -1612,14 +1615,15 @@ function BugReportConfigTab() {
   const handleSave = async () => {
     setError(''); setSaved(false);
     try {
-      await saveConfig({
-        enabled,
-        notify_on_new:       notifyOnNew,
-        notify_emails:       JSON.stringify(emails),
-        notify_on_severity:  JSON.stringify(severities),
-        email_subject_prefix: prefix,
-        max_attachments:     maxFiles,
-      });
+      const payload: Record<string, unknown> = { enabled };
+      if (isSuperAdmin) {
+        payload.notify_on_new       = notifyOnNew;
+        payload.notify_emails       = JSON.stringify(emails);
+        payload.notify_on_severity  = JSON.stringify(severities);
+        payload.email_subject_prefix = prefix;
+        payload.max_attachments     = maxFiles;
+      }
+      await saveConfig(payload as any);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (e: unknown) {
@@ -1644,118 +1648,121 @@ function BugReportConfigTab() {
         </button>
       </div>
 
-      {/* Notify on new */}
-      <div className="flex items-center justify-between p-4 rounded-xl border border-gray-200 dark:border-gray-700">
-        <div>
-          <p className="font-semibold text-sm text-gray-900 dark:text-white">Notify on every report</p>
-          <p className="text-xs text-gray-500 mt-0.5">Send email for every new submission regardless of severity</p>
-        </div>
-        <button onClick={() => setNotifyOnNew((v) => !v)} className="shrink-0">
-          {notifyOnNew
-            ? <ToggleRight size={32} className="text-green-500" />
-            : <ToggleLeft  size={32} className="text-gray-400" />}
-        </button>
-      </div>
-
-      {/* Severity filter */}
-      <div>
-        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-          Notify on severity
-          <span className="ml-1 font-normal normal-case text-gray-400">(when not notifying on every report)</span>
-        </p>
-        <div className="flex gap-2 flex-wrap">
-          {(['CRITICAL','HIGH','MEDIUM','LOW'] as const).map((s) => {
-            const active = severities.includes(s);
-            const colors: Record<string, string> = {
-              CRITICAL: 'bg-red-100 text-red-700 border-red-300',
-              HIGH:     'bg-orange-100 text-orange-700 border-orange-300',
-              MEDIUM:   'bg-yellow-100 text-yellow-700 border-yellow-300',
-              LOW:      'bg-green-100 text-green-700 border-green-300',
-            };
-            return (
-              <button
-                key={s}
-                onClick={() => toggleSeverity(s)}
-                className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-                  active ? colors[s] : 'border-gray-200 dark:border-gray-700 text-gray-400'
-                }`}
-              >
-                {s}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Notification emails */}
-      <div>
-        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-          Notification email addresses
-        </p>
-        <div className="flex gap-2 mb-3">
-          <input
-            type="email"
-            value={emailInput}
-            onChange={(e) => setEmailInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addEmail())}
-            placeholder="engineer@company.com"
-            className="flex-1 px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-700
-              bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white
-              placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400"
-          />
-          <button
-            onClick={addEmail}
-            className="px-4 py-2 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-semibold"
-          >
-            Add
+      {/* Notification settings — super admin only */}
+      {isSuperAdmin && (<>
+        {/* Notify on new */}
+        <div className="flex items-center justify-between p-4 rounded-xl border border-gray-200 dark:border-gray-700">
+          <div>
+            <p className="font-semibold text-sm text-gray-900 dark:text-white">Notify on every report</p>
+            <p className="text-xs text-gray-500 mt-0.5">Send email for every new submission regardless of severity</p>
+          </div>
+          <button onClick={() => setNotifyOnNew((v) => !v)} className="shrink-0">
+            {notifyOnNew
+              ? <ToggleRight size={32} className="text-green-500" />
+              : <ToggleLeft  size={32} className="text-gray-400" />}
           </button>
         </div>
-        {emails.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {emails.map((e) => (
-              <span key={e} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-medium border border-blue-200 dark:border-blue-700">
-                {e}
-                <button onClick={() => setEmails((prev) => prev.filter((x) => x !== e))}>
-                  <X size={11} />
+
+        {/* Severity filter */}
+        <div>
+          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+            Notify on severity
+            <span className="ml-1 font-normal normal-case text-gray-400">(when not notifying on every report)</span>
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            {(['CRITICAL','HIGH','MEDIUM','LOW'] as const).map((s) => {
+              const active = severities.includes(s);
+              const colors: Record<string, string> = {
+                CRITICAL: 'bg-red-100 text-red-700 border-red-300',
+                HIGH:     'bg-orange-100 text-orange-700 border-orange-300',
+                MEDIUM:   'bg-yellow-100 text-yellow-700 border-yellow-300',
+                LOW:      'bg-green-100 text-green-700 border-green-300',
+              };
+              return (
+                <button
+                  key={s}
+                  onClick={() => toggleSeverity(s)}
+                  className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+                    active ? colors[s] : 'border-gray-200 dark:border-gray-700 text-gray-400'
+                  }`}
+                >
+                  {s}
                 </button>
-              </span>
-            ))}
+              );
+            })}
           </div>
-        ) : (
-          <p className="text-xs text-gray-400">No notification emails configured.</p>
-        )}
-      </div>
+        </div>
 
-      {/* Email prefix */}
-      <div>
-        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
-          Email subject prefix
-        </p>
-        <input
-          type="text"
-          value={prefix}
-          onChange={(e) => setPrefix(e.target.value)}
-          className="w-full px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-700
-            bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white
-            focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400"
-        />
-      </div>
+        {/* Notification emails */}
+        <div>
+          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+            Notification email addresses
+          </p>
+          <div className="flex gap-2 mb-3">
+            <input
+              type="email"
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addEmail())}
+              placeholder="engineer@company.com"
+              className="flex-1 px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-700
+                bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white
+                placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400"
+            />
+            <button
+              onClick={addEmail}
+              className="px-4 py-2 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-semibold"
+            >
+              Add
+            </button>
+          </div>
+          {emails.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {emails.map((e) => (
+                <span key={e} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-medium border border-blue-200 dark:border-blue-700">
+                  {e}
+                  <button onClick={() => setEmails((prev) => prev.filter((x) => x !== e))}>
+                    <X size={11} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-400">No notification emails configured.</p>
+          )}
+        </div>
 
-      {/* Max attachments */}
-      <div>
-        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
-          Max attachments per report
-        </p>
-        <input
-          type="number"
-          min={1} max={10}
-          value={maxFiles}
-          onChange={(e) => setMaxFiles(Number(e.target.value))}
-          className="w-28 px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-700
-            bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white
-            focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400"
-        />
-      </div>
+        {/* Email prefix */}
+        <div>
+          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
+            Email subject prefix
+          </p>
+          <input
+            type="text"
+            value={prefix}
+            onChange={(e) => setPrefix(e.target.value)}
+            className="w-full px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-700
+              bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white
+              focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400"
+          />
+        </div>
+
+        {/* Max attachments */}
+        <div>
+          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
+            Max attachments per report
+          </p>
+          <input
+            type="number"
+            min={1} max={10}
+            value={maxFiles}
+            onChange={(e) => setMaxFiles(Number(e.target.value))}
+            className="w-28 px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-700
+              bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white
+              focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400"
+          />
+        </div>
+      </>)}
 
       {saved && <p className="text-xs text-green-600 font-medium">✓ Saved successfully</p>}
       {error && <p className="text-xs text-red-500">{error}</p>}

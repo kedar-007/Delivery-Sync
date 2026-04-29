@@ -502,7 +502,11 @@ export const useApproveLeave = () => {
   const toast = useToast();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data?: unknown }) => leaveApi.approve(id, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['leave', 'requests'] }); toast.success('Leave approved'); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['leave', 'requests'] });
+      qc.invalidateQueries({ queryKey: ['leave', 'balance'] });
+      toast.success('Leave approved');
+    },
     onError: (e: Error) => toast.error(e.message || 'Failed to approve leave'),
   });
 };
@@ -512,7 +516,11 @@ export const useRejectLeave = () => {
   const toast = useToast();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: unknown }) => leaveApi.reject(id, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['leave', 'requests'] }); toast.success('Leave rejected'); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['leave', 'requests'] });
+      qc.invalidateQueries({ queryKey: ['leave', 'balance'] });
+      toast.success('Leave rejected');
+    },
     onError: (e: Error) => toast.error(e.message || 'Failed to reject leave'),
   });
 };

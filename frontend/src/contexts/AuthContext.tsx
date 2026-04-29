@@ -77,9 +77,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [suspensionInfo, setSuspensionInfo] = useState<SuspensionInfo | null>(null);
   const [isDeactivated, setIsDeactivated] = useState(false);
 
-  const fetchUser = async () => {
+  const fetchUser = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError(null);
       setNeedsReg(false);
       setSuspensionInfo(null);
@@ -108,7 +108,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setNeedsReg(true);
       }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -119,13 +119,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
     fetchUser();
-    // Refetch permissions when the tab becomes visible again (e.g. after admin grants a new
-    // permission in another tab). Using visibilitychange instead of window.focus so that
-    // native OS dialogs (file pickers, color pickers) do NOT trigger a refetch — those
-    // dialogs return focus to the window without changing the tab's visibility state.
+    // Silently refetch permissions when the tab becomes visible again (e.g. after admin
+    // grants a new permission in another tab). Silent = no full-screen loader so the
+    // current page stays visible while the check runs in the background.
     const onVisible = () => {
       if (document.visibilityState === 'visible' && localStorage.getItem('ds_logged_out') !== '1') {
-        fetchUser();
+        fetchUser(true);
       }
     };
     document.addEventListener('visibilitychange', onVisible);

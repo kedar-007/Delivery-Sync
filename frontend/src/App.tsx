@@ -84,14 +84,19 @@ const AppRoutes = () => {
 
   // ✅ Single source of truth — AuthContext decides if user is logged in
   const mustLogin = !user || isLoggedOut;
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const tenantSlug = user?.tenantSlug || localStorage.getItem('tenantSlug') || '';
-  const homePath = tenantSlug ? `/${tenantSlug}/dashboard` : '/login';
+  const homePath = isSuperAdmin ? '/super-admin' : (tenantSlug ? `/${tenantSlug}/dashboard` : '/login');
 
   return (
     <>
     <Routes>
       <Route path="/login" element={mustLogin ? <LoginPage /> : <Navigate to={homePath} replace />} />
-      <Route path="/super-admin" element={<SuperAdminPage />} />
+      <Route path="/super-admin" element={
+        mustLogin ? <Navigate to="/login" replace /> :
+        isSuperAdmin ? <SuperAdminPage /> :
+        <Navigate to={homePath} replace />
+      } />
       <Route path="/:tenantSlug/reports/:reportId" element={<ReportDetailPage />} />
 
       <Route
@@ -190,7 +195,7 @@ const App = () => {
     <ToastProvider>
       <AuthProvider>
         <ConfirmProvider>
-          <HashRouter>
+          <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <AppRoutes />
           </HashRouter>
         </ConfirmProvider>

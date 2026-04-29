@@ -34,6 +34,24 @@ class BugReportController {
 
     console.log(`[BugReportCtrl] submitReport Step 1 — userId=${userId} tenantId=${tenantId} report_type=${report_type} severity=${severity}`);
 
+    // Check if bug reporting is enabled for this tenant
+    try {
+      const cfgRaw = await req.catalystApp.zcql().executeZCQLQuery(
+        `SELECT enabled FROM ${TABLES.BUG_REPORT_CONFIG}
+         WHERE tenant_id = '${esc(tenantId)}' LIMIT 1`
+      );
+      const cfgRows = (cfgRaw || []).map((r) => Object.assign({}, ...Object.values(r)));
+      if (cfgRows.length > 0) {
+        const isDisabled = cfgRows[0].enabled === false || String(cfgRows[0].enabled).toLowerCase() === 'false';
+        if (isDisabled) {
+          console.warn(`[BugReportCtrl] submitReport ✗ — bug reporting disabled for tenant=${tenantId}`);
+          return ResponseHelper.forbidden(res, 'Bug reporting is not enabled for your organisation.');
+        }
+      }
+    } catch (cfgErr) {
+      console.warn('[BugReportCtrl] submitReport — could not read config (allowing):', cfgErr.message);
+    }
+
     // Validate required fields
     if (!title || !title.trim()) {
       console.warn('[BugReportCtrl] submitReport ✗ — title is required');

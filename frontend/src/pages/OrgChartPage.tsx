@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams } from 'react-router-dom';
-import { Search, List, GitBranch, UserPlus, X } from 'lucide-react';
+import { Search, List, GitBranch, UserPlus, X, Maximize2, Minimize2, ZoomIn, ZoomOut, RotateCcw, Scan } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
@@ -363,6 +364,31 @@ const VisualOrgChart: React.FC<{
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [dragId, setDragId] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [zoom, setZoom] = useState(1);
+
+  const zoomIn    = () => setZoom(z => Math.min(2, parseFloat((z + 0.1).toFixed(2))));
+  const zoomOut   = () => setZoom(z => Math.max(0.1, parseFloat((z - 0.1).toFixed(2))));
+  const zoomReset = () => setZoom(1);
+
+  // Calculate zoom to fit chart inside the current viewport (called on fullscreen toggle)
+  const fitZoom = useCallback((cW: number, cH: number, fullscreen: boolean) => {
+    const TOOLBAR_H = 48;
+    const vw = window.innerWidth  - (fullscreen ? 0 : 0);
+    const vh = window.innerHeight - TOOLBAR_H;
+    const fz = Math.min(vw / cW, vh / cH) * 0.92;
+    setZoom(Math.max(0.1, parseFloat(Math.min(fz, 1).toFixed(2))));
+  }, []);
+
+  const toggleFullscreen = useCallback((cW: number, cH: number) => {
+    setIsFullscreen(prev => {
+      const next = !prev;
+      // On entering fullscreen, auto-fit so the whole chart is visible
+      if (next) fitZoom(cW, cH, true);
+      else setZoom(1);
+      return next;
+    });
+  }, [fitZoom]);
 
   const handleToggle = useCallback((id: string) => {
     setCollapsed(prev => {
@@ -448,111 +474,216 @@ const VisualOrgChart: React.FC<{
     );
   }
 
-  return (
-    <>
+  const chartW = Math.max(totalW, 600);
+  const chartH = Math.max(totalH, 400);
+
+  /* Shared chart canvas — zoomed inner div inside a scrollable outer div */
+  const chartCanvas = (
+    /* outer: reserves space proportional to zoom so scroll range matches visual size */
+    <div
+      style={{ width: chartW * zoom, height: chartH * zoom, position: 'relative', flexShrink: 0 }}
+      onDragEnd={() => setDragId(null)}
+    >
+      {/* inner: actual chart content, scaled from top-left */}
       <div
-        className="overflow-auto rounded-xl border border-gray-200 bg-gray-50"
-        style={{ maxHeight: '72vh' }}
-        onDragEnd={() => setDragId(null)}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: chartW,
+          height: chartH,
+          transform: `scale(${zoom})`,
+          transformOrigin: 'top left',
+        }}
       >
-        <div
+        {/* SVG connecting lines */}
+        <svg
           style={{
-            position: 'relative',
-            width: Math.max(totalW, 600),
-            height: Math.max(totalH, 400),
-          }}
-        >
-          {/* SVG connecting lines */}
-          <svg
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: PAD_X,
-              width: totalW,
-              height: totalH,
-              overflow: 'visible',
-              pointerEvents: 'none',
-            }}
-          >
-            {lines.map((line, i) => {
-              const midY = (line.y1 + line.y2) / 2;
-              return (
-                <path
-                  key={i}
-                  d={`M ${line.x1} ${line.y1} C ${line.x1} ${midY}, ${line.x2} ${midY}, ${line.x2} ${line.y2}`}
-                  fill="none"
-                  stroke="#d1d5db"
-                  strokeWidth={2}
-                />
-              );
-            })}
-          </svg>
-
-          {/* Nodes */}
-          {flatNodes.map(layoutNode => {
-            const uid = getUserId(layoutNode.user);
-            const isMatch = matchSet ? matchSet.has(uid) : false;
-            const isDimmed = !!matchSet && !isMatch;
-            return (
-              <OrgNodeCard
-                key={uid}
-                layoutNode={layoutNode}
-                allUsers={users}
-                onToggle={handleToggle}
-                onDragStart={setDragId}
-                onDrop={handleDrop}
-                onSetManager={onSetManager}
-                isAdmin={isAdmin}
-                isMatch={isMatch}
-                isDimmed={isDimmed}
-                isDragging={dragId === uid}
-                setTooltip={setTooltip}
-              />
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Fixed-position tooltip (avoids overflow clipping) */}
-      {tooltip && (
-        <div
-          style={{
-            position: 'fixed',
-            left: Math.min(tooltip.mouseX + 18, window.innerWidth - 300),
-            top: Math.max(tooltip.mouseY - 14, 10),
-            zIndex: 9999,
-            background: 'white',
-            border: '1px solid #e5e7eb',
-            borderRadius: 12,
-            padding: '12px 16px',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.13)',
-            minWidth: 200,
-            maxWidth: 280,
+            position: 'absolute',
+            top: 0,
+            left: PAD_X,
+            width: totalW,
+            height: totalH,
+            overflow: 'visible',
             pointerEvents: 'none',
           }}
         >
-          <p className="font-semibold text-gray-900 text-sm leading-snug">{tooltip.user.name}</p>
-          {tooltip.user.designation && (
-            <p className="text-xs text-gray-600 mt-0.5">{tooltip.user.designation}</p>
-          )}
-          {tooltip.user.department && (
-            <p className="text-xs text-blue-600 mt-0.5">{tooltip.user.department}</p>
-          )}
-          {tooltip.user.email && (
-            <p className="text-xs text-gray-500 mt-1.5">✉ {tooltip.user.email}</p>
-          )}
-          {tooltip.user.reporting_manager_name && (
-            <p className="text-xs text-gray-400 mt-1">
-              Reports to: {tooltip.user.reporting_manager_name}
-            </p>
-          )}
-          {isAdmin && (
-            <p className="text-xs text-blue-400 mt-2 pt-1.5 border-t border-gray-100">
-              Drag to reassign · Click avatar to collapse
-            </p>
-          )}
-        </div>
+          {lines.map((line, i) => {
+            const midY = (line.y1 + line.y2) / 2;
+            return (
+              <path
+                key={i}
+                d={`M ${line.x1} ${line.y1} C ${line.x1} ${midY}, ${line.x2} ${midY}, ${line.x2} ${line.y2}`}
+                fill="none"
+                stroke="#d1d5db"
+                strokeWidth={2}
+              />
+            );
+          })}
+        </svg>
+
+        {/* Nodes */}
+        {flatNodes.map(layoutNode => {
+          const uid = getUserId(layoutNode.user);
+          const isMatch = matchSet ? matchSet.has(uid) : false;
+          const isDimmed = !!matchSet && !isMatch;
+          return (
+            <OrgNodeCard
+              key={uid}
+              layoutNode={layoutNode}
+              allUsers={users}
+              onToggle={handleToggle}
+              onDragStart={setDragId}
+              onDrop={handleDrop}
+              onSetManager={onSetManager}
+              isAdmin={isAdmin}
+              isMatch={isMatch}
+              isDimmed={isDimmed}
+              isDragging={dragId === uid}
+              setTooltip={setTooltip}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  /* Shared zoom controls row — reused in both normal + fullscreen toolbars */
+  const zoomControls = (
+    <div className="flex items-center gap-0.5">
+      <button onClick={zoomOut} className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-colors" title="Zoom out (−)">
+        <ZoomOut size={15} />
+      </button>
+      <span className="text-xs font-semibold text-gray-600 w-11 text-center tabular-nums select-none">
+        {Math.round(zoom * 100)}%
+      </span>
+      <button onClick={zoomIn} className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-colors" title="Zoom in (+)">
+        <ZoomIn size={15} />
+      </button>
+      <div className="w-px h-4 bg-gray-200 mx-1" />
+      <button onClick={() => fitZoom(chartW, chartH, isFullscreen)} className="p-1.5 rounded-md text-gray-500 hover:bg-blue-50 hover:text-blue-600 transition-colors" title="Fit to screen">
+        <Scan size={14} />
+      </button>
+      <button onClick={zoomReset} className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-colors" title="Reset to 100%">
+        <RotateCcw size={13} />
+      </button>
+    </div>
+  );
+
+  /* Toolbar — zoom controls + maximize/minimize */
+  const toolbar = (
+    <div className="flex items-center justify-between px-3 py-2 bg-white border-b border-gray-200 shrink-0">
+      {zoomControls}
+      <button
+        onClick={() => toggleFullscreen(chartW, chartH)}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-gray-600 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+        title="Enter fullscreen"
+      >
+        <Maximize2 size={14} /> Fullscreen
+      </button>
+    </div>
+  );
+
+  /* Tooltip — always fixed so it renders above any overlay */
+  const tooltipEl = tooltip && (
+    <div
+      style={{
+        position: 'fixed',
+        left: Math.min(tooltip.mouseX + 18, window.innerWidth - 300),
+        top: Math.max(tooltip.mouseY - 14, 10),
+        zIndex: 99999,
+        background: 'white',
+        border: '1px solid #e5e7eb',
+        borderRadius: 12,
+        padding: '12px 16px',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.13)',
+        minWidth: 200,
+        maxWidth: 280,
+        pointerEvents: 'none',
+      }}
+    >
+      <p className="font-semibold text-gray-900 text-sm leading-snug">{tooltip.user.name}</p>
+      {tooltip.user.designation && (
+        <p className="text-xs text-gray-600 mt-0.5">{tooltip.user.designation}</p>
       )}
+      {tooltip.user.department && (
+        <p className="text-xs text-blue-600 mt-0.5">{tooltip.user.department}</p>
+      )}
+      {tooltip.user.email && (
+        <p className="text-xs text-gray-500 mt-1.5">✉ {tooltip.user.email}</p>
+      )}
+      {tooltip.user.reporting_manager_name && (
+        <p className="text-xs text-gray-400 mt-1">
+          Reports to: {tooltip.user.reporting_manager_name}
+        </p>
+      )}
+      {isAdmin && (
+        <p className="text-xs text-blue-400 mt-2 pt-1.5 border-t border-gray-100">
+          Drag to reassign · Click avatar to collapse
+        </p>
+      )}
+    </div>
+  );
+
+  if (isFullscreen) {
+    // Portal renders directly on document.body — escapes any parent CSS transform /
+    // stacking context that would otherwise prevent fixed children from covering the
+    // app sidebar and header.
+    return createPortal(
+      <>
+        <div
+          style={{
+            position: 'fixed', inset: 0,
+            zIndex: 99999,
+            display: 'flex', flexDirection: 'column',
+            background: '#f9fafb',
+          }}
+        >
+          {/* Fullscreen header */}
+          <div
+            style={{ height: 48, minHeight: 48 }}
+            className="flex items-center justify-between px-4 bg-white border-b border-gray-200 shrink-0"
+          >
+            <div className="flex items-center gap-3">
+              <GitBranch size={16} className="text-blue-600 shrink-0" />
+              <span className="text-sm font-bold text-gray-800">Organization Chart</span>
+              <span className="hidden sm:inline text-xs text-gray-400 border-l border-gray-200 pl-3">
+                {users.length} employees
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1">
+              {zoomControls}
+              <div className="w-px h-5 bg-gray-200 mx-2" />
+              <button
+                onClick={() => toggleFullscreen(chartW, chartH)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors"
+              >
+                <Minimize2 size={13} /> Exit Fullscreen
+              </button>
+            </div>
+          </div>
+
+          {/* Scrollable chart area */}
+          <div className="flex-1 overflow-auto" style={{ background: '#f9fafb' }}>
+            {chartCanvas}
+          </div>
+        </div>
+        {tooltipEl}
+      </>,
+      document.body,
+    );
+  }
+
+  return (
+    <>
+      <div className="rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
+        {toolbar}
+        <div className="overflow-auto" style={{ maxHeight: '68vh' }}>
+          {chartCanvas}
+        </div>
+      </div>
+      {tooltipEl}
     </>
   );
 };

@@ -5,6 +5,13 @@ const NotificationService = require('../services/NotificationService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const { TABLES, NOTIFICATION_TYPE } = require('../utils/Constants');
 
+const VALID_MEMBER_ROLES = [
+  'DELIVERY_LEAD', 'LEAD', 'TECH_LEAD', 'SCRUM_MASTER', 'PRODUCT_OWNER',
+  'SENIOR_DEVELOPER', 'DEVELOPER', 'DEVOPS_ENGINEER',
+  'BUSINESS_ANALYST', 'MIS_ANALYST', 'DATA_ANALYST',
+  'TESTER', 'DESIGNER', 'TRAINEE', 'INTERN', 'MEMBER',
+];
+
 /**
  * TeamController – Delivery Leads create/manage teams within projects.
  * Teams allow bulk-assigning users and tracking reporting structure.
@@ -312,7 +319,7 @@ class TeamController {
       );
       if (existing.length > 0) return ResponseHelper.conflict(res, 'User is already a team member');
 
-      const normalizedRole = ['LEAD', 'MEMBER'].includes(role) ? role : 'MEMBER';
+      const normalizedRole = VALID_MEMBER_ROLES.includes(role) ? role : 'MEMBER';
       const member = await this.db.insert(TABLES.TEAM_MEMBERS, {
         tenant_id: tenantId,
         team_id: teamId,
@@ -368,6 +375,31 @@ class TeamController {
           role: normalizedRole,
         },
       });
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
+   * PATCH /api/teams/:teamId/members/:memberId
+   */
+  async updateTeamMember(req, res) {
+    try {
+      const { tenantId } = req.currentUser;
+      const { teamId, memberId } = req.params;
+      const { role } = req.body;
+
+      if (!role) return ResponseHelper.validationError(res, 'role is required');
+
+      const member = await this.db.findById(TABLES.TEAM_MEMBERS, memberId, tenantId);
+      if (!member || String(member.team_id) !== teamId) {
+        return ResponseHelper.notFound(res, 'Team member not found');
+      }
+
+      const normalizedRole = VALID_MEMBER_ROLES.includes(role) ? role : 'MEMBER';
+      await this.db.update(TABLES.TEAM_MEMBERS, { ROWID: memberId, role: normalizedRole });
+
+      return ResponseHelper.success(res, { memberId, role: normalizedRole }, 'Member role updated');
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }

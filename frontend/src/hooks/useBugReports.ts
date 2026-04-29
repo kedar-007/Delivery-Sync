@@ -41,7 +41,7 @@ export const useUpdateBugReport = () => {
 export const useBugConfig = () =>
   useQuery({
     queryKey: ['bug-config'],
-    queryFn:  () => bugApi.getConfig(),
+    queryFn:  () => bugApi.getConfig().then((d: any) => d?.config ?? d),
   });
 
 export const useSaveBugConfig = () => {

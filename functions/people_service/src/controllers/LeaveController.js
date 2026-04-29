@@ -67,28 +67,30 @@ class LeaveController {
       }
 
       const year = new Date().getFullYear();
-      // Resolve userId — it must be a numeric ROWID for BigInt FK queries
-      let userIdNum = Number(userId);
-      if (isNaN(userIdNum) || !userId) {
+      // IMPORTANT: Never convert Catalyst IDs to Number — they exceed Number.MAX_SAFE_INTEGER
+      // (9×10^15), so JS float64 rounds the last digit and produces the wrong ID.
+      // Always keep as string and use quoted comparisons in ZCQL.
+      let userIdStr = String(userId || '');
+      if (!userIdStr) {
         const uRows = await this.db.findWhere(TABLES.USERS, req.tenantId,
           `email = '${req.currentUser.email}'`, { limit: 1 });
         if (!uRows.length) return ResponseHelper.notFound(res, 'User not found');
-        userId = String(uRows[0].ROWID);
-        userIdNum = Number(userId);
+        userIdStr = String(uRows[0].ROWID);
       }
 
       const startDate = `${year}-01-01`;
       const endDate = `${year}-12-31`;
 
-      console.log('[getBalance] userId:', userIdNum, 'year:', year);
+      console.log('[getBalance] userId:', userIdStr, 'year:', year);
 
-      // 1. Fetch balances
+      // 1. Fetch balances — always quoted strings; never Number() convert large IDs
       const balances = await this.db.findWhere(
         TABLES.LEAVE_BALANCES,
         req.tenantId,
-        `user_id = ${userIdNum} AND year = '${year}'`,
+        `user_id = '${userIdStr}' AND year = '${year}'`,
         { limit: 50 }
       );
+      console.log('[getBalance] balance rows found:', balances.length, JSON.stringify(balances));
 
       // 2. Fetch leave types
       const types = await this.db.findWhere(
@@ -103,25 +105,25 @@ class LeaveController {
         typeMap[String(t.ROWID)] = t;
       });
 
-      // 3. Fetch APPROVED leaves (FIXED COLUMN NAMES)
+      // 3. Fetch APPROVED leaves — user_id quoted string to match leave_requests schema
       const approvedLeaves = await this.db.findWhere(
         TABLES.LEAVE_REQUESTS,
         req.tenantId,
-        `user_id = ${userIdNum} AND status = 'APPROVED' AND start_date >= '${startDate}' AND start_date <= '${endDate}'`,
+        `user_id = '${userIdStr}' AND status = 'APPROVED' AND start_date >= '${startDate}' AND start_date <= '${endDate}'`,
         { limit: 200 }
       );
 
-      console.log('[getBalance] approvedLeaves:', JSON.stringify(approvedLeaves, null, 2));
+      console.log('[getBalance] approvedLeaves count:', approvedLeaves.length);
 
-      // 4. Fetch PENDING leaves (optional but recommended)
+      // 4. Fetch PENDING leaves
       const pendingLeaves = await this.db.findWhere(
         TABLES.LEAVE_REQUESTS,
         req.tenantId,
-        `user_id = ${userIdNum} AND status = 'PENDING' AND start_date >= '${startDate}' AND start_date <= '${endDate}'`,
+        `user_id = '${userIdStr}' AND status = 'PENDING' AND start_date >= '${startDate}' AND start_date <= '${endDate}'`,
         { limit: 200 }
       );
 
-      console.log('[getBalance] pendingLeaves:', JSON.stringify(pendingLeaves, null, 2));
+      console.log('[getBalance] pendingLeaves count:', pendingLeaves.length);
 
       // 5. Aggregate used_days
       const usedMap = {};
@@ -161,14 +163,17 @@ class LeaveController {
         const ltId = String(b.leave_type_id);
 
         // Support both column name conventions
-        const opening = Number(b.carry_forward_days ?? b.opening_balance ?? 0);
+        const opening   = Number(b.carry_forward_days ?? b.opening_balance ?? 0);
         const allocated = Number(b.allocated_days ?? b.total_allocated ?? 0);
 
-        const used = usedMap[ltId] || 0;
-        const pending = pendingMap[ltId] || 0;
+        // Prefer stored DB fields (maintained by apply/approve/cancel).
+        // Fall back to the leave-request aggregates only when no balance record exists
+        // (b.used_days undefined means the row was synthesised from leave_types).
+        const used    = b.used_days    !== undefined ? parseFloat(b.used_days    || 0) : (usedMap[ltId]    || 0);
+        const pending = b.pending_days !== undefined ? parseFloat(b.pending_days || 0) : (pendingMap[ltId] || 0);
 
         const totalAvailable = Math.max(0, allocated - used);
-        const remaining = Math.max(0, totalAvailable - pending);
+        const remaining      = Math.max(0, totalAvailable - pending);
 
         return {
           leave_type_id: ltId,
@@ -178,7 +183,7 @@ class LeaveController {
           total_available: totalAvailable,
           used_days: used,
           pending_days: pending,
-          remaining_days: remaining
+          remaining_days: remaining,
         };
       });
 
@@ -257,17 +262,19 @@ class LeaveController {
 
       let leaveTypeId;    // kept as string throughout to avoid precision loss + serialization issues
       let leaveTypeName = null;
+      let leaveTypeRow  = null;  // captured for auto-create balance below
 
       try {
         // Validate it's a valid integer string — throws if name like "Sick Leave"
         if (!/^\d+$/.test(rawId)) throw new Error('not a numeric id');
-        leaveTypeId = rawId; // keep as string 
+        leaveTypeId = rawId; // keep as string
 
         const typeRows = await this.db.findWhere(TABLES.LEAVE_TYPES, tenantId,
           `ROWID = ${leaveTypeId} AND is_active = 'true'`, { limit: 1 });
         if (typeRows.length === 0)
           return ResponseHelper.validationError(res, `Leave type not found or inactive`);
         leaveTypeName = typeRows[0].name;
+        leaveTypeRow  = typeRows[0];
       } catch {
         // rawId is a name string — look up by name
         const typeRows = await this.db.findWhere(TABLES.LEAVE_TYPES, tenantId,
@@ -276,6 +283,7 @@ class LeaveController {
           return ResponseHelper.validationError(res, `Leave type '${rawId}' not found`);
         leaveTypeId = String(typeRows[0].ROWID); // keep as string ✅
         leaveTypeName = typeRows[0].name;
+        leaveTypeRow  = typeRows[0];
       }
 
       console.log('Resolved leaveTypeId:', leaveTypeId, 'leaveTypeName:', leaveTypeName);
@@ -294,11 +302,32 @@ class LeaveController {
       let days_count = Math.round(ms / 86400000) + 1;
       if (is_half_day) days_count = 0.5;
 
-      // ── Balance check ──────────────────────────────────────────────────────
-      const balance = await this.db.findWhere(TABLES.LEAVE_BALANCES, tenantId,
-        `user_id = '${userId}' AND leave_type_id = ${leaveTypeId} AND year = '${year}'`, { limit: 1 });
+      // ── Balance check + auto-create if missing ────────────────────────────
+      // Always use quoted string IDs — Catalyst BigInt IDs exceed JS Number.MAX_SAFE_INTEGER
+      // so Number() conversion silently corrupts them.
+      const balanceQuery = `user_id = '${userId}' AND leave_type_id = '${leaveTypeId}' AND year = '${year}'`;
+      console.log('[applyLeave] balance lookup query:', balanceQuery);
+      let balance = await this.db.findWhere(TABLES.LEAVE_BALANCES, tenantId, balanceQuery, { limit: 1 });
+      console.log('[applyLeave] balance row found:', balance.length > 0 ? JSON.stringify(balance[0]) : 'NONE');
 
-      console.log("Leave Balances--",balance);
+      if (balance.length === 0) {
+        // No row yet — auto-create from leave type default so deductions can be tracked
+        const daysPerYear = parseFloat(leaveTypeRow?.days_per_year ?? 0);
+        console.log('[applyLeave] auto-creating balance row, daysPerYear:', daysPerYear);
+        await this.db.insert(TABLES.LEAVE_BALANCES, {
+          tenant_id: String(tenantId),
+          user_id: String(userId),
+          leave_type_id: String(leaveTypeId),
+          year: String(year),
+          total_allocated: daysPerYear,
+          opening_balance: 0,
+          remaining_days: daysPerYear,
+          used_days: 0,
+          pending_days: 0,
+        });
+        balance = await this.db.findWhere(TABLES.LEAVE_BALANCES, tenantId, balanceQuery, { limit: 1 });
+        console.log('[applyLeave] auto-created balance row:', balance.length > 0 ? JSON.stringify(balance[0]) : 'INSERT FAILED');
+      }
 
       if (balance.length > 0 && parseFloat(balance[0].remaining_days) < days_count)
         return ResponseHelper.validationError(res,
@@ -319,14 +348,21 @@ class LeaveController {
         status: LEAVE_STATUS.PENDING,
         reviewer_notes: '',
       });
+      console.log('[applyLeave] leave request inserted, ROWID:', row.ROWID);
 
       // ── Deduct from balance ────────────────────────────────────────────────
       if (balance.length > 0) {
+        const newPending   = parseFloat(balance[0].pending_days   ?? 0) + days_count;
+        const newRemaining = parseFloat(balance[0].remaining_days ?? 0) - days_count;
+        console.log('[applyLeave] updating balance — pending:', newPending, 'remaining:', newRemaining);
         await this.db.update(TABLES.LEAVE_BALANCES, {
           ROWID: balance[0].ROWID,
-          pending_days: parseFloat(balance[0].pending_days ?? 0) + days_count,
-          remaining_days: parseFloat(balance[0].remaining_days ?? 0) - days_count,
+          pending_days: newPending,
+          remaining_days: Math.max(0, newRemaining),
         });
+        console.log('[applyLeave] balance update done');
+      } else {
+        console.warn('[applyLeave] balance row still missing after auto-create — DB insert may have failed');
       }
 
       // ── Notify RM ──────────────────────────────────────────────────────────
@@ -405,14 +441,50 @@ class LeaveController {
 
     // Move from pending to used in balance
     const year = new Date(leave.start_date).getFullYear();
-    const balance = await this.db.findWhere(TABLES.LEAVE_BALANCES, req.tenantId,
-      `user_id = '${leave.user_id}' AND leave_type_id = '${leave.leave_type_id}' AND year = '${year}'`, { limit: 1 });
-    if (balance.length > 0) {
-      await this.db.update(TABLES.LEAVE_BALANCES, {
-        ROWID: balance[0].ROWID,
-        used_days: parseFloat(balance[0].used_days || 0) + parseFloat(leave.days_count),
-        pending_days: Math.max(0, parseFloat(balance[0].pending_days || 0) - parseFloat(leave.days_count)),
+    const balQuery = `user_id = '${leave.user_id}' AND leave_type_id = '${leave.leave_type_id}' AND year = '${year}'`;
+    console.log('[approveRequest] balance lookup query:', balQuery);
+    let balance = await this.db.findWhere(TABLES.LEAVE_BALANCES, req.tenantId, balQuery, { limit: 1 });
+    console.log('[approveRequest] balance row:', balance.length > 0 ? JSON.stringify(balance[0]) : 'NONE');
+
+    if (balance.length === 0) {
+      // Auto-create balance from leave type default so this approve (and future ones) can track properly
+      const typeRows = await this.db.findWhere(TABLES.LEAVE_TYPES, req.tenantId,
+        `ROWID = ${leave.leave_type_id}`, { limit: 1 });
+      const daysPerYear = parseFloat(typeRows[0]?.days_per_year ?? 0);
+      console.log('[approveRequest] auto-creating balance row, daysPerYear:', daysPerYear);
+      await this.db.insert(TABLES.LEAVE_BALANCES, {
+        tenant_id: String(req.tenantId),
+        user_id: String(leave.user_id),
+        leave_type_id: String(leave.leave_type_id),
+        year: String(year),
+        total_allocated: daysPerYear,
+        opening_balance: 0,
+        remaining_days: daysPerYear,
+        used_days: 0,
+        pending_days: 0,
       });
+      balance = await this.db.findWhere(TABLES.LEAVE_BALANCES, req.tenantId, balQuery, { limit: 1 });
+      console.log('[approveRequest] auto-created balance row:', balance.length > 0 ? JSON.stringify(balance[0]) : 'INSERT FAILED');
+    }
+
+    if (balance.length > 0) {
+      const b = balance[0];
+      const daysCount = parseFloat(leave.days_count);
+      const totalAllocated = parseFloat(b.total_allocated ?? b.allocated_days ?? 0);
+      const newUsed    = parseFloat(b.used_days    || 0) + daysCount;
+      const newPending = Math.max(0, parseFloat(b.pending_days || 0) - daysCount);
+      // Recompute remaining from source-of-truth to self-heal any prior missed updates
+      const newRemaining = Math.max(0, totalAllocated - newUsed - newPending);
+      console.log('[approveRequest] updating balance — used:', newUsed, 'pending:', newPending, 'remaining:', newRemaining);
+      await this.db.update(TABLES.LEAVE_BALANCES, {
+        ROWID: b.ROWID,
+        used_days: newUsed,
+        pending_days: newPending,
+        remaining_days: newRemaining,
+      });
+      console.log('[approveRequest] balance update done');
+    } else {
+      console.warn('[approveRequest] WARNING: balance row still missing after auto-create for user_id:', leave.user_id, 'leave_type_id:', leave.leave_type_id, 'year:', year);
     }
 
     // Notify applicant
@@ -591,12 +663,15 @@ class LeaveController {
       );
 
       if (existing.length > 0) {
-        // UPDATE — use actual schema column names
+        // UPDATE — recalculate remaining so used/pending in-flight are preserved
+        const existingUsed    = parseFloat(existing[0].used_days    || 0);
+        const existingPending = parseFloat(existing[0].pending_days || 0);
+        const newRemaining    = Math.max(0, allocNum - existingUsed - existingPending);
         await this.db.update(TABLES.LEAVE_BALANCES, {
           ROWID: String(existing[0].ROWID),
           total_allocated: allocNum,
           opening_balance: cfNum,
-          remaining_days: allocNum,
+          remaining_days: newRemaining,
         });
 
         return ResponseHelper.success(res, {

@@ -5,7 +5,7 @@ const ResponseHelper = require('../utils/ResponseHelper');
 
 class AuthMiddleware {
   /**
-   * authenticate — full auth, requires valid session + user record + bug reporting enabled.
+   * authenticate — full auth, requires valid session + user record.
    */
   static async authenticate(req, res, next) {
     console.log(`[BugAuth] Step 1 — checking catalystApp initialisation`);
@@ -76,30 +76,6 @@ class AuthMiddleware {
       if (user.status === 'INACTIVE') {
         console.warn(`[BugAuth] Step 3 ✗ — account is INACTIVE for ROWID=${user.ROWID}`);
         return ResponseHelper.forbidden(res, 'Your account has been deactivated.');
-      }
-
-      // Step 3b: check bug_report_config enabled flag for tenant
-      console.log(`[BugAuth] Step 3b — checking bug reporting enabled for tenant=${user.tenant_id}`);
-      try {
-        const configRaw = await req.catalystApp.zcql().executeZCQLQuery(
-          `SELECT enabled FROM ${TABLES.BUG_REPORT_CONFIG}
-           WHERE tenant_id = '${String(user.tenant_id).replace(/'/g, "''")}' LIMIT 1`
-        );
-        const configRows = (configRaw || []).map((r) => Object.assign({}, ...Object.values(r)));
-        if (configRows.length > 0) {
-          const enabledVal = configRows[0].enabled;
-          // Catalyst DataStore stores booleans as strings; treat explicit 'false'/false as disabled
-          const isDisabled =
-            enabledVal === false ||
-            String(enabledVal).toLowerCase() === 'false';
-          if (isDisabled) {
-            console.warn(`[BugAuth] Step 3b ✗ — bug reporting disabled for tenant=${user.tenant_id}`);
-            return ResponseHelper.forbidden(res, 'Bug reporting is not enabled for your organisation.');
-          }
-        }
-        console.log(`[BugAuth] Step 3b ✓ — bug reporting is enabled`);
-      } catch (err) {
-        console.warn('[BugAuth] Step 3b — could not read bug_report_config (allowing):', err.message);
       }
 
       // Step 4: attach to request

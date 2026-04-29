@@ -21,6 +21,7 @@ router.delete('/:teamId', auth, can(PERMISSIONS.TEAM_WRITE), asyncHandler((req, 
 
 // Team member management
 router.post('/:teamId/members', auth, can(PERMISSIONS.TEAM_WRITE), asyncHandler((req, res) => ctrl(req).addTeamMember(req, res)));
+router.patch('/:teamId/members/:memberId', auth, can(PERMISSIONS.TEAM_WRITE), asyncHandler((req, res) => ctrl(req).updateTeamMember(req, res)));
 router.delete('/:teamId/members/:memberId', auth, can(PERMISSIONS.TEAM_WRITE), asyncHandler((req, res) => ctrl(req).removeTeamMember(req, res)));
 
 module.exports = router;
