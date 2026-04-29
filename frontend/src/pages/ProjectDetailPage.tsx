@@ -12,8 +12,9 @@ import Modal, { ModalActions } from '../components/ui/Modal';
 import { PageLoader } from '../components/ui/Spinner';
 import Alert from '../components/ui/Alert';
 import { useProjectDashboard } from '../hooks/useDashboard';
-import { useUpdateRAG, useUpdateProject, useProjectMembers, useAddMember, useRemoveMember } from '../hooks/useProjects';
+import { useUpdateRAG, useUpdateProject, useProjectMembers, useAddMember, useRemoveMember, useAddTeamToProject } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
+import { useTeams } from '../hooks/useTeams';
 import { useForm, Controller } from 'react-hook-form';
 import UserPicker from '../components/ui/UserPicker';
 import { useConfirm } from '../components/ui/ConfirmDialog';
@@ -29,6 +30,7 @@ const ProjectDetailPage = () => {
   const [ragError, setRagError] = useState('');
   const [showAddMember, setShowAddMember] = useState(false);
   const [memberError, setMemberError] = useState('');
+  const [addMode, setAddMode] = useState<'individual' | 'team'>('individual');
   const [reminderSaving, setReminderSaving] = useState<string | null>(null);
 
   const { data, isLoading, error } = useProjectDashboard(projectId!);
@@ -36,7 +38,9 @@ const ProjectDetailPage = () => {
   const updateProject = useUpdateProject(projectId!);
   const { data: members = [] } = useProjectMembers(projectId!);
   const { data: allUsers = [] } = useUsers();
+  const { data: allTeams = [] } = useTeams();
   const addMember = useAddMember(projectId!);
+  const addTeam = useAddTeamToProject(projectId!);
   const removeMember = useRemoveMember(projectId!);
 
   const canManageProject = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.PROJECT_WRITE);
@@ -52,6 +56,7 @@ const ProjectDetailPage = () => {
 
   const { register, handleSubmit, formState: { isSubmitting } } = useForm<{ rag_status: string; reason: string }>();
   const addMemberForm = useForm<{ user_id: string; role: string }>({ defaultValues: { role: 'MEMBER' } });
+  const addTeamForm = useForm<{ team_id: string }>({});
 
   const onRAGSubmit = async (formData: { rag_status: string; reason: string }) => {
     try {
@@ -68,6 +73,17 @@ const ProjectDetailPage = () => {
       setMemberError('');
       await addMember.mutateAsync(formData);
       addMemberForm.reset({ role: 'MEMBER' });
+      setShowAddMember(false);
+    } catch (err: unknown) {
+      setMemberError((err as Error).message);
+    }
+  };
+
+  const onAddTeam = async (formData: { team_id: string }) => {
+    try {
+      setMemberError('');
+      await addTeam.mutateAsync(formData);
+      addTeamForm.reset();
       setShowAddMember(false);
     } catch (err: unknown) {
       setMemberError((err as Error).message);
@@ -314,60 +330,107 @@ const ProjectDetailPage = () => {
       </div>
 
       {/* Add Member Modal */}
-      <Modal open={showAddMember} onClose={() => { setShowAddMember(false); addMemberForm.reset({ role: 'MEMBER' }); setMemberError(''); }} title="Add Team Member">
-        <form onSubmit={addMemberForm.handleSubmit(onAddMember)} className="space-y-4">
-          {memberError && <Alert type="error" message={memberError} />}
-          <div>
-            <label className="form-label">User *</label>
-            <Controller
-              name="user_id"
-              control={addMemberForm.control}
-              rules={{ required: 'Required' }}
-              render={({ field }) => (
-                <UserPicker
-                  users={allUsers}
-                  value={field.value}
-                  onChange={field.onChange}
-                  placeholder="Select user…"
-                  excludeIds={members.map((m: { userId: string }) => String(m.userId))}
-                />
-              )}
-            />
-          </div>
-          <div>
-            <label className="form-label">Project Role</label>
-            <select className="form-select" {...addMemberForm.register('role')}>
-              <optgroup label="Leadership">
-                <option value="DELIVERY_LEAD">Delivery Lead</option>
-                <option value="PROJECT_MANAGER">Project Manager</option>
-                <option value="SCRUM_MASTER">Scrum Master</option>
-                <option value="PRODUCT_OWNER">Product Owner</option>
-              </optgroup>
-              <optgroup label="Engineering">
-                <option value="TECH_LEAD">Tech Lead</option>
-                <option value="SENIOR_DEVELOPER">Senior Developer</option>
-                <option value="DEVELOPER">Developer</option>
-                <option value="DEVOPS_ENGINEER">DevOps Engineer</option>
-              </optgroup>
-              <optgroup label="Quality & Design">
-                <option value="TESTER">QA / Tester</option>
-                <option value="DESIGNER">UI/UX Designer</option>
-              </optgroup>
-              <optgroup label="Analysis & Business">
-                <option value="BUSINESS_ANALYST">Business Analyst</option>
-                <option value="DATA_ANALYST">Data Analyst</option>
-              </optgroup>
-              <optgroup label="Stakeholders">
-                <option value="STAKEHOLDER">Stakeholder</option>
-                <option value="OBSERVER">Observer</option>
-              </optgroup>
-            </select>
-          </div>
-          <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setShowAddMember(false)}>Cancel</Button>
-            <Button type="submit" loading={addMemberForm.formState.isSubmitting} icon={<UserPlus size={16} />}>Add Member</Button>
-          </ModalActions>
-        </form>
+      <Modal
+        open={showAddMember}
+        onClose={() => { setShowAddMember(false); addMemberForm.reset({ role: 'MEMBER' }); addTeamForm.reset(); setMemberError(''); setAddMode('individual'); }}
+        title="Add to Project"
+      >
+        {/* Mode toggle */}
+        <div className="flex gap-1 p-1 bg-gray-100 rounded-lg mb-4">
+          <button
+            type="button"
+            onClick={() => { setAddMode('individual'); setMemberError(''); }}
+            className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${addMode === 'individual' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            Individual
+          </button>
+          <button
+            type="button"
+            onClick={() => { setAddMode('team'); setMemberError(''); }}
+            className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${addMode === 'team' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            Add Team
+          </button>
+        </div>
+
+        {memberError && <Alert type="error" message={memberError} className="mb-3" />}
+
+        {addMode === 'individual' ? (
+          <form onSubmit={addMemberForm.handleSubmit(onAddMember)} className="space-y-4">
+            <div>
+              <label className="form-label">User *</label>
+              <Controller
+                name="user_id"
+                control={addMemberForm.control}
+                rules={{ required: 'Required' }}
+                render={({ field }) => (
+                  <UserPicker
+                    users={allUsers}
+                    value={field.value}
+                    onChange={field.onChange}
+                    placeholder="Select user…"
+                    excludeIds={members.map((m: { userId: string }) => String(m.userId))}
+                  />
+                )}
+              />
+            </div>
+            <div>
+              <label className="form-label">Project Role</label>
+              <select className="form-select" {...addMemberForm.register('role')}>
+                <optgroup label="Leadership">
+                  <option value="DELIVERY_LEAD">Delivery Lead</option>
+                  <option value="PROJECT_MANAGER">Project Manager</option>
+                  <option value="TECH_LEAD">Tech Lead</option>
+                  <option value="SCRUM_MASTER">Scrum Master</option>
+                  <option value="PRODUCT_OWNER">Product Owner</option>
+                </optgroup>
+                <optgroup label="Engineering">
+                  <option value="SENIOR_DEVELOPER">Senior Developer</option>
+                  <option value="DEVELOPER">Developer</option>
+                  <option value="DEVOPS_ENGINEER">DevOps Engineer</option>
+                </optgroup>
+                <optgroup label="Analysis & Reporting">
+                  <option value="BUSINESS_ANALYST">Business Analyst (BA)</option>
+                  <option value="MIS_ANALYST">MIS Analyst</option>
+                  <option value="DATA_ANALYST">Data Analyst</option>
+                </optgroup>
+                <optgroup label="Quality & Design">
+                  <option value="TESTER">QA / Tester</option>
+                  <option value="DESIGNER">UI/UX Designer</option>
+                </optgroup>
+                <optgroup label="Entry Level">
+                  <option value="TRAINEE">Trainee</option>
+                  <option value="INTERN">Intern</option>
+                </optgroup>
+                <optgroup label="Stakeholders">
+                  <option value="STAKEHOLDER">Stakeholder</option>
+                  <option value="OBSERVER">Observer</option>
+                </optgroup>
+              </select>
+            </div>
+            <ModalActions>
+              <Button variant="outline" type="button" onClick={() => setShowAddMember(false)}>Cancel</Button>
+              <Button type="submit" loading={addMemberForm.formState.isSubmitting} icon={<UserPlus size={16} />}>Add Member</Button>
+            </ModalActions>
+          </form>
+        ) : (
+          <form onSubmit={addTeamForm.handleSubmit(onAddTeam)} className="space-y-4">
+            <div>
+              <label className="form-label">Team *</label>
+              <select className="form-select" {...addTeamForm.register('team_id', { required: true })}>
+                <option value="">Select team…</option>
+                {(allTeams as any[]).map((t: any) => (
+                  <option key={t.id} value={t.id}>{t.name}{t.memberCount ? ` (${t.memberCount} members)` : ''}</option>
+                ))}
+              </select>
+              <p className="text-[11px] text-gray-400 mt-1">All members will be added using their existing team role. Existing project members are skipped.</p>
+            </div>
+            <ModalActions>
+              <Button variant="outline" type="button" onClick={() => setShowAddMember(false)}>Cancel</Button>
+              <Button type="submit" loading={addTeamForm.formState.isSubmitting} icon={<Users size={16} />}>Add Team</Button>
+            </ModalActions>
+          </form>
+        )}
       </Modal>
 
       {/* Update RAG Modal */}

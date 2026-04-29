@@ -522,7 +522,7 @@ const BacklogPage = () => {
             <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
               <div>
                 <p className="text-sm font-medium text-amber-900">Require time entry approval</p>
-                <p className="text-xs text-amber-600 mt-0.5">All time logged on this task will be sent to the assignee's manager for approval</p>
+                <p className="text-xs text-amber-600 mt-0.5">Time entries will be sent to <strong>you</strong> ({user?.name ?? 'task owner'}) for approval</p>
               </div>
               <button
                 type="button"
@@ -601,7 +601,7 @@ const BacklogPage = () => {
             <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
               <div>
                 <p className="text-sm font-medium text-amber-900">Require time entry approval</p>
-                <p className="text-xs text-amber-600 mt-0.5">All time logged on this task will be sent to the assignee's manager for approval</p>
+                <p className="text-xs text-amber-600 mt-0.5">Time entries logged on this task will be sent to the task owner for approval</p>
               </div>
               <button
                 type="button"

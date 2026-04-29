@@ -31,6 +31,7 @@ router.put('/:projectId/milestones/:milestoneId', auth, can(PERMISSIONS.MILESTON
 // Members (nested under project)
 router.get('/:projectId/members', auth, can(PERMISSIONS.PROJECT_READ), member(), asyncHandler((req, res) => memCtrl(req).listMembers(req, res)));
 router.post('/:projectId/members', auth, can(PERMISSIONS.PROJECT_WRITE), asyncHandler((req, res) => memCtrl(req).addMember(req, res)));
+router.post('/:projectId/members/team', auth, can(PERMISSIONS.PROJECT_WRITE), asyncHandler((req, res) => memCtrl(req).addTeamMembers(req, res)));
 router.delete('/:projectId/members/:memberId', auth, can(PERMISSIONS.PROJECT_WRITE), asyncHandler((req, res) => memCtrl(req).removeMember(req, res)));
 
 module.exports = router;

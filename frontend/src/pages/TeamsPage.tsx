@@ -28,30 +28,46 @@ import { useForm, Controller } from 'react-hook-form';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const TEAM_MEMBER_ROLES = [
+  // Leadership
+  { value: 'DELIVERY_LEAD',      label: 'Delivery Lead' },
   { value: 'LEAD',               label: 'Team Lead' },
-  { value: 'DEVELOPER',          label: 'Developer' },
-  { value: 'SENIOR_DEVELOPER',   label: 'Senior Developer' },
   { value: 'TECH_LEAD',          label: 'Tech Lead' },
-  { value: 'BUSINESS_ANALYST',   label: 'Business Analyst' },
-  { value: 'TESTER',             label: 'QA / Tester' },
-  { value: 'DESIGNER',           label: 'UI/UX Designer' },
-  { value: 'DEVOPS_ENGINEER',    label: 'DevOps Engineer' },
   { value: 'SCRUM_MASTER',       label: 'Scrum Master' },
   { value: 'PRODUCT_OWNER',      label: 'Product Owner' },
+  // Engineering
+  { value: 'SENIOR_DEVELOPER',   label: 'Senior Developer' },
+  { value: 'DEVELOPER',          label: 'Developer' },
+  { value: 'DEVOPS_ENGINEER',    label: 'DevOps Engineer' },
+  // Analysis & Reporting
+  { value: 'BUSINESS_ANALYST',   label: 'Business Analyst (BA)' },
+  { value: 'MIS_ANALYST',        label: 'MIS Analyst' },
+  { value: 'DATA_ANALYST',       label: 'Data Analyst' },
+  // Quality & Design
+  { value: 'TESTER',             label: 'QA / Tester' },
+  { value: 'DESIGNER',           label: 'UI/UX Designer' },
+  // Entry level
+  { value: 'TRAINEE',            label: 'Trainee' },
+  { value: 'INTERN',             label: 'Intern' },
+  // General
   { value: 'MEMBER',             label: 'Member' },
 ];
 
 const ROLE_COLORS: Record<string, string> = {
+  DELIVERY_LEAD:    'bg-blue-100 text-blue-800',
   LEAD:             'bg-blue-100 text-blue-700',
   TECH_LEAD:        'bg-cyan-100 text-cyan-700',
-  DEVELOPER:        'bg-green-100 text-green-700',
-  SENIOR_DEVELOPER: 'bg-emerald-100 text-emerald-700',
-  BUSINESS_ANALYST: 'bg-purple-100 text-purple-700',
-  TESTER:           'bg-orange-100 text-orange-700',
-  DESIGNER:         'bg-pink-100 text-pink-700',
-  DEVOPS_ENGINEER:  'bg-gray-100 text-gray-700',
   SCRUM_MASTER:     'bg-indigo-100 text-indigo-700',
   PRODUCT_OWNER:    'bg-violet-100 text-violet-700',
+  SENIOR_DEVELOPER: 'bg-emerald-100 text-emerald-700',
+  DEVELOPER:        'bg-green-100 text-green-700',
+  DEVOPS_ENGINEER:  'bg-gray-100 text-gray-700',
+  BUSINESS_ANALYST: 'bg-purple-100 text-purple-700',
+  MIS_ANALYST:      'bg-fuchsia-100 text-fuchsia-700',
+  DATA_ANALYST:     'bg-teal-100 text-teal-700',
+  TESTER:           'bg-orange-100 text-orange-700',
+  DESIGNER:         'bg-pink-100 text-pink-700',
+  TRAINEE:          'bg-yellow-100 text-yellow-700',
+  INTERN:           'bg-lime-100 text-lime-700',
   MEMBER:           'bg-gray-100 text-gray-500',
 };
 
@@ -442,7 +458,7 @@ const TeamsPage = () => {
   const handleCreate = async (data: any) => {
     try {
       setCreateError('');
-      const payload: any = { name: data.name, project_id: data.project_id || projectId };
+      const payload: any = { name: data.name };
       if (data.description) payload.description = data.description;
       if (data.lead_user_id) payload.lead_user_id = data.lead_user_id;
       if (data.standup_time) payload.standup_time = data.standup_time;
@@ -564,15 +580,6 @@ const TeamsPage = () => {
               <label className="form-label">Description</label>
               <input className="form-input" placeholder="What does this team work on?" {...createForm.register('description')} />
             </div>
-            {!projectId && (
-              <div className="sm:col-span-2">
-                <label className="form-label">Project *</label>
-                <select className="form-select" {...createForm.register('project_id', { required: !projectId })}>
-                  <option value="">Select project…</option>
-                  {projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-              </div>
-            )}
             <div className="sm:col-span-2">
               <label className="form-label">Team Lead (optional)</label>
               <Controller
