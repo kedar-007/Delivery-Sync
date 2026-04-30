@@ -28,12 +28,17 @@ import {
   useIpConfig,
   useAddIpConfig,
   useDeleteIpConfig,
+  useWfhRequests,
+  useSubmitWfhRequest,
+  useApproveWfhRequest,
+  useRejectWfhRequest,
+  useCancelWfhRequest,
 } from '../hooks/usePeople';
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { attendanceApi } from '../lib/api';
 import { useMyPermissions } from '../hooks/useAdmin';
-import { Download, Shield, Plus, Trash2 } from 'lucide-react';
+import { Download, Shield, Plus, Trash2, CheckCircle, XCircle, Clock as ClockIcon, Send } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -117,7 +122,7 @@ const ATTENDANCE_MANAGER_PERMS = ['ATTENDANCE_ADMIN'];
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 
-type Tab = 'my' | 'live' | 'records' | 'summary' | 'ip-config';
+type Tab = 'my' | 'wfh' | 'live' | 'records' | 'summary' | 'ip-config';
 
 // ── IP Config Tab ─────────────────────────────────────────────────────────────
 const IpConfigTab = () => {
@@ -255,11 +260,16 @@ function useElapsedTimer(startIso?: string) {
 
 const BREAK_ALLOWANCES = { LUNCH: 60, SHORT: 15 };
 
-const MyAttendanceTab = () => {
+const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
   const [showWfhModal, setShowWfhModal] = useState(false);
   const [actionError, setActionError] = useState('');
 
   const { data: record, isLoading } = useMyAttendanceRecord();
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const { data: myWfhRequests = [] } = useWfhRequests({ mine: 'true' });
+  const todayApprovedWfh = (myWfhRequests as any[]).find(
+    (r: any) => (r.wfhDate ?? r.wfh_date) === todayStr && r.status === 'APPROVED'
+  );
   const checkIn  = useCheckIn();
   const checkOut = useCheckOut();
   const markWfh  = useMarkWfh();
@@ -321,6 +331,19 @@ const MyAttendanceTab = () => {
     }
   };
 
+  const handleCheckInWfh = async () => {
+    try {
+      setActionError('');
+      await checkIn.mutateAsync({
+        client_time: new Date().toLocaleString('sv'),
+        is_wfh: true,
+        wfh_reason: todayApprovedWfh?.reason ?? '',
+      });
+    } catch (err: unknown) {
+      setActionError((err as Error).message);
+    }
+  };
+
   const handleCheckOut = async () => {
     try {
       setActionError('');
@@ -370,14 +393,26 @@ const MyAttendanceTab = () => {
               <LogIn size={28} className="text-green-600" />
             </div>
             <p className="text-sm text-gray-500">You haven't checked in today</p>
-            <Button
-              className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 text-base"
-              icon={<LogIn size={18} />}
-              loading={checkIn.isPending}
-              onClick={handleCheckIn}
-            >
-              Check In
-            </Button>
+            <div className="flex flex-wrap gap-2 justify-center">
+              <Button
+                className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 text-base"
+                icon={<LogIn size={18} />}
+                loading={checkIn.isPending}
+                onClick={handleCheckIn}
+              >
+                Check In
+              </Button>
+              {todayApprovedWfh && (
+                <Button
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 text-base"
+                  icon={<Home size={18} />}
+                  loading={checkIn.isPending}
+                  onClick={handleCheckInWfh}
+                >
+                  Check In (WFH)
+                </Button>
+              )}
+            </div>
           </div>
         )}
 
@@ -482,7 +517,7 @@ const MyAttendanceTab = () => {
               >
                 Check Out
               </Button>
-              {!onBreak && (
+              {!onBreak && todayApprovedWfh && !today?.isWfh && today?.status !== 'WFH' && (
                 <Button variant="outline" icon={<Home size={16} />} onClick={() => setShowWfhModal(true)}>
                   Mark as WFH
                 </Button>
@@ -1057,6 +1092,224 @@ const SummaryTab = () => {
   );
 };
 
+// ── WFH Requests Tab ─────────────────────────────────────────────────────────
+
+interface WfhRequestForm {
+  wfh_date: string;
+  reason: string;
+}
+
+interface RejectForm {
+  reviewer_notes: string;
+}
+
+const wfhStatusVariant = (status: string): 'success' | 'danger' | 'warning' | 'gray' => {
+  const map: Record<string, 'success' | 'danger' | 'warning' | 'gray'> = {
+    APPROVED: 'success',
+    REJECTED: 'danger',
+    PENDING: 'warning',
+    CANCELLED: 'gray',
+  };
+  return map[status] ?? 'gray';
+};
+
+const WfhRequestsTab = () => {
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [rejectTarget, setRejectTarget] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+
+  const { data: myRequests = [], isLoading: myLoading } = useWfhRequests({ mine: 'true' });
+  const { data: teamRequests = [], isLoading: teamLoading } = useWfhRequests({ team: 'true' });
+
+  const submitWfh  = useSubmitWfhRequest();
+  const approveWfh = useApproveWfhRequest();
+  const rejectWfh  = useRejectWfhRequest();
+  const cancelWfh  = useCancelWfhRequest();
+
+  const {
+    register: registerSubmit, handleSubmit: handleSubmitForm, reset: resetSubmit,
+    formState: { errors: submitErrors, isSubmitting: submitPending },
+  } = useForm<WfhRequestForm>({ defaultValues: { wfh_date: format(new Date(), 'yyyy-MM-dd') } });
+
+  const {
+    register: registerReject, handleSubmit: handleRejectForm, reset: resetReject,
+    formState: { errors: rejectErrors, isSubmitting: rejectPending },
+  } = useForm<RejectForm>();
+
+  const handleSubmitRequest = async (data: WfhRequestForm) => {
+    try {
+      setActionError('');
+      await submitWfh.mutateAsync(data);
+      resetSubmit();
+      setShowSubmitModal(false);
+    } catch (e: any) { setActionError(e?.message ?? 'Failed to submit'); }
+  };
+
+  const handleApprove = async (id: string) => {
+    try {
+      setActionError('');
+      await approveWfh.mutateAsync({ id });
+    } catch (e: any) { setActionError(e?.message ?? 'Failed to approve'); }
+  };
+
+  const handleReject = async (data: RejectForm) => {
+    if (!rejectTarget) return;
+    try {
+      setActionError('');
+      await rejectWfh.mutateAsync({ id: rejectTarget, data });
+      setRejectTarget(null);
+      resetReject();
+    } catch (e: any) { setActionError(e?.message ?? 'Failed to reject'); }
+  };
+
+  const handleCancel = async (id: string) => {
+    try {
+      setActionError('');
+      await cancelWfh.mutateAsync(id);
+    } catch (e: any) { setActionError(e?.message ?? 'Failed to cancel'); }
+  };
+
+  return (
+    <div className="space-y-6">
+      {actionError && <Alert type="error" message={actionError} />}
+
+      {/* My WFH Requests */}
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900">My WFH Requests</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Submit a request for your Reporting Manager to approve</p>
+          </div>
+          <Button size="sm" icon={<Send size={13} />} onClick={() => setShowSubmitModal(true)}>Request WFH</Button>
+        </div>
+
+        {myLoading ? <PageSkeleton /> : (myRequests as any[]).length === 0 ? (
+          <EmptyState title="No WFH requests yet" description="You haven't submitted any WFH requests. Use the button above to request a WFH day." />
+        ) : (
+          <div className="space-y-2">
+            {(myRequests as any[]).map((req: any) => (
+              <div key={req.id} className="flex items-center justify-between px-3 py-3 bg-gray-50 rounded-xl border border-gray-100">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="text-sm font-medium text-gray-800">{formatDate(req.wfhDate ?? req.wfh_date)}</p>
+                    <Badge variant={wfhStatusVariant(req.status)}>{req.status}</Badge>
+                  </div>
+                  <p className="text-xs text-gray-500 truncate">{req.reason}</p>
+                  {(req.reviewerNotes ?? req.reviewer_notes) && (
+                    <p className="text-xs text-red-500 mt-0.5">Note: {req.reviewerNotes ?? req.reviewer_notes}</p>
+                  )}
+                </div>
+                {req.status === 'PENDING' && (
+                  <button
+                    onClick={() => handleCancel(String(req.id))}
+                    disabled={cancelWfh.isPending}
+                    className="ml-3 p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                    title="Cancel request"
+                  >
+                    <XCircle size={15} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* Team WFH Requests (RMs / managers only — hidden when empty) */}
+      {!teamLoading && (teamRequests as any[]).length > 0 && (
+        <Card>
+          <div className="flex items-center gap-2 mb-4">
+            <Users size={15} className="text-indigo-600" />
+            <h3 className="text-sm font-semibold text-gray-900">Team WFH Requests</h3>
+            <Badge variant="warning">
+              {(teamRequests as any[]).filter((r: any) => r.status === 'PENDING').length} pending
+            </Badge>
+          </div>
+          <div className="space-y-2">
+            {(teamRequests as any[]).map((req: any) => (
+              <div key={req.id} className="flex items-center justify-between px-3 py-3 bg-gray-50 rounded-xl border border-gray-100">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="text-sm font-medium text-gray-800">{req.userName ?? req.user_name ?? '—'}</p>
+                    <span className="text-gray-300 text-xs">·</span>
+                    <p className="text-sm text-gray-600">{formatDate(req.wfhDate ?? req.wfh_date)}</p>
+                    <Badge variant={wfhStatusVariant(req.status)}>{req.status}</Badge>
+                  </div>
+                  <p className="text-xs text-gray-500 truncate">{req.reason}</p>
+                </div>
+                {req.status === 'PENDING' && (
+                  <div className="flex items-center gap-1 ml-3">
+                    <button
+                      onClick={() => handleApprove(String(req.id))}
+                      disabled={approveWfh.isPending}
+                      className="p-1.5 rounded-lg text-green-500 hover:text-green-700 hover:bg-green-50 transition-colors disabled:opacity-50"
+                      title="Approve"
+                    >
+                      <CheckCircle size={16} />
+                    </button>
+                    <button
+                      onClick={() => setRejectTarget(String(req.id))}
+                      className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                      title="Reject"
+                    >
+                      <XCircle size={16} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Submit WFH Request Modal */}
+      <Modal open={showSubmitModal} onClose={() => { setShowSubmitModal(false); resetSubmit(); }} title="Request Work From Home" size="sm">
+        <form onSubmit={handleSubmitForm(handleSubmitRequest)} className="space-y-4">
+          <div>
+            <label className="form-label">Date</label>
+            <input type="date" className="form-input" {...registerSubmit('wfh_date', { required: 'Date is required' })} />
+            {submitErrors.wfh_date && <p className="form-error">{submitErrors.wfh_date.message}</p>}
+          </div>
+          <div>
+            <label className="form-label">Reason</label>
+            <textarea
+              className="form-textarea"
+              rows={3}
+              placeholder="Briefly explain why you're working from home…"
+              {...registerSubmit('reason', { required: 'Reason is required' })}
+            />
+            {submitErrors.reason && <p className="form-error">{submitErrors.reason.message}</p>}
+          </div>
+          <ModalActions>
+            <Button variant="outline" type="button" onClick={() => { setShowSubmitModal(false); resetSubmit(); }}>Cancel</Button>
+            <Button type="submit" icon={<Send size={13} />} loading={submitPending}>Submit Request</Button>
+          </ModalActions>
+        </form>
+      </Modal>
+
+      {/* Reject WFH Request Modal */}
+      <Modal open={!!rejectTarget} onClose={() => { setRejectTarget(null); resetReject(); }} title="Reject WFH Request" size="sm">
+        <form onSubmit={handleRejectForm(handleReject)} className="space-y-4">
+          <div>
+            <label className="form-label">Reason for rejection</label>
+            <textarea
+              className="form-textarea"
+              rows={3}
+              placeholder="Provide a reason so the employee can resubmit if needed…"
+              {...registerReject('reviewer_notes', { required: 'Reason is required' })}
+            />
+            {rejectErrors.reviewer_notes && <p className="form-error">{rejectErrors.reviewer_notes.message}</p>}
+          </div>
+          <ModalActions>
+            <Button variant="outline" type="button" onClick={() => { setRejectTarget(null); resetReject(); }}>Cancel</Button>
+            <Button variant="danger" type="submit" icon={<XCircle size={13} />} loading={rejectPending}>Reject Request</Button>
+          </ModalActions>
+        </form>
+      </Modal>
+    </div>
+  );
+};
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 const AttendancePage = () => {
@@ -1071,6 +1324,7 @@ const AttendancePage = () => {
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode; managerOnly?: boolean; ipOnly?: boolean }[] = [
     { id: 'my',        label: 'My Attendance',  icon: <Clock size={15} /> },
+    { id: 'wfh',       label: 'WFH Requests',   icon: <Home size={15} /> },
     { id: 'live',      label: 'Team Live',       icon: <Users size={15} />,    managerOnly: true },
     { id: 'records',   label: 'Records',         icon: <BarChart2 size={15} /> },
     { id: 'summary',   label: 'Summary',         icon: <BarChart2 size={15} /> },
@@ -1109,7 +1363,8 @@ const AttendancePage = () => {
         </div>
 
         {/* Tab Content */}
-        {tab === 'my' && <MyAttendanceTab />}
+        {tab === 'my' && <MyAttendanceTab onRequestWfh={() => setTab('wfh')} />}
+        {tab === 'wfh' && <WfhRequestsTab />}
         {tab === 'live' && isManager && <TeamLiveTab />}
         {tab === 'records' && <RecordsTab isManager={isManager} />}
         {tab === 'summary' && <SummaryTab />}
