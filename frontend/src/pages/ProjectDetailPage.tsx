@@ -112,9 +112,11 @@ const ProjectDetailPage = () => {
             <Button variant="outline" size="sm" onClick={() => navigate('/projects')} icon={<ArrowLeft size={14} />}>
               Back
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowRAG(true)} icon={<Edit2 size={14} />}>
-              Update RAG
-            </Button>
+            {canManageProject && (
+              <Button variant="outline" size="sm" onClick={() => setShowRAG(true)} icon={<Edit2 size={14} />}>
+                Update RAG
+              </Button>
+            )}
           </div>
         }
       />
@@ -172,7 +174,7 @@ const ProjectDetailPage = () => {
         <Card>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2"><Users size={16} /> Team Members ({members.length})</h3>
-            <Button size="sm" variant="outline" icon={<UserPlus size={14} />} onClick={() => setShowAddMember(true)}>Add Member</Button>
+            {canManageProject && <Button size="sm" variant="outline" icon={<UserPlus size={14} />} onClick={() => setShowAddMember(true)}>Add Member</Button>}
           </div>
           {members.length === 0 ? (
             <p className="text-sm text-gray-400">No members assigned yet.</p>
@@ -197,9 +199,11 @@ const ProjectDetailPage = () => {
                       <p className="text-xs text-gray-400">{(m.projectRole || m.userRole || '').replace(/_/g, ' ')}</p>
                     </div>
                   </div>
-                  <button onClick={() => handleRemoveMember(m.id)} className="p-1 text-gray-400 hover:text-red-500 transition-colors" title="Remove member">
-                    <Trash2 size={14} />
-                  </button>
+                  {canManageProject && (
+                    <button onClick={() => handleRemoveMember(m.id)} className="p-1 text-gray-400 hover:text-red-500 transition-colors" title="Remove member">
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
                 );
               })}

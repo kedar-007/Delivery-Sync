@@ -225,7 +225,8 @@ function StatsBar({
 export default function SprintsPage() {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const { user } = useAuth();
-  const isOrgWide = hasPermission(user, PERMISSIONS.ORG_ROLE_READ);
+  const isOrgWide      = hasPermission(user, PERMISSIONS.ORG_ROLE_READ);
+  const canManageSprint = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.SPRINT_WRITE);
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [projectSearch, setProjectSearch] = useState('');
@@ -393,9 +394,11 @@ export default function SprintsPage() {
         subtitle={`${projectsWithSprints.length} project${projectsWithSprints.length !== 1 ? 's' : ''} with sprint boards`}
         actions={
           <div className="flex items-center gap-2">
-            <Button size="sm" icon={<Plus size={14} />} onClick={openCreate}>
-              Create Sprint
-            </Button>
+            {canManageSprint && (
+              <Button size="sm" icon={<Plus size={14} />} onClick={openCreate}>
+                Create Sprint
+              </Button>
+            )}
             <Link to={`/${tenantSlug}/projects`}>
               <Button variant="secondary" size="sm" icon={<Layers size={14} />}>All Projects</Button>
             </Link>

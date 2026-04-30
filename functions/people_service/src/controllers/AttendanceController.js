@@ -100,6 +100,13 @@ class AttendanceController {
       this._validateIpAllowed(req.tenantId, ip),
       this._runLocationChecks(req.tenantId, ip),
     ]);
+    if (is_wfh) {
+      const approvedWfh = await this.db.findWhere(TABLES.WFH_REQUESTS, tenantId,
+        `user_id = '${userRowId}' AND wfh_date = '${today}' AND status = 'APPROVED'`, { limit: 1 });
+      if (approvedWfh.length === 0)
+        return ResponseHelper.forbidden(res, 'You need an approved WFH request for today before checking in as WFH. Please submit a request first.');
+    }
+
     if (!is_wfh) {
       if (!ipCheck.allowed) {
         console.log(`[checkIn] IP blocked: detected="${ip}" headers=${JSON.stringify({ xfwd: req.headers['x-forwarded-for'], xreal: req.headers['x-real-ip'], remote: req.connection?.remoteAddress })}`);
@@ -1103,11 +1110,16 @@ class AttendanceController {
       `user_id = '${userRowId}'`, { limit: 1 });
     const today = todayIST(profiles[0]?.timezone);
 
+    const approvedWfh = await this.db.findWhere(TABLES.WFH_REQUESTS, req.tenantId,
+      `user_id = '${userRowId}' AND wfh_date = '${today}' AND status = 'APPROVED'`, { limit: 1 });
+    if (approvedWfh.length === 0)
+      return ResponseHelper.forbidden(res, 'You need an approved WFH request for today. Please submit a request first.');
+
     const existing = await this.db.findWhere(TABLES.ATTENDANCE_RECORDS, req.tenantId,
       `user_id = '${userRowId}' AND attendance_date = '${today}'`, { limit: 1 });
 
     if (existing.length > 0) {
-      await this.db.update(TABLES.ATTENDANCE_RECORDS, { ROWID: existing[0].ROWID, is_wfh: 'true', wfh_reason: wfh_reason || '', status: ATTENDANCE_STATUS.WFH });
+      await this.db.update(TABLES.ATTENDANCE_RECORDS, { ROWID: existing[0].ROWID, is_wfh: 'true', wfh_reason: wfh_reason || approvedWfh[0].reason || '', status: ATTENDANCE_STATUS.WFH });
     } else {
       await this.db.insert(TABLES.ATTENDANCE_RECORDS, {
         tenant_id:           String(req.tenantId),
@@ -1281,6 +1293,168 @@ class AttendanceController {
       console.error('[AttendanceController.exportCsv]', err.message);
       return ResponseHelper.serverError(res, err.message);
     }
+  }
+  // ── WFH Requests ────────────────────────────────────────────────────────────
+
+  // POST /api/people/attendance/wfh-requests
+  async submitWfhRequest(req, res) {
+    const { wfh_date, reason } = req.body;
+    if (!wfh_date || !reason) return ResponseHelper.validationError(res, 'wfh_date and reason are required');
+
+    const users = await this.db.findWhere(TABLES.USERS, req.tenantId,
+      `email = '${req.currentUser.email}'`, { limit: 1 });
+    if (!users.length) return ResponseHelper.notFound(res, 'User not found');
+    const userRowId = users[0].ROWID;
+
+    const existing = await this.db.findWhere(TABLES.WFH_REQUESTS, req.tenantId,
+      `user_id = '${userRowId}' AND wfh_date = '${wfh_date}' AND status != 'CANCELLED'`, { limit: 1 });
+    if (existing.length > 0) return ResponseHelper.conflict(res, 'A WFH request already exists for this date');
+
+    const record = await this.db.insert(TABLES.WFH_REQUESTS, {
+      tenant_id:      String(req.tenantId),
+      user_id:        String(userRowId),
+      wfh_date,
+      reason,
+      status:         'PENDING',
+      reviewed_by:    '',
+      reviewer_notes: '',
+      reviewed_at:    '',
+    });
+
+    const profiles = await this.db.findWhere(TABLES.USER_PROFILES, req.tenantId,
+      `user_id = '${userRowId}'`, { limit: 1 });
+    const rmId = profiles[0]?.reporting_manager_id;
+    if (rmId) {
+      try {
+        await this.notif.sendInApp({
+          tenantId: req.tenantId, userId: String(rmId),
+          title: 'WFH Request',
+          message: `${req.currentUser.name} has requested to work from home on ${wfh_date}`,
+          type: NOTIFICATION_TYPE.WFH_REQUEST_SUBMITTED,
+          entityType: 'WFH_REQUEST', entityId: record.ROWID,
+        });
+      } catch (_) {}
+    }
+
+    await this.audit.log({ tenantId: req.tenantId, entityType: 'WFH_REQUEST', entityId: record.ROWID, action: AUDIT_ACTION.CREATE, newValue: { wfh_date, reason }, performedBy: userRowId });
+    return ResponseHelper.created(res, record);
+  }
+
+  // GET /api/people/attendance/wfh-requests
+  async listWfhRequests(req, res) {
+    const users = await this.db.findWhere(TABLES.USERS, req.tenantId,
+      `email = '${req.currentUser.email}'`, { limit: 1 });
+    if (!users.length) return ResponseHelper.notFound(res, 'User not found');
+    const userRowId = String(users[0].ROWID);
+
+    const { mine, team, status, date_from, date_to } = req.query;
+
+    let rows = [];
+    if (team === 'true') {
+      const reports = await this.db.findWhere(TABLES.USER_PROFILES, req.tenantId,
+        `reporting_manager_id = '${userRowId}'`, { limit: 200 });
+      const reportIds = reports.map(r => String(r.user_id));
+      if (!reportIds.length) return ResponseHelper.success(res, []);
+      let cond = `user_id IN (${reportIds.map(id => `'${id}'`).join(',')})`;
+      if (status) cond += ` AND status = '${status}'`;
+      if (date_from) cond += ` AND wfh_date >= '${date_from}'`;
+      if (date_to) cond += ` AND wfh_date <= '${date_to}'`;
+      rows = await this.db.findWhere(TABLES.WFH_REQUESTS, req.tenantId, cond, { limit: 200 });
+
+      // Enrich with user names
+      const userIds = [...new Set(rows.map(r => String(r.user_id)))];
+      const userRows = userIds.length
+        ? await this.db.findWhere(TABLES.USERS, req.tenantId, `ROWID IN (${userIds.map(id => `'${id}'`).join(',')})`, { limit: 200 })
+        : [];
+      const userMap = Object.fromEntries(userRows.map(u => [String(u.ROWID), u]));
+      rows = rows.map(r => ({ ...r, user_name: userMap[String(r.user_id)]?.name || '', user_email: userMap[String(r.user_id)]?.email || '' }));
+    } else {
+      let cond = `user_id = '${userRowId}'`;
+      if (status) cond += ` AND status = '${status}'`;
+      if (date_from) cond += ` AND wfh_date >= '${date_from}'`;
+      if (date_to) cond += ` AND wfh_date <= '${date_to}'`;
+      rows = await this.db.findWhere(TABLES.WFH_REQUESTS, req.tenantId, cond, { limit: 100 });
+    }
+
+    return ResponseHelper.success(res, rows);
+  }
+
+  // PATCH /api/people/attendance/wfh-requests/:id/approve
+  async approveWfhRequest(req, res) {
+    const { reviewer_notes } = req.body;
+    const request = await this.db.findById(TABLES.WFH_REQUESTS, req.params.id, req.tenantId);
+    if (!request) return ResponseHelper.notFound(res, 'WFH request not found');
+    if (request.status !== 'PENDING') return ResponseHelper.conflict(res, 'Request is not pending');
+
+    const reviewerUsers = await this.db.findWhere(TABLES.USERS, req.tenantId,
+      `email = '${req.currentUser.email}'`, { limit: 1 });
+    const reviewerRowId = reviewerUsers[0]?.ROWID;
+
+    await this.db.update(TABLES.WFH_REQUESTS, {
+      ROWID:          req.params.id,
+      status:         'APPROVED',
+      reviewed_by:    String(reviewerRowId || ''),
+      reviewer_notes: reviewer_notes || '',
+      reviewed_at:    new Date().toISOString().replace('T', ' ').slice(0, 19),
+    });
+
+    try {
+      await this.notif.sendInApp({
+        tenantId: req.tenantId, userId: String(request.user_id),
+        title: 'WFH Request Approved',
+        message: `Your WFH request for ${request.wfh_date} has been approved`,
+        type: NOTIFICATION_TYPE.WFH_APPROVED,
+        entityType: 'WFH_REQUEST', entityId: req.params.id,
+      });
+    } catch (_) {}
+
+    await this.audit.log({ tenantId: req.tenantId, entityType: 'WFH_REQUEST', entityId: req.params.id, action: AUDIT_ACTION.APPROVE, newValue: { status: 'APPROVED' }, performedBy: reviewerRowId });
+    return ResponseHelper.success(res, { message: 'WFH request approved' });
+  }
+
+  // PATCH /api/people/attendance/wfh-requests/:id/reject
+  async rejectWfhRequest(req, res) {
+    const { reviewer_notes } = req.body;
+    if (!reviewer_notes) return ResponseHelper.validationError(res, 'reviewer_notes required when rejecting');
+
+    const request = await this.db.findById(TABLES.WFH_REQUESTS, req.params.id, req.tenantId);
+    if (!request) return ResponseHelper.notFound(res, 'WFH request not found');
+    if (request.status !== 'PENDING') return ResponseHelper.conflict(res, 'Request is not pending');
+
+    const reviewerUsers = await this.db.findWhere(TABLES.USERS, req.tenantId,
+      `email = '${req.currentUser.email}'`, { limit: 1 });
+    const reviewerRowId = reviewerUsers[0]?.ROWID;
+
+    await this.db.update(TABLES.WFH_REQUESTS, {
+      ROWID:          req.params.id,
+      status:         'REJECTED',
+      reviewed_by:    String(reviewerRowId || ''),
+      reviewer_notes,
+      reviewed_at:    new Date().toISOString().replace('T', ' ').slice(0, 19),
+    });
+
+    try {
+      await this.notif.sendInApp({
+        tenantId: req.tenantId, userId: String(request.user_id),
+        title: 'WFH Request Rejected',
+        message: `Your WFH request for ${request.wfh_date} was rejected. Reason: ${reviewer_notes}`,
+        type: NOTIFICATION_TYPE.WFH_REJECTED,
+        entityType: 'WFH_REQUEST', entityId: req.params.id,
+      });
+    } catch (_) {}
+
+    await this.audit.log({ tenantId: req.tenantId, entityType: 'WFH_REQUEST', entityId: req.params.id, action: AUDIT_ACTION.REJECT, newValue: { status: 'REJECTED', reviewer_notes }, performedBy: reviewerRowId });
+    return ResponseHelper.success(res, { message: 'WFH request rejected' });
+  }
+
+  // DELETE /api/people/attendance/wfh-requests/:id
+  async cancelWfhRequest(req, res) {
+    const request = await this.db.findById(TABLES.WFH_REQUESTS, req.params.id, req.tenantId);
+    if (!request) return ResponseHelper.notFound(res, 'WFH request not found');
+    if (request.status !== 'PENDING') return ResponseHelper.conflict(res, 'Only pending requests can be cancelled');
+
+    await this.db.update(TABLES.WFH_REQUESTS, { ROWID: req.params.id, status: 'CANCELLED' });
+    return ResponseHelper.success(res, { message: 'WFH request cancelled' });
   }
 }
 

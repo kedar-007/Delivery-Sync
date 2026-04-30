@@ -55,6 +55,7 @@ interface Task {
   sprintId?: string;
   projectId?: string;
   labels?: string[];
+  createdBy?: string;
 }
 
 interface Project { id: string; name: string }
@@ -212,7 +213,8 @@ function TaskFormModal({
   const [formError, setFormError]         = useState('');
   const [requireApproval, setRequireApproval] = useState(false);
   const { user } = useAuth();
-  const canManageApproval = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TIME_APPROVE);
+  const canManageApproval   = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TIME_APPROVE);
+  const canAssignToOthers   = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TASK_ASSIGN);
   const { data: usersData = [] } = useUsers();
   const users = usersData as TenantUser[];
 
@@ -339,7 +341,14 @@ function TaskFormModal({
 
         <div>
           <label className="form-label flex items-center gap-1.5"><User size={13} /> Assignees</label>
-          <AssigneeMultiSelect users={users} value={assignees} onChange={setAssignees} />
+          {canAssignToOthers ? (
+            <AssigneeMultiSelect users={users} value={assignees} onChange={setAssignees} />
+          ) : (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-500">
+              <User size={13} className="text-gray-400" />
+              <span>Assigned to you — contact your lead to reassign</span>
+            </div>
+          )}
         </div>
 
         {canManageApproval && (
@@ -393,6 +402,7 @@ function TaskDetailPanel({
   logTimePending, logTimeError, onLogTime,
   aiInsight, aiLoading,
   onEdit,
+  canEdit,
   taskAttachments,
   onUploadAttachment,
 }: {
@@ -427,6 +437,7 @@ function TaskDetailPanel({
   aiInsight: string | null;
   aiLoading: boolean;
   onEdit: (t: Task) => void;
+  canEdit: boolean;
 }) {
   const priCfg     = PRIORITY_CONFIG[task.priority] ?? PRIORITY_CONFIG.MEDIUM;
   const stCfg      = STATUS_CONFIG[task.status];
@@ -464,11 +475,13 @@ function TaskDetailPanel({
             </div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            <button onClick={() => onEdit(task)}
-              className="p-1.5 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-              title="Edit task">
-              <Edit2 size={15} />
-            </button>
+            {canEdit && (
+              <button onClick={() => onEdit(task)}
+                className="p-1.5 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                title="Edit task">
+                <Edit2 size={15} />
+              </button>
+            )}
             <button onClick={onClose}
               className="p-1.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
               title="Close">
@@ -810,6 +823,12 @@ function TaskDetailPanel({
 export default function MyTasksPage() {
   const { user } = useAuth();
   const { confirm } = useConfirm();
+  const canCreateTask = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TASK_WRITE);
+  const canEditTask = (task: Task) => {
+    if (!user) return false;
+    if (user.role === 'TENANT_ADMIN' || user.role === 'SUPER_ADMIN') return true;
+    return task.createdBy != null && String(task.createdBy) === String(user.id);
+  };
 
   const { data: rawTasks, isLoading, error } = useMyTasks();
   const { data: rawProjects } = useProjects();
@@ -1136,11 +1155,11 @@ export default function MyTasksPage() {
       <Header
         title="My Tasks"
         subtitle={`${allMyTasks.length} task${allMyTasks.length !== 1 ? 's' : ''} assigned to you`}
-        actions={
+        actions={canCreateTask ? (
           <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={openCreate}>
             New Task
           </Button>
-        }
+        ) : undefined}
       />
 
       <div className="p-6 space-y-4">
@@ -1249,6 +1268,7 @@ export default function MyTasksPage() {
                   onEdit={openEdit}
                   onDelete={handleDelete}
                   onOpen={(t) => setTaskDetailId(t.id)}
+                  canEditTask={canEditTask}
                 />
               ))}
           </div>
@@ -1365,6 +1385,7 @@ export default function MyTasksPage() {
           aiInsight={aiInsight}
           aiLoading={aiLoading}
           onEdit={openEdit}
+          canEdit={canEditTask(detailTask)}
           taskAttachments={taskAttachments}
           onUploadAttachment={async (file) => {
             if (!taskDetailId) return;
@@ -1384,7 +1405,7 @@ export default function MyTasksPage() {
 // ── Status Group ──────────────────────────────────────────────────────────────
 
 function StatusGroup({
-  status, tasks, projects, taskHoursMap, onStatusChange, onLogTime, onEdit, onDelete, onOpen,
+  status, tasks, projects, taskHoursMap, onStatusChange, onLogTime, onEdit, onDelete, onOpen, canEditTask,
 }: {
   status: TaskStatus; tasks: Task[]; projects: Project[];
   taskHoursMap: Record<string, number>;
@@ -1393,6 +1414,7 @@ function StatusGroup({
   onEdit:         (t: Task) => void;
   onDelete:       (t: Task) => void;
   onOpen:         (t: Task) => void;
+  canEditTask:    (t: Task) => boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const cfg = STATUS_CONFIG[status];
@@ -1435,6 +1457,7 @@ function StatusGroup({
                   onEdit={onEdit}
                   onDelete={onDelete}
                   onOpen={onOpen}
+                  canEdit={canEditTask(t)}
                 />
               ))}
             </tbody>
@@ -1448,7 +1471,7 @@ function StatusGroup({
 // ── Task Row ──────────────────────────────────────────────────────────────────
 
 function TaskRow({
-  task, projects, hoursLogged, onStatusChange, onLogTime, onEdit, onDelete, onOpen,
+  task, projects, hoursLogged, onStatusChange, onLogTime, onEdit, onDelete, onOpen, canEdit,
 }: {
   task: Task; projects: Project[];
   hoursLogged: number;
@@ -1457,6 +1480,7 @@ function TaskRow({
   onEdit:         (t: Task) => void;
   onDelete:       (t: Task) => void;
   onOpen:         (t: Task) => void;
+  canEdit:        boolean;
 }) {
   const priCfg  = PRIORITY_CONFIG[task.priority] ?? PRIORITY_CONFIG.MEDIUM;
   const project = projects.find((p) => p.id === task.projectId);
@@ -1539,14 +1563,18 @@ function TaskRow({
             title="Log Time" onClick={(e) => { e.stopPropagation(); onLogTime(task); }}>
             <Timer size={13} />
           </button>
-          <button className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50"
-            title="Edit" onClick={(e) => { e.stopPropagation(); onEdit(task); }}>
-            <Edit2 size={13} />
-          </button>
-          <button className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50"
-            title="Delete" onClick={(e) => { e.stopPropagation(); onDelete(task); }}>
-            <Trash2 size={13} />
-          </button>
+          {canEdit && (
+            <button className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+              title="Edit" onClick={(e) => { e.stopPropagation(); onEdit(task); }}>
+              <Edit2 size={13} />
+            </button>
+          )}
+          {canEdit && (
+            <button className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50"
+              title="Delete" onClick={(e) => { e.stopPropagation(); onDelete(task); }}>
+              <Trash2 size={13} />
+            </button>
+          )}
         </div>
       </td>
     </tr>

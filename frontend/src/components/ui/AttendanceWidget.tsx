@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { LogIn, LogOut, Coffee, Timer, Clock, Home, UtensilsCrossed, AlertTriangle } from 'lucide-react';
+import { LogIn, LogOut, Coffee, Clock, Home, UtensilsCrossed, AlertTriangle } from 'lucide-react';
 import {
   useMyAttendanceRecord,
   useCheckIn,
   useCheckOut,
   useBreakStart,
   useBreakEnd,
+  useWfhRequests,
 } from '../../hooks/usePeople';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -72,14 +73,17 @@ const AttendanceWidget: React.FC = () => {
     return () => { if (breakRef.current) clearInterval(breakRef.current); };
   }, [activeBreak?.break_start]);
 
-  const [showWfhModal, setShowWfhModal] = useState(false);
-  const [wfhReason, setWfhReason] = useState('');
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const { data: myWfhRequests = [] } = useWfhRequests({ mine: 'true' });
+  const todayApprovedWfh = (myWfhRequests as any[]).find(
+    (r: any) => (r.wfhDate ?? r.wfh_date) === todayStr && r.status === 'APPROVED'
+  );
 
   // Always send UTC so both backend and timer use the same reference frame
   const clientTime = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
 
   const handleCheckIn    = () => checkIn.mutate({ client_time: clientTime() });
-  const handleWfhCheckIn = () => { checkIn.mutate({ client_time: clientTime(), is_wfh: true, wfh_reason: wfhReason }); setShowWfhModal(false); setWfhReason(''); };
+  const handleWfhCheckIn = () => checkIn.mutate({ client_time: clientTime(), is_wfh: true, wfh_reason: todayApprovedWfh?.reason ?? '' });
   const handleBreakStart = (type: 'LUNCH' | 'SHORT') => breakStart.mutate({ client_time: clientTime(), break_type: type });
   const handleBreakEnd   = () => breakEnd.mutate({ client_time: clientTime() });
 
@@ -169,15 +173,17 @@ const AttendanceWidget: React.FC = () => {
               <LogIn size={13} />
               {checkIn.isPending ? '…' : 'Check In'}
             </button>
-            <button
-              onClick={() => setShowWfhModal(true)}
-              disabled={checkIn.isPending}
-              title="Working from home"
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-xs font-medium transition-colors disabled:opacity-60"
-            >
-              <Home size={13} />
-              <span className="hidden sm:inline">WFH</span>
-            </button>
+            {todayApprovedWfh && (
+              <button
+                onClick={handleWfhCheckIn}
+                disabled={checkIn.isPending}
+                title={`WFH: ${todayApprovedWfh.reason}`}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-xs font-medium transition-colors disabled:opacity-60"
+              >
+                <Home size={13} />
+                <span className="hidden sm:inline">WFH</span>
+              </button>
+            )}
           </>
         )}
 
@@ -220,37 +226,6 @@ const AttendanceWidget: React.FC = () => {
         )}
       </div>
 
-      {/* WFH check-in modal */}
-      {showWfhModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-80 space-y-4">
-            <div className="flex items-center gap-2">
-              <Home size={18} className="text-blue-600" />
-              <h3 className="text-base font-semibold text-gray-900">WFH Check-in</h3>
-            </div>
-            <p className="text-sm text-gray-500">A notification will be sent to your manager.</p>
-            <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">Reason (optional)</label>
-              <input
-                className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-200 outline-none"
-                placeholder="e.g. Doctor appointment, personal work…"
-                value={wfhReason}
-                onChange={(e) => setWfhReason(e.target.value)}
-              />
-            </div>
-            <div className="flex gap-2 pt-1">
-              <button onClick={() => { setShowWfhModal(false); setWfhReason(''); }}
-                className="flex-1 py-2 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
-                Cancel
-              </button>
-              <button onClick={handleWfhCheckIn} disabled={checkIn.isPending}
-                className="flex-1 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-60">
-                {checkIn.isPending ? '…' : 'Check In WFH'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 };

@@ -1,6 +1,8 @@
 import React, { useState, useCallback } from 'react';
 import { useSearchParams, useParams, Link as RouterLink } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
+import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import {
   Plus, FileText, Link, CheckCheck, ExternalLink,
   Pencil, TrendingUp, ShieldAlert, Milestone, Activity,
@@ -21,6 +23,8 @@ import { Report } from '../types';
 import { format, subDays } from 'date-fns';
 
 const ReportsPage = () => {
+  const { user } = useAuth();
+  const canWriteReports = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.REPORT_WRITE);
   const [searchParams, setSearchParams] = useSearchParams();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const preselectedProject = searchParams.get('projectId') || '';
@@ -119,7 +123,7 @@ const ReportsPage = () => {
       <Header
         title="Reports"
         subtitle="Weekly and custom delivery reports"
-        actions={<Button onClick={() => setShowGenerate(true)} icon={<Plus size={16} />}>Generate Report</Button>}
+        actions={canWriteReports ? <Button onClick={() => setShowGenerate(true)} icon={<Plus size={16} />}>Generate Report</Button> : undefined}
       />
 
       <div className="p-6 space-y-5">
@@ -200,14 +204,16 @@ const ReportsPage = () => {
                       <div className="flex items-center gap-2">
                         <h2 className="text-base font-bold text-gray-900">{report.summary?.projectName}</h2>
                         {/* Pencil to rename */}
-                        <button
-                          type="button"
-                          onClick={(e) => openRename(e, { id: report.id, title: report.summary?.projectName ?? '' })}
-                          className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                          title="Rename report"
-                        >
-                          <Pencil size={12} />
-                        </button>
+                        {canWriteReports && (
+                          <button
+                            type="button"
+                            onClick={(e) => openRename(e, { id: report.id, title: report.summary?.projectName ?? '' })}
+                            className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                            title="Rename report"
+                          >
+                            <Pencil size={12} />
+                          </button>
+                        )}
                       </div>
                       <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
                         <span className="font-medium text-gray-700 bg-gray-100 text-xs px-2 py-0.5 rounded">{report.reportType}</span>

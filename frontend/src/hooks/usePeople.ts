@@ -267,6 +267,70 @@ export const useBreakSummary = () =>
     refetchInterval: 30000,
   });
 
+// ── WFH Requests ─────────────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const normaliseWfhRequest = (r: any) => ({
+  ...r,
+  id:            String(r.ROWID ?? r.id ?? ''),
+  userId:        r.user_id        ?? r.userId,
+  wfhDate:       r.wfh_date       ?? r.wfhDate,
+  reviewedBy:    r.reviewed_by    ?? r.reviewedBy    ?? '',
+  reviewerNotes: r.reviewer_notes ?? r.reviewerNotes ?? '',
+  reviewedAt:    r.reviewed_at    ?? r.reviewedAt    ?? null,
+  userName:      r.user_name      ?? r.userName      ?? '',
+  userEmail:     r.user_email     ?? r.userEmail     ?? '',
+});
+
+export const useWfhRequests = (params?: Record<string, string>) =>
+  useQuery({
+    queryKey: ['wfh-requests', params],
+    queryFn: async () => {
+      const rows = await attendanceApi.wfhRequests(params);
+      return Array.isArray(rows) ? rows.map(normaliseWfhRequest) : [];
+    },
+  });
+
+export const useSubmitWfhRequest = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (data: unknown) => attendanceApi.submitWfhRequest(data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['wfh-requests'] }); toast.success('WFH request submitted'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to submit WFH request'),
+  });
+};
+
+export const useApproveWfhRequest = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data?: unknown }) => attendanceApi.approveWfhRequest(id, data ?? {}),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['wfh-requests'] }); toast.success('WFH request approved'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to approve'),
+  });
+};
+
+export const useRejectWfhRequest = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: unknown }) => attendanceApi.rejectWfhRequest(id, data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['wfh-requests'] }); toast.success('WFH request rejected'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to reject'),
+  });
+};
+
+export const useCancelWfhRequest = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (id: string) => attendanceApi.cancelWfhRequest(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['wfh-requests'] }); toast.success('WFH request cancelled'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to cancel'),
+  });
+};
+
 export const useIpSettings = () =>
   useQuery({ queryKey: ['attendance', 'ip-settings'], queryFn: () => attendanceApi.getIpSettings() });
 
