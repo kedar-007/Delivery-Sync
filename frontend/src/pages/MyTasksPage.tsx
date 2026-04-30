@@ -213,7 +213,8 @@ function TaskFormModal({
   const [formError, setFormError]         = useState('');
   const [requireApproval, setRequireApproval] = useState(false);
   const { user } = useAuth();
-  const canManageApproval = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TIME_APPROVE);
+  const canManageApproval   = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TIME_APPROVE);
+  const canAssignToOthers   = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TASK_ASSIGN);
   const { data: usersData = [] } = useUsers();
   const users = usersData as TenantUser[];
 
@@ -340,7 +341,14 @@ function TaskFormModal({
 
         <div>
           <label className="form-label flex items-center gap-1.5"><User size={13} /> Assignees</label>
-          <AssigneeMultiSelect users={users} value={assignees} onChange={setAssignees} />
+          {canAssignToOthers ? (
+            <AssigneeMultiSelect users={users} value={assignees} onChange={setAssignees} />
+          ) : (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-500">
+              <User size={13} className="text-gray-400" />
+              <span>Assigned to you — contact your lead to reassign</span>
+            </div>
+          )}
         </div>
 
         {canManageApproval && (
@@ -815,6 +823,7 @@ function TaskDetailPanel({
 export default function MyTasksPage() {
   const { user } = useAuth();
   const { confirm } = useConfirm();
+  const canCreateTask = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TASK_WRITE);
   const canEditTask = (task: Task) => {
     if (!user) return false;
     if (user.role === 'TENANT_ADMIN' || user.role === 'SUPER_ADMIN') return true;
@@ -1146,11 +1155,11 @@ export default function MyTasksPage() {
       <Header
         title="My Tasks"
         subtitle={`${allMyTasks.length} task${allMyTasks.length !== 1 ? 's' : ''} assigned to you`}
-        actions={
+        actions={canCreateTask ? (
           <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={openCreate}>
             New Task
           </Button>
-        }
+        ) : undefined}
       />
 
       <div className="p-6 space-y-4">

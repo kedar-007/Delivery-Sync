@@ -399,9 +399,10 @@ const PERM_INFO: Record<string, { label: string; desc: string; risk: 'low' | 'me
   MILESTONE_WRITE:    { label: 'Manage Milestones',  desc: 'Create and update milestones',                   risk: 'low' },
   SPRINT_READ:        { label: 'View Sprints',       desc: 'See sprint boards and velocity',                 risk: 'low' },
   SPRINT_WRITE:       { label: 'Manage Sprints',     desc: 'Create, start, complete sprints',                risk: 'medium' },
-  TASK_READ:          { label: 'View Tasks',         desc: 'See tasks across projects',                      risk: 'low' },
-  TASK_WRITE:         { label: 'Manage Tasks',       desc: 'Create, assign and update tasks',                risk: 'low' },
-  TASK_COMMENT_WRITE: { label: 'Comment on Tasks',   desc: 'Add comments to tasks',                          risk: 'low' },
+  TASK_READ:          { label: 'View Tasks',         desc: 'See tasks across projects',                          risk: 'low' },
+  TASK_WRITE:         { label: 'Create / Edit',      desc: 'Create and update tasks (assigned to self only)',    risk: 'low' },
+  TASK_ASSIGN:        { label: 'Assign to Others',   desc: 'Assign tasks to other team members, not just self',  risk: 'medium' },
+  TASK_COMMENT_WRITE: { label: 'Comment on Tasks',   desc: 'Add comments to tasks',                              risk: 'low' },
   ACTION_READ:        { label: 'View Actions',       desc: 'See action items and owners',                    risk: 'low' },
   ACTION_WRITE:       { label: 'Manage Actions',     desc: 'Create and update action items',                 risk: 'low' },
   BLOCKER_READ:       { label: 'View Blockers',      desc: 'See blockers and impediments',                   risk: 'low' },
@@ -448,15 +449,86 @@ const PERM_INFO: Record<string, { label: string; desc: string; risk: 'low' | 'me
   REPORT_READ:        { label: 'View Reports',       desc: 'Access reports and analytics',                  risk: 'low' },
   REPORT_WRITE:       { label: 'Create Reports',     desc: 'Generate and export reports',                   risk: 'medium' },
   DASHBOARD_READ:     { label: 'View Dashboard',     desc: 'Access main dashboard KPIs',                    risk: 'low' },
-  AI_INSIGHTS:        { label: 'AI Insights',        desc: 'Daily summary, suggestions, NLQ, voice',        risk: 'low' },
-  AI_PERFORMANCE:     { label: 'AI Performance',     desc: 'Individual performance analysis cards',         risk: 'medium' },
-  AI_TEAM_ANALYSIS:   { label: 'AI Team Analysis',   desc: 'Org-wide health, trends, retrospectives',       risk: 'high' },
+  AI_INSIGHTS:        { label: 'AI Insights',        desc: 'Daily summary, suggestions, NLQ, voice',                  risk: 'low' },
+  AI_PERFORMANCE:     { label: 'Self Analysis',      desc: 'View your own AI performance analysis — not others\'',    risk: 'medium' },
+  AI_TEAM_ANALYSIS:   { label: 'Team Analysis',      desc: 'Org-wide health, trends, analyze any member\'s data',     risk: 'high' },
   ADMIN_USERS:        { label: 'Manage Users',       desc: 'Invite, edit, deactivate users',                risk: 'high' },
   ADMIN_SETTINGS:     { label: 'System Settings',    desc: 'Tenant settings and audit logs',                risk: 'high' },
   CONFIG_READ:        { label: 'View Config',        desc: 'See feature flags and configurations',          risk: 'low' },
   CONFIG_WRITE:       { label: 'Edit Config',        desc: 'Change features and workflow rules',            risk: 'high' },
   DATA_SEED:          { label: 'Data Seeding',       desc: 'Generate/clear demo or test data',              risk: 'high' },
 };
+
+// ─── CRUD permission matrix ───────────────────────────────────────────────────
+// view = read-only  |  write = create/edit  |  approve = elevated action  |  admin = full control
+
+interface CrudRow { name: string; view?: string; write?: string; approve?: string; admin?: string }
+interface CrudSection { section: string; rows: CrudRow[] }
+
+const CRUD_MODULES: CrudSection[] = [
+  {
+    section: 'Projects & Delivery',
+    rows: [
+      { name: 'Projects',    view: 'PROJECT_READ',   write: 'PROJECT_WRITE' },
+      { name: 'Milestones',  view: 'MILESTONE_READ', write: 'MILESTONE_WRITE' },
+      { name: 'Sprints',     view: 'SPRINT_READ',    write: 'SPRINT_WRITE' },
+      { name: 'Tasks',       view: 'TASK_READ',      write: 'TASK_WRITE',    approve: 'TASK_ASSIGN',        admin: 'TASK_COMMENT_WRITE' },
+      { name: 'Actions',     view: 'ACTION_READ',    write: 'ACTION_WRITE' },
+      { name: 'Blockers',    view: 'BLOCKER_READ',   write: 'BLOCKER_WRITE' },
+      { name: 'RAID Log',    view: 'RAID_READ',      write: 'RAID_WRITE' },
+      { name: 'Decisions',   view: 'DECISION_READ',  write: 'DECISION_WRITE' },
+    ],
+  },
+  {
+    section: 'Daily Work',
+    rows: [
+      { name: 'Standups',    view: 'STANDUP_READ',  write: 'STANDUP_SUBMIT' },
+      { name: 'EOD Reports', view: 'EOD_READ',      write: 'EOD_SUBMIT' },
+    ],
+  },
+  {
+    section: 'Time & Attendance',
+    rows: [
+      { name: 'Time Tracking', view: 'TIME_READ',       write: 'TIME_WRITE',       approve: 'TIME_APPROVE', admin: 'TIME_ANALYTICS' },
+      { name: 'Attendance',    view: 'ATTENDANCE_READ',  write: 'ATTENDANCE_WRITE', admin: 'ATTENDANCE_ADMIN' },
+      { name: 'Leave',         view: 'LEAVE_READ',       write: 'LEAVE_WRITE',      approve: 'LEAVE_APPROVE', admin: 'LEAVE_ADMIN' },
+    ],
+  },
+  {
+    section: 'People & Org',
+    rows: [
+      { name: 'Teams',         view: 'TEAM_READ',         write: 'TEAM_WRITE' },
+      { name: 'Profiles',      view: 'PROFILE_READ',      write: 'PROFILE_WRITE' },
+      { name: 'Org Chart',     view: 'ORG_READ',          write: 'ORG_WRITE' },
+      { name: 'Org Roles',     view: 'ORG_ROLE_READ',     write: 'ORG_ROLE_WRITE' },
+      { name: 'Announcements', view: 'ANNOUNCEMENT_READ', write: 'ANNOUNCEMENT_WRITE' },
+    ],
+  },
+  {
+    section: 'Assets & Badges',
+    rows: [
+      { name: 'Assets', view: 'ASSET_READ', write: 'ASSET_WRITE', approve: 'ASSET_APPROVE', admin: 'ASSET_ADMIN' },
+      { name: 'Badges', view: 'BADGE_READ', write: 'BADGE_WRITE', approve: 'BADGE_AWARD' },
+    ],
+  },
+  {
+    section: 'Reports & AI',
+    rows: [
+      { name: 'Reports',     view: 'REPORT_READ',   write: 'REPORT_WRITE' },
+      { name: 'Dashboard',   view: 'DASHBOARD_READ' },
+      { name: 'AI Insights',     view: 'AI_INSIGHTS',                           approve: 'AI_PERFORMANCE', admin: 'AI_TEAM_ANALYSIS' },
+    ],
+  },
+  {
+    section: 'System & Admin',
+    rows: [
+      { name: 'Notifications',   view:  'NOTIFICATION_READ' },
+      { name: 'User Management', write: 'INVITE_USER',  admin: 'ADMIN_USERS' },
+      { name: 'System Config',   view:  'CONFIG_READ',  write: 'CONFIG_WRITE' },
+      { name: 'IP Restrictions', admin: 'IP_CONFIG_WRITE' },
+    ],
+  },
+];
 
 const PRESET_COLORS: Record<string, { bg: string; border: string; text: string; btn: string }> = {
   violet:  { bg: 'bg-violet-50',  border: 'border-violet-200',  text: 'text-violet-800',  btn: 'bg-violet-100 text-violet-700 border-violet-200' },
@@ -527,6 +599,24 @@ const RolePermissionsModal = ({
     }))
     .filter(({ keys }) => keys.length > 0);
 
+  const filteredCrudModules = CRUD_MODULES.map(({ section, rows }) => ({
+    section,
+    rows: permSearch.trim()
+      ? rows.filter((r) =>
+          r.name.toLowerCase().includes(permSearch.toLowerCase()) ||
+          (['view', 'write', 'approve', 'admin'] as const).some((col) => {
+            const perm = r[col];
+            if (!perm) return false;
+            const info = PERM_INFO[perm];
+            return info && (
+              info.label.toLowerCase().includes(permSearch.toLowerCase()) ||
+              info.desc.toLowerCase().includes(permSearch.toLowerCase())
+            );
+          })
+        )
+      : rows,
+  })).filter(({ rows }) => rows.length > 0);
+
   const suggestedSet = preset ? new Set(preset.permissions) : null;
   const matchCount   = preset ? preset.permissions.filter((p) => selected.has(p)).length : 0;
   const missingPerms = preset ? preset.permissions.filter((p) => !selected.has(p)) : [];
@@ -557,35 +647,34 @@ const RolePermissionsModal = ({
         </div>
       </div>
 
-      {/* ── Two-column layout ── */}
-      <div className="flex gap-5" style={{ height: '62vh' }}>
+      {/* ── Tab bar ── */}
+      <div className="flex gap-1 mb-4 bg-gray-100 rounded-lg p-1 shrink-0">
+        {(['modules', 'permissions'] as const).map((t) => (
+          <button key={t} onClick={() => setPermTab(t)}
+            className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
+              permTab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}>
+            {t === 'modules' ? 'Module Access' : `Permissions (${selected.size})`}
+          </button>
+        ))}
+      </div>
 
-        {/* Left: tabs + content */}
-        <div className="flex-1 min-w-0 flex flex-col">
-          {/* Tab bar */}
-          <div className="flex gap-1 mb-3 bg-gray-100 rounded-lg p-1 shrink-0">
-            {(['modules', 'permissions'] as const).map((t) => (
-              <button key={t} onClick={() => setPermTab(t)}
-                className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                  permTab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                }`}>
-                {t === 'modules' ? 'Module Access' : `Permissions (${selected.size})`}
-              </button>
-            ))}
-          </div>
+      {/* ── Content area ── */}
+      <div className="flex flex-col" style={{ height: '68vh' }}>
 
-          {/* ── Modules tab ── */}
-          {permTab === 'modules' && (
-            <div className="overflow-y-auto flex-1 space-y-2 pr-1">
-              <p className="text-xs text-gray-400 mb-2">
-                Toggle sidebar sections for this role. Turning a module off hides the entire section for every member of this role.
-              </p>
+        {/* ── Modules tab ── */}
+        {permTab === 'modules' && (
+          <div className="flex flex-col flex-1 min-h-0">
+            <p className="text-xs text-gray-400 mb-3 shrink-0">
+              Toggle sidebar sections. Disabling a module hides that entire section for every member of this role.
+            </p>
+            <div className="overflow-y-auto flex-1 grid grid-cols-2 gap-2 content-start pr-1">
               {SIDEBAR_MODULES.map((mod) => {
                 const on = selected.has(mod.gatePerm);
                 const Icon = mod.icon;
                 return (
                   <button key={mod.key} onClick={() => toggleModule(mod)}
-                    className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all ${
+                    className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all ${
                       on ? 'border-indigo-300 bg-indigo-50 ring-1 ring-indigo-100' : 'border-gray-200 bg-white hover:bg-gray-50 opacity-60'
                     }`}>
                     <div className={`p-2 rounded-lg shrink-0 ${on ? 'bg-indigo-100' : 'bg-gray-100'}`}>
@@ -595,10 +684,10 @@ const RolePermissionsModal = ({
                       <div className="flex items-center gap-2">
                         <span className={`text-sm font-semibold ${on ? 'text-gray-900' : 'text-gray-500'}`}>{mod.label}</span>
                         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${on ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>
-                          {on ? 'Enabled' : 'Disabled'}
+                          {on ? 'On' : 'Off'}
                         </span>
                       </div>
-                      <p className="text-xs text-gray-400 mt-0.5">{mod.desc}</p>
+                      <p className="text-xs text-gray-400 mt-0.5 truncate">{mod.desc}</p>
                     </div>
                     <div className={`w-9 h-5 rounded-full transition-colors shrink-0 flex items-center ${on ? 'bg-indigo-600' : 'bg-gray-200'}`}>
                       <span className={`w-4 h-4 bg-white rounded-full shadow transition-transform mx-0.5 ${on ? 'translate-x-4' : 'translate-x-0'}`} />
@@ -607,201 +696,110 @@ const RolePermissionsModal = ({
                 );
               })}
             </div>
-          )}
+          </div>
+        )}
 
-          {/* ── Permissions tab ── */}
-          {permTab === 'permissions' && (
-            <div className="flex flex-col flex-1 min-h-0">
-              <div className="relative mb-2 shrink-0">
-                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                <input type="text" placeholder="Search permissions…" value={permSearch}
-                  onChange={(e) => setPermSearch(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-gray-50" />
-              </div>
+        {/* ── Permissions tab — CRUD matrix ── */}
+        {permTab === 'permissions' && (
+          <div className="flex flex-col flex-1 min-h-0">
 
-              <div className="overflow-y-auto flex-1 space-y-3 pr-1">
-                {filteredGroups.length === 0 ? (
-                  <p className="text-sm text-gray-400 text-center py-6">No permissions match "{permSearch}"</p>
-                ) : filteredGroups.map(({ group, keys }) => {
-                  const allOn = keys.every((k) => selected.has(k));
-                  const someOn = !allOn && keys.some((k) => selected.has(k));
-                  const parentModule = SIDEBAR_MODULES.find((m) => m.permGroups.includes(group as never));
-                  const moduleOff = parentModule && !selected.has(parentModule.gatePerm);
-                  return (
-                    <div key={group}
-                      className={`rounded-xl border p-3 transition-opacity ${moduleOff ? 'opacity-40 bg-gray-50 border-gray-100' : 'bg-white border-gray-200'}`}>
-                      <div className="flex items-center gap-2 mb-2.5">
-                        <input type="checkbox" checked={allOn}
-                          ref={(el) => { if (el) el.indeterminate = someOn; }}
-                          onChange={() => toggleGroup(keys)}
-                          className="rounded text-indigo-600 cursor-pointer" />
-                        <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">{group}</span>
-                        {moduleOff && parentModule && (
-                          <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded">
-                            {parentModule.label} module off
-                          </span>
-                        )}
-                        <span className="ml-auto text-[10px] text-gray-400 font-medium">
-                          {keys.filter((k) => selected.has(k)).length}/{keys.length}
-                        </span>
-                      </div>
+            {/* Search */}
+            <div className="relative mb-3 shrink-0">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <input type="text" placeholder="Search modules or permissions…" value={permSearch}
+                onChange={(e) => setPermSearch(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-gray-50" />
+            </div>
 
-                      <div className="grid grid-cols-2 gap-1.5">
-                        {keys.map((k) => {
-                          const isOn = selected.has(k);
-                          const info = PERM_INFO[k];
-                          const label = info?.label ?? k.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
-                          const isSuggested = suggestedSet?.has(k);
-                          return (
-                            <button key={k} type="button"
-                              onClick={() => toggle(k)}
-                              onMouseEnter={() => setHoveredPerm(k)}
-                              onMouseLeave={() => setHoveredPerm(null)}
-                              className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-all ${
-                                hoveredPerm === k ? 'ring-1 ring-indigo-400' : ''
-                              } ${isOn ? 'bg-white border-gray-200 shadow-sm' : 'bg-gray-50 border-gray-100 opacity-55'}`}>
-                              <div className={`mt-0.5 w-3.5 h-3.5 rounded flex items-center justify-center shrink-0 transition-colors ${isOn ? 'bg-indigo-600' : 'bg-gray-300'}`}>
-                                {isOn && <Check size={9} color="white" strokeWidth={3} />}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-1 flex-wrap">
-                                  <span className="text-xs font-medium text-gray-800 leading-tight">{label}</span>
-                                  {k === 'IP_CONFIG_WRITE' && (
-                                    <span className="text-[9px] px-1 py-0.5 bg-blue-100 text-blue-700 rounded font-bold leading-none flex items-center gap-0.5">
-                                      <Wifi size={7} /> IP
-                                    </span>
-                                  )}
-                                  {info?.risk === 'high' && isOn && (
-                                    <span className="text-[9px] px-1 py-0.5 bg-red-100 text-red-600 rounded font-bold leading-none">high</span>
-                                  )}
-                                  {isSuggested && !isOn && (
-                                    <span className="text-[9px] px-1 py-0.5 bg-violet-100 text-violet-600 rounded font-bold leading-none">suggested</span>
-                                  )}
-                                </div>
-                                {info?.desc && <p className="text-[10px] text-gray-400 mt-0.5 leading-tight truncate">{info.desc}</p>}
-                              </div>
-                            </button>
-                          );
+            {/* Sticky column headers */}
+            <div className="grid shrink-0 mb-2 px-3" style={{ gridTemplateColumns: '1fr 90px 110px 100px 90px' }}>
+              <span className="text-xs font-semibold text-gray-400">Module</span>
+              <span className="text-xs font-bold text-blue-500 text-center">View</span>
+              <span className="text-xs font-bold text-indigo-500 text-center">Create / Edit</span>
+              <span className="text-xs font-bold text-amber-500 text-center">Approve</span>
+              <span className="text-xs font-bold text-red-500 text-center">Admin</span>
+            </div>
+            <div className="h-px bg-gray-200 mb-3 shrink-0" />
+
+            <div className="overflow-y-auto flex-1 space-y-4 pr-1">
+              {filteredCrudModules.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-8">No modules match "{permSearch}"</p>
+              ) : filteredCrudModules.map(({ section, rows }) => {
+                const allPerms = rows.flatMap((r) =>
+                  ([r.view, r.write, r.approve, r.admin] as (string | undefined)[]).filter(Boolean) as string[]
+                );
+                const allOn  = allPerms.length > 0 && allPerms.every((p) => selected.has(p));
+                const someOn = !allOn && allPerms.some((p) => selected.has(p));
+                return (
+                  <div key={section}>
+                    {/* Section header */}
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <input type="checkbox" checked={allOn}
+                        ref={(el) => { if (el) el.indeterminate = someOn; }}
+                        onChange={() => setSelected((s) => {
+                          const n = new Set(s);
+                          allOn ? allPerms.forEach((p) => n.delete(p)) : allPerms.forEach((p) => n.add(p));
+                          return n;
                         })}
-                      </div>
+                        className="w-3.5 h-3.5 rounded text-indigo-600 cursor-pointer accent-indigo-600" />
+                      <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">{section}</span>
+                      <span className="ml-auto text-xs text-gray-400 font-medium">
+                        {allPerms.filter((p) => selected.has(p)).length} / {allPerms.length}
+                      </span>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
 
-        {/* ── Right: AI Role Advisor ── */}
-        <div className="w-64 shrink-0 flex flex-col bg-gradient-to-b from-purple-50/80 to-violet-50/40 rounded-xl border border-purple-100 p-4 overflow-y-auto">
-          {/* Header */}
-          <div className="flex items-center gap-2 mb-4 pb-3 border-b border-purple-100">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-purple-500 to-violet-600 flex items-center justify-center shrink-0">
-              <Sparkles size={14} className="text-white" />
-            </div>
-            <div>
-              <p className="text-xs font-bold text-purple-800">AI Role Advisor</p>
-              <p className="text-[10px] text-purple-400 leading-none">Auto-detects from role name</p>
+                    {/* Module rows */}
+                    <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+                      {rows.map((row, i) => {
+                        const cols = [
+                          { perm: row.view,    activeClass: 'bg-blue-500 text-white',   hoverClass: 'hover:bg-blue-50' },
+                          { perm: row.write,   activeClass: 'bg-indigo-500 text-white', hoverClass: 'hover:bg-indigo-50' },
+                          { perm: row.approve, activeClass: 'bg-amber-500 text-white',  hoverClass: 'hover:bg-amber-50' },
+                          { perm: row.admin,   activeClass: 'bg-red-500 text-white',    hoverClass: 'hover:bg-red-50' },
+                        ];
+                        return (
+                          <div key={row.name}
+                            className={`grid items-center px-3 py-3 ${i > 0 ? 'border-t border-gray-100' : ''}`}
+                            style={{ gridTemplateColumns: '1fr 90px 110px 100px 90px' }}
+                          >
+                            <span className="text-sm font-medium text-gray-800 truncate pr-2">{row.name}</span>
+                            {cols.map(({ perm, activeClass, hoverClass }, ci) => (
+                              <div key={ci} className="flex justify-center items-center">
+                                {perm ? (() => {
+                                  const isOn = selected.has(perm);
+                                  const info = PERM_INFO[perm];
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => toggle(perm)}
+                                      title={info ? `${info.label}: ${info.desc}` : perm}
+                                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all border ${
+                                        isOn
+                                          ? `${activeClass} border-transparent shadow-sm`
+                                          : `bg-white border-gray-200 text-gray-400 ${hoverClass}`
+                                      }`}
+                                    >
+                                      {isOn
+                                        ? <Check size={11} strokeWidth={3} />
+                                        : <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block" />}
+                                      <span>{info?.label?.split(' ')[0] ?? perm.split('_')[0]}</span>
+                                    </button>
+                                  );
+                                })() : (
+                                  <span className="text-gray-200 text-sm select-none">—</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
-
-          {/* Detected preset card */}
-          {preset && presetClr ? (
-            <div className={`rounded-xl border p-3 mb-3 ${presetClr.bg} ${presetClr.border}`}>
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="text-xl leading-none">{preset.emoji}</span>
-                <div>
-                  <p className={`text-xs font-bold leading-tight ${presetClr.text}`}>{preset.label}</p>
-                  <p className="text-[10px] text-gray-500 leading-none">Detected from role name</p>
-                </div>
-              </div>
-              <p className="text-[11px] text-gray-600 leading-relaxed mb-2.5">{preset.summary}</p>
-
-              {/* Coverage bar */}
-              <div className="flex justify-between text-[10px] text-gray-500 mb-1">
-                <span>{matchCount} of {preset.permissions.length} suggested</span>
-                <span>{Math.round((matchCount / preset.permissions.length) * 100)}%</span>
-              </div>
-              <div className="h-1.5 bg-white/60 rounded-full overflow-hidden mb-2.5">
-                <div className={`h-full rounded-full transition-all ${matchCount === preset.permissions.length ? 'bg-emerald-500' : 'bg-indigo-500'}`}
-                  style={{ width: `${Math.round((matchCount / preset.permissions.length) * 100)}%` }} />
-              </div>
-
-              <button onClick={() => applyPreset(detectedPreset!)}
-                className={`w-full text-xs font-semibold py-1.5 rounded-lg border transition-colors hover:opacity-80 ${presetClr.btn}`}>
-                ✦ Apply {preset.label} Preset
-              </button>
-            </div>
-          ) : (
-            <div className="rounded-xl bg-white border border-amber-200 p-3 mb-3">
-              <div className="flex items-start gap-2">
-                <AlertTriangle size={13} className="text-amber-500 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-xs font-semibold text-gray-700">No role type detected</p>
-                  <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">
-                    Add keywords like <em>CEO</em>, <em>HR Manager</em>, <em>Developer</em>, or <em>IT Admin</em> to the role name or description.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Missing from preset */}
-          {missingPerms.length > 0 && !hovInfo && (
-            <div className="rounded-xl bg-amber-50 border border-amber-100 p-3 mb-3">
-              <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wide mb-1.5">
-                Missing ({missingPerms.length})
-              </p>
-              <div className="flex flex-wrap gap-1">
-                {missingPerms.slice(0, 6).map((k) => (
-                  <button key={k} onClick={() => toggle(k)}
-                    className="text-[10px] px-1.5 py-0.5 bg-white border border-amber-200 text-amber-700 rounded hover:bg-amber-100 transition-colors font-medium"
-                    title={`Enable ${PERM_INFO[k]?.label ?? k}`}>
-                    + {PERM_INFO[k]?.label ?? k.replace(/_/g, ' ')}
-                  </button>
-                ))}
-                {missingPerms.length > 6 && (
-                  <span className="text-[10px] text-amber-500 self-center">+{missingPerms.length - 6} more</span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Hovered permission detail */}
-          {hovInfo && (
-            <div className="rounded-xl bg-white border border-indigo-200 p-3 mb-3">
-              <p className="text-xs font-bold text-gray-800 mb-0.5">{hovInfo.label}</p>
-              <p className="text-[11px] text-gray-500 leading-relaxed mb-2">{hovInfo.desc}</p>
-              {hoveredPerm === 'IP_CONFIG_WRITE' && (
-                <p className="text-[11px] text-blue-700 bg-blue-50 rounded p-1.5 mb-2 leading-relaxed">
-                  Controls the office IP whitelist. Wrong config can block all employees from checking in.
-                </p>
-              )}
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${RISK_CHIP[hovInfo.risk]}`}>
-                {hovInfo.risk} risk
-              </span>
-            </div>
-          )}
-
-          {/* Other presets list */}
-          <div className="mt-auto">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1.5">
-              {preset ? 'Other presets' : 'Apply a preset'}
-            </p>
-            <div className="space-y-1">
-              {Object.entries(ROLE_PRESETS)
-                .filter(([k]) => k !== detectedPreset)
-                .map(([key, p]) => (
-                  <button key={key} onClick={() => applyPreset(key)}
-                    className="w-full flex items-center gap-2 text-left text-xs px-2.5 py-1.5 rounded-lg border border-gray-100 bg-white hover:border-indigo-300 hover:bg-indigo-50 transition-colors">
-                    <span className="text-sm leading-none">{p.emoji}</span>
-                    <span className="font-medium text-gray-700 text-[11px] flex-1 truncate">{p.label}</span>
-                    <span className="text-[10px] text-gray-400 shrink-0">{p.permissions.length}p</span>
-                  </button>
-                ))}
-            </div>
-          </div>
-        </div>
+        )}
       </div>
 
       <ModalActions>

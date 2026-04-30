@@ -384,7 +384,8 @@ interface TaskForm {
 export default function SprintBoardPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TIME_APPROVE);
+  const isAdmin           = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.SPRINT_WRITE);
+  const canAssignToOthers = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TASK_ASSIGN);
 
   const [activeSprint, setActiveSprint] = useState<Sprint | null>(null);
   const [activeTask, setActiveTask] = useState<Task | null>(null);       // dragging
@@ -1030,12 +1031,22 @@ export default function SprintBoardPage() {
               <input type="number" className="form-input" placeholder="0" step="0.25" {...taskForm.register('estimated_hours', { valueAsNumber: true })} />
             </div>
           </div>
-          <MultiUserSelect
-            label="Assignees"
-            value={assigneeIds}
-            onChange={setAssigneeIds}
-            users={users}
-          />
+          {canAssignToOthers ? (
+            <MultiUserSelect
+              label="Assignees"
+              value={assigneeIds}
+              onChange={setAssigneeIds}
+              users={users}
+            />
+          ) : (
+            <div>
+              <label className="form-label">Assignees</label>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-500">
+                <User size={13} className="text-gray-400" />
+                <span>Assigned to you — contact your lead to reassign</span>
+              </div>
+            </div>
+          )}
           <div>
             <label className="form-label">Labels <span className="text-gray-400 font-normal">(comma separated)</span></label>
             <input className="form-input" placeholder="frontend, urgent, blocked" {...taskForm.register('labels')} />
@@ -1588,7 +1599,17 @@ export default function SprintBoardPage() {
                 <input type="number" step="0.25" className="form-input" {...editForm.register('estimated_hours', { valueAsNumber: true })} />
               </div>
             </div>
-            <MultiUserSelect label="Assignees" value={editAssigneeIds} onChange={setEditAssigneeIds} users={users} />
+            {canAssignToOthers ? (
+              <MultiUserSelect label="Assignees" value={editAssigneeIds} onChange={setEditAssigneeIds} users={users} />
+            ) : (
+              <div>
+                <label className="form-label">Assignees</label>
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-500">
+                  <User size={13} className="text-gray-400" />
+                  <span>Assigned to you — contact your lead to reassign</span>
+                </div>
+              </div>
+            )}
             <div>
               <label className="form-label">Labels <span className="text-gray-400 font-normal">(comma separated)</span></label>
               <input className="form-input" placeholder="frontend, urgent" {...editForm.register('labels')} />
