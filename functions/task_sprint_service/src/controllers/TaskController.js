@@ -185,8 +185,15 @@ class TaskController {
   // PUT /api/ts/tasks/:taskId
   async update(req, res) {
     const { taskId } = req.params;
+    const { role, id: userId } = req.currentUser;
     const task = await this.db.findById(TABLES.TASKS, taskId, req.tenantId);
     if (!task) return ResponseHelper.notFound(res, 'Task not found');
+
+    const isAdmin = role === 'TENANT_ADMIN' || role === 'SUPER_ADMIN';
+    const isCreator = task.created_by && String(task.created_by) === String(userId);
+    if (!isAdmin && !isCreator) {
+      return ResponseHelper.forbidden(res, 'Only the task creator or an admin can edit task details');
+    }
 
     const allowed = ['title', 'description', 'type', 'status',
       'sprint_id', 'story_points', 'estimated_hours', 'due_date', 'labels', 'task_priority', 'require_approval'];

@@ -51,7 +51,7 @@ const normaliseTask = (r: any) => {
     labels:         (() => { try { return JSON.parse(r.labels ?? '[]'); } catch { return []; } })(),
     customFields:    (() => { try { return JSON.parse(r.custom_fields ?? r.customFields ?? '{}'); } catch { return {}; } })(),
     requireApproval: r.require_approval === true || r.require_approval === 'true' || r.requireApproval === true,
-    createdBy:      r.CREATORID       ?? r.created_by     ?? r.createdBy,
+    createdBy:      r.created_by      ?? r.createdBy,
     createdAt:      r.CREATEDTIME     ?? r.created_at     ?? r.createdAt,
     updatedAt:      r.MODIFIEDTIME    ?? r.updated_at     ?? r.updatedAt,
   };
