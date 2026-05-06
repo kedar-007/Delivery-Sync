@@ -91,7 +91,7 @@ interface TimeEntryFormData {
   task_id?: string;
   description: string;
   date: string;
-  hours: number;
+  hours: string;
   start_time?: string;
   end_time?: string;
   is_billable: boolean;
@@ -123,6 +123,25 @@ const statusLabel = (status: TimeEntryStatus) => {
 
 const todayStr = () => format(new Date(), 'yyyy-MM-dd');
 
+// Parse "1:30" or "1.5" → decimal hours. "1:30" = 1.5h, "0:06" = 0.1h
+const parseHoursInput = (val: string): number => {
+  const v = String(val ?? '').trim();
+  if (v.includes(':')) {
+    const parts = v.split(':');
+    const h = parseInt(parts[0], 10) || 0;
+    const m = parseInt(parts[1], 10) || 0;
+    return Math.round((h + m / 60) * 100) / 100;
+  }
+  return Math.round(parseFloat(v) * 100) / 100 || 0;
+};
+
+// Decimal hours → "H:MM" display: 1.5 → "1:30", 0.1 → "0:06", 2 → "2:00"
+const decimalToHHMM = (h: number): string => {
+  const hrs  = Math.floor(h);
+  const mins = Math.round((h - hrs) * 60);
+  return `${hrs}:${String(mins).padStart(2, '0')}`;
+};
+
 const safeFormat = (dateStr: string, fmt: string) => {
   try {
     const d = parseISO(dateStr);
@@ -152,7 +171,7 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
       task_id: entry?.taskId ?? '',
       description: entry?.description ?? '',
       date: entry?.date ?? todayStr(),
-      hours: entry?.hours ?? 1,
+      hours: entry?.hours ? decimalToHHMM(Number(entry.hours)) : '1:00',
       start_time: entry?.startTime ?? '',
       end_time: entry?.endTime ?? '',
       is_billable: entry?.isBillable ?? true,
@@ -165,13 +184,13 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
   const watchedStart = watchForm('start_time');
   const watchedEnd = watchForm('end_time');
 
-  // Auto-calculate hours from start/end time
+  // Auto-calculate hours from start/end time — produces HH:MM format
   React.useEffect(() => {
     if (watchedStart && watchedEnd) {
       const [sh, sm] = watchedStart.split(':').map(Number);
       const [eh, em] = watchedEnd.split(':').map(Number);
       const diff = (eh * 60 + em) - (sh * 60 + sm);
-      if (diff > 0) setValue('hours', Math.round(diff / 30) * 0.5 || 0.5);
+      if (diff > 0) setValue('hours', decimalToHHMM(Math.round((diff / 60) * 100) / 100), { shouldValidate: false });
     }
   }, [watchedStart, watchedEnd, setValue]);
 
@@ -189,7 +208,7 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
         task_id: entry?.taskId ?? '',
         description: entry?.description ?? '',
         date: entry?.date ?? todayStr(),
-        hours: entry?.hours ?? 1,
+        hours: entry?.hours ? decimalToHHMM(Number(entry.hours)) : '1:00',
         start_time: entry?.startTime ?? '',
         end_time: entry?.endTime ?? '',
         is_billable: entry?.isBillable ?? true,
@@ -206,6 +225,7 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
       const requireApproval = selectedTask?.require_approval === 'true' || selectedTask?.require_approval === true;
       const payload = {
         ...data,
+        hours: parseHoursInput(data.hours),   // convert "1:30" → 1.5 for backend
         task_id: data.task_id || undefined,
         require_approval: requireApproval ? 'true' : 'false',
       };
@@ -222,7 +242,7 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
 
   return (
     <Modal open={open} onClose={onClose} title={entry ? 'Edit Time Entry' : 'Log Time'} size="md">
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      <form onSubmit={handleSubmit(onSubmit as any)} className="space-y-4">
         {error && <Alert type="error" message={error} />}
 
         {/* Project selector */}
@@ -263,35 +283,7 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
           {errors.description && <p className="text-xs text-red-600 mt-1">{errors.description.message}</p>}
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="form-label">Date *</label>
-            <input
-              type="date"
-              className="form-input"
-              {...register('date', { required: 'Date is required' })}
-            />
-          </div>
-          <div>
-            <label className="form-label">Hours *</label>
-            <input
-              type="number"
-              step="0.5"
-              min="0.5"
-              max="24"
-              className="form-input"
-              {...register('hours', {
-                required: 'Hours is required',
-                min: { value: 0.5, message: 'Min 0.5h' },
-                max: { value: 24, message: 'Max 24h' },
-                valueAsNumber: true,
-              })}
-            />
-            {errors.hours && <p className="text-xs text-red-600 mt-1">{errors.hours.message}</p>}
-          </div>
-        </div>
-
-        {/* Start / End Time (optional — auto-calculates hours) */}
+        {/* Start / End Time — set these first; they auto-fill the Hours field */}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="form-label">Start Time <span className="text-gray-400 font-normal">(optional)</span></label>
@@ -302,11 +294,62 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
             <input type="time" className="form-input" {...register('end_time')} />
           </div>
         </div>
-        {watchedStart && watchedEnd && (
-          <p className="text-xs text-blue-600 -mt-2">
-            Hours auto-calculated from time range.
-          </p>
-        )}
+
+        {/* Prominent duration banner — appears as soon as both times are set */}
+        {watchedStart && watchedEnd && (() => {
+          const [sh, sm] = watchedStart.split(':').map(Number);
+          const [eh, em] = watchedEnd.split(':').map(Number);
+          const diff = (eh * 60 + em) - (sh * 60 + sm);
+          if (diff <= 0) return null;
+          const hh = Math.floor(diff / 60);
+          const mm = diff % 60;
+          const readable = hh > 0 && mm > 0 ? `${hh}h ${mm}m` : hh > 0 ? `${hh}h` : `${mm} min`;
+          const decimal  = Math.round((diff / 60) * 100) / 100;
+          return (
+            <div className="flex items-center gap-2.5 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg -mt-1">
+              <Clock size={13} className="text-blue-500 shrink-0" />
+              <span className="text-sm text-blue-800">
+                Duration: <strong>{readable}</strong>
+                <span className="text-blue-400 ml-1.5 text-xs">→ Hours auto-filled as <strong className="text-blue-600">{decimalToHHMM(decimal)}</strong></span>
+              </span>
+            </div>
+          );
+        })()}
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="form-label">Date *</label>
+            <input
+              type="date"
+              className="form-input"
+              {...register('date', { required: 'Date is required' })}
+            />
+          </div>
+          <div>
+            <label className="form-label">
+              Hours *
+              {watchedStart && watchedEnd && (
+                <span className="ml-1.5 text-[10px] font-bold text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded uppercase tracking-wide">auto</span>
+              )}
+            </label>
+            <input
+              type="text"
+              inputMode="text"
+              placeholder="1:30"
+              className={`form-input font-mono ${watchedStart && watchedEnd ? 'bg-blue-50 border-blue-300 text-blue-800 font-medium' : ''}`}
+              {...register('hours', {
+                required: 'Hours is required',
+                validate: (v) => {
+                  const parsed = parseHoursInput(String(v));
+                  if (!parsed || parsed <= 0) return 'Enter time as H:MM (e.g. 1:30) or decimal (e.g. 1.5)';
+                  if (parsed > 24) return 'Max 24h';
+                  return true;
+                },
+              })}
+            />
+            {errors.hours && <p className="text-xs text-red-600 mt-1">{errors.hours.message}</p>}
+          </div>
+        </div>
 
         <div className="flex items-center gap-3">
           <input

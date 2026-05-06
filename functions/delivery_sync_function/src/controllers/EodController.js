@@ -214,6 +214,42 @@ class EodController {
     }
   }
 
+  /**
+   * PUT /api/eod/:id
+   * Owner-only update — cannot change project or date, only content fields.
+   */
+  async updateEod(req, res) {
+    try {
+      const { tenantId, id: userId } = req.currentUser;
+      const { id } = req.params;
+
+      const existing = await this.db.query(
+        `SELECT ROWID, user_id FROM ${TABLES.EOD_ENTRIES} ` +
+        `WHERE ROWID = '${id}' AND tenant_id = '${tenantId}' LIMIT 1`
+      );
+      if (!existing.length) return ResponseHelper.notFound(res, 'EOD not found');
+      if (String(existing[0].user_id) !== String(userId)) {
+        return ResponseHelper.forbidden(res, 'You can only edit your own EOD');
+      }
+
+      const data = Validator.validateUpdateEod(req.body);
+
+      await this.db.update(TABLES.EOD_ENTRIES, {
+        ROWID:               id,
+        accomplished:        data.accomplishments,
+        plan_for_tomorrow:   data.planned_tomorrow,
+        blockers:            data.blockers,
+        progress_percentage: String(data.progress_percentage),
+        mood:                data.mood,
+      });
+
+      return ResponseHelper.success(res, { message: 'EOD updated' });
+    } catch (err) {
+      if (err.isValidation) return ResponseHelper.validationError(res, err.message, err.details);
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
   // GET /api/eod/search?q=<term>
   // Requires Search Index enabled on 'accomplished', 'plan_for_tomorrow', 'blockers' columns of 'eod_entries'.
   async searchMyEod(req, res) {

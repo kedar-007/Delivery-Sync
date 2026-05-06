@@ -117,8 +117,8 @@ const formatDate = (iso?: string) => {
   }
 };
 
-// Permissions that unlock manager-level attendance views
-const ATTENDANCE_MANAGER_PERMS = ['ATTENDANCE_ADMIN'];
+// Permissions that unlock manager-level attendance views (team records, live view, export)
+const ATTENDANCE_MANAGER_PERMS = ['ATTENDANCE_ADMIN', 'ATTENDANCE_TEAM_VIEW'];
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 
@@ -267,9 +267,12 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
   const { data: record, isLoading } = useMyAttendanceRecord();
   const todayStr = format(new Date(), 'yyyy-MM-dd');
   const { data: myWfhRequests = [] } = useWfhRequests({ mine: 'true' });
-  const todayApprovedWfh = (myWfhRequests as any[]).find(
-    (r: any) => (r.wfhDate ?? r.wfh_date) === todayStr && r.status === 'APPROVED'
-  );
+  const todayApprovedWfh = (myWfhRequests as any[]).find((r: any) => {
+    if (r.status !== 'APPROVED') return false;
+    const from = r.wfhDate ?? r.wfh_date ?? '';
+    const to   = r.wfhDateTo ?? r.wfh_date_to ?? from;
+    return from <= todayStr && todayStr <= (to || from);
+  });
   const checkIn  = useCheckIn();
   const checkOut = useCheckOut();
   const markWfh  = useMarkWfh();
@@ -1095,7 +1098,8 @@ const SummaryTab = () => {
 // ── WFH Requests Tab ─────────────────────────────────────────────────────────
 
 interface WfhRequestForm {
-  wfh_date: string;
+  date_from: string;
+  date_to: string;
   reason: string;
 }
 
@@ -1129,7 +1133,7 @@ const WfhRequestsTab = () => {
   const {
     register: registerSubmit, handleSubmit: handleSubmitForm, reset: resetSubmit,
     formState: { errors: submitErrors, isSubmitting: submitPending },
-  } = useForm<WfhRequestForm>({ defaultValues: { wfh_date: format(new Date(), 'yyyy-MM-dd') } });
+  } = useForm<WfhRequestForm>({ defaultValues: { date_from: format(new Date(), 'yyyy-MM-dd'), date_to: format(new Date(), 'yyyy-MM-dd') } });
 
   const {
     register: registerReject, handleSubmit: handleRejectForm, reset: resetReject,
@@ -1191,7 +1195,11 @@ const WfhRequestsTab = () => {
               <div key={req.id} className="flex items-center justify-between px-3 py-3 bg-gray-50 rounded-xl border border-gray-100">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <p className="text-sm font-medium text-gray-800">{formatDate(req.wfhDate ?? req.wfh_date)}</p>
+                    <p className="text-sm font-medium text-gray-800">
+                      {(req.wfhDateTo ?? req.wfh_date_to) && (req.wfhDateTo ?? req.wfh_date_to) !== (req.wfhDate ?? req.wfh_date)
+                        ? `${formatDate(req.wfhDate ?? req.wfh_date)} – ${formatDate(req.wfhDateTo ?? req.wfh_date_to)}`
+                        : formatDate(req.wfhDate ?? req.wfh_date)}
+                    </p>
                     <Badge variant={wfhStatusVariant(req.status)}>{req.status}</Badge>
                   </div>
                   <p className="text-xs text-gray-500 truncate">{req.reason}</p>
@@ -1232,7 +1240,11 @@ const WfhRequestsTab = () => {
                   <div className="flex items-center gap-2 mb-1">
                     <p className="text-sm font-medium text-gray-800">{req.userName ?? req.user_name ?? '—'}</p>
                     <span className="text-gray-300 text-xs">·</span>
-                    <p className="text-sm text-gray-600">{formatDate(req.wfhDate ?? req.wfh_date)}</p>
+                    <p className="text-sm text-gray-600">
+                      {(req.wfhDateTo ?? req.wfh_date_to) && (req.wfhDateTo ?? req.wfh_date_to) !== (req.wfhDate ?? req.wfh_date)
+                        ? `${formatDate(req.wfhDate ?? req.wfh_date)} – ${formatDate(req.wfhDateTo ?? req.wfh_date_to)}`
+                        : formatDate(req.wfhDate ?? req.wfh_date)}
+                    </p>
                     <Badge variant={wfhStatusVariant(req.status)}>{req.status}</Badge>
                   </div>
                   <p className="text-xs text-gray-500 truncate">{req.reason}</p>
@@ -1265,10 +1277,17 @@ const WfhRequestsTab = () => {
       {/* Submit WFH Request Modal */}
       <Modal open={showSubmitModal} onClose={() => { setShowSubmitModal(false); resetSubmit(); }} title="Request Work From Home" size="sm">
         <form onSubmit={handleSubmitForm(handleSubmitRequest)} className="space-y-4">
-          <div>
-            <label className="form-label">Date</label>
-            <input type="date" className="form-input" {...registerSubmit('wfh_date', { required: 'Date is required' })} />
-            {submitErrors.wfh_date && <p className="form-error">{submitErrors.wfh_date.message}</p>}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="form-label">From</label>
+              <input type="date" className="form-input" {...registerSubmit('date_from', { required: 'Start date is required' })} />
+              {submitErrors.date_from && <p className="form-error">{submitErrors.date_from.message}</p>}
+            </div>
+            <div>
+              <label className="form-label">To</label>
+              <input type="date" className="form-input" {...registerSubmit('date_to', { required: 'End date is required' })} />
+              {submitErrors.date_to && <p className="form-error">{submitErrors.date_to.message}</p>}
+            </div>
           </div>
           <div>
             <label className="form-label">Reason</label>
@@ -1318,6 +1337,7 @@ const AttendancePage = () => {
   const { data: myPerms } = useMyPermissions();
   const effectivePerms: string[] = myPerms?.permissions ?? [];
   const isManager   = hasPermission(user, PERMISSIONS.ATTENDANCE_ADMIN) ||
+    hasPermission(user, PERMISSIONS.ATTENDANCE_TEAM_VIEW) ||
     ATTENDANCE_MANAGER_PERMS.some((p) => effectivePerms.includes(p));
   const canManageIp = hasPermission(user, PERMISSIONS.IP_CONFIG_WRITE);
   const [tab, setTab] = useState<Tab>('my');

@@ -39,3 +39,14 @@ export const useSubmitStandup = () => {
     },
   });
 };
+
+export const useUpdateStandup = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: unknown }) => standupsApi.update(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['standups'] });
+      qc.invalidateQueries({ queryKey: ['standup-rollup'] });
+    },
+  });
+};

@@ -7,7 +7,7 @@ const ResponseHelper = require('./utils/ResponseHelper');
 const app = express();
 
 // ─── Body Parsing ─────────────────────────────────────────────────────────────
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '8mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────

@@ -24,6 +24,23 @@ import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { useQuery } from '@tanstack/react-query';
 import UserAvatar from '../components/ui/UserAvatar';
 
+// ── Time helpers: HH:MM ↔ decimal hours ──────────────────────────────────────
+const parseHoursInput = (val: string): number => {
+  const v = String(val ?? '').trim();
+  if (v.includes(':')) {
+    const parts = v.split(':');
+    const h = parseInt(parts[0], 10) || 0;
+    const m = parseInt(parts[1], 10) || 0;
+    return Math.round((h + m / 60) * 100) / 100;
+  }
+  return Math.round(parseFloat(v) * 100) / 100 || 0;
+};
+const decimalToHHMM = (h: number): string => {
+  const hrs = Math.floor(h);
+  const mins = Math.round((h - hrs) * 60);
+  return `${hrs}:${String(mins).padStart(2, '0')}`;
+};
+
 // ── Safe date formatter (Catalyst returns non-ISO strings) ────────────────────
 function safeFmt(val: string | undefined | null, fmt: string, fallback = ''): string {
   if (!val) return fallback;
@@ -643,26 +660,53 @@ function TaskDetailPanel({
               <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
                 <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Log Time</h4>
                 {logTimeError && <Alert type="error" message={logTimeError} />}
+                {/* Start / End first — they drive the Hours field */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="form-label">Hours *</label>
-                    <input type="number" step="0.25" min="0.25" className="form-input"
-                      placeholder="1.5" value={logTimeHours} onChange={(e) => setLogTimeHours(e.target.value)} />
+                    <label className="form-label">Start Time <span className="text-gray-400 font-normal text-[10px]">(optional)</span></label>
+                    <input type="time" className="form-input"
+                      value={logTimeStartTime} onChange={(e) => setLogTimeStartTime(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="form-label">End Time <span className="text-gray-400 font-normal text-[10px]">(optional)</span></label>
+                    <input type="time" className="form-input"
+                      value={logTimeEndTime} onChange={(e) => setLogTimeEndTime(e.target.value)} />
+                  </div>
+                </div>
+                {/* Prominent duration banner */}
+                {logTimeStartTime && logTimeEndTime && (() => {
+                  const [sh, sm] = logTimeStartTime.split(':').map(Number);
+                  const [eh, em] = logTimeEndTime.split(':').map(Number);
+                  const diff = (eh * 60 + em) - (sh * 60 + sm);
+                  if (diff <= 0) return null;
+                  const hh = Math.floor(diff / 60);
+                  const mm = diff % 60;
+                  const readable = hh > 0 && mm > 0 ? `${hh}h ${mm}m` : hh > 0 ? `${hh}h` : `${mm} min`;
+                  const decimal = Math.round((diff / 60) * 100) / 100;
+                  return (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg -mt-1">
+                      <span className="text-sm text-blue-800">
+                        Duration: <strong>{readable}</strong>
+                        <span className="text-blue-400 ml-1.5 text-xs">→ Hours auto-filled as <strong className="text-blue-600">{decimalToHHMM(decimal)}</strong></span>
+                      </span>
+                    </div>
+                  );
+                })()}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="form-label">
+                      Hours *
+                      {logTimeStartTime && logTimeEndTime && (
+                        <span className="ml-1.5 text-[10px] font-bold text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded uppercase">auto</span>
+                      )}
+                    </label>
+                    <input type="text" inputMode="text" className={`form-input font-mono ${logTimeStartTime && logTimeEndTime ? 'bg-blue-50 border-blue-300 text-blue-800 font-medium' : ''}`}
+                      placeholder="1:30" value={logTimeHours} onChange={(e) => setLogTimeHours(e.target.value)} />
                   </div>
                   <div>
                     <label className="form-label">Date *</label>
                     <input type="date" className="form-input"
                       value={logTimeDate} onChange={(e) => setLogTimeDate(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="form-label">Start Time</label>
-                    <input type="time" className="form-input"
-                      value={logTimeStartTime} onChange={(e) => setLogTimeStartTime(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="form-label">End Time</label>
-                    <input type="time" className="form-input"
-                      value={logTimeEndTime} onChange={(e) => setLogTimeEndTime(e.target.value)} />
                   </div>
                 </div>
                 <div>
@@ -973,6 +1017,16 @@ export default function MyTasksPage() {
   const [logTimePending, setLogTimePending]       = useState(false);
   const [logTimeError, setLogTimeError]           = useState('');
 
+  // Auto-calculate hours when start/end time changes — output in HH:MM format
+  useEffect(() => {
+    if (logTimeStartTime && logTimeEndTime) {
+      const [sh, sm] = logTimeStartTime.split(':').map(Number);
+      const [eh, em] = logTimeEndTime.split(':').map(Number);
+      const diff = (eh * 60 + em) - (sh * 60 + sm);
+      if (diff > 0) setLogTimeHours(decimalToHHMM(Math.round((diff / 60) * 100) / 100));
+    }
+  }, [logTimeStartTime, logTimeEndTime]);
+
   const { data: fullTask }              = useTask(taskDetailId ?? '');
   const { data: taskComments = [] }     = useTaskComments(taskDetailId ?? '');
   const addComment                      = useAddTaskComment(taskDetailId ?? '');
@@ -1099,7 +1153,7 @@ export default function MyTasksPage() {
         project_id:       detailTask.projectId,
         task_id:          taskDetailId,
         entry_date:       logTimeDate,
-        hours:            parseFloat(logTimeHours),
+        hours:            parseHoursInput(logTimeHours),
         description:      logTimeDesc || detailTask.title,
         is_billable:      logTimeBillable,
         require_approval: (detailTask as any).requireApproval === true ? 'true' : 'false',
@@ -1137,7 +1191,7 @@ export default function MyTasksPage() {
         project_id:       logTimeTask.projectId,
         task_id:          logTimeTask.id,
         entry_date:       logDate,
-        hours:            parseFloat(logHours),
+        hours:            parseHoursInput(logHours),
         description:      logDesc || logTimeTask.title,
         is_billable:      logBillable,
         require_approval: (logTimeTask as any).requireApproval === true ? 'true' : 'false',

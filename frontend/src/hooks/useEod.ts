@@ -39,3 +39,14 @@ export const useSubmitEod = () => {
     },
   });
 };
+
+export const useUpdateEod = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: unknown }) => eodApi.update(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['eod'] });
+      qc.invalidateQueries({ queryKey: ['eod-rollup'] });
+    },
+  });
+};

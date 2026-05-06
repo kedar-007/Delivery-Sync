@@ -59,6 +59,7 @@ const BUG_SEVERITY_COLORS: Record<string, string> = {
 };
 const BUG_STATUS_COLORS: Record<string, string> = {
   OPEN:         'bg-blue-100 text-blue-700 border-blue-200',
+  IN_REVIEW:    'bg-violet-100 text-violet-700 border-violet-200',
   IN_PROGRESS:  'bg-violet-100 text-violet-700 border-violet-200',
   RESOLVED:     'bg-emerald-100 text-emerald-700 border-emerald-200',
   CLOSED:       'bg-gray-100 text-gray-500 border-gray-200',
@@ -805,6 +806,11 @@ const SuperAdminPage: React.FC = () => {
       setReplyBugId(null);
       setReplyNote('');
     },
+  });
+
+  const updateBugStatus = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => bugApi.update(id, { status: status as any }),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ['sa-bug-reports'] }),
   });
 
   const updateStatus = useMutation({
@@ -1604,9 +1610,19 @@ const SuperAdminPage: React.FC = () => {
                                 <p className="text-xs font-medium text-gray-800 truncate" title={r.title}>{r.title || '—'}</p>
                               </td>
                               <td className="px-4 py-3">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${BUG_STATUS_COLORS[r.status] ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}>
-                                  {(r.status || '—').replace(/_/g,' ')}
-                                </span>
+                                <select
+                                  value={r.status ?? 'OPEN'}
+                                  disabled={updateBugStatus.isPending}
+                                  onChange={(e) => updateBugStatus.mutate({ id: rowId, status: e.target.value })}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className={`text-xs font-semibold rounded-full border px-2.5 py-0.5 cursor-pointer outline-none appearance-none transition-colors disabled:opacity-60 ${BUG_STATUS_COLORS[r.status] ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}
+                                >
+                                  <option value="OPEN">OPEN</option>
+                                  <option value="IN_REVIEW">IN REVIEW</option>
+                                  <option value="RESOLVED">RESOLVED</option>
+                                  <option value="CLOSED">CLOSED</option>
+                                  <option value="DUPLICATE">DUPLICATE</option>
+                                </select>
                               </td>
                               <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
                                 {r.CREATEDTIME ? relativeTime(r.CREATEDTIME) : '—'}
@@ -1728,27 +1744,43 @@ const SuperAdminPage: React.FC = () => {
                                     )}
 
                                     {/* Action buttons */}
-                                    {r.status !== 'RESOLVED' && r.status !== 'CLOSED' && replyBugId !== rowId && resolvingBugId !== rowId && (
-                                      <div className="flex gap-2 pt-1">
-                                        <button
-                                          onClick={() => { setReplyBugId(rowId); setReplyNote(r.resolution_notes || ''); setResolvingBugId(null); }}
-                                          className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors"
+                                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                                      {/* Inline status changer — always visible */}
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-xs text-gray-400 font-medium">Status:</span>
+                                        <select
+                                          value={r.status ?? 'OPEN'}
+                                          disabled={updateBugStatus.isPending}
+                                          onChange={(e) => updateBugStatus.mutate({ id: rowId, status: e.target.value })}
+                                          className={`text-xs font-semibold rounded-full border px-2.5 py-1 cursor-pointer outline-none appearance-none transition-colors disabled:opacity-60 ${BUG_STATUS_COLORS[r.status] ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}
                                         >
-                                          <Mail size={13} /> Reply
-                                        </button>
-                                        <button
-                                          onClick={() => { setResolvingBugId(rowId); setResolveNote(''); setReplyBugId(null); }}
-                                          className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
-                                        >
-                                          <CheckCircle2 size={13} /> Mark as Resolved
-                                        </button>
+                                          <option value="OPEN">Open</option>
+                                          <option value="IN_REVIEW">In Review</option>
+                                          <option value="RESOLVED">Resolved</option>
+                                          <option value="CLOSED">Closed</option>
+                                          <option value="DUPLICATE">Duplicate</option>
+                                        </select>
                                       </div>
-                                    )}
-                                    {(r.status === 'RESOLVED' || r.status === 'CLOSED') && (
-                                      <div className="flex items-center gap-2 text-xs text-emerald-600 font-medium">
-                                        <CheckCircle2 size={14} /> This report has been resolved
-                                      </div>
-                                    )}
+
+                                      {replyBugId !== rowId && resolvingBugId !== rowId && (
+                                        <>
+                                          <button
+                                            onClick={() => { setReplyBugId(rowId); setReplyNote(r.resolution_notes || ''); setResolvingBugId(null); }}
+                                            className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors"
+                                          >
+                                            <Mail size={13} /> Reply
+                                          </button>
+                                          {r.status !== 'RESOLVED' && r.status !== 'CLOSED' && (
+                                            <button
+                                              onClick={() => { setResolvingBugId(rowId); setResolveNote(''); setReplyBugId(null); }}
+                                              className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
+                                            >
+                                              <CheckCircle2 size={13} /> Mark as Resolved
+                                            </button>
+                                          )}
+                                        </>
+                                      )}
+                                    </div>
                                   </div>
                                 </td>
                               </tr>

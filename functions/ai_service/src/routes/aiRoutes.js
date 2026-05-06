@@ -134,6 +134,15 @@ router.post('/sprint-analysis', auth, asyncHandler((req, res) =>
   ctrl(req).getSprintAnalysis(req, res)
 ));
 
+/**
+ * POST /api/ai/transcribe
+ * Body: { audio: base64_string, mimeType: string, lang?: string }
+ * Returns: { transcript: string } — uses Google Cloud STT if GOOGLE_SPEECH_API_KEY is set
+ */
+router.post('/transcribe', auth, asyncHandler((req, res) =>
+  ctrl(req).transcribeAudio(req, res)
+));
+
 // ─── Service health (no auth) ─────────────────────────────────────────────────
 router.get('/health', (_req, res) => {
   res.json({ status: 'ok', endpoints: ['daily-summary', 'project-health', 'performance', 'holistic-performance', 'sprint-analysis', 'report', 'suggestions', 'process-voice'] });

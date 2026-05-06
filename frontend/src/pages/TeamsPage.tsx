@@ -390,19 +390,7 @@ const TeamDetailModal = ({
             </div>
           )}
 
-          {/* Delivery Leads in member list (if any — they also appear in banner) */}
-          {deliveryLeads.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1">
-                <Crown size={11} className="text-blue-500" /> Delivery Leads
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {deliveryLeads.map((m: any) => (
-                  <MemberCard key={m.id} member={m} />
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Delivery Leads already shown in the top banner — not repeated here */}
 
           {/* Rest of team members */}
           {others.length > 0 && (

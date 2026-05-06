@@ -47,6 +47,7 @@ import HelpPage from "./pages/HelpPage";
 import DataSeedPage from "./pages/DataSeedPage";
 import IpConfigPage from "./pages/IpConfigPage";
 import AccessRevokedPage from "./pages/AccessRevokedPage";
+import BugReportsPage from "./pages/BugReportsPage";
 import { ConfirmProvider } from "./components/ui/ConfirmDialog";
 import { ToastProvider } from "./components/ui/Toast";
 
@@ -143,14 +144,15 @@ const AppRoutes = () => {
         <Route path="assets"  element={<PermRoute permission="ASSET_READ"><AssetManagementPage /></PermRoute>} />
 
         {/* ── Reports & AI module ── */}
+        <Route path="bug-reports"        element={<BugReportsPage />} />
         <Route path="reports"            element={<PermRoute permission="REPORT_READ"><ReportsPage /></PermRoute>} />
 <Route path="team-activity"      element={<PermRoute permission="TIME_ANALYTICS"><TeamActivityPage /></PermRoute>} />
         <Route path="ai-insights"        element={<PermRoute permission="AI_INSIGHTS"><AiInsightsPage /></PermRoute>} />
 
         {/* ── Executive module ── */}
         <Route path="portfolio"      element={<PermRoute permission="ORG_ROLE_READ"><PortfolioDashboard /></PermRoute>} />
-        <Route path="ceo-dashboard"  element={<PermRoute permission="ORG_ROLE_READ"><CeoDashboardPage /></PermRoute>} />
-        <Route path="cto-dashboard"  element={<PermRoute permission="ORG_ROLE_READ"><CtoDashboardPage /></PermRoute>} />
+        <Route path="ceo-dashboard"  element={<PermRoute permission="CEO_DASHBOARD"><CeoDashboardPage /></PermRoute>} />
+        <Route path="cto-dashboard"  element={<PermRoute permission="CTO_DASHBOARD"><CtoDashboardPage /></PermRoute>} />
 
         {/* ── Administration module ── */}
         <Route path="admin"        element={<PermRoute permission="ADMIN_USERS"><AdminPage /></PermRoute>} />
