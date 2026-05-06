@@ -727,6 +727,83 @@ Keep it under 120 words and practical.`;
     }
   }
 
+  // ─── 13. Transcribe Audio ─────────────────────────────────────────────────
+
+  /**
+   * POST /api/ai/transcribe
+   * Body: { audio: base64_string, mimeType: string, lang?: string }
+   *
+   * Transcribes a voice recording using Google Cloud Speech-to-Text REST API.
+   * Requires GOOGLE_SPEECH_API_KEY environment variable to be set.
+   * Returns { transcript: string } or 503 if no key is configured.
+   */
+  async transcribeAudio(req, res) {
+    try {
+      const { audio, mimeType, lang = 'en-US' } = req.body;
+
+      if (!audio || typeof audio !== 'string' || audio.length < 100) {
+        return ResponseHelper.validationError(res, 'audio (base64) is required and must be non-trivial.');
+      }
+
+      const apiKey = process.env.GOOGLE_SPEECH_API_KEY;
+      if (!apiKey) {
+        return res.status(503).json({
+          success: false,
+          message: 'Audio transcription is not configured. Set GOOGLE_SPEECH_API_KEY in environment variables to enable enhanced voice capture.',
+          configRequired: true,
+        });
+      }
+
+      // Detect encoding from MIME type
+      let encoding = 'WEBM_OPUS'; // Chrome default
+      if (mimeType?.includes('ogg'))  encoding = 'OGG_OPUS';
+      if (mimeType?.includes('mp4'))  encoding = 'MP4';
+      if (mimeType?.includes('wav'))  encoding = 'LINEAR16';
+
+      const body = {
+        config: {
+          encoding,
+          languageCode: lang,
+          enableAutomaticPunctuation: true,
+          useEnhanced: true,
+          model: 'latest_long',
+          speechContexts: [{ phrases: ['standup', 'blocker', 'EOD', 'sprint', 'deployment', 'pull request'] }],
+        },
+        audio: { content: audio },
+      };
+
+      const url = `https://speech.googleapis.com/v1/speech:recognize?key=${apiKey}`;
+      const { data } = await require('axios').post(url, body, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 30000,
+      });
+
+      const transcript = (data.results || [])
+        .flatMap(r => r.alternatives || [])
+        .map(a => a.transcript)
+        .join(' ')
+        .trim();
+
+      return res.json({
+        success: true,
+        data: { transcript },
+      });
+
+    } catch (err) {
+      // Google STT returns structured errors in err.response
+      const gErr = err.response?.data?.error;
+      if (gErr) {
+        console.error('[AIController.transcribeAudio] Google STT error:', gErr.message);
+        return res.status(502).json({
+          success: false,
+          message: `Transcription service error: ${gErr.message}`,
+        });
+      }
+      console.error('[AIController.transcribeAudio]', err.message);
+      return this._errorResponse(res, err);
+    }
+  }
+
   // ─── Private: Rule-based performance fallback ────────────────────────────
 
   /**

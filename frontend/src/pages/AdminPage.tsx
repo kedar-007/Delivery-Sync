@@ -418,6 +418,7 @@ const PERM_INFO: Record<string, { label: string; desc: string; risk: 'low' | 'me
   TIME_READ:          { label: 'View Time Logs',     desc: 'See time tracking entries',                      risk: 'low' },
   TIME_WRITE:         { label: 'Log Time',           desc: 'Submit time entries',                            risk: 'low' },
   TIME_APPROVE:       { label: 'Approve Time',       desc: 'Approve team time submissions',                  risk: 'medium' },
+  TIME_ANALYTICS:     { label: 'Time Analytics',    desc: 'Billable / non-billable hours across all team members', risk: 'medium' },
   ATTENDANCE_READ:      { label: 'View Attendance',   desc: 'See own attendance records',                       risk: 'low' },
   ATTENDANCE_WRITE:     { label: 'Check In / Out',    desc: 'Log daily attendance, WFH, breaks',                risk: 'low' },
   ATTENDANCE_TEAM_VIEW: { label: 'View Team Records', desc: 'See peers\' attendance — live view, records, export', risk: 'medium' },
@@ -510,8 +511,9 @@ const CRUD_MODULES: CrudSection[] = [
   {
     section: 'Assets & Badges',
     rows: [
-      { name: 'Assets', view: 'ASSET_READ', write: 'ASSET_WRITE', approve: 'ASSET_APPROVE', admin: 'ASSET_ADMIN' },
-      { name: 'Badges', view: 'BADGE_READ', write: 'BADGE_WRITE', approve: 'BADGE_AWARD' },
+      { name: 'Assets',         view: 'ASSET_READ', write: 'ASSET_WRITE', approve: 'ASSET_ASSIGN', admin: 'ASSET_ADMIN' },
+      { name: 'Asset Requests', approve: 'ASSET_APPROVE' },
+      { name: 'Badges',         view: 'BADGE_READ', write: 'BADGE_WRITE', approve: 'BADGE_AWARD' },
     ],
   },
   {
@@ -527,10 +529,12 @@ const CRUD_MODULES: CrudSection[] = [
   {
     section: 'System & Admin',
     rows: [
-      { name: 'Notifications',   view:  'NOTIFICATION_READ' },
-      { name: 'User Management', write: 'INVITE_USER',  admin: 'ADMIN_USERS' },
-      { name: 'System Config',   view:  'CONFIG_READ',  write: 'CONFIG_WRITE' },
-      { name: 'IP Restrictions', admin: 'IP_CONFIG_WRITE' },
+      { name: 'Notifications',    view:  'NOTIFICATION_READ' },
+      { name: 'User Management',  write: 'INVITE_USER',     admin: 'ADMIN_USERS' },
+      { name: 'Audit & Settings', admin: 'ADMIN_SETTINGS' },
+      { name: 'System Config',    view:  'CONFIG_READ',     write: 'CONFIG_WRITE' },
+      { name: 'IP Restrictions',  admin: 'IP_CONFIG_WRITE' },
+      { name: 'Data Seeding',     admin: 'DATA_SEED' },
     ],
   },
 ];

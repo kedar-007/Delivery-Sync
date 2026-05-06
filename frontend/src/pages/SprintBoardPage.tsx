@@ -86,6 +86,23 @@ interface Sprint {
   projectId: string;
 }
 
+// ── Time helpers: HH:MM ↔ decimal hours ──────────────────────────────────────
+const parseHoursInput = (val: string): number => {
+  const v = String(val ?? '').trim();
+  if (v.includes(':')) {
+    const parts = v.split(':');
+    const h = parseInt(parts[0], 10) || 0;
+    const m = parseInt(parts[1], 10) || 0;
+    return Math.round((h + m / 60) * 100) / 100;
+  }
+  return Math.round(parseFloat(v) * 100) / 100 || 0;
+};
+const decimalToHHMM = (h: number): string => {
+  const hrs = Math.floor(h);
+  const mins = Math.round((h - hrs) * 60);
+  return `${hrs}:${String(mins).padStart(2, '0')}`;
+};
+
 const COLUMNS: { key: TaskStatus; label: string; color: string; bg: string }[] = [
   { key: 'TODO',        label: 'To Do',       color: 'text-slate-500',  bg: 'bg-slate-50' },
   { key: 'IN_PROGRESS', label: 'In Progress', color: 'text-blue-600',   bg: 'bg-blue-50' },
@@ -410,6 +427,8 @@ export default function SprintBoardPage() {
   const [logTimeDate, setLogTimeDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [logTimeBillable, setLogTimeBillable] = useState(true);
   const [logTimePending, setLogTimePending] = useState(false);
+  const [logTimeStartTime, setLogTimeStartTime] = useState('');
+  const [logTimeEndTime, setLogTimeEndTime] = useState('');
   const [submittingEntryId, setSubmittingEntryId] = useState<string | null>(null);
   const [timeError, setTimeError] = useState<string | null>(null);
   const [createTaskRequireApproval, setCreateTaskRequireApproval] = useState(false);
@@ -423,6 +442,16 @@ export default function SprintBoardPage() {
   const [timerDisplay, setTimerDisplay] = useState('00:00:00');
   const [aiInsight, setAiInsight] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+
+  // Auto-calculate hours when start/end time changes — output in HH:MM format
+  React.useEffect(() => {
+    if (logTimeStartTime && logTimeEndTime) {
+      const [sh, sm] = logTimeStartTime.split(':').map(Number);
+      const [eh, em] = logTimeEndTime.split(':').map(Number);
+      const diff = (eh * 60 + em) - (sh * 60 + sm);
+      if (diff > 0) setLogTimeHours(decimalToHHMM(Math.round((diff / 60) * 100) / 100));
+    }
+  }, [logTimeStartTime, logTimeEndTime]);
 
   const { data: project } = useProject(projectId ?? '');
   const { data: sprints, isLoading: sprintsLoading } = useSprints(projectId ?? '');
@@ -609,12 +638,15 @@ export default function SprintBoardPage() {
         project_id:       detailTask.projectId ?? projectId,
         task_id:          detailTask.id,
         entry_date:       logTimeDate,
-        hours:            parseFloat(logTimeHours),
+        hours:            parseHoursInput(logTimeHours),
         description:      logTimeDesc || detailTask.title,
         is_billable:      logTimeBillable,
         require_approval: (detailTask as any).requireApproval === true ? 'true' : 'false',
+        ...(logTimeStartTime ? { start_time: logTimeStartTime } : {}),
+        ...(logTimeEndTime   ? { end_time:   logTimeEndTime   } : {}),
       });
       setLogTimeHours(''); setLogTimeDesc('');
+      setLogTimeStartTime(''); setLogTimeEndTime('');
       // Refresh time entries list
       if (taskDetailId) {
         setTimeEntriesLoading(true);
@@ -1383,11 +1415,47 @@ export default function SprintBoardPage() {
                         <div className="text-xs font-bold text-indigo-700 flex items-center gap-1.5">
                           <Timer size={13} /> Log New Time Entry
                         </div>
+                        {/* Start / End first — drives Hours auto-fill */}
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <label className="text-[11px] text-gray-500 font-medium block mb-1">Hours *</label>
-                            <input type="number" step="0.25" min="0.25" className="form-input text-sm"
-                              placeholder="1.5" value={logTimeHours} onChange={(e) => setLogTimeHours(e.target.value)} />
+                            <label className="text-[11px] text-gray-500 font-medium block mb-1">Start Time <span className="text-gray-400 font-normal">(optional)</span></label>
+                            <input type="time" className="form-input text-sm" value={logTimeStartTime} onChange={(e) => setLogTimeStartTime(e.target.value)} />
+                          </div>
+                          <div>
+                            <label className="text-[11px] text-gray-500 font-medium block mb-1">End Time <span className="text-gray-400 font-normal">(optional)</span></label>
+                            <input type="time" className="form-input text-sm" value={logTimeEndTime} onChange={(e) => setLogTimeEndTime(e.target.value)} />
+                          </div>
+                        </div>
+                        {/* Prominent duration banner */}
+                        {logTimeStartTime && logTimeEndTime && (() => {
+                          const [sh, sm] = logTimeStartTime.split(':').map(Number);
+                          const [eh, em] = logTimeEndTime.split(':').map(Number);
+                          const diff = (eh * 60 + em) - (sh * 60 + sm);
+                          if (diff <= 0) return null;
+                          const hh = Math.floor(diff / 60);
+                          const mm = diff % 60;
+                          const readable = hh > 0 && mm > 0 ? `${hh}h ${mm}m` : hh > 0 ? `${hh}h` : `${mm} min`;
+                          const decimal = Math.round((diff / 60) * 100) / 100;
+                          return (
+                            <div className="flex items-center gap-2 px-3 py-2 bg-white/70 border border-indigo-200 rounded-xl">
+                              <span className="text-sm text-indigo-800">
+                                Duration: <strong>{readable}</strong>
+                                <span className="text-indigo-400 ml-1.5 text-xs">→ Hours auto-filled as <strong className="text-indigo-600">{decimalToHHMM(decimal)}</strong></span>
+                              </span>
+                            </div>
+                          );
+                        })()}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-[11px] text-gray-500 font-medium block mb-1">
+                              Hours *
+                              {logTimeStartTime && logTimeEndTime && (
+                                <span className="ml-1.5 text-[9px] font-bold text-indigo-600 bg-indigo-100 px-1.5 py-0.5 rounded uppercase">auto</span>
+                              )}
+                            </label>
+                            <input type="text" inputMode="text"
+                              className={`form-input text-sm font-mono ${logTimeStartTime && logTimeEndTime ? 'bg-indigo-50 border-indigo-300 text-indigo-800 font-medium' : ''}`}
+                              placeholder="1:30" value={logTimeHours} onChange={(e) => setLogTimeHours(e.target.value)} />
                           </div>
                           <div>
                             <label className="text-[11px] text-gray-500 font-medium block mb-1">Date *</label>

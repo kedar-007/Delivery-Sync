@@ -141,6 +141,26 @@ class Validator {
     return Validator._validate(schema, data);
   }
 
+  static validateUpdateStandup(data) {
+    const schema = Joi.object({
+      yesterday: Joi.string().min(1).max(2000).required(),
+      today:     Joi.string().min(1).max(2000).required(),
+      blockers:  Joi.string().max(2000).allow('').default(''),
+    });
+    return Validator._validate(schema, data);
+  }
+
+  static validateUpdateEod(data) {
+    const schema = Joi.object({
+      accomplishments:    Joi.string().min(1).max(3000).required(),
+      planned_tomorrow:   Joi.string().max(2000).allow('').default(''),
+      blockers:           Joi.string().max(2000).allow('').default(''),
+      progress_percentage: Joi.number().integer().min(0).max(100).default(0),
+      mood:               Joi.string().valid('GREEN', 'YELLOW', 'RED').default('GREEN'),
+    });
+    return Validator._validate(schema, data);
+  }
+
   // ─── Action ───────────────────────────────────────────────────────────────────
   static validateCreateAction(data) {
     const schema = Joi.object({

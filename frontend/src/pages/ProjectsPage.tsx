@@ -14,6 +14,7 @@ import EmptyState from '../components/ui/EmptyState';
 import { useProjectsPaginated, useSearchProjects, useCreateProject, useUpdateProject } from '../hooks/useProjects';
 import Pagination from '../components/ui/Pagination';
 import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { format } from 'date-fns';
 
 interface ProjectForm {
@@ -31,7 +32,7 @@ interface RenameForm {
 const ProjectsPage = () => {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const { user } = useAuth();
-  const canCreateProject = ['TENANT_ADMIN', 'DELIVERY_LEAD', 'PMO', 'EXEC'].includes(user?.role ?? '');
+  const canCreateProject = hasPermission(user, PERMISSIONS.PROJECT_WRITE);
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -162,7 +163,7 @@ const ProjectsPage = () => {
           <EmptyState
             title="No projects found"
             description="Create your first project to get started."
-            action={<Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>Create Project</Button>}
+            action={canCreateProject ? <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>Create Project</Button> : undefined}
           />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -178,14 +179,16 @@ const ProjectsPage = () => {
                     <h3 className="font-semibold text-gray-900 text-sm leading-tight pr-2">{project.name}</h3>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <RAGBadge status={project.ragStatus} />
-                      <button
-                        type="button"
-                        onClick={(e) => openRename(e, { id: project.id, name: project.name })}
-                        className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                        title="Rename project"
-                      >
-                        <Pencil size={13} />
-                      </button>
+                      {canCreateProject && (
+                        <button
+                          type="button"
+                          onClick={(e) => openRename(e, { id: project.id, name: project.name })}
+                          className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                          title="Rename project"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                      )}
                     </div>
                   </div>
 

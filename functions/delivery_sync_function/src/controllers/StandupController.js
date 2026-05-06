@@ -209,6 +209,40 @@ class StandupController {
     }
   }
 
+  /**
+   * PUT /api/standups/:id
+   * Owner-only update — cannot change project or date, only text fields.
+   */
+  async updateStandup(req, res) {
+    try {
+      const { tenantId, id: userId } = req.currentUser;
+      const { id } = req.params;
+
+      const existing = await this.db.query(
+        `SELECT ROWID, user_id FROM ${TABLES.STANDUP_ENTRIES} ` +
+        `WHERE ROWID = '${id}' AND tenant_id = '${tenantId}' LIMIT 1`
+      );
+      if (!existing.length) return ResponseHelper.notFound(res, 'Standup not found');
+      if (String(existing[0].user_id) !== String(userId)) {
+        return ResponseHelper.forbidden(res, 'You can only edit your own standup');
+      }
+
+      const data = Validator.validateUpdateStandup(req.body);
+
+      await this.db.update(TABLES.STANDUP_ENTRIES, {
+        ROWID: id,
+        yesterday: data.yesterday,
+        today:     data.today,
+        blockers:  data.blockers,
+      });
+
+      return ResponseHelper.success(res, { message: 'Standup updated' });
+    } catch (err) {
+      if (err.isValidation) return ResponseHelper.validationError(res, err.message, err.details);
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
   // GET /api/standups/search?q=<term>
   // Requires Search Index enabled on 'yesterday', 'today', 'blockers' columns of 'standup_entries'.
   async searchMyStandups(req, res) {

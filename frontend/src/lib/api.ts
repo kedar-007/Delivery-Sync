@@ -78,6 +78,7 @@ export const projectsApi = {
 
 export const standupsApi = {
   submit: (data: unknown) => api.post('/standups', data).then((r) => r.data.data),
+  update: (id: string, data: unknown) => api.put(`/standups/${id}`, data).then((r) => r.data.data),
   list: (params?: Record<string, string>) =>
     api.get('/standups', { params }).then((r) => r.data.data),
   rollup: (params: { projectId: string; startDate?: string; endDate?: string }) =>
@@ -91,6 +92,7 @@ export const standupsApi = {
 
 export const eodApi = {
   submit: (data: unknown) => api.post('/eod', data).then((r) => r.data.data),
+  update: (id: string, data: unknown) => api.put(`/eod/${id}`, data).then((r) => r.data.data),
   list: (params?: Record<string, string>) =>
     api.get('/eod', { params }).then((r) => r.data.data),
   rollup: (params: { projectId: string; startDate?: string; endDate?: string }) =>
@@ -412,6 +414,10 @@ export const aiApi = {
   /** Sprint-specific analysis: velocity, completion rate, star rating, recommendations */
   sprintAnalysis: (params: { sprintId: string }) =>
     aiClient.post('/sprint-analysis', params).then((r) => r.data),
+
+  /** Transcribe amplified voice audio via Google Speech-to-Text (requires GOOGLE_SPEECH_API_KEY on backend) */
+  transcribe: (params: { audio: string; mimeType: string; lang?: string }) =>
+    aiClient.post('/transcribe', params).then((r) => r.data?.data),
 };
 
 // ─── People Service clients ────────────────────────────────────────────────────

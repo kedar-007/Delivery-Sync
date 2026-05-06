@@ -38,6 +38,7 @@ const PERM_GROUPS: PermGroup[] = [
     perms: [
       { key: 'TASK_READ',          label: 'View Tasks',       desc: 'See tasks across projects' },
       { key: 'TASK_WRITE',         label: 'Manage Tasks',     desc: 'Create and update tasks' },
+      { key: 'TASK_ASSIGN',        label: 'Assign Tasks',     desc: 'Assign tasks to other team members' },
       { key: 'TASK_COMMENT_WRITE', label: 'Comment on Tasks', desc: 'Add comments to tasks' },
     ],
   },
@@ -83,10 +84,11 @@ const PERM_GROUPS: PermGroup[] = [
     color: 'blue',
     icon: <Users size={12} />,
     perms: [
-      { key: 'ATTENDANCE_READ',  label: 'View Attendance',       desc: 'See own and team attendance records' },
-      { key: 'ATTENDANCE_WRITE', label: 'Check In / Out',        desc: 'Log attendance entries' },
-      { key: 'ATTENDANCE_ADMIN', label: 'Manage All Attendance', desc: 'View all users, export CSV, override records' },
-      { key: 'IP_CONFIG_WRITE',  label: 'IP Restriction Config', desc: 'Add / remove office IP ranges and toggle IP enforcement' },
+      { key: 'ATTENDANCE_READ',      label: 'View Attendance',       desc: 'See own and team attendance records' },
+      { key: 'ATTENDANCE_WRITE',     label: 'Check In / Out',        desc: 'Log attendance entries' },
+      { key: 'ATTENDANCE_TEAM_VIEW', label: 'Team Attendance View',  desc: "See peers' live attendance, records, and export CSV" },
+      { key: 'ATTENDANCE_ADMIN',     label: 'Manage All Attendance', desc: 'View all users, export CSV, override records' },
+      { key: 'IP_CONFIG_WRITE',      label: 'IP Restriction Config', desc: 'Add / remove office IP ranges and toggle IP enforcement' },
     ],
   },
   {
@@ -139,9 +141,11 @@ const PERM_GROUPS: PermGroup[] = [
     color: 'indigo',
     icon: <Info size={12} />,
     perms: [
-      { key: 'REPORT_READ',    label: 'View Reports',   desc: 'Access reports and analytics' },
-      { key: 'REPORT_WRITE',   label: 'Create Reports', desc: 'Generate and save reports' },
-      { key: 'DASHBOARD_READ', label: 'View Dashboard', desc: 'Access the main dashboard KPIs' },
+      { key: 'REPORT_READ',    label: 'View Reports',     desc: 'Access reports and analytics' },
+      { key: 'REPORT_WRITE',   label: 'Create Reports',   desc: 'Generate and save reports' },
+      { key: 'DASHBOARD_READ', label: 'View Dashboard',   desc: 'Access the main dashboard KPIs' },
+      { key: 'CEO_DASHBOARD',  label: 'CEO Dashboard',    desc: 'Access the CEO executive dashboard' },
+      { key: 'CTO_DASHBOARD',  label: 'CTO Dashboard',    desc: 'Access the CTO executive dashboard' },
     ],
   },
   {
@@ -185,6 +189,13 @@ const AI_GUIDE: Record<string, AiGuide> = {
     defaultRoles: ['TENANT_ADMIN'],
     risk: 'high',
     tip: 'Only grant to IT administrators or senior HR managers who own office network config. A wrong IP range silently blocks every employee from checking in.',
+  },
+  ATTENDANCE_TEAM_VIEW: {
+    summary: "Allows seeing the team's live attendance status, historical records for all colleagues, and exporting attendance CSV for the manager's data scope. Without this, users can only see their own attendance.",
+    unlocks: ["Team attendance live view", "Colleagues' check-in / check-out records", 'Attendance history filter by team member', 'CSV export for team attendance'],
+    defaultRoles: ['TENANT_ADMIN'],
+    risk: 'medium',
+    tip: 'Grant to line managers and team leads who need daily visibility of who is in / out. Payroll-sensitive — restrict from individual contributors.',
   },
   ATTENDANCE_ADMIN: {
     summary: 'Grants full oversight of all attendance records across the organisation. The user can view everyone\'s check-in history, export CSV reports, manually override any attendance record (with a reason), and see anomalies like late arrivals or missing check-outs.',
@@ -262,6 +273,13 @@ const AI_GUIDE: Record<string, AiGuide> = {
     defaultRoles: ['TENANT_ADMIN', 'TEAM_MEMBER'],
     risk: 'low',
     tip: 'Grant to all active contributors who need to self-assign and update work.',
+  },
+  TASK_ASSIGN: {
+    summary: 'Allows assigning tasks to other team members. Without this, a user can only self-assign tasks. With it they can delegate work to any project member.',
+    unlocks: ['Assignee picker on task form', 'Reassign task to another user', 'Bulk assign tasks on sprint board'],
+    defaultRoles: ['TENANT_ADMIN'],
+    risk: 'low',
+    tip: 'Grant to team leads and PMs who delegate work. Standard contributors typically self-assign only.',
   },
   TASK_COMMENT_WRITE: {
     summary: 'Allows adding comments to tasks. Users can only delete their own comments.',
@@ -592,6 +610,20 @@ const AI_GUIDE: Record<string, AiGuide> = {
     risk: 'high',
     tip: 'Highly sensitive — shows org-wide performance and mood trends. Restrict to senior management and HR.',
   },
+  CEO_DASHBOARD: {
+    summary: 'Grants access to the CEO executive dashboard — a high-level view of company health, delivery metrics, revenue signals, team productivity, and strategic KPIs consolidated for executive reporting.',
+    unlocks: ['CEO Dashboard page', 'Company-wide KPI summary', 'Cross-team delivery status', 'Executive metric cards'],
+    defaultRoles: ['TENANT_ADMIN'],
+    risk: 'high',
+    tip: 'This dashboard aggregates sensitive business metrics. Restrict to the CEO and direct executive staff only.',
+  },
+  CTO_DASHBOARD: {
+    summary: 'Grants access to the CTO executive dashboard — focused on engineering health, sprint velocity, blocker frequency, tech debt indicators, and team utilisation metrics.',
+    unlocks: ['CTO Dashboard page', 'Engineering health overview', 'Sprint velocity trends', 'Tech team utilisation breakdown'],
+    defaultRoles: ['TENANT_ADMIN'],
+    risk: 'high',
+    tip: 'Contains sensitive engineering performance data. Restrict to the CTO and senior engineering leads.',
+  },
   ADMIN_USERS: {
     summary: 'Allows full user management: view all users, invite new members, edit roles, override permissions, and deactivate accounts.',
     unlocks: ['Admin › Users list', 'Invite user', 'Edit user role', 'Override user permissions', 'Deactivate user'],
@@ -627,6 +659,153 @@ const AI_GUIDE: Record<string, AiGuide> = {
     risk: 'high',
     tip: 'Never grant in production. Test data cannot be selectively removed.',
   },
+};
+
+// ─── CRUD matrix data (mirrors AdminPage CRUD_MODULES exactly) ────────────────
+
+interface CrudRow { name: string; view?: string; write?: string; approve?: string; admin?: string }
+interface CrudSection { section: string; rows: CrudRow[] }
+
+const CRUD_MODULES: CrudSection[] = [
+  {
+    section: 'Projects & Delivery',
+    rows: [
+      { name: 'Projects',    view: 'PROJECT_READ',   write: 'PROJECT_WRITE' },
+      { name: 'Milestones',  view: 'MILESTONE_READ', write: 'MILESTONE_WRITE' },
+      { name: 'Sprints',     view: 'SPRINT_READ',    write: 'SPRINT_WRITE' },
+      { name: 'Tasks',       view: 'TASK_READ',      write: 'TASK_WRITE',    approve: 'TASK_ASSIGN',        admin: 'TASK_COMMENT_WRITE' },
+      { name: 'Actions',     view: 'ACTION_READ',    write: 'ACTION_WRITE' },
+      { name: 'Blockers',    view: 'BLOCKER_READ',   write: 'BLOCKER_WRITE' },
+      { name: 'RAID Log',    view: 'RAID_READ',      write: 'RAID_WRITE' },
+      { name: 'Decisions',   view: 'DECISION_READ',  write: 'DECISION_WRITE' },
+    ],
+  },
+  {
+    section: 'Daily Work',
+    rows: [
+      { name: 'Standups',    view: 'STANDUP_READ',  write: 'STANDUP_SUBMIT' },
+      { name: 'EOD Reports', view: 'EOD_READ',      write: 'EOD_SUBMIT' },
+    ],
+  },
+  {
+    section: 'Time & Attendance',
+    rows: [
+      { name: 'Time Tracking', view: 'TIME_READ',       write: 'TIME_WRITE',       approve: 'TIME_APPROVE',          admin: 'TIME_ANALYTICS' },
+      { name: 'Attendance',    view: 'ATTENDANCE_READ',  write: 'ATTENDANCE_WRITE', approve: 'ATTENDANCE_TEAM_VIEW',  admin: 'ATTENDANCE_ADMIN' },
+      { name: 'Leave',         view: 'LEAVE_READ',       write: 'LEAVE_WRITE',      approve: 'LEAVE_APPROVE',         admin: 'LEAVE_ADMIN' },
+    ],
+  },
+  {
+    section: 'People & Org',
+    rows: [
+      { name: 'Teams',         view: 'TEAM_READ',         write: 'TEAM_WRITE' },
+      { name: 'Profiles',      view: 'PROFILE_READ',      write: 'PROFILE_WRITE' },
+      { name: 'Org Chart',     view: 'ORG_READ',          write: 'ORG_WRITE' },
+      { name: 'Org Roles',     view: 'ORG_ROLE_READ',     write: 'ORG_ROLE_WRITE' },
+      { name: 'Announcements', view: 'ANNOUNCEMENT_READ', write: 'ANNOUNCEMENT_WRITE' },
+    ],
+  },
+  {
+    section: 'Assets & Badges',
+    rows: [
+      { name: 'Assets',         view: 'ASSET_READ', write: 'ASSET_WRITE', approve: 'ASSET_ASSIGN', admin: 'ASSET_ADMIN' },
+      { name: 'Asset Requests', approve: 'ASSET_APPROVE' },
+      { name: 'Badges',         view: 'BADGE_READ', write: 'BADGE_WRITE', approve: 'BADGE_AWARD' },
+    ],
+  },
+  {
+    section: 'Reports & AI',
+    rows: [
+      { name: 'Reports',        view: 'REPORT_READ',   write: 'REPORT_WRITE' },
+      { name: 'Dashboard',      view: 'DASHBOARD_READ' },
+      { name: 'AI Insights',    view: 'AI_INSIGHTS',   approve: 'AI_PERFORMANCE', admin: 'AI_TEAM_ANALYSIS' },
+      { name: 'CEO Dashboard',  view: 'CEO_DASHBOARD' },
+      { name: 'CTO Dashboard',  view: 'CTO_DASHBOARD' },
+    ],
+  },
+  {
+    section: 'System & Admin',
+    rows: [
+      { name: 'Notifications',    view:  'NOTIFICATION_READ' },
+      { name: 'User Management',  write: 'INVITE_USER',     admin: 'ADMIN_USERS' },
+      { name: 'Audit & Settings', admin: 'ADMIN_SETTINGS' },
+      { name: 'System Config',    view:  'CONFIG_READ',     write: 'CONFIG_WRITE' },
+      { name: 'IP Restrictions',  admin: 'IP_CONFIG_WRITE' },
+      { name: 'Data Seeding',     admin: 'DATA_SEED' },
+    ],
+  },
+];
+
+// Short labels for CRUD matrix cells — mirrors AdminPage PERM_INFO
+const PERM_INFO: Record<string, { label: string; desc: string }> = {
+  PROJECT_READ:       { label: 'View',              desc: 'See project list and details' },
+  PROJECT_WRITE:      { label: 'Manage',            desc: 'Create and edit projects, add members' },
+  MILESTONE_READ:     { label: 'View',              desc: 'See milestone due dates and status' },
+  MILESTONE_WRITE:    { label: 'Manage',            desc: 'Create and update milestones' },
+  SPRINT_READ:        { label: 'View',              desc: 'See sprint boards and velocity' },
+  SPRINT_WRITE:       { label: 'Manage',            desc: 'Create, start, complete sprints' },
+  TASK_READ:          { label: 'View',              desc: 'See tasks across projects' },
+  TASK_WRITE:         { label: 'Create / Edit',     desc: 'Create and update tasks (assigned to self only)' },
+  TASK_ASSIGN:        { label: 'Assign',            desc: 'Assign tasks to other team members' },
+  TASK_COMMENT_WRITE: { label: 'Comment',           desc: 'Add comments to tasks' },
+  ACTION_READ:        { label: 'View',              desc: 'See action items and owners' },
+  ACTION_WRITE:       { label: 'Manage',            desc: 'Create and update action items' },
+  BLOCKER_READ:       { label: 'View',              desc: 'See blockers and impediments' },
+  BLOCKER_WRITE:      { label: 'Manage',            desc: 'Log and escalate blockers' },
+  RAID_READ:          { label: 'View',              desc: 'See risks, issues, dependencies' },
+  RAID_WRITE:         { label: 'Manage',            desc: 'Create and update RAID items' },
+  DECISION_READ:      { label: 'View',              desc: 'See decision log' },
+  DECISION_WRITE:     { label: 'Log',               desc: 'Add entries to decision log' },
+  STANDUP_SUBMIT:     { label: 'Submit',            desc: 'Post daily standup updates' },
+  STANDUP_READ:       { label: 'View',              desc: 'Read team standup history' },
+  EOD_SUBMIT:         { label: 'Submit',            desc: 'Post end-of-day reports' },
+  EOD_READ:           { label: 'View',              desc: 'Read team EOD reports' },
+  TIME_READ:          { label: 'View',              desc: 'See time tracking entries' },
+  TIME_WRITE:         { label: 'Log Time',          desc: 'Submit time entries' },
+  TIME_APPROVE:       { label: 'Approve',           desc: 'Approve team time submissions' },
+  TIME_ANALYTICS:     { label: 'Analytics',         desc: 'Billable / non-billable hours breakdown' },
+  ATTENDANCE_READ:      { label: 'View',            desc: 'See own attendance records' },
+  ATTENDANCE_WRITE:     { label: 'Check In/Out',    desc: 'Log daily attendance, WFH, breaks' },
+  ATTENDANCE_TEAM_VIEW: { label: 'Team View',       desc: "See peers' attendance — live view, records, export" },
+  ATTENDANCE_ADMIN:     { label: 'Admin',           desc: 'Override records, export CSV, full access' },
+  IP_CONFIG_WRITE:    { label: 'IP Config',         desc: 'Manage office IP whitelist & toggle enforcement' },
+  LEAVE_READ:         { label: 'View',              desc: 'See own leave requests and balance' },
+  LEAVE_WRITE:        { label: 'Request',           desc: 'Submit leave applications' },
+  LEAVE_APPROVE:      { label: 'Approve',           desc: 'Approve or reject team leave' },
+  LEAVE_ADMIN:        { label: 'Manage',            desc: 'Manage types, balances, policies' },
+  TEAM_READ:          { label: 'View',              desc: 'See team structure and members' },
+  TEAM_WRITE:         { label: 'Manage',            desc: 'Create and edit teams' },
+  ORG_READ:           { label: 'View',              desc: 'See organisational hierarchy' },
+  ORG_WRITE:          { label: 'Edit',              desc: 'Reassign managers, edit hierarchy' },
+  ORG_ROLE_READ:      { label: 'View',              desc: 'See roles and their permissions' },
+  ORG_ROLE_WRITE:     { label: 'Manage',            desc: 'Create, edit, assign org roles' },
+  PROFILE_READ:       { label: 'View',              desc: 'See user profiles and directory' },
+  PROFILE_WRITE:      { label: 'Edit',              desc: 'Update own profile information' },
+  ANNOUNCEMENT_READ:  { label: 'View',              desc: 'Read company announcements' },
+  ANNOUNCEMENT_WRITE: { label: 'Post',              desc: 'Create and publish announcements' },
+  NOTIFICATION_READ:  { label: 'View',              desc: 'Receive in-app notifications' },
+  INVITE_USER:        { label: 'Invite',            desc: 'Send invitations to new members' },
+  ASSET_READ:         { label: 'View',              desc: 'See asset inventory' },
+  ASSET_WRITE:        { label: 'Manage',            desc: 'Create and update asset records' },
+  ASSET_ASSIGN:       { label: 'Assign',            desc: 'Assign assets to users' },
+  ASSET_APPROVE:      { label: 'Approve',           desc: 'Approve asset request tickets' },
+  ASSET_ADMIN:        { label: 'Admin',             desc: 'Full asset management access' },
+  BADGE_READ:         { label: 'View',              desc: 'See badge catalog and awards' },
+  BADGE_WRITE:        { label: 'Manage',            desc: 'Create and edit badge definitions' },
+  BADGE_AWARD:        { label: 'Award',             desc: 'Grant badges to team members' },
+  REPORT_READ:        { label: 'View',              desc: 'Access reports and analytics' },
+  REPORT_WRITE:       { label: 'Create',            desc: 'Generate and export reports' },
+  DASHBOARD_READ:     { label: 'View',              desc: 'Access main dashboard KPIs' },
+  AI_INSIGHTS:        { label: 'AI Insights',       desc: 'Daily summary, suggestions, NLQ, voice' },
+  AI_PERFORMANCE:     { label: 'Self Analysis',     desc: 'View your own AI performance analysis' },
+  AI_TEAM_ANALYSIS:   { label: 'Team Analysis',     desc: 'Org-wide health, trends, any member data' },
+  CEO_DASHBOARD:      { label: 'CEO Dashboard',     desc: 'Access the CEO executive dashboard only' },
+  CTO_DASHBOARD:      { label: 'CTO Dashboard',     desc: 'Access the CTO executive dashboard only' },
+  ADMIN_USERS:        { label: 'Manage Users',      desc: 'Invite, edit, deactivate users' },
+  ADMIN_SETTINGS:     { label: 'System Settings',   desc: 'Tenant settings and audit logs' },
+  CONFIG_READ:        { label: 'View Config',       desc: 'See feature flags and configurations' },
+  CONFIG_WRITE:       { label: 'Edit Config',       desc: 'Change features and workflow rules' },
+  DATA_SEED:          { label: 'Data Seeding',      desc: 'Generate/clear demo or test data' },
 };
 
 // ─── Colour helpers ───────────────────────────────────────────────────────────
@@ -876,16 +1055,22 @@ const UserPermissionsModal = ({ open, onClose, userId, userName, userRole }: Pro
   };
 
   const lowerSearch = search.toLowerCase();
-  const filteredGroups = PERM_GROUPS.map((g) => ({
-    ...g,
-    perms: lowerSearch
-      ? g.perms.filter((p) =>
-          p.label.toLowerCase().includes(lowerSearch) ||
-          p.desc.toLowerCase().includes(lowerSearch) ||
-          p.key.toLowerCase().includes(lowerSearch)
+
+  const filteredCrudModules = CRUD_MODULES.map(({ section, rows }) => ({
+    section,
+    rows: lowerSearch
+      ? rows.filter((r) =>
+          r.name.toLowerCase().includes(lowerSearch) ||
+          (['view', 'write', 'approve', 'admin'] as const).some((col) => {
+            const perm = r[col];
+            if (!perm) return false;
+            const info  = PERM_INFO[perm];
+            const label = (info?.label ?? '') + ' ' + (info?.desc ?? '');
+            return perm.toLowerCase().includes(lowerSearch) || label.toLowerCase().includes(lowerSearch);
+          })
         )
-      : g.perms,
-  })).filter((g) => g.perms.length > 0);
+      : rows,
+  })).filter(({ rows }) => rows.length > 0);
 
   return (
     <Modal
@@ -935,13 +1120,13 @@ const UserPermissionsModal = ({ open, onClose, userId, userName, userRole }: Pro
           {/* ── Two-column layout ── */}
           <div className="flex gap-5" style={{ height: '62vh' }}>
 
-            {/* Left: Permission groups */}
+            {/* Left: CRUD permission matrix */}
             <div className="flex-1 min-w-0 flex flex-col">
               {/* Search */}
               <div className="relative mb-3 shrink-0">
                 <input
                   type="text"
-                  placeholder="Search permissions…"
+                  placeholder="Search modules or permissions…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="w-full text-sm pl-9 pr-3 py-2 border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent"
@@ -949,83 +1134,116 @@ const UserPermissionsModal = ({ open, onClose, userId, userName, userRole }: Pro
                 <Eye size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               </div>
 
-              {/* Groups */}
-              <div className="overflow-y-auto flex-1 space-y-3 pr-1">
-                {filteredGroups.map((group) => (
-                  <div
-                    key={group.label}
-                    className={`rounded-xl border p-3.5 ${GROUP_BG[group.color] ?? 'bg-gray-50 border-gray-100'}`}
-                  >
-                    <p className={`text-[10px] font-bold uppercase tracking-widest mb-2.5 flex items-center gap-1.5 ${GROUP_TITLE[group.color] ?? 'text-gray-600'}`}>
-                      {group.icon} {group.label}
-                    </p>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-1.5">
-                      {group.perms.map((p) => {
-                        const isOn = enabled.has(p.key);
-                        const fromRole = roleSet.has(p.key);
-                        const isSelected = selectedPerm === p.key;
-                        return (
-                          <button
-                            key={p.key}
-                            type="button"
-                            onClick={() => {
-                              toggle(p.key);
-                              setSelectedPerm(p.key);
-                              setSelectedLabel(p.label);
-                            }}
-                            onMouseEnter={() => {
-                              setSelectedPerm(p.key);
-                              setSelectedLabel(p.label);
-                            }}
-                            className={`flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-all ${
-                              isSelected
-                                ? 'ring-2 ring-indigo-400 ring-offset-1'
-                                : ''
-                            } ${
-                              isOn
-                                ? 'bg-white border-gray-200 shadow-sm'
-                                : 'bg-white/50 border-gray-100 opacity-55'
-                            }`}
-                          >
-                            {/* Checkbox */}
-                            <div className={`mt-0.5 w-3.5 h-3.5 rounded flex items-center justify-center shrink-0 transition-colors ${
-                              isOn ? 'bg-indigo-600' : 'bg-gray-200'
-                            }`}>
-                              {isOn && <Check size={9} color="white" strokeWidth={3} />}
-                            </div>
+              {/* Column headers */}
+              <div className="grid shrink-0 mb-1 px-3" style={{ gridTemplateColumns: '1fr 68px 100px 90px 72px' }}>
+                <span className="text-xs font-semibold text-gray-400">Module</span>
+                <span className="text-xs font-bold text-blue-500 text-center">View</span>
+                <span className="text-xs font-bold text-indigo-500 text-center">Create / Edit</span>
+                <span className="text-xs font-bold text-amber-500 text-center">Approve</span>
+                <span className="text-xs font-bold text-red-500 text-center">Admin</span>
+              </div>
+              <div className="h-px bg-gray-200 mb-3 shrink-0" />
 
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1 flex-wrap">
-                                <span className="text-xs font-semibold text-gray-800 leading-tight">{p.label}</span>
-                                {fromRole && isOn && (
-                                  <span className="text-[9px] px-1 py-0.5 bg-indigo-100 text-indigo-600 rounded font-bold leading-none">
-                                    role
-                                  </span>
-                                )}
-                                {isOn && !fromRole && (
-                                  <span className="text-[9px] px-1 py-0.5 bg-emerald-100 text-emerald-700 rounded font-bold leading-none flex items-center gap-0.5">
-                                    <Unlock size={7} /> extra
-                                  </span>
-                                )}
-                                {!isOn && fromRole && (
-                                  <span className="text-[9px] px-1 py-0.5 bg-red-100 text-red-600 rounded font-bold leading-none flex items-center gap-0.5">
-                                    <Lock size={7} /> revoked
-                                  </span>
-                                )}
-                                {p.key === 'IP_CONFIG_WRITE' && (
-                                  <span className="text-[9px] px-1 py-0.5 bg-blue-100 text-blue-700 rounded font-bold leading-none flex items-center gap-0.5">
-                                    <Wifi size={7} /> IP
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-[10px] text-gray-400 mt-0.5 leading-tight truncate">{p.desc}</p>
+              {/* Matrix */}
+              <div className="overflow-y-auto flex-1 space-y-4 pr-1">
+                {filteredCrudModules.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-8">No modules match "{search}"</p>
+                ) : filteredCrudModules.map(({ section, rows }) => {
+                  const allPerms = rows.flatMap((r) =>
+                    ([r.view, r.write, r.approve, r.admin] as (string | undefined)[]).filter(Boolean) as string[]
+                  );
+                  const allOn  = allPerms.length > 0 && allPerms.every((p) => enabled.has(p));
+                  const someOn = !allOn && allPerms.some((p) => enabled.has(p));
+                  return (
+                    <div key={section}>
+                      {/* Section header */}
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <input type="checkbox" checked={allOn}
+                          ref={(el) => { if (el) el.indeterminate = someOn; }}
+                          onChange={() => setEnabled((prev) => {
+                            const n = new Set(prev);
+                            allOn ? allPerms.forEach((p) => n.delete(p)) : allPerms.forEach((p) => n.add(p));
+                            setDirty(true);
+                            return n;
+                          })}
+                          className="w-3.5 h-3.5 rounded text-indigo-600 cursor-pointer accent-indigo-600" />
+                        <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">{section}</span>
+                        <span className="ml-auto text-xs text-gray-400 font-medium">
+                          {allPerms.filter((p) => enabled.has(p)).length} / {allPerms.length}
+                        </span>
+                      </div>
+
+                      {/* Module rows */}
+                      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+                        {rows.map((row, i) => {
+                          const COLS = [
+                            { perm: row.view,    activeClass: 'bg-blue-500 text-white',   hoverClass: 'hover:bg-blue-50' },
+                            { perm: row.write,   activeClass: 'bg-indigo-500 text-white', hoverClass: 'hover:bg-indigo-50' },
+                            { perm: row.approve, activeClass: 'bg-amber-500 text-white',  hoverClass: 'hover:bg-amber-50' },
+                            { perm: row.admin,   activeClass: 'bg-red-500 text-white',    hoverClass: 'hover:bg-red-50' },
+                          ];
+                          return (
+                            <div key={row.name}
+                              className={`grid items-center px-3 py-2.5 ${i > 0 ? 'border-t border-gray-100' : ''}`}
+                              style={{ gridTemplateColumns: '1fr 68px 100px 90px 72px' }}
+                            >
+                              <span className="text-sm font-medium text-gray-800 truncate pr-2">{row.name}</span>
+                              {COLS.map(({ perm, activeClass, hoverClass }, ci) => (
+                                <div key={ci} className="flex justify-center items-center">
+                                  {perm ? (() => {
+                                    const isOn      = enabled.has(perm);
+                                    const fromRole  = roleSet.has(perm);
+                                    const isExtra   = isOn && !fromRole;
+                                    const isRevoked = !isOn && fromRole;
+                                    const info      = PERM_INFO[perm];
+                                    const cellLabel = info?.label ?? perm;
+                                    const fullLabel = info?.desc ?? cellLabel;
+                                    return (
+                                      <div className="flex flex-col items-center gap-0.5">
+                                        <button
+                                          type="button"
+                                          title={fullLabel}
+                                          onClick={() => { toggle(perm); setSelectedPerm(perm); setSelectedLabel(fullLabel); }}
+                                          onMouseEnter={() => { setSelectedPerm(perm); setSelectedLabel(fullLabel); }}
+                                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all border ${
+                                            isOn
+                                              ? isExtra
+                                                ? 'bg-emerald-500 text-white border-transparent shadow-sm'
+                                                : `${activeClass} border-transparent shadow-sm`
+                                              : isRevoked
+                                                ? 'bg-red-50 border-red-200 text-red-400 hover:bg-red-100'
+                                                : `bg-white border-gray-200 text-gray-400 ${hoverClass}`
+                                          }`}
+                                        >
+                                          {isOn && <Check size={10} strokeWidth={3} />}
+                                          {!isOn && isRevoked && <Lock size={10} />}
+                                          {!isOn && !isRevoked && <span className="w-2 h-2 rounded-full border border-current opacity-40" />}
+                                          {cellLabel}
+                                        </button>
+                                        {/* Status tag */}
+                                        {(isExtra || isRevoked || (isOn && fromRole)) && (
+                                          <span className={`text-[8px] font-bold px-1 py-0.5 rounded leading-none ${
+                                            isRevoked ? 'bg-red-100 text-red-500'
+                                            : isExtra ? 'bg-emerald-100 text-emerald-700'
+                                            : 'bg-indigo-100 text-indigo-600'
+                                          }`}>
+                                            {isRevoked ? 'revoked' : isExtra ? 'extra' : 'role'}
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })() : (
+                                    <span className="text-gray-200 text-lg leading-none text-center w-full">—</span>
+                                  )}
+                                </div>
+                              ))}
                             </div>
-                          </button>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 

@@ -17,5 +17,6 @@ router.get('/search', auth, can(PERMISSIONS.STANDUP_READ), asyncHandler((req, re
 router.get('/', auth, can(PERMISSIONS.STANDUP_READ), asyncHandler((req, res) => ctrl(req).getStandups(req, res)));
 router.get('/rollup', auth, can(PERMISSIONS.STANDUP_READ), asyncHandler((req, res) => ctrl(req).getStandupRollup(req, res)));
 router.get('/my-today', auth, asyncHandler((req, res) => ctrl(req).getMyTodayStandup(req, res)));
+router.put('/:id', auth, can(PERMISSIONS.STANDUP_SUBMIT), asyncHandler((req, res) => ctrl(req).updateStandup(req, res)));
 
 module.exports = router;
