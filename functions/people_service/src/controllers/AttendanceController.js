@@ -102,7 +102,7 @@ class AttendanceController {
     ]);
     if (is_wfh) {
       const approvedWfh = await this.db.findWhere(TABLES.WFH_REQUESTS, tenantId,
-        `user_id = '${userRowId}' AND wfh_date = '${today}' AND status = 'APPROVED'`, { limit: 1 });
+        `user_id = '${userRowId}' AND wfh_date <= '${today}' AND (wfh_date_to >= '${today}' OR (wfh_date_to = '' AND wfh_date = '${today}')) AND status = 'APPROVED'`, { limit: 1 });
       if (approvedWfh.length === 0)
         return ResponseHelper.forbidden(res, 'You need an approved WFH request for today before checking in as WFH. Please submit a request first.');
     }
@@ -1111,7 +1111,7 @@ class AttendanceController {
     const today = todayIST(profiles[0]?.timezone);
 
     const approvedWfh = await this.db.findWhere(TABLES.WFH_REQUESTS, req.tenantId,
-      `user_id = '${userRowId}' AND wfh_date = '${today}' AND status = 'APPROVED'`, { limit: 1 });
+      `user_id = '${userRowId}' AND wfh_date <= '${today}' AND (wfh_date_to >= '${today}' OR (wfh_date_to = '' AND wfh_date = '${today}')) AND status = 'APPROVED'`, { limit: 1 });
     if (approvedWfh.length === 0)
       return ResponseHelper.forbidden(res, 'You need an approved WFH request for today. Please submit a request first.');
 
@@ -1298,22 +1298,27 @@ class AttendanceController {
 
   // POST /api/people/attendance/wfh-requests
   async submitWfhRequest(req, res) {
-    const { wfh_date, reason } = req.body;
-    if (!wfh_date || !reason) return ResponseHelper.validationError(res, 'wfh_date and reason are required');
+    const { date_from, date_to, reason } = req.body;
+    if (!date_from || !date_to || !reason) return ResponseHelper.validationError(res, 'date_from, date_to and reason are required');
+    if (date_to < date_from) return ResponseHelper.validationError(res, 'date_to must be on or after date_from');
 
     const users = await this.db.findWhere(TABLES.USERS, req.tenantId,
       `email = '${req.currentUser.email}'`, { limit: 1 });
     if (!users.length) return ResponseHelper.notFound(res, 'User not found');
     const userRowId = users[0].ROWID;
 
+    // Check for any overlapping non-cancelled request in the requested range
     const existing = await this.db.findWhere(TABLES.WFH_REQUESTS, req.tenantId,
-      `user_id = '${userRowId}' AND wfh_date = '${wfh_date}' AND status != 'CANCELLED'`, { limit: 1 });
-    if (existing.length > 0) return ResponseHelper.conflict(res, 'A WFH request already exists for this date');
+      `user_id = '${userRowId}' AND status != 'CANCELLED' AND wfh_date <= '${date_to}' AND (wfh_date_to >= '${date_from}' OR (wfh_date_to = '' AND wfh_date >= '${date_from}'))`,
+      { limit: 1 });
+    if (existing.length > 0) return ResponseHelper.conflict(res, 'A WFH request already exists overlapping this date range');
 
+    const dateLabel = date_from === date_to ? date_from : `${date_from} to ${date_to}`;
     const record = await this.db.insert(TABLES.WFH_REQUESTS, {
       tenant_id:      String(req.tenantId),
       user_id:        String(userRowId),
-      wfh_date,
+      wfh_date:       date_from,
+      wfh_date_to:    date_to,
       reason,
       status:         'PENDING',
       reviewed_by:    '',
@@ -1329,14 +1334,14 @@ class AttendanceController {
         await this.notif.sendInApp({
           tenantId: req.tenantId, userId: String(rmId),
           title: 'WFH Request',
-          message: `${req.currentUser.name} has requested to work from home on ${wfh_date}`,
+          message: `${req.currentUser.name} has requested to work from home on ${dateLabel}`,
           type: NOTIFICATION_TYPE.WFH_REQUEST_SUBMITTED,
           entityType: 'WFH_REQUEST', entityId: record.ROWID,
         });
       } catch (_) {}
     }
 
-    await this.audit.log({ tenantId: req.tenantId, entityType: 'WFH_REQUEST', entityId: record.ROWID, action: AUDIT_ACTION.CREATE, newValue: { wfh_date, reason }, performedBy: userRowId });
+    await this.audit.log({ tenantId: req.tenantId, entityType: 'WFH_REQUEST', entityId: record.ROWID, action: AUDIT_ACTION.CREATE, newValue: { date_from, date_to, reason }, performedBy: userRowId });
     return ResponseHelper.created(res, record);
   }
 
@@ -1402,7 +1407,7 @@ class AttendanceController {
       await this.notif.sendInApp({
         tenantId: req.tenantId, userId: String(request.user_id),
         title: 'WFH Request Approved',
-        message: `Your WFH request for ${request.wfh_date} has been approved`,
+        message: `Your WFH request for ${request.wfh_date_to && request.wfh_date_to !== request.wfh_date ? `${request.wfh_date} to ${request.wfh_date_to}` : request.wfh_date} has been approved`,
         type: NOTIFICATION_TYPE.WFH_APPROVED,
         entityType: 'WFH_REQUEST', entityId: req.params.id,
       });
@@ -1437,7 +1442,7 @@ class AttendanceController {
       await this.notif.sendInApp({
         tenantId: req.tenantId, userId: String(request.user_id),
         title: 'WFH Request Rejected',
-        message: `Your WFH request for ${request.wfh_date} was rejected. Reason: ${reviewer_notes}`,
+        message: `Your WFH request for ${request.wfh_date_to && request.wfh_date_to !== request.wfh_date ? `${request.wfh_date} to ${request.wfh_date_to}` : request.wfh_date} was rejected. Reason: ${reviewer_notes}`,
         type: NOTIFICATION_TYPE.WFH_REJECTED,
         entityType: 'WFH_REQUEST', entityId: req.params.id,
       });

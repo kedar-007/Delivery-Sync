@@ -34,7 +34,34 @@ export const useUpdateBugReport = () => {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<BugReport> }) =>
       bugApi.update(id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['bug-reports'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['bug-reports'] });
+      qc.invalidateQueries({ queryKey: ['bug-reports-all'] });
+    },
+  });
+};
+
+export const useResolveBugReport = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, resolution_notes }: { id: string; resolution_notes?: string }) =>
+      bugApi.resolve(id, resolution_notes),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['bug-reports'] });
+      qc.invalidateQueries({ queryKey: ['bug-reports-all'] });
+    },
+  });
+};
+
+export const useReplyBugReport = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, resolution_notes }: { id: string; resolution_notes: string }) =>
+      bugApi.reply(id, resolution_notes),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['bug-reports'] });
+      qc.invalidateQueries({ queryKey: ['bug-reports-all'] });
+    },
   });
 };
 

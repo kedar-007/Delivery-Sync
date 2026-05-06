@@ -75,9 +75,12 @@ const AttendanceWidget: React.FC = () => {
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const { data: myWfhRequests = [] } = useWfhRequests({ mine: 'true' });
-  const todayApprovedWfh = (myWfhRequests as any[]).find(
-    (r: any) => (r.wfhDate ?? r.wfh_date) === todayStr && r.status === 'APPROVED'
-  );
+  const todayApprovedWfh = (myWfhRequests as any[]).find((r: any) => {
+    if (r.status !== 'APPROVED') return false;
+    const from = r.wfhDate ?? r.wfh_date ?? '';
+    const to   = r.wfhDateTo ?? r.wfh_date_to ?? from;
+    return from <= todayStr && todayStr <= (to || from);
+  });
 
   // Always send UTC so both backend and timer use the same reference frame
   const clientTime = () => new Date().toISOString().replace('T', ' ').slice(0, 19);

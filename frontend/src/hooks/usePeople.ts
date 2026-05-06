@@ -275,6 +275,7 @@ const normaliseWfhRequest = (r: any) => ({
   id:            String(r.ROWID ?? r.id ?? ''),
   userId:        r.user_id        ?? r.userId,
   wfhDate:       r.wfh_date       ?? r.wfhDate,
+  wfhDateTo:     r.wfh_date_to    ?? r.wfhDateTo ?? '',
   reviewedBy:    r.reviewed_by    ?? r.reviewedBy    ?? '',
   reviewerNotes: r.reviewer_notes ?? r.reviewerNotes ?? '',
   reviewedAt:    r.reviewed_at    ?? r.reviewedAt    ?? null,

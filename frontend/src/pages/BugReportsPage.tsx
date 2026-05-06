@@ -1,0 +1,713 @@
+import React, { useState, useMemo } from 'react';
+import {
+  Bug, Plus, Search, Filter, CheckCircle2, Clock, AlertCircle,
+  ChevronRight, X, Send, RotateCcw, RefreshCw, Settings,
+  AlertTriangle, Paperclip, Tag, User, Calendar, MessageSquare,
+  ToggleLeft, ToggleRight, Circle, Layers, Zap, Eye,
+} from 'lucide-react';
+import { format, parseISO } from 'date-fns';
+import Layout from '../components/layout/Layout';
+import Header from '../components/layout/Header';
+import Button from '../components/ui/Button';
+import Modal, { ModalActions } from '../components/ui/Modal';
+import Alert from '../components/ui/Alert';
+import EmptyState from '../components/ui/EmptyState';
+import { PageLoader } from '../components/ui/Spinner';
+import { useAuth } from '../contexts/AuthContext';
+import {
+  useBugReports, useAllBugReports, useSubmitBugReport,
+  useUpdateBugReport, useResolveBugReport, useReplyBugReport,
+  useBugConfig, useSaveBugConfig,
+} from '../hooks/useBugReports';
+import { BugReport } from '../lib/api';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const TYPE_META: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
+  BUG:             { label: 'Bug',             color: 'bg-red-100 text-red-700 border-red-200',         icon: <Bug size={11} /> },
+  ISSUE:           { label: 'Issue',           color: 'bg-orange-100 text-orange-700 border-orange-200', icon: <AlertCircle size={11} /> },
+  FEEDBACK:        { label: 'Feedback',        color: 'bg-blue-100 text-blue-700 border-blue-200',       icon: <MessageSquare size={11} /> },
+  FEATURE_REQUEST: { label: 'Feature Request', color: 'bg-purple-100 text-purple-700 border-purple-200', icon: <Zap size={11} /> },
+};
+
+const SEV_META: Record<string, { label: string; dot: string; badge: string }> = {
+  CRITICAL: { label: 'Critical', dot: 'bg-red-500',    badge: 'bg-red-100 text-red-700 border-red-200' },
+  HIGH:     { label: 'High',     dot: 'bg-orange-500', badge: 'bg-orange-100 text-orange-700 border-orange-200' },
+  MEDIUM:   { label: 'Medium',   dot: 'bg-amber-500',  badge: 'bg-amber-100 text-amber-700 border-amber-200' },
+  LOW:      { label: 'Low',      dot: 'bg-green-500',  badge: 'bg-green-100 text-green-700 border-green-200' },
+};
+
+const STATUS_META: Record<string, { label: string; icon: React.ReactNode; badge: string }> = {
+  OPEN:      { label: 'Open',       icon: <Circle size={12} />,        badge: 'bg-gray-100 text-gray-600 border-gray-200' },
+  IN_REVIEW: { label: 'In Review',  icon: <Eye size={12} />,           badge: 'bg-blue-100 text-blue-700 border-blue-200' },
+  RESOLVED:  { label: 'Resolved',   icon: <CheckCircle2 size={12} />,  badge: 'bg-green-100 text-green-700 border-green-200' },
+  CLOSED:    { label: 'Closed',     icon: <X size={12} />,             badge: 'bg-gray-100 text-gray-500 border-gray-200' },
+  DUPLICATE: { label: 'Duplicate',  icon: <Layers size={12} />,        badge: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
+};
+
+const fmtDate = (d?: string) => {
+  if (!d) return '';
+  try { return format(parseISO(d), 'dd MMM yyyy'); } catch { return d; }
+};
+
+// ─── Status / Severity badge ──────────────────────────────────────────────────
+
+const StatusBadge = ({ status }: { status?: string }) => {
+  const m = STATUS_META[status ?? ''] ?? STATUS_META.OPEN;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${m.badge}`}>
+      {m.icon}{m.label}
+    </span>
+  );
+};
+
+const SevBadge = ({ sev }: { sev?: string }) => {
+  const m = SEV_META[sev ?? 'MEDIUM'];
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border ${m.badge}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${m.dot}`} />{m.label}
+    </span>
+  );
+};
+
+const TypeBadge = ({ type }: { type?: string }) => {
+  const m = TYPE_META[type ?? 'BUG'];
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${m.color}`}>
+      {m.icon}{m.label}
+    </span>
+  );
+};
+
+// ─── Stat card ────────────────────────────────────────────────────────────────
+
+const StatCard = ({ label, value, icon, accent }: {
+  label: string; value: number; icon: React.ReactNode; accent: string;
+}) => (
+  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
+    <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${accent}`}>
+      {icon}
+    </div>
+    <div>
+      <p className="text-2xl font-bold text-gray-900">{value}</p>
+      <p className="text-xs text-gray-400 font-medium mt-0.5">{label}</p>
+    </div>
+  </div>
+);
+
+// ─── Submit modal ─────────────────────────────────────────────────────────────
+
+const SubmitModal = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
+  const submit = useSubmitBugReport();
+  const [form, setForm] = useState<{
+    title: string; description: string;
+    report_type: BugReport['report_type']; severity: BugReport['severity']; page_url: string;
+  }>({
+    title: '', description: '', report_type: 'BUG', severity: 'MEDIUM', page_url: '',
+  });
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!form.title.trim()) { setError('Title is required'); return; }
+    if (!form.description.trim()) { setError('Description is required'); return; }
+    try {
+      await submit.mutateAsync(form);
+      setForm({ title: '', description: '', report_type: 'BUG', severity: 'MEDIUM', page_url: '' });
+      onClose();
+    } catch (err: unknown) {
+      setError((err as Error).message);
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} size="lg">
+      <div className="flex items-center gap-3 mb-5">
+        <div className="w-10 h-10 rounded-xl bg-red-50 border border-red-200 flex items-center justify-center">
+          <Bug size={18} className="text-red-600" />
+        </div>
+        <div>
+          <h2 className="text-base font-bold text-gray-900">Report an Issue</h2>
+          <p className="text-xs text-gray-400 mt-0.5">Help us improve by describing what you encountered</p>
+        </div>
+      </div>
+
+      {error && <Alert type="error" message={error} className="mb-4" />}
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="form-label">Type</label>
+            <select className="form-select" value={form.report_type}
+              onChange={(e) => setForm((f) => ({ ...f, report_type: e.target.value as BugReport['report_type'] }))}>
+              <option value="BUG">Bug</option>
+              <option value="ISSUE">Issue</option>
+              <option value="FEEDBACK">Feedback</option>
+              <option value="FEATURE_REQUEST">Feature Request</option>
+            </select>
+          </div>
+          <div>
+            <label className="form-label">Severity</label>
+            <select className="form-select" value={form.severity}
+              onChange={(e) => setForm((f) => ({ ...f, severity: e.target.value as BugReport['severity'] }))}>
+              <option value="LOW">Low</option>
+              <option value="MEDIUM">Medium</option>
+              <option value="HIGH">High</option>
+              <option value="CRITICAL">Critical</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="form-label">Title <span className="text-red-500">*</span></label>
+          <input className="form-input" placeholder="Brief summary of the issue…"
+            value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} />
+        </div>
+
+        <div>
+          <label className="form-label">Description <span className="text-red-500">*</span></label>
+          <textarea className="form-input min-h-[120px] resize-y"
+            placeholder="Steps to reproduce, expected vs actual behaviour, any error messages…"
+            value={form.description}
+            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
+        </div>
+
+        <div>
+          <label className="form-label">Page URL <span className="text-gray-400 font-normal">(optional)</span></label>
+          <input className="form-input" placeholder="https://…"
+            value={form.page_url} onChange={(e) => setForm((f) => ({ ...f, page_url: e.target.value }))} />
+        </div>
+
+        <ModalActions>
+          <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
+          <Button type="submit" loading={submit.isPending} icon={<Send size={14} />}>Submit Report</Button>
+        </ModalActions>
+      </form>
+    </Modal>
+  );
+};
+
+// ─── Detail / management modal ────────────────────────────────────────────────
+
+const DetailModal = ({ report, isAdmin, open, onClose }: {
+  report: BugReport | null; isAdmin: boolean; open: boolean; onClose: () => void;
+}) => {
+  const update  = useUpdateBugReport();
+  const resolve = useResolveBugReport();
+  const reply   = useReplyBugReport();
+  const [notes, setNotes]   = useState('');
+  const [status, setStatus] = useState('');
+  const [error, setError]   = useState('');
+  const [success, setSuccess] = useState('');
+
+  React.useEffect(() => {
+    if (open && report) {
+      setStatus(report.status ?? 'OPEN');
+      setNotes(report.resolution_notes ?? '');
+      setError('');
+      setSuccess('');
+    }
+  }, [open, report]);
+
+  const handleStatusUpdate = async () => {
+    if (!report?.ROWID) return;
+    setError(''); setSuccess('');
+    try {
+      await update.mutateAsync({ id: report.ROWID, data: { status: status as BugReport['status'] } });
+      setSuccess('Status updated');
+    } catch (err: unknown) { setError((err as Error).message); }
+  };
+
+  const handleReply = async () => {
+    if (!report?.ROWID || !notes.trim()) { setError('Note is required'); return; }
+    setError(''); setSuccess('');
+    try {
+      await reply.mutateAsync({ id: report.ROWID, resolution_notes: notes });
+      setSuccess('Note saved and visible to the reporter');
+    } catch (err: unknown) { setError((err as Error).message); }
+  };
+
+  const handleResolve = async () => {
+    if (!report?.ROWID) return;
+    setError(''); setSuccess('');
+    try {
+      await resolve.mutateAsync({ id: report.ROWID, resolution_notes: notes });
+      setSuccess('Report marked as resolved — reporter notified');
+      setStatus('RESOLVED');
+    } catch (err: unknown) { setError((err as Error).message); }
+  };
+
+  if (!report) return null;
+
+  return (
+    <Modal open={open} onClose={onClose} size="lg">
+      {/* Header */}
+      <div className="flex items-start gap-3 mb-5">
+        <div className="w-10 h-10 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center shrink-0 mt-0.5">
+          <Bug size={17} className="text-gray-500" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-base font-bold text-gray-900 leading-snug">{report.title}</h2>
+          <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+            <TypeBadge type={report.report_type} />
+            <SevBadge sev={report.severity} />
+            <StatusBadge status={report.status} />
+          </div>
+        </div>
+      </div>
+
+      {error   && <Alert type="error"   message={error}   className="mb-4" />}
+      {success && <Alert type="success" message={success} className="mb-4" />}
+
+      <div className="space-y-4">
+        {/* Description */}
+        <div className="bg-gray-50 rounded-xl border border-gray-100 p-4">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Description</p>
+          <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{report.description}</p>
+        </div>
+
+        {/* Meta row */}
+        <div className="grid grid-cols-2 gap-3 text-xs text-gray-500">
+          {report.reporter_name && (
+            <div className="flex items-center gap-1.5">
+              <User size={12} className="text-gray-400" />
+              <span>{report.reporter_name}</span>
+            </div>
+          )}
+          {report.CREATEDTIME && (
+            <div className="flex items-center gap-1.5">
+              <Calendar size={12} className="text-gray-400" />
+              <span>{fmtDate(report.CREATEDTIME)}</span>
+            </div>
+          )}
+          {report.page_url && (
+            <div className="flex items-center gap-1.5 col-span-2">
+              <Tag size={12} className="text-gray-400" />
+              <span className="truncate">{report.page_url}</span>
+            </div>
+          )}
+          {Number(report.attachment_count) > 0 && (
+            <div className="flex items-center gap-1.5">
+              <Paperclip size={12} className="text-gray-400" />
+              <span>{report.attachment_count} attachment{Number(report.attachment_count) > 1 ? 's' : ''}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Resolution note (always show if exists) */}
+        {report.resolution_notes && !isAdmin && (
+          <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+            <p className="text-xs font-semibold text-green-700 uppercase tracking-wider mb-1.5">Admin Note</p>
+            <p className="text-sm text-green-800 whitespace-pre-wrap">{report.resolution_notes}</p>
+            {report.resolved_by && (
+              <p className="text-xs text-green-600 mt-2">— {report.resolved_by}{report.resolved_at ? `, ${fmtDate(report.resolved_at)}` : ''}</p>
+            )}
+          </div>
+        )}
+
+        {/* Admin controls */}
+        {isAdmin && (
+          <div className="border-t border-gray-100 pt-4 space-y-3">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Admin Actions</p>
+
+            {/* Status changer */}
+            <div className="flex items-center gap-2">
+              <select className="form-select flex-1" value={status}
+                onChange={(e) => setStatus(e.target.value)}>
+                <option value="OPEN">Open</option>
+                <option value="IN_REVIEW">In Review</option>
+                <option value="RESOLVED">Resolved</option>
+                <option value="CLOSED">Closed</option>
+                <option value="DUPLICATE">Duplicate</option>
+              </select>
+              <Button variant="outline" size="sm" onClick={handleStatusUpdate}
+                loading={update.isPending} icon={<RotateCcw size={13} />}>
+                Update Status
+              </Button>
+            </div>
+
+            {/* Reply note */}
+            <div>
+              <label className="form-label">Resolution Note <span className="text-gray-400 font-normal">(visible to reporter)</span></label>
+              <textarea className="form-input min-h-[80px] resize-y text-sm"
+                placeholder="Describe what was done or what the reporter should try…"
+                value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={handleReply}
+                loading={reply.isPending} icon={<MessageSquare size={13} />}>
+                Save Note
+              </Button>
+              {report.status !== 'RESOLVED' && report.status !== 'CLOSED' && (
+                <Button size="sm"
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                  onClick={handleResolve}
+                  loading={resolve.isPending}
+                  icon={<CheckCircle2 size={13} />}>
+                  Mark Resolved
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <ModalActions>
+        <Button variant="outline" onClick={onClose}>Close</Button>
+      </ModalActions>
+    </Modal>
+  );
+};
+
+// ─── Report card ──────────────────────────────────────────────────────────────
+
+const STATUS_SELECT_CLASS: Record<string, string> = {
+  OPEN:      'bg-gray-100 text-gray-600 border-gray-300',
+  IN_REVIEW: 'bg-blue-100 text-blue-700 border-blue-300',
+  RESOLVED:  'bg-green-100 text-green-700 border-green-300',
+  CLOSED:    'bg-gray-100 text-gray-500 border-gray-300',
+  DUPLICATE: 'bg-yellow-100 text-yellow-700 border-yellow-300',
+};
+
+const ReportCard = ({ report, isAdmin, onClick }: {
+  report: BugReport; isAdmin: boolean; onClick: () => void;
+}) => {
+  const update = useUpdateBugReport();
+
+  const handleStatusChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newStatus = e.target.value;
+    if (newStatus === report.status || !report.ROWID) return;
+    try {
+      await update.mutateAsync({ id: report.ROWID, data: { status: newStatus as BugReport['status'] } });
+    } catch (_) {}
+  };
+
+  return (
+    <div
+      role="button" tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => e.key === 'Enter' && onClick()}
+      className="w-full text-left bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-200 transition-all p-4 flex gap-4 group cursor-pointer"
+    >
+      {/* Left accent */}
+      <div className={`w-1 rounded-full shrink-0 self-stretch ${
+        report.severity === 'CRITICAL' ? 'bg-red-500' :
+        report.severity === 'HIGH'     ? 'bg-orange-500' :
+        report.severity === 'MEDIUM'   ? 'bg-amber-400' : 'bg-green-400'
+      }`} />
+
+      <div className="flex-1 min-w-0">
+        {/* Top row */}
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <TypeBadge type={report.report_type} />
+            <SevBadge sev={report.severity} />
+          </div>
+
+          {isAdmin ? (
+            <div onClick={(e) => e.stopPropagation()}>
+              <select
+                value={report.status ?? 'OPEN'}
+                onChange={handleStatusChange}
+                disabled={update.isPending}
+                className={`text-xs font-semibold rounded-full border px-2.5 py-0.5 cursor-pointer outline-none transition-colors appearance-none disabled:opacity-60 ${STATUS_SELECT_CLASS[report.status ?? 'OPEN'] ?? STATUS_SELECT_CLASS.OPEN}`}
+              >
+                <option value="OPEN">Open</option>
+                <option value="IN_REVIEW">In Review</option>
+                <option value="RESOLVED">Resolved</option>
+                <option value="CLOSED">Closed</option>
+                <option value="DUPLICATE">Duplicate</option>
+              </select>
+            </div>
+          ) : (
+            <StatusBadge status={report.status} />
+          )}
+        </div>
+
+        <p className="text-sm font-semibold text-gray-900 truncate leading-snug">{report.title}</p>
+        <p className="text-xs text-gray-400 mt-1 line-clamp-2 leading-relaxed">{report.description}</p>
+
+        {/* Bottom meta */}
+        <div className="flex flex-wrap items-center gap-3 mt-3 text-xs text-gray-400">
+          {isAdmin && report.reporter_name && (
+            <span className="flex items-center gap-1">
+              <User size={11} />{report.reporter_name}
+            </span>
+          )}
+          {report.CREATEDTIME && (
+            <span className="flex items-center gap-1">
+              <Calendar size={11} />{fmtDate(report.CREATEDTIME)}
+            </span>
+          )}
+          {Number(report.attachment_count) > 0 && (
+            <span className="flex items-center gap-1">
+              <Paperclip size={11} />{report.attachment_count}
+            </span>
+          )}
+          {report.resolution_notes && (
+            <span className="flex items-center gap-1 text-green-600">
+              <MessageSquare size={11} />Has note
+            </span>
+          )}
+        </div>
+      </div>
+
+      <ChevronRight size={16} className="text-gray-300 group-hover:text-indigo-400 transition-colors shrink-0 self-center" />
+    </div>
+  );
+};
+
+// ─── Config panel ─────────────────────────────────────────────────────────────
+
+const ConfigPanel = ({ onClose }: { onClose: () => void }) => {
+  const { data: rawConfig } = useBugConfig();
+  const saveConfig = useSaveBugConfig();
+  const [enabled, setEnabled] = useState<boolean>(true);
+  const [error, setError]     = useState('');
+  const [saved, setSaved]     = useState(false);
+
+  React.useEffect(() => {
+    if (rawConfig) {
+      const cfg = rawConfig as any;
+      setEnabled(cfg.enabled === true || String(cfg.enabled) !== 'false');
+    }
+  }, [rawConfig]);
+
+  const handleToggle = async (val: boolean) => {
+    setEnabled(val);
+    setError(''); setSaved(false);
+    try {
+      await saveConfig.mutateAsync({ enabled: val });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err: unknown) { setError((err as Error).message); setEnabled(!val); }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Settings size={16} className="text-gray-500" />
+          <span className="text-sm font-bold text-gray-700">Bug Reporting Settings</span>
+        </div>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded-lg hover:bg-gray-100">
+          <X size={15} />
+        </button>
+      </div>
+
+      {error && <Alert type="error" message={error} className="mb-3" />}
+      {saved && <Alert type="success" message="Settings saved" className="mb-3" />}
+
+      <div className="flex items-center justify-between p-4 rounded-xl border border-gray-200 bg-gray-50">
+        <div>
+          <p className="text-sm font-semibold text-gray-800">Enable Bug Reporting</p>
+          <p className="text-xs text-gray-400 mt-0.5">Allow all team members to submit bug reports and feedback</p>
+        </div>
+        <button onClick={() => handleToggle(!enabled)} className="shrink-0 ml-4">
+          {enabled
+            ? <ToggleRight size={36} className="text-indigo-600" />
+            : <ToggleLeft  size={36} className="text-gray-400" />}
+        </button>
+      </div>
+
+      <p className="text-xs text-gray-400 mt-3">
+        When disabled, team members see a "not available" message. Their existing reports are preserved.
+      </p>
+    </div>
+  );
+};
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
+export default function BugReportsPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'TENANT_ADMIN' || user?.role === 'SUPER_ADMIN';
+
+  const [tab, setTab]           = useState<'mine' | 'all'>('mine');
+  const [search, setSearch]     = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterType,   setFilterType]   = useState('');
+  const [filterSev,    setFilterSev]    = useState('');
+  const [showSubmit,   setShowSubmit]   = useState(false);
+  const [selectedId,   setSelectedId]   = useState<string | null>(null);
+  const [showConfig,   setShowConfig]   = useState(false);
+
+  // Queries
+  const { data: rawMine = [], isLoading: loadingMine } = useBugReports();
+  const { data: rawAll  = [], isLoading: loadingAll  } = useAllBugReports();
+  const { data: rawConfig } = useBugConfig();
+
+  const cfg         = rawConfig as any;
+  const isEnabled   = !cfg || cfg.enabled === true || String(cfg.enabled) !== 'false';
+  const myReports   = ((rawMine as any)?.reports ?? (Array.isArray(rawMine) ? rawMine : [])) as BugReport[];
+  const allReports  = ((rawAll  as any)?.reports ?? (Array.isArray(rawAll)  ? rawAll  : [])) as BugReport[];
+  const activeList  = tab === 'all' && isAdmin ? allReports : myReports;
+  const selected    = selectedId ? [...myReports, ...allReports].find((r) => r.ROWID === selectedId) ?? null : null;
+  const isLoading   = tab === 'all' ? loadingAll : loadingMine;
+
+  // Stats
+  const statSource = isAdmin ? allReports : myReports;
+  const stats = useMemo(() => ({
+    total:     statSource.length,
+    open:      statSource.filter((r) => r.status === 'OPEN').length,
+    inReview:  statSource.filter((r) => r.status === 'IN_REVIEW').length,
+    resolved:  statSource.filter((r) => r.status === 'RESOLVED' || r.status === 'CLOSED').length,
+  }), [statSource]);
+
+  // Filter
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return activeList.filter((r) => {
+      if (filterStatus && r.status !== filterStatus) return false;
+      if (filterType   && r.report_type !== filterType) return false;
+      if (filterSev    && r.severity !== filterSev) return false;
+      if (q && !r.title?.toLowerCase().includes(q) && !r.description?.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [activeList, search, filterStatus, filterType, filterSev]);
+
+  if (isLoading && myReports.length === 0) return <Layout><PageLoader /></Layout>;
+
+  return (
+    <Layout>
+      <Header
+        title="Bug Reports"
+        subtitle={isAdmin ? `${stats.total} total reports across your organisation` : "Track issues you've reported"}
+        actions={
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <Button variant="outline" size="sm" icon={<Settings size={14} />}
+                onClick={() => setShowConfig((v) => !v)}>
+                Settings
+              </Button>
+            )}
+            {isEnabled && (
+              <Button size="sm" icon={<Plus size={14} />} onClick={() => setShowSubmit(true)}>
+                Report Issue
+              </Button>
+            )}
+          </div>
+        }
+      />
+
+      <div className="px-6 pt-6 pb-8 space-y-5">
+
+        {/* Feature disabled banner */}
+        {!isEnabled && (
+          <Alert
+            type="warning"
+            message={isAdmin
+              ? 'Bug reporting is currently disabled. Enable it in Settings to let your team submit reports.'
+              : 'Bug reporting is not available for your organisation at the moment.'}
+          />
+        )}
+
+        {/* Config panel (admin) */}
+        {showConfig && isAdmin && <ConfigPanel onClose={() => setShowConfig(false)} />}
+
+        {/* Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <StatCard label="Total"     value={stats.total}    accent="bg-indigo-50"  icon={<Bug size={18} className="text-indigo-500" />} />
+          <StatCard label="Open"      value={stats.open}     accent="bg-gray-100"   icon={<Circle size={18} className="text-gray-500" />} />
+          <StatCard label="In Review" value={stats.inReview} accent="bg-blue-50"    icon={<Clock size={18} className="text-blue-500" />} />
+          <StatCard label="Resolved"  value={stats.resolved} accent="bg-green-50"   icon={<CheckCircle2 size={18} className="text-green-500" />} />
+        </div>
+
+        {/* Tabs (admin only) */}
+        {isAdmin && (
+          <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+            {(['mine', 'all'] as const).map((t) => (
+              <button key={t} onClick={() => setTab(t)}
+                className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                  tab === t ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
+                }`}>
+                {t === 'mine' ? 'My Reports' : `All Reports${allReports.length ? ` (${allReports.length})` : ''}`}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Filter bar */}
+        <div className="flex flex-wrap gap-2">
+          <div className="relative">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <input
+              type="text" placeholder="Search reports…" value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white w-52"
+            />
+          </div>
+          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
+            className="py-2 pl-3 pr-8 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white text-gray-600">
+            <option value="">All Statuses</option>
+            <option value="OPEN">Open</option>
+            <option value="IN_REVIEW">In Review</option>
+            <option value="RESOLVED">Resolved</option>
+            <option value="CLOSED">Closed</option>
+            <option value="DUPLICATE">Duplicate</option>
+          </select>
+          <select value={filterType} onChange={(e) => setFilterType(e.target.value)}
+            className="py-2 pl-3 pr-8 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white text-gray-600">
+            <option value="">All Types</option>
+            <option value="BUG">Bug</option>
+            <option value="ISSUE">Issue</option>
+            <option value="FEEDBACK">Feedback</option>
+            <option value="FEATURE_REQUEST">Feature Request</option>
+          </select>
+          <select value={filterSev} onChange={(e) => setFilterSev(e.target.value)}
+            className="py-2 pl-3 pr-8 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white text-gray-600">
+            <option value="">All Severities</option>
+            <option value="CRITICAL">Critical</option>
+            <option value="HIGH">High</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="LOW">Low</option>
+          </select>
+          {(filterStatus || filterType || filterSev || search) && (
+            <button onClick={() => { setSearch(''); setFilterStatus(''); setFilterType(''); setFilterSev(''); }}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-500 hover:text-red-600 border border-gray-200 rounded-lg bg-white transition-colors">
+              <X size={12} />Clear
+            </button>
+          )}
+        </div>
+
+        {/* List */}
+        {filtered.length === 0 ? (
+          <EmptyState
+            icon={<Bug size={40} className="text-gray-300" />}
+            title={search || filterStatus || filterType || filterSev ? 'No reports match your filters' : 'No reports yet'}
+            description={isEnabled
+              ? (search || filterStatus || filterType || filterSev
+                  ? 'Try adjusting your filters'
+                  : 'When you report a bug or issue, it will appear here')
+              : 'Bug reporting is currently disabled'}
+            action={isEnabled && !search && !filterStatus && !filterType && !filterSev ? (
+              <Button icon={<Plus size={14} />} onClick={() => setShowSubmit(true)}>Report your first issue</Button>
+            ) : undefined}
+          />
+        ) : (
+          <div className="space-y-3">
+            {filtered.map((r) => (
+              <ReportCard
+                key={r.ROWID}
+                report={r}
+                isAdmin={isAdmin}
+                onClick={() => setSelectedId(r.ROWID ?? null)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Modals */}
+      <SubmitModal open={showSubmit} onClose={() => setShowSubmit(false)} />
+      <DetailModal
+        report={selected}
+        isAdmin={isAdmin}
+        open={!!selected}
+        onClose={() => setSelectedId(null)}
+      />
+    </Layout>
+  );
+}

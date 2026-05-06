@@ -89,13 +89,14 @@ const NAV_ITEMS: NavItem[] = [
   },
 
   // ── Executive ─────────────────────────────────────────────────────────────────
-  // Visible to anyone whose org role grants ORG_ROLE_READ (EXEC, PMO, CEO, etc.)
+  // No parent permission — child-level permissions handle visibility per role.
+  // Group auto-hides when all children are invisible.
   {
-    label: 'Executive', icon: <Briefcase size={18} />, permission: PERMISSIONS.ORG_ROLE_READ, moduleKey: 'exec',
+    label: 'Executive', icon: <Briefcase size={18} />, moduleKey: 'exec',
     children: [
-      { label: 'Portfolio',     to: '/portfolio',     icon: <Briefcase size={16} /> },
-      { label: 'CEO Dashboard', to: '/ceo-dashboard', icon: <Briefcase size={16} /> },
-      { label: 'CTO Dashboard', to: '/cto-dashboard', icon: <LayoutDashboard size={16} /> },
+      { label: 'Portfolio',     to: '/portfolio',     icon: <Briefcase size={16} />,       permission: PERMISSIONS.ORG_ROLE_READ },
+      { label: 'CEO Dashboard', to: '/ceo-dashboard', icon: <Briefcase size={16} />,       permission: PERMISSIONS.CEO_DASHBOARD },
+      { label: 'CTO Dashboard', to: '/cto-dashboard', icon: <LayoutDashboard size={16} />, permission: PERMISSIONS.CTO_DASHBOARD },
     ],
   },
 
@@ -110,6 +111,9 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Data Seeder',        to: '/data-seed',    icon: <FlaskConical size={16} /> },
     ],
   },
+  // ── Support ───────────────────────────────────────────────────────────────────
+  { label: 'Bug Reports', to: '/bug-reports', icon: <AlertTriangle size={18} /> },
+
   // ── Help ──────────────────────────────────────────────────────────────────────
   { label: 'Help & Docs', to: '/help', icon: <BookOpen size={18} /> },
 ];
