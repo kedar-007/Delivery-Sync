@@ -4,7 +4,7 @@ const router  = express.Router();
 const RBACMiddleware  = require('../middleware/RBACMiddleware');
 const LeaveController = require('../controllers/LeaveController');
 const { PERMISSIONS } = require('../utils/Constants');
-const ctrl = (req) => new LeaveController(req.catalystApp);
+const ctrl = (req) => new LeaveController(req.catalystApp, req.adminCatalystApp);
 
 // ── Leave Types ───────────────────────────────────────────────────────────────
 router.get('/types',                          RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    (req, res) => ctrl(req).listTypes(req, res));
@@ -34,6 +34,11 @@ router.get('/overlaps',                       RBACMiddleware.require(PERMISSIONS
 // ── Company Calendar ──────────────────────────────────────────────────────────
 router.get('/company-calendar',               RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    (req, res) => ctrl(req).getCompanyCalendar(req, res));
 router.post('/company-calendar',              RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).createHoliday(req, res));
+router.put('/company-calendar/:holidayId',    RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).updateHoliday(req, res));
 router.delete('/company-calendar/:holidayId', RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).deleteHoliday(req, res));
+
+// ── Calendar Config (locations + weekend policy) ──────────────────────────────
+router.get('/calendar-config',                RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    (req, res) => ctrl(req).getCalendarConfig(req, res));
+router.put('/calendar-config',                RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).saveCalendarConfig(req, res));
 
 module.exports = router;

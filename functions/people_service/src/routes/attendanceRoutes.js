@@ -4,7 +4,7 @@ const router  = express.Router();
 const RBACMiddleware        = require('../middleware/RBACMiddleware');
 const AttendanceController  = require('../controllers/AttendanceController');
 const { PERMISSIONS } = require('../utils/Constants');
-const ctrl = (req) => new AttendanceController(req.catalystApp);
+const ctrl = (req) => new AttendanceController(req.catalystApp, req.adminCatalystApp);
 router.post('/check-in',                   RBACMiddleware.require(PERMISSIONS.ATTENDANCE_WRITE), (req, res) => ctrl(req).checkIn(req, res));
 router.post('/check-out',                  RBACMiddleware.require(PERMISSIONS.ATTENDANCE_WRITE), (req, res) => ctrl(req).checkOut(req, res));
 router.get('/live',                        RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).live(req, res));

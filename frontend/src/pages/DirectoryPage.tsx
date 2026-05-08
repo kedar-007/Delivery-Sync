@@ -29,6 +29,7 @@ import {
   useAwardBadge,
   useUploadProfileFile,
 } from '../hooks/useBadgeProfile';
+import { useI18n } from '../contexts/I18nContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1274,6 +1275,7 @@ const MyProfileTab = () => {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 const DirectoryPage = () => {
+  const { t } = useI18n();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('Directory');
@@ -1284,7 +1286,7 @@ const DirectoryPage = () => {
   return (
     <Layout>
       <Header
-        title="People Directory"
+        title={t('nav.directory')}
         subtitle="Browse employees, view profiles, and celebrate achievements"
       />
       <div className="p-6 space-y-6">

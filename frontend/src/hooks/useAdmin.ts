@@ -81,9 +81,13 @@ export const useSetUserPermissions = (userId: string) => {
   const qc = useQueryClient();
   const toast = useToast();
   return useMutation({
-    mutationFn: (data: { granted: string[]; revoked: string[] }) =>
+    mutationFn: (data: { granted: string[]; revoked: string[]; moduleAccess?: string[] }) =>
       adminApi.setUserPermissions(userId, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['user-permissions', userId] }); toast.success('Permissions saved'); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['user-permissions', userId] });
+      qc.invalidateQueries({ queryKey: ['module-permissions'] });
+      toast.success('Permissions saved');
+    },
     onError: (e: Error) => toast.error(e.message || 'Failed to save permissions'),
   });
 };
@@ -157,8 +161,13 @@ export const useSetOrgRolePermissions = (roleId: string) => {
   const qc = useQueryClient();
   const toast = useToast();
   return useMutation({
-    mutationFn: (permissions: string[]) => adminApi.setOrgRolePermissions(roleId, permissions),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['org-roles'] }); toast.success('Permissions saved'); },
+    mutationFn: ({ permissions, moduleAccess }: { permissions: string[]; moduleAccess: string[] }) =>
+      adminApi.setOrgRolePermissions(roleId, permissions, moduleAccess),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['org-roles'] });
+      qc.invalidateQueries({ queryKey: ['module-permissions'] });
+      toast.success('Permissions saved');
+    },
     onError: (e: Error) => toast.error(e.message || 'Failed to save permissions'),
   });
 };
@@ -224,5 +233,26 @@ export const useDeleteSharingRule = (roleId: string) => {
     mutationFn: (ruleId: string) => adminApi.deleteSharingRule(ruleId),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['sharing-rules', roleId] }); toast.success('Sharing rule removed'); },
     onError: (e: Error) => toast.error(e.message || 'Failed to remove sharing rule'),
+  });
+};
+
+export const useOfficeLocations = () =>
+  useQuery({
+    queryKey: ['office-locations'],
+    queryFn: () => adminApi.getOfficeLocations().then((d) => (d.locations ?? []) as { id: string; name: string; country?: string; timezone?: string }[]),
+    staleTime: 60 * 1000,
+  });
+
+export const useUpdateUserLocation = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: ({ userId, officeLocationId }: { userId: string; officeLocationId: string | null }) =>
+      adminApi.updateUserLocation(userId, officeLocationId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'users'] });
+      toast.success('Location assigned');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to assign location'),
   });
 };

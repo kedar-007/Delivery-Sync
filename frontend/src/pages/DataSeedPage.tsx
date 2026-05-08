@@ -10,6 +10,7 @@ import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Alert from '../components/ui/Alert';
 import { dataSeedApi } from '../lib/api';
+import { useI18n } from '../contexts/I18nContext';
 
 // ─── Module definitions ───────────────────────────────────────────────────────
 
@@ -237,6 +238,7 @@ const SeedProgressBar = ({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 const DataSeedPage = () => {
+  const { t } = useI18n();
   const qc = useQueryClient();
 
   const today        = new Date().toISOString().split('T')[0];
@@ -336,7 +338,7 @@ const DataSeedPage = () => {
 
   return (
     <Layout>
-      <Header title="Data Seeder" subtitle="Generate realistic test data across all modules" />
+      <Header title={t('nav.dataSeeder')} subtitle="Generate realistic test data across all modules" />
       <div className="p-6 space-y-6">
 
         {error && <Alert type="error" message={error} />}

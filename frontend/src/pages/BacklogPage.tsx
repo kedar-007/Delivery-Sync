@@ -23,6 +23,7 @@ import {
   useDeleteTask,
 } from '../hooks/useTaskSprint';
 import { useUsers } from '../hooks/useUsers';
+import { useI18n } from '../contexts/I18nContext';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -105,6 +106,7 @@ const PRIORITY_OPTIONS: { value: '' | TaskPriority; label: string }[] = [
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 const BacklogPage = () => {
+  const { t } = useI18n();
   const { projectId = '' } = useParams<{ tenantSlug: string; projectId?: string }>();
   const { user } = useAuth();
   const canManageApproval = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TIME_APPROVE);
@@ -271,7 +273,7 @@ const BacklogPage = () => {
   return (
     <Layout>
       <Header
-        title="Backlog"
+        title={t('nav.backlog')}
         subtitle={`${(backlogTasks as Task[]).length} task${(backlogTasks as Task[]).length !== 1 ? 's' : ''} not in a sprint`}
         actions={
           <Button onClick={() => setShowCreate(true)}>

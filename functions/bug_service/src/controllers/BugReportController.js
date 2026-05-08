@@ -685,6 +685,76 @@ class BugReportController {
     return ResponseHelper.success(res, { resolved: true, reportId }, 'Bug report resolved successfully');
   }
 
+  // ─── POST /api/bugs/reports/:id/reporter-reply ────────────────────────────
+  // Called by the reporter (or admin) to add a reply/follow-up note.
+  // Stored in reporter_reply + reporter_reply_at — separate from admin resolution_notes.
+  async reporterReplyReport(req, res) {
+    const { id: reportId } = req.params;
+    const { id: userId, role, tenantId } = req.currentUser;
+    const { reply } = req.body;
+
+    console.log(`[BugReportCtrl] reporterReplyReport Step 1 — reportId=${reportId} userId=${userId} role=${role}`);
+
+    if (!reply || !String(reply).trim()) {
+      return ResponseHelper.validationError(res, 'reply is required');
+    }
+
+    // Fetch the report to verify ownership / tenant
+    let report;
+    try {
+      const raw = await req.catalystApp.zcql().executeZCQLQuery(
+        `SELECT ROWID, tenant_id, reporter_id, reporter_name, reporter_email, title FROM ${TABLES.BUG_REPORTS}
+         WHERE ROWID = '${esc(reportId)}' LIMIT 1`
+      );
+      const rows = flattenRows(raw);
+      if (!rows[0]) return ResponseHelper.notFound(res, 'Bug report not found');
+      report = rows[0];
+    } catch (dbErr) {
+      console.error('[BugReportCtrl] reporterReplyReport Step 1 ✗ — DB error:', dbErr.message);
+      return ResponseHelper.serverError(res, 'Failed to fetch bug report');
+    }
+
+    const isSuperAdmin = role === 'SUPER_ADMIN';
+    const isAdmin = isSuperAdmin || ADMIN_ROLES.includes(role);
+    const isReporter = String(report.reporter_id) === String(userId);
+
+    if (!isAdmin && !isReporter) {
+      console.warn(`[BugReportCtrl] reporterReplyReport ✗ — userId=${userId} is not reporter or admin`);
+      return ResponseHelper.forbidden(res, 'You can only reply to your own reports');
+    }
+    if (!isSuperAdmin && String(report.tenant_id) !== String(tenantId)) {
+      return ResponseHelper.forbidden(res, 'Access denied');
+    }
+
+    const repliedAt = new Date().toISOString();
+    try {
+      await req.catalystApp.zcql().executeZCQLQuery(
+        `UPDATE ${TABLES.BUG_REPORTS}
+         SET reporter_reply    = '${esc(String(reply).slice(0, 2000))}',
+             reporter_reply_at = '${esc(repliedAt)}'
+         WHERE ROWID = '${esc(reportId)}'`
+      );
+    } catch (dbErr) {
+      console.error('[BugReportCtrl] reporterReplyReport ✗ — UPDATE failed:', dbErr.message);
+      return ResponseHelper.serverError(res, 'Failed to save reply');
+    }
+
+    // Notify admins via email
+    _sendReporterReplyNotification(req.catalystApp, {
+      reportId,
+      reportTitle: report.title || '(untitled)',
+      reporterName: report.reporter_name || report.reporter_email || 'Reporter',
+      reporterEmail: report.reporter_email || '',
+      replyText: String(reply).slice(0, 2000),
+      repliedAt,
+      tenantId: String(report.tenant_id || tenantId),
+    }).catch((e) => console.warn('[BugReportCtrl] reporterReplyReport — email notification failed (non-fatal):', e.message));
+
+    // Reload full report for full title (we only selected ROWID/tenant_id/reporter_id above)
+    console.log('[BugReportCtrl] reporterReplyReport ✓ — complete');
+    return ResponseHelper.success(res, { saved: true, replied_at: repliedAt }, 'Reply submitted successfully');
+  }
+
   // ─── POST /api/bugs/reports/:id/reply ─────────────────────────────────────
   async replyReport(req, res) {
     const { id: reportId } = req.params;
@@ -810,6 +880,117 @@ function _buildEmailHtml({ title, description, report_type, severity, page_url, 
   ${otherFilesHtml}
   <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
   <p style="font-size:12px;color:#9ca3af;text-align:center;">DeliverSync · Bug Report Notification</p>
+</body>
+</html>`;
+}
+
+async function _sendReporterReplyNotification(catalystApp, { reportId, reportTitle, reporterName, reporterEmail, replyText, repliedAt, tenantId }) {
+  // Load platform bug config to get notify_emails
+  let config = null;
+  try {
+    const cfgRaw = await catalystApp.zcql().executeZCQLQuery(
+      `SELECT * FROM ${TABLES.BUG_REPORT_CONFIG}
+       WHERE tenant_id = '${esc(PLATFORM_TENANT_ID)}' LIMIT 1`
+    );
+    config = (cfgRaw || []).map((r) => Object.assign({}, ...Object.values(r)))[0] || null;
+  } catch (e) {
+    console.warn('[BugReportCtrl] _sendReporterReplyNotification — config fetch failed:', e.message);
+    return;
+  }
+
+  if (!config) { console.log('[BugReportCtrl] _sendReporterReplyNotification — no platform config, skipping'); return; }
+
+  const notifyEmails = _parseJsonArray(config.notify_emails);
+  if (notifyEmails.length === 0) { console.log('[BugReportCtrl] _sendReporterReplyNotification — no notify_emails configured'); return; }
+
+  const fromEmail = process.env.FROM_EMAIL || 'catalystadmin@dsv360.ai';
+  const prefix    = config.email_subject_prefix || '[Bug Report]';
+  const subject   = `${prefix} Reporter replied — ${reportTitle}`;
+  const content   = _buildReporterReplyEmailHtml({ reportId, reportTitle, reporterName, reporterEmail, replyText, repliedAt });
+
+  for (const recipient of notifyEmails) {
+    try {
+      await catalystApp.email().sendMail({
+        from_email: fromEmail,
+        to_email:   [recipient],
+        subject,
+        content,
+        html_mode:  true,
+      });
+      console.log(`[BugReportCtrl] _sendReporterReplyNotification ✓ — email sent to ${recipient}`);
+    } catch (mailErr) {
+      console.error(`[BugReportCtrl] _sendReporterReplyNotification ✗ — email to ${recipient} failed:`, mailErr.message);
+    }
+  }
+}
+
+function _buildReporterReplyEmailHtml({ reportId, reportTitle, reporterName, reporterEmail, replyText, repliedAt }) {
+  const dateStr = new Date(repliedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reporter replied to a bug report</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f3f4f6;padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:580px;">
+
+          <!-- Header -->
+          <tr>
+            <td style="background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);border-radius:16px 16px 0 0;padding:32px 40px 28px;text-align:center;">
+              <div style="display:inline-flex;align-items:center;justify-content:center;width:52px;height:52px;background:rgba(255,255,255,0.15);border-radius:50%;margin-bottom:14px;">
+                <span style="font-size:24px;">↩️</span>
+              </div>
+              <h1 style="margin:0 0 6px;font-size:20px;font-weight:700;color:#ffffff;">Reporter Has Replied</h1>
+              <p style="margin:0;font-size:13px;color:rgba(255,255,255,0.8);">Action required — a reporter left a new note on a bug report</p>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="background:#ffffff;padding:32px 40px;">
+              <!-- Report card -->
+              <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px 20px;margin-bottom:24px;">
+                <p style="margin:0 0 4px;font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;">Bug Report</p>
+                <p style="margin:0 0 10px;font-size:16px;font-weight:700;color:#111827;">${_htmlEsc(reportTitle)}</p>
+                <p style="margin:0;font-size:12px;color:#6b7280;">Report ID: <span style="font-family:monospace;color:#4f46e5;">#${_htmlEsc(String(reportId))}</span></p>
+              </div>
+
+              <!-- Reporter info -->
+              <p style="margin:0 0 6px;font-size:13px;color:#374151;line-height:1.6;">
+                <strong>${_htmlEsc(reporterName)}</strong>${reporterEmail ? ` &lt;${_htmlEsc(reporterEmail)}&gt;` : ''} left the following reply:
+              </p>
+
+              <!-- Reply body -->
+              <div style="background:#eef2ff;border-left:4px solid #6366f1;border-radius:0 12px 12px 0;padding:16px 20px;margin:16px 0;">
+                <p style="margin:0;font-size:14px;color:#312e81;white-space:pre-wrap;line-height:1.7;">${_htmlEsc(replyText)}</p>
+              </div>
+
+              <p style="margin:16px 0 0;font-size:12px;color:#9ca3af;">Replied on ${_htmlEsc(dateStr)}</p>
+
+              <p style="margin:24px 0 0;font-size:14px;color:#6b7280;line-height:1.6;">
+                Please log in to the platform to review this reply and take any necessary action.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background:#f9fafb;border-radius:0 0 16px 16px;padding:20px 40px;text-align:center;border-top:1px solid #e5e7eb;">
+              <p style="margin:0 0 4px;font-size:13px;font-weight:600;color:#4f46e5;">DSVOps Pulse</p>
+              <p style="margin:0;font-size:12px;color:#9ca3af;">This is an automated notification from the Bug Reporting system.</p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>`;
 }

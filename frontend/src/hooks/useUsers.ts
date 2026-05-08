@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { usersApi, profilesApi } from '../lib/api';
+import { useToast } from '../components/ui/Toast';
 
 export interface TenantUser {
   id: string;
@@ -79,5 +80,19 @@ export const useUploadProfileFile = () => {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['my-extended-profile'] });
     },
+  });
+};
+
+export const useUpdateMyLocation = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (officeLocationId: string | null) => usersApi.updateMyLocation(officeLocationId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['auth-me'] });
+      qc.invalidateQueries({ queryKey: ['leave', 'company-calendar'] });
+      toast.success('Location updated');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update location'),
   });
 };

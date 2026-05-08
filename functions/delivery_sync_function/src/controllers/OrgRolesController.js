@@ -200,12 +200,13 @@ class OrgRolesController {
       const role = await this.db.findById(TABLES.ORG_ROLES, roleId, tenantId);
       if (!role) return ResponseHelper.notFound(res, 'Role not found');
 
-      const perms = await this._loadRolePermissions(tenantId, roleId);
+      const { permissions, moduleAccess } = await this._loadRolePermissions(tenantId, roleId);
 
       return ResponseHelper.success(res, {
         roleId,
         roleName: role.name,
-        permissions: perms,
+        permissions,
+        moduleAccess,
         allPermissions: ALL_PERMISSION_KEYS,
       });
     } catch (err) {
@@ -219,22 +220,23 @@ class OrgRolesController {
     try {
       const { tenantId, id: performedBy } = req.currentUser;
       const { roleId } = req.params;
-      const { permissions = [] } = req.body;
+      const { permissions = [], moduleAccess = [] } = req.body;
 
       const role = await this.db.findById(TABLES.ORG_ROLES, roleId, tenantId);
       if (!role) return ResponseHelper.notFound(res, 'Role not found');
 
       const cleanPerms = permissions.filter((p) => ALL_PERMISSION_KEYS.includes(p));
-      await this._upsertRolePermissions(tenantId, roleId, cleanPerms);
+      const cleanModuleAccess = Array.isArray(moduleAccess) ? moduleAccess.filter((m) => typeof m === 'string') : [];
+      await this._upsertRolePermissions(tenantId, roleId, cleanPerms, cleanModuleAccess);
 
       await this.audit.log({
         tenantId, entityType: 'org_role_permissions', entityId: roleId,
         action: AUDIT_ACTION.UPDATE,
-        newValue: { permissions: cleanPerms },
+        newValue: { permissions: cleanPerms, moduleAccess: cleanModuleAccess },
         performedBy,
       });
 
-      return ResponseHelper.success(res, { roleId, permissions: cleanPerms });
+      return ResponseHelper.success(res, { roleId, permissions: cleanPerms, moduleAccess: cleanModuleAccess });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }
@@ -313,7 +315,7 @@ class OrgRolesController {
           color:        r.color || '#4F46E5',
           level:        Number(r.level) || 0,
           parentRoleId: r.parent_role_id ? String(r.parent_role_id) : null,
-          permissions:  permsMap[String(r.ROWID)] || [],
+          permissions:  (permsMap[String(r.ROWID)] || {}).permissions || [],
           users,
           userCount:    users.length,
         };
@@ -479,16 +481,18 @@ class OrgRolesController {
     // Group permissions by domain for easier UI rendering
     const groups = [
       { group: 'Projects & Sprints', keys: ['PROJECT_READ', 'PROJECT_WRITE', 'SPRINT_READ', 'SPRINT_WRITE', 'MILESTONE_READ', 'MILESTONE_WRITE'] },
-      { group: 'Tasks', keys: ['TASK_READ', 'TASK_WRITE', 'TASK_COMMENT_WRITE'] },
+      { group: 'Tasks', keys: ['TASK_READ', 'TASK_WRITE', 'TASK_ASSIGN', 'TASK_COMMENT_WRITE'] },
       { group: 'Standups & EOD', keys: ['STANDUP_READ', 'STANDUP_SUBMIT', 'EOD_READ', 'EOD_SUBMIT'] },
       { group: 'Actions & Blockers', keys: ['ACTION_READ', 'ACTION_WRITE', 'BLOCKER_READ', 'BLOCKER_WRITE'] },
       { group: 'RAID & Decisions', keys: ['RAID_READ', 'RAID_WRITE', 'DECISION_READ', 'DECISION_WRITE'] },
-      { group: 'Time Tracking', keys: ['TIME_READ', 'TIME_WRITE', 'TIME_APPROVE'] },
-      { group: 'Attendance & Leave', keys: ['ATTENDANCE_READ', 'ATTENDANCE_WRITE', 'ATTENDANCE_ADMIN', 'LEAVE_READ', 'LEAVE_WRITE', 'LEAVE_APPROVE', 'LEAVE_ADMIN'] },
-      { group: 'People & Org', keys: ['PROFILE_READ', 'PROFILE_WRITE', 'ORG_READ', 'ORG_WRITE', 'ORG_ROLE_READ', 'ORG_ROLE_WRITE', 'ANNOUNCEMENT_READ', 'ANNOUNCEMENT_WRITE'] },
-      { group: 'Assets & Badges', keys: ['ASSET_READ', 'ASSET_WRITE', 'ASSET_ASSIGN', 'ASSET_APPROVE', 'ASSET_ADMIN', 'BADGE_READ', 'BADGE_WRITE', 'BADGE_AWARD'] },
-      { group: 'Reports & Dashboard', keys: ['REPORT_READ', 'REPORT_WRITE', 'DASHBOARD_READ'] },
-      { group: 'Teams & Notifications', keys: ['TEAM_READ', 'TEAM_WRITE', 'NOTIFICATION_READ'] },
+      { group: 'Time Tracking', keys: ['TIME_READ', 'TIME_WRITE', 'TIME_APPROVE', 'TIME_ANALYTICS'] },
+      { group: 'Attendance', keys: ['ATTENDANCE_READ', 'ATTENDANCE_WRITE', 'ATTENDANCE_TEAM_VIEW', 'ATTENDANCE_ADMIN', 'IP_CONFIG_WRITE'] },
+      { group: 'Leave', keys: ['LEAVE_READ', 'LEAVE_WRITE', 'LEAVE_APPROVE', 'LEAVE_ADMIN'] },
+      { group: 'People & Org', keys: ['PROFILE_READ', 'PROFILE_WRITE', 'TEAM_READ', 'TEAM_WRITE', 'ORG_READ', 'ORG_WRITE', 'ORG_ROLE_READ', 'ORG_ROLE_WRITE', 'ANNOUNCEMENT_READ', 'ANNOUNCEMENT_WRITE'] },
+      { group: 'Assets', keys: ['ASSET_READ', 'ASSET_WRITE', 'ASSET_ASSIGN', 'ASSET_APPROVE', 'ASSET_ADMIN'] },
+      { group: 'Badges', keys: ['BADGE_READ', 'BADGE_WRITE', 'BADGE_AWARD'] },
+      { group: 'Reports & Dashboard', keys: ['REPORT_READ', 'REPORT_WRITE', 'DASHBOARD_READ', 'CEO_DASHBOARD', 'CTO_DASHBOARD'] },
+      { group: 'Notifications', keys: ['NOTIFICATION_READ'] },
       { group: 'Admin', keys: ['ADMIN_USERS', 'ADMIN_SETTINGS', 'INVITE_USER', 'CONFIG_READ', 'CONFIG_WRITE'] },
       { group: 'AI & Insights', keys: ['AI_INSIGHTS', 'AI_PERFORMANCE', 'AI_TEAM_ANALYSIS'] },
     ];
@@ -532,7 +536,8 @@ class OrgRolesController {
       );
       const map = {};
       rows.forEach((r) => {
-        try { map[String(r.org_role_id)] = JSON.parse(r.permissions || '[]'); } catch { map[String(r.org_role_id)] = []; }
+        const parsed = this._parsePermsColumn(r.permissions);
+        map[String(r.org_role_id)] = parsed;
       });
       return map;
     } catch (_) { return {}; }
@@ -601,29 +606,58 @@ class OrgRolesController {
       const rows = await this.db.query(
         `SELECT permissions FROM ${TABLES.ORG_ROLE_PERMISSIONS} WHERE org_role_id = '${roleId}' LIMIT 1`
       );
-      if (!rows.length) return [];
-      return JSON.parse(rows[0].permissions || '[]');
-    } catch (_) { return []; }
+      if (!rows.length) return { permissions: [], moduleAccess: [] };
+      return this._parsePermsColumn(rows[0].permissions);
+    } catch (_) { return { permissions: [], moduleAccess: [] }; }
   }
 
-  async _upsertRolePermissions(tenantId, roleId, permissions) {
-    const permJson = JSON.stringify(permissions);
+  async _upsertRolePermissions(tenantId, roleId, permissions, moduleAccess = []) {
+    // Encode both permissions and moduleAccess into a single JSON column.
+    // Format: when moduleAccess is non-empty, store as object { p: [...], m: [...] }
+    // otherwise store as plain array for backward compatibility with existing rows.
+    const encoded = moduleAccess.length > 0
+      ? JSON.stringify({ p: permissions, m: moduleAccess })
+      : JSON.stringify(permissions);
+
     const existing = await this.db.query(
       `SELECT ROWID FROM ${TABLES.ORG_ROLE_PERMISSIONS} WHERE tenant_id = '${tenantId}' ` +
       `AND org_role_id = '${roleId}' LIMIT 1`
     );
     if (existing.length > 0) {
-      await this.db.update(TABLES.ORG_ROLE_PERMISSIONS, { ROWID: String(existing[0].ROWID), permissions: permJson });
+      await this.db.update(TABLES.ORG_ROLE_PERMISSIONS, {
+        ROWID: String(existing[0].ROWID),
+        permissions: encoded,
+      });
     } else {
       await this.db.insert(TABLES.ORG_ROLE_PERMISSIONS, {
-        tenant_id: String(tenantId),
+        tenant_id:   String(tenantId),
         org_role_id: String(roleId),
-        permissions: permJson,
+        permissions: encoded,
       });
     }
   }
 
+  // Parse the permissions column — supports both legacy array format and new object format
+  _parsePermsColumn(raw) {
+    try {
+      const parsed = JSON.parse(raw || '[]');
+      if (Array.isArray(parsed)) {
+        return { permissions: parsed, moduleAccess: [] };
+      }
+      if (parsed && typeof parsed === 'object') {
+        return {
+          permissions:  Array.isArray(parsed.p) ? parsed.p : [],
+          moduleAccess: Array.isArray(parsed.m) ? parsed.m : [],
+        };
+      }
+      return { permissions: [], moduleAccess: [] };
+    } catch (_) {
+      return { permissions: [], moduleAccess: [] };
+    }
+  }
+
   _formatRole(r, permsMap, countMap) {
+    const roleData = permsMap[String(r.ROWID)] || {};
     return {
       id: String(r.ROWID),
       name: r.name,
@@ -631,7 +665,8 @@ class OrgRolesController {
       color: r.color || '#4F46E5',
       level: Number(r.level) || 0,
       parentRoleId: r.parent_role_id ? String(r.parent_role_id) : null,
-      permissions: permsMap[String(r.ROWID)] || [],
+      permissions:  Array.isArray(roleData) ? roleData : (roleData.permissions  || []),
+      moduleAccess: Array.isArray(roleData) ? []       : (roleData.moduleAccess || []),
       userCount: countMap[String(r.ROWID)] || 0,
       isActive: r.is_active !== false,
       createdAt: r.CREATEDTIME,

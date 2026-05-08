@@ -1,0 +1,65 @@
+import { Translations } from './en';
+const pt: Translations = {
+  nav: {
+    dashboard: 'Painel', portfolio: 'Portfólio', projects: 'Projetos',
+    milestones: 'Marcos', dailyUpdates: 'Atualizações Diárias',
+    submitStandup: 'Enviar Standup', submitEod: 'Enviar EOD',
+    actions: 'Ações', blockers: 'Impedimentos', raidRegister: 'Registro RAID',
+    decisions: 'Decisões', reports: 'Relatórios', admin: 'Administração',
+    settings: 'Configurações', profile: 'Meu Perfil', signOut: 'Sair',
+    dailyWork: 'Trabalho diário', people: 'Pessoas', assets: 'Ativos',
+    reportsAi: 'Relatórios e IA', executive: 'Executivo',
+    administration: 'Administração', bugReports: 'Relatórios de bugs', helpDocs: 'Ajuda e Docs',
+    allProjects: 'Todos os projetos', myTasks: 'Minhas tarefas', sprintBoards: 'Quadros de sprint', backlog: 'Backlog',
+    standup: 'Standup', eod: 'EOD', timeTracking: 'Controle de tempo',
+    attendance: 'Frequência', leave: 'Licenças', teams: 'Equipes', directory: 'Diretório',
+    orgChart: 'Organograma', announcements: 'Comunicados', peopleSettings: 'Config de pessoal',
+    userManagement: 'Gestão de usuários', auditLogs: 'Logs de auditoria', configWorkflows: 'Config e fluxos', dataSeeder: 'Semeador de dados',
+    ceoDashboard: 'Painel CEO', ctoDashboard: 'Painel CTO',
+    teamActivity: 'Atividade da equipe', aiInsights: 'Insights de IA',
+  },
+  common: {
+    save: 'Salvar', cancel: 'Cancelar', create: 'Criar', edit: 'Editar',
+    delete: 'Excluir', remove: 'Remover', close: 'Fechar', back: 'Voltar',
+    loading: 'Carregando…', saving: 'Salvando…', search: 'Pesquisar', filter: 'Filtrar',
+    all: 'Todos', none: 'Nenhum', yes: 'Sim', no: 'Não', reset: 'Redefinir',
+    apply: 'Aplicar', confirm: 'Confirmar', success: 'Sucesso', error: 'Erro',
+    required: 'Obrigatório', optional: 'Opcional', new: 'Novo', preview: 'Visualizar',
+    view: 'Ver', noData: 'Nenhum dado encontrado.', actions: 'Ações',
+  },
+  settings: {
+    title: 'Configurações', subtitle: 'Personalize a aparência e preferências do seu espaço de trabalho', saved: 'Preferências salvas',
+    theme: {
+      title: 'Aparência', subtitle: 'Escolha seu tema e esquema de cores preferido', themeLabel: 'Tema de Cores',
+      autoTheme: 'Tema automático', autoThemeDesc: 'Alternar automaticamente com base na hora do dia (escuro após as 20h)',
+      density: 'Densidade da Interface', compact: 'Compacto', default: 'Padrão', comfortable: 'Confortável',
+      fontSize: 'Tamanho da Fonte', small: 'Pequeno', medium: 'Médio', large: 'Grande', reset: 'Restaurar padrões',
+      accentLabel: 'Cor de destaque',
+    },
+    sidebar: {
+      title: 'Barra Lateral', subtitle: 'Reordenar e mostrar/ocultar itens de navegação',
+      collapse: 'Iniciar recolhido', collapseDesc: 'A barra lateral abre no modo apenas ícones ao carregar',
+      items: 'Itens do Menu', resetOrder: 'Redefinir ordem', visible: 'Visível', hidden: 'Oculto',
+      navOrder: 'Ordem de navegação',
+      dragHint: 'Arraste a alça para reordenar. Alterne o olho para mostrar ou ocultar.',
+    },
+    language: {
+      title: 'Idioma', subtitle: 'Escolha seu idioma de exibição preferido',
+      label: 'Idioma da Interface', changeNote: 'As alterações de idioma são aplicadas instantaneamente.',
+    },
+    preview: {
+      title: 'Pré-visualização tipográfica',
+      subtitle: 'Pré-visualização ao vivo das configurações de fonte e densidade',
+    },
+  },
+  profile: {
+    title: 'Meu Perfil', subtitle: 'Gerencie suas configurações de conta e foto de perfil', picture: 'Foto de Perfil',
+    name: 'Nome de Exibição', email: 'E-mail', role: 'Função', status: 'Status',
+    auth: 'Autenticação', userId: 'ID do Usuário', saveChanges: 'Salvar alterações',
+    uploadPhoto: 'Carregar nova foto', uploadHint: 'JPG, PNG ou GIF · Máx. 2 MB · Redimensionado para 256×256',
+    emailNote: 'O e-mail é gerenciado pelo Zoho e não pode ser alterado aqui.',
+    roleNote: 'Entre em contato com seu administrador para alterar sua função.',
+    pictureUpdated: 'Foto de perfil atualizada', profileSaved: 'Perfil salvo com sucesso',
+  },
+} as const;
+export default pt;

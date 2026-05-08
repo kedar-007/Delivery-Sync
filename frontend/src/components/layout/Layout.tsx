@@ -38,12 +38,12 @@ const Layout = ({ children }: LayoutProps) => {
           />
         )}
 
-        {/* Sidebar */}
+        {/* Sidebar — start-0 = left in LTR, right in RTL */}
         <div
           className={`
-            fixed inset-y-0 left-0 z-30 transform transition-transform duration-200 ease-in-out
-            lg:relative lg:translate-x-0 lg:z-auto lg:flex lg:shrink-0
-            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+            fixed inset-y-0 start-0 z-30 transform transition-transform duration-200 ease-in-out
+            lg:relative lg:!translate-x-0 lg:z-auto lg:flex lg:shrink-0
+            ${sidebarOpen ? 'translate-x-0' : 'ltr:-translate-x-full rtl:translate-x-full'}
             ${collapsed ? 'w-16' : 'w-60'}
           `}
         >

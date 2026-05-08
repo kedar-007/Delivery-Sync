@@ -180,6 +180,8 @@ export const usersApi = {
     api.post('/users/me/avatar/upload', data).then((r) => r.data.data),
   updateEmail: (data: { email: string }) =>
     api.post('/users/me/email-update', data).then((r) => r.data),
+  updateMyLocation: (officeLocationId: string | null) =>
+    api.put('/users/me/location', { officeLocationId }).then((r) => r.data.data),
 };
 
 // ─── Admin ────────────────────────────────────────────────────────────────────
@@ -200,19 +202,25 @@ export const adminApi = {
   getAuditLogs: (params?: Record<string, string>) =>
     api.get('/admin/audit-logs', { params }).then((r) => r.data.data),
   getModules: () => api.get('/admin/modules').then((r) => r.data.data),
+  updateModules: (modules: Record<string, boolean>) =>
+    api.put('/admin/modules', { modules }).then((r) => r.data.data),
   getMyPermissions: () => api.get('/admin/my-permissions').then((r) => r.data.data),
   getUserPermissions: (userId: string) =>
     api.get(`/admin/users/${userId}/permissions`).then((r) => r.data.data),
-  setUserPermissions: (userId: string, data: { granted: string[]; revoked: string[] }) =>
+  setUserPermissions: (userId: string, data: { granted: string[]; revoked: string[]; moduleAccess?: string[] }) =>
     api.put(`/admin/users/${userId}/permissions`, data).then((r) => r.data.data),
+  // Office Locations
+  getOfficeLocations: () => api.get('/admin/office-locations').then((r) => r.data.data),
+  updateUserLocation: (userId: string, officeLocationId: string | null) =>
+    api.put(`/admin/users/${userId}/location`, { officeLocationId }).then((r) => r.data.data),
   // Org Roles
   listOrgRoles: () => api.get('/admin/org-roles').then((r) => r.data.data),
   createOrgRole: (data: unknown) => api.post('/admin/org-roles', data).then((r) => r.data.data),
   updateOrgRole: (id: string, data: unknown) => api.put(`/admin/org-roles/${id}`, data).then((r) => r.data.data),
   deleteOrgRole: (id: string) => api.delete(`/admin/org-roles/${id}`).then((r) => r.data.data),
   getOrgRolePermissions: (id: string) => api.get(`/admin/org-roles/${id}/permissions`).then((r) => r.data.data),
-  setOrgRolePermissions: (id: string, permissions: string[]) =>
-    api.put(`/admin/org-roles/${id}/permissions`, { permissions }).then((r) => r.data.data),
+  setOrgRolePermissions: (id: string, permissions: string[], moduleAccess: string[] = []) =>
+    api.put(`/admin/org-roles/${id}/permissions`, { permissions, moduleAccess }).then((r) => r.data.data),
   assignUserOrgRole: (userId: string, orgRoleId: string | null) =>
     api.put(`/admin/users/${userId}/org-role`, { orgRoleId }).then((r) => r.data.data),
   getOrgChart: () => api.get('/admin/org-chart').then((r) => r.data.data),
@@ -495,7 +503,12 @@ export const leaveApi = {
   // Company calendar (admin)
   getCompanyCalendar: (params?: Record<string, string>) => peopleClient.get('/leave/company-calendar', { params }).then((r) => r.data.data),
   createHoliday:      (data: unknown) => peopleClient.post('/leave/company-calendar', data).then((r) => r.data.data),
-  deleteHoliday:      (id: string) => peopleClient.delete(`/leave/company-calendar/${id}`).then((r) => r.data.data),
+  updateHoliday:      ({ id, locationId, data }: { id: string; locationId?: string; data: unknown }) =>
+    peopleClient.put(`/leave/company-calendar/${id}`, data, locationId ? { params: { locationId } } : undefined).then((r) => r.data.data),
+  deleteHoliday:      ({ id, locationId }: { id: string; locationId?: string }) =>
+    peopleClient.delete(`/leave/company-calendar/${id}`, locationId ? { params: { locationId } } : undefined).then((r) => r.data.data),
+  getCalendarConfig:  () => peopleClient.get('/leave/calendar-config').then((r) => r.data.data),
+  saveCalendarConfig: (data: unknown) => peopleClient.put('/leave/calendar-config', data).then((r) => r.data.data),
   // Leave balance admin
   setBalance:         (data: unknown) => peopleClient.post('/leave/balance/set', data).then((r) => r.data.data),
   getAllBalances:      (params?: Record<string, string>) => peopleClient.get('/leave/balance/all', { params }).then((r) => r.data.data),
@@ -945,6 +958,8 @@ export interface BugReport {
   resolution_notes?: string;
   resolved_by?:     string;
   resolved_at?:     string;
+  reporter_reply?:  string;
+  reporter_reply_at?: string;
   tags?:            string;
   notified?:        string | boolean;
   CREATEDTIME?:     string;
@@ -1001,6 +1016,9 @@ export const bugApi = {
 
   reply:            (id: string, resolution_notes: string) =>
     bugClient.post(`/reports/${id}/reply`, { resolution_notes }).then((r) => r.data.data),
+
+  reporterReply:    (id: string, reply: string) =>
+    bugClient.post(`/reports/${id}/reporter-reply`, { reply }).then((r) => r.data),
 
   listAll:          (params?: Record<string, string>) =>
     bugClient.get('/reports/all', { params }).then((r) => r.data.data),

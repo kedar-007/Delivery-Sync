@@ -10,6 +10,7 @@ import { format, parseISO, isValid } from 'date-fns';
 import { useForm } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
+import { useI18n } from '../contexts/I18nContext';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import Modal, { ModalActions } from '../components/ui/Modal';
@@ -2649,6 +2650,7 @@ const MaintenanceTab = ({ allAssets }: MaintenanceTabProps) => {
 type Tab = 'my-assets' | 'inventory' | 'requests' | 'maintenance';
 
 const AssetManagementPage = () => {
+  const { t } = useI18n();
   const { user } = useAuth();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const [activeTab, setActiveTab] = useState<Tab>('my-assets');
@@ -2674,7 +2676,7 @@ const AssetManagementPage = () => {
   return (
     <Layout>
       <Header
-        title="Asset Management"
+        title={t('nav.assets')}
         subtitle="Track and manage organisational assets"
       />
 

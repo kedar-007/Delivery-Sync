@@ -9,6 +9,7 @@ import { addDays, format, isPast, parseISO } from 'date-fns';
 import { useQuery } from '@tanstack/react-query';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
+import { useI18n } from '../contexts/I18nContext';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import EmptyState from '../components/ui/EmptyState';
@@ -223,6 +224,7 @@ function StatsBar({
 }
 
 export default function SprintsPage() {
+  const { t } = useI18n();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const { user } = useAuth();
   const isOrgWide      = hasPermission(user, PERMISSIONS.ORG_ROLE_READ);
@@ -390,7 +392,7 @@ export default function SprintsPage() {
   return (
     <Layout>
       <Header
-        title="Sprint Boards"
+        title={t('nav.sprintBoards')}
         subtitle={`${projectsWithSprints.length} project${projectsWithSprints.length !== 1 ? 's' : ''} with sprint boards`}
         actions={
           <div className="flex items-center gap-2">

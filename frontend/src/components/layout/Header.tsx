@@ -105,7 +105,7 @@ const Header = ({ title, subtitle, actions }: HeaderProps) => {
   const { user } = useAuth();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const { isDark, setThemeId } = useTheme();
-  const { locale, setLocale } = useI18n();
+  const { locale, setLocale, t } = useI18n();
   const { data: profile } = useMyProfile();
   const { festival } = useFestival();
   const { data: bugConfig } = useBugConfig();
@@ -185,10 +185,10 @@ const Header = ({ title, subtitle, actions }: HeaderProps) => {
                 <Bug size={18} />
               </button>
             )}
-            <Link to={`/${tenantSlug}/settings`} aria-label="Settings" className="p-2 rounded-lg transition-colors" style={{ color: `rgb(var(--ds-text-muted))` }}>
+            <Link to={`/${tenantSlug}/settings`} aria-label={t('nav.settings')} className="p-2 rounded-lg transition-colors" style={{ color: `rgb(var(--ds-text-muted))` }}>
               <Settings size={18} />
             </Link>
-            <Link to={`/${tenantSlug}/profile`} aria-label="My profile">
+            <Link to={`/${tenantSlug}/profile`} aria-label={t('nav.profile')}>
               <UserAvatar name={user?.name ?? ''} avatarUrl={profile?.avatarUrl} size="sm" />
             </Link>
           </div>

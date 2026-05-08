@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode 
 import {
   ThemePreset, DensityLevel, FontSizeLevel,
   THEME_PRESETS, getPreset, getSystemThemeId, getTimeBasedThemeId,
-  DENSITY_SCALE, FONT_SIZE_BASE,
+  DENSITY_SCALE, FONT_SIZE_BASE, ACCENT_COLORS,
 } from '../lib/themes';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -18,6 +18,8 @@ interface ThemeContextValue {
   autoTheme: boolean;
   setAutoTheme: (v: boolean) => void;
   isDark: boolean;
+  accentId: string | null;
+  setAccentId: (id: string | null) => void;
   resetToDefault: () => void;
 }
 
@@ -26,6 +28,7 @@ interface StoredPrefs {
   density?: DensityLevel;
   fontSize?: FontSizeLevel;
   autoTheme?: boolean;
+  accentId?: string | null;
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -44,6 +47,7 @@ function applyTheme(
   preset: ThemePreset,
   density: DensityLevel,
   fontSize: FontSizeLevel,
+  accentId?: string | null,
 ) {
   const root = document.documentElement;
 
@@ -52,13 +56,22 @@ function applyTheme(
     root.style.setProperty(key, value);
   });
 
-  // 2. Dark / light class for Tailwind dark: variants
+  // 2. Accent color override (overrides --ds-primary from theme)
+  if (accentId) {
+    const accent = ACCENT_COLORS.find((a) => a.id === accentId);
+    if (accent) {
+      root.style.setProperty('--ds-primary', accent.rgb);
+      root.style.setProperty('--ds-primary-hover', accent.hoverRgb);
+    }
+  }
+
+  // 3. Dark / light class for Tailwind dark: variants
   root.classList.toggle('dark', preset.isDark);
 
-  // 3. Density scale (controls padding/gap multiplier via CSS var)
+  // 4. Density scale (controls padding/gap multiplier via CSS var)
   root.style.setProperty('--ds-density', DENSITY_SCALE[density]);
 
-  // 4. Base font size
+  // 5. Base font size
   root.style.setProperty('--ds-font-base', FONT_SIZE_BASE[fontSize]);
   root.style.fontSize = FONT_SIZE_BASE[fontSize];
 }
@@ -82,6 +95,7 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   const [density, setDensityState] = useState<DensityLevel>('default');
   const [fontSize, setFontSizeState] = useState<FontSizeLevel>('md');
   const [autoTheme, setAutoThemeState] = useState(false);
+  const [accentId, setAccentIdState] = useState<string | null>(null);
 
   // ── Bootstrap from localStorage on first render ───────────────────────────
   useEffect(() => {
@@ -89,6 +103,7 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     const auto = prefs.autoTheme ?? false;
     const d = prefs.density ?? 'default';
     const f = prefs.fontSize ?? 'md';
+    const acc = prefs.accentId ?? null;
 
     let resolvedId: string;
     if (auto) {
@@ -101,7 +116,8 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     setDensityState(d);
     setFontSizeState(f);
     setAutoThemeState(auto);
-    applyTheme(getPreset(resolvedId), d, f);
+    setAccentIdState(acc);
+    applyTheme(getPreset(resolvedId), d, f, acc);
   }, []);
 
   // ── System theme-change listener ──────────────────────────────────────────
@@ -120,21 +136,21 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   // ── Public setters (each persists to localStorage) ────────────────────────
   const setThemeId = useCallback((id: string) => {
     setThemeIdState(id);
-    applyTheme(getPreset(id), density, fontSize);
+    applyTheme(getPreset(id), density, fontSize, accentId);
     writePrefs({ themeId: id });
-  }, [density, fontSize]);
+  }, [density, fontSize, accentId]);
 
   const setDensity = useCallback((d: DensityLevel) => {
     setDensityState(d);
-    applyTheme(getPreset(themeId), d, fontSize);
+    applyTheme(getPreset(themeId), d, fontSize, accentId);
     writePrefs({ density: d });
-  }, [themeId, fontSize]);
+  }, [themeId, fontSize, accentId]);
 
   const setFontSize = useCallback((f: FontSizeLevel) => {
     setFontSizeState(f);
-    applyTheme(getPreset(themeId), density, f);
+    applyTheme(getPreset(themeId), density, f, accentId);
     writePrefs({ fontSize: f });
-  }, [themeId, density]);
+  }, [themeId, density, accentId]);
 
   const setAutoTheme = useCallback((v: boolean) => {
     setAutoThemeState(v);
@@ -142,9 +158,15 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     if (v) {
       const id = getTimeBasedThemeId();
       setThemeIdState(id);
-      applyTheme(getPreset(id), density, fontSize);
+      applyTheme(getPreset(id), density, fontSize, accentId);
     }
-  }, [density, fontSize]);
+  }, [density, fontSize, accentId]);
+
+  const setAccentId = useCallback((id: string | null) => {
+    setAccentIdState(id);
+    applyTheme(getPreset(themeId), density, fontSize, id);
+    writePrefs({ accentId: id });
+  }, [themeId, density, fontSize]);
 
   const resetToDefault = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
@@ -152,7 +174,8 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     setDensityState('default');
     setFontSizeState('md');
     setAutoThemeState(false);
-    applyTheme(getPreset('default'), 'default', 'md');
+    setAccentIdState(null);
+    applyTheme(getPreset('default'), 'default', 'md', null);
   }, []);
 
   const theme = getPreset(themeId);
@@ -164,6 +187,7 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
       fontSize, setFontSize,
       autoTheme, setAutoTheme,
       isDark: theme.isDark,
+      accentId, setAccentId,
       resetToDefault,
     }}>
       {children}

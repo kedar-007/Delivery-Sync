@@ -15,23 +15,23 @@ interface SidebarContextValue {
   items: SidebarItemPref[];
   toggleItem: (key: string) => void;
   moveItem: (key: string, dir: 'up' | 'down') => void;
+  reorderItems: (activeKey: string, overKey: string) => void;
   resetItems: () => void;
 }
 
 // ─── Defaults (matches NAV_ITEMS order in Sidebar.tsx) ───────────────────────
 
 const DEFAULT_ITEMS: SidebarItemPref[] = [
-  { key: 'Dashboard',     visible: true,  order: 0 },
-  { key: 'Portfolio',     visible: true,  order: 1 },
-  { key: 'Projects',      visible: true,  order: 2 },
-  { key: 'Milestones',    visible: true,  order: 3 },
-  { key: 'Daily Updates', visible: true,  order: 4 },
-  { key: 'Actions',       visible: true,  order: 5 },
-  { key: 'Blockers',      visible: true,  order: 6 },
-  { key: 'RAID Register', visible: true,  order: 7 },
-  { key: 'Decisions',     visible: true,  order: 8 },
-  { key: 'Reports',       visible: true,  order: 9 },
-  { key: 'Admin',         visible: true,  order: 10 },
+  { key: 'Dashboard',      visible: true, order: 0 },
+  { key: 'Projects',       visible: true, order: 1 },
+  { key: 'Daily Work',     visible: true, order: 2 },
+  { key: 'People',         visible: true, order: 3 },
+  { key: 'Assets',         visible: true, order: 4 },
+  { key: 'Reports & AI',   visible: true, order: 5 },
+  { key: 'Executive',      visible: true, order: 6 },
+  { key: 'Administration', visible: true, order: 7 },
+  { key: 'Bug Reports',    visible: true, order: 8 },
+  { key: 'Help & Docs',    visible: true, order: 9 },
 ];
 
 interface StoredSidebar {
@@ -116,6 +116,21 @@ export const SidebarProvider = ({ children }: { children: ReactNode }) => {
     });
   }, []);
 
+  const reorderItems = useCallback((activeKey: string, overKey: string) => {
+    setItemsState((prev) => {
+      const sorted = [...prev].sort((a, b) => a.order - b.order);
+      const fromIdx = sorted.findIndex((i) => i.key === activeKey);
+      const toIdx   = sorted.findIndex((i) => i.key === overKey);
+      if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return prev;
+      const next = [...sorted];
+      const [item] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, item);
+      const updated = next.map((i, idx) => ({ ...i, order: idx }));
+      writeStored({ items: updated });
+      return updated;
+    });
+  }, []);
+
   const resetItems = useCallback(() => {
     setItemsState(DEFAULT_ITEMS);
     writeStored({ items: DEFAULT_ITEMS });
@@ -124,7 +139,7 @@ export const SidebarProvider = ({ children }: { children: ReactNode }) => {
   return (
     <SidebarContext.Provider value={{
       collapsed, setCollapsed, toggleCollapsed,
-      items, toggleItem, moveItem, resetItems,
+      items, toggleItem, moveItem, reorderItems, resetItems,
     }}>
       {children}
     </SidebarContext.Provider>

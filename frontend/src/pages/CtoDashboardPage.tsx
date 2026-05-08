@@ -19,6 +19,7 @@ import {
 } from '../hooks/useAiInsights';
 import { useProjects } from '../hooks/useProjects';
 import { format, parseISO, differenceInDays } from 'date-fns';
+import { useI18n } from '../contexts/I18nContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -376,6 +377,7 @@ const AiAnalysisPanel = ({
 // ─── CTO Dashboard Page ───────────────────────────────────────────────────────
 
 const CtoDashboardPage = () => {
+  const { t } = useI18n();
   const { data, isLoading, error, refetch, dataUpdatedAt } = useExecSummary();
   const { data: projectList = [] } = useProjects();
   const aiBlockers = useAiDetectBlockers();
@@ -422,7 +424,7 @@ const CtoDashboardPage = () => {
   return (
     <Layout>
       <Header
-        title="CTO Dashboard"
+        title={t('nav.ctoDashboard')}
         subtitle={`Delivery & engineering intelligence${lastUpdated ? ` · Updated ${lastUpdated}` : ''}`}
         actions={
           <div className="flex items-center gap-2">

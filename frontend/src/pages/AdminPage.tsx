@@ -1,16 +1,19 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
+
 import {
-  Plus, UserCheck, UserX, Shield, Search, Filter, RefreshCw,
-  ChevronDown, ChevronUp, Clock, User, Tag, Layers, Calendar, Lock,
+  Plus, UserCheck, UserX, Shield, Search, RefreshCw,
+  ChevronDown, ChevronUp, Clock, User, Layers, Lock,
   ChevronLeft, ChevronRight, Edit2, Check, X, KeyRound,
   GitBranch, Trash2, Settings, Users, Eye, Globe,
   LayoutDashboard, FolderKanban, Package, BarChart3, Briefcase,
-  Sparkles, AlertTriangle, Wifi,
+  Sparkles, AlertTriangle, MapPin,
 } from 'lucide-react';
 import { adminApi } from '../lib/api';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
+import { useI18n } from '../contexts/I18nContext';
 import Button from '../components/ui/Button';
 import UserAvatar from '../components/ui/UserAvatar';
 import { StatusBadge } from '../components/ui/Badge';
@@ -19,21 +22,22 @@ import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
 import { PageLoader } from '../components/ui/Spinner';
 import {
-  useAdminUsers, useInviteUser, useDeactivateUser, useActivateUser, useUpdateAdminUser, useAuditLogs,
+  useAdminUsers, useInviteUser, useDeactivateUser, useActivateUser, useUpdateAdminUser,
   useOrgRoles, useCreateOrgRole, useUpdateOrgRole, useDeleteOrgRole,
   useSetOrgRolePermissions, useAssignUserOrgRole, useOrgChart, useAllPermissions,
   useSharingRules, useSetDefaultVisibility, useAddExplicitSharingRule, useDeleteSharingRule,
+  useOfficeLocations, useUpdateUserLocation,
 } from '../hooks/useAdmin';
-import { useShifts } from '../hooks/usePeople';
+import { useShifts, useCalendarConfig, useSaveCalendarConfig } from '../hooks/usePeople';
 import UserPermissionsModal from '../components/ui/UserPermissionsModal';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../components/ui/ConfirmDialog';
 import { canDo, hasPermission, PERMISSIONS, INVITE_ALLOWED_ROLES } from '../utils/permissions';
+import { COUNTRIES, TIMEZONES, TZ_GROUPS } from '../lib/locationData';
 import { User as UserType } from '../types';
-
 const PAGE_SIZE = 20;
 
-type Tab = 'users' | 'audit' | 'roles' | 'orgchart';
+type Tab = 'users' | 'roles' | 'orgchart';
 interface InviteForm { email: string; name: string; orgRoleId?: string; }
 
 // ─── Colour swatches for role picker ─────────────────────────────────────────
@@ -47,7 +51,7 @@ const ROLE_COLORS = [
 interface OrgRole {
   id: string; name: string; description: string; color: string;
   level: number; parentRoleId: string | null;
-  permissions: string[]; userCount: number; isActive: boolean;
+  permissions: string[]; moduleAccess: string[]; userCount: number; isActive: boolean;
 }
 
 const OrgRoleCard = ({
@@ -250,12 +254,6 @@ const SIDEBAR_MODULES = [
     gatePerm: 'ORG_ROLE_READ',
     permGroups: ['People & Org'],
   },
-  {
-    key: 'admin',      label: 'Administration',  icon: Settings,
-    desc: 'User management, config, workflows',
-    gatePerm: 'ADMIN_USERS',
-    permGroups: ['Admin'],
-  },
 ] as const;
 
 // ─── Role Permissions Modal ───────────────────────────────────────────────────
@@ -423,11 +421,12 @@ const PERM_INFO: Record<string, { label: string; desc: string; risk: 'low' | 'me
   ATTENDANCE_WRITE:     { label: 'Check In / Out',    desc: 'Log daily attendance, WFH, breaks',                risk: 'low' },
   ATTENDANCE_TEAM_VIEW: { label: 'View Team Records', desc: 'See peers\' attendance — live view, records, export', risk: 'medium' },
   ATTENDANCE_ADMIN:     { label: 'Attendance Admin',  desc: 'Override records, view all tenants, export CSV',    risk: 'high' },
-  IP_CONFIG_WRITE:    { label: 'IP Restriction',     desc: 'Manage office IP whitelist & toggle enforcement', risk: 'high' },
+  IP_CONFIG_WRITE:    { label: 'Configure',          desc: 'People Settings: IP/Geo/Zone restrictions & work shifts', risk: 'high' },
   LEAVE_READ:         { label: 'View Leave',         desc: 'See own leave requests and balance',             risk: 'low' },
   LEAVE_WRITE:        { label: 'Request Leave',      desc: 'Submit leave applications',                      risk: 'low' },
   LEAVE_APPROVE:      { label: 'Approve Leave',      desc: 'Approve or reject team leave',                  risk: 'medium' },
-  LEAVE_ADMIN:        { label: 'Manage Leave',       desc: 'Manage types, balances, policies',              risk: 'high' },
+  LEAVE_ADMIN:        { label: 'Configure',          desc: 'People Settings: leave types, balances & company calendar', risk: 'high' },
+  LOCATION_ADMIN:     { label: 'Configure',          desc: 'People Settings: create/edit office locations & assign users', risk: 'medium' },
   TEAM_READ:          { label: 'View Teams',         desc: 'See team structure and members',                 risk: 'low' },
   TEAM_WRITE:         { label: 'Manage Teams',       desc: 'Create and edit teams',                         risk: 'medium' },
   ORG_READ:           { label: 'View Org Chart',     desc: 'See organisational hierarchy',                   risk: 'low' },
@@ -509,6 +508,14 @@ const CRUD_MODULES: CrudSection[] = [
     ],
   },
   {
+    section: 'People Settings',
+    rows: [
+      { name: 'Office Locations',                           admin: 'LOCATION_ADMIN' },
+      { name: 'Leave Types · Leave Balances · Calendar',    admin: 'LEAVE_ADMIN' },
+      { name: 'IP · Geo · Zone Restrictions · Work Shifts', admin: 'IP_CONFIG_WRITE' },
+    ],
+  },
+  {
     section: 'Assets & Badges',
     rows: [
       { name: 'Assets',         view: 'ASSET_READ', write: 'ASSET_WRITE', approve: 'ASSET_ASSIGN', admin: 'ASSET_ADMIN' },
@@ -533,7 +540,6 @@ const CRUD_MODULES: CrudSection[] = [
       { name: 'User Management',  write: 'INVITE_USER',     admin: 'ADMIN_USERS' },
       { name: 'Audit & Settings', admin: 'ADMIN_SETTINGS' },
       { name: 'System Config',    view:  'CONFIG_READ',     write: 'CONFIG_WRITE' },
-      { name: 'IP Restrictions',  admin: 'IP_CONFIG_WRITE' },
       { name: 'Data Seeding',     admin: 'DATA_SEED' },
     ],
   },
@@ -559,11 +565,13 @@ const RolePermissionsModal = ({
   open, onClose, role, onSave, saving,
 }: {
   open: boolean; onClose: () => void; role: OrgRole | null;
-  onSave: (perms: string[]) => void; saving: boolean;
+  onSave: (perms: string[], moduleAccess: string[]) => void; saving: boolean;
 }) => {
   const { data: permData } = useAllPermissions();
   const groups: { group: string; keys: string[] }[] = permData?.groups ?? [];
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // moduleAccess = set of module keys that are DISABLED for this role
+  const [disabledModules, setDisabledModules] = useState<Set<string>>(new Set());
   const [permTab, setPermTab] = useState<'modules' | 'permissions'>('modules');
   const [permSearch, setPermSearch] = useState('');
   const [hoveredPerm, setHoveredPerm] = useState<string | null>(null);
@@ -575,6 +583,7 @@ const RolePermissionsModal = ({
   React.useEffect(() => {
     if (open) {
       setSelected(new Set(role?.permissions ?? []));
+      setDisabledModules(new Set((role as any)?.moduleAccess ?? []));
       setPermTab('modules');
       setPermSearch('');
       setHoveredPerm(null);
@@ -590,7 +599,7 @@ const RolePermissionsModal = ({
   };
 
   const toggleModule = (mod: typeof SIDEBAR_MODULES[number]) => {
-    setSelected((s) => { const n = new Set(s); n.has(mod.gatePerm) ? n.delete(mod.gatePerm) : n.add(mod.gatePerm); return n; });
+    setDisabledModules((s) => { const n = new Set(s); n.has(mod.key) ? n.delete(mod.key) : n.add(mod.key); return n; });
   };
 
   const applyPreset = (key: string) => setSelected(new Set(ROLE_PRESETS[key]?.permissions ?? []));
@@ -675,11 +684,11 @@ const RolePermissionsModal = ({
         {permTab === 'modules' && (
           <div className="flex flex-col flex-1 min-h-0">
             <p className="text-xs text-gray-400 mb-3 shrink-0">
-              Toggle sidebar sections. Disabling a module hides that entire section for every member of this role.
+              Toggle sidebar sections. Disabling a module hides that entire section for every member of this role, regardless of their base permissions.
             </p>
             <div className="overflow-y-auto flex-1 grid grid-cols-2 gap-2 content-start pr-1">
               {SIDEBAR_MODULES.map((mod) => {
-                const on = selected.has(mod.gatePerm);
+                const on = !disabledModules.has(mod.key);
                 const Icon = mod.icon;
                 return (
                   <button key={mod.key} onClick={() => toggleModule(mod)}
@@ -734,9 +743,9 @@ const RolePermissionsModal = ({
               {filteredCrudModules.length === 0 ? (
                 <p className="text-sm text-gray-400 text-center py-8">No modules match "{permSearch}"</p>
               ) : filteredCrudModules.map(({ section, rows }) => {
-                const allPerms = rows.flatMap((r) =>
+                const allPerms = Array.from(new Set(rows.flatMap((r) =>
                   ([r.view, r.write, r.approve, r.admin] as (string | undefined)[]).filter(Boolean) as string[]
-                );
+                )));
                 const allOn  = allPerms.length > 0 && allPerms.every((p) => selected.has(p));
                 const someOn = !allOn && allPerms.some((p) => selected.has(p));
                 return (
@@ -813,7 +822,7 @@ const RolePermissionsModal = ({
 
       <ModalActions>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={() => onSave(Array.from(selected))} loading={saving}>
+        <Button onClick={() => onSave(Array.from(selected), Array.from(disabledModules))} loading={saving}>
           Save ({selected.size} permissions)
         </Button>
       </ModalActions>
@@ -1486,169 +1495,6 @@ const OrgCanvas = ({
   );
 };
 
-// ─── Action badge colours ────────────────────────────────────────────────────
-const ACTION_COLORS: Record<string, string> = {
-  CREATE:       'bg-emerald-100 text-emerald-700 border-emerald-200',
-  UPDATE:       'bg-blue-100   text-blue-700   border-blue-200',
-  DELETE:       'bg-red-100    text-red-700    border-red-200',
-  STATUS_CHANGE:'bg-amber-100  text-amber-700  border-amber-200',
-  ROLE_CHANGE:  'bg-violet-100 text-violet-700 border-violet-200',
-  RESOLVE:      'bg-teal-100   text-teal-700   border-teal-200',
-  ESCALATE:     'bg-orange-100 text-orange-700 border-orange-200',
-  RAG_CHANGE:   'bg-pink-100   text-pink-700   border-pink-200',
-};
-const actionColor = (a: string) => ACTION_COLORS[a] || 'bg-gray-100 text-gray-600 border-gray-200';
-
-// ─── Parse change diff from JSON strings ─────────────────────────────────────
-const ChangeDiff = ({ oldVal, newVal }: { oldVal?: string; newVal?: string }) => {
-  const parse = (v?: string) => {
-    if (!v) return null;
-    try { return JSON.parse(v); } catch { return v; }
-  };
-  const oldObj = parse(oldVal);
-  const newObj = parse(newVal);
-  if (!oldObj && !newObj) return <span className="text-gray-400 text-xs">—</span>;
-
-  // If both are objects, show field-by-field diff
-  if (oldObj && newObj && typeof oldObj === 'object' && typeof newObj === 'object') {
-    const keys = Array.from(new Set([...Object.keys(oldObj), ...Object.keys(newObj)]));
-    const changed = keys.filter(k => String(oldObj[k] ?? '') !== String(newObj[k] ?? ''));
-    if (changed.length === 0) {
-      return <span className="text-gray-400 text-xs">No visible changes</span>;
-    }
-    return (
-      <div className="space-y-1">
-        {changed.map(k => (
-          <div key={k} className="flex items-center gap-1.5 flex-wrap text-xs">
-            <span className="font-medium text-gray-500">{k}:</span>
-            {oldObj[k] !== undefined && (
-              <span className="px-1.5 py-0.5 bg-red-50 text-red-600 rounded line-through">
-                {String(oldObj[k])}
-              </span>
-            )}
-            <span className="text-gray-400">→</span>
-            {newObj[k] !== undefined && (
-              <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 rounded font-medium">
-                {String(newObj[k])}
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  // If only newValue, show it as a summary
-  if (newObj) {
-    const str = typeof newObj === 'object'
-      ? Object.entries(newObj).map(([k, v]) => `${k}: ${v}`).join(', ')
-      : String(newObj);
-    return <span className="text-xs text-gray-600 break-all">{str}</span>;
-  }
-
-  return <span className="text-xs text-gray-400 break-all">{String(oldObj)}</span>;
-};
-
-// ─── Single log row ───────────────────────────────────────────────────────────
-interface AuditLog {
-  id: string; action: string; entityType?: string; entityId?: string;
-  performedByName?: string; performedByEmail?: string; performedById?: string;
-  oldValue?: string; newValue?: string; createdAt?: string;
-}
-
-const LogRow = ({ log, avatarUrl }: { log: AuditLog; avatarUrl?: string }) => {
-  const [expanded, setExpanded] = useState(false);
-  const hasDetail = !!(log.oldValue || log.newValue);
-
-  return (
-    <div className="border-b border-gray-100 last:border-0">
-      <div
-        className={`flex items-start gap-4 px-5 py-4 hover:bg-gray-50 transition-colors ${hasDetail ? 'cursor-pointer' : ''}`}
-        onClick={() => hasDetail && setExpanded(e => !e)}
-      >
-        {/* Avatar */}
-        <div className="shrink-0 mt-0.5">
-          <UserAvatar
-            name={log.performedByName || log.performedByEmail || '?'}
-            avatarUrl={avatarUrl}
-            size="sm"
-          />
-        </div>
-
-        {/* Main content */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* Who */}
-              <span className="text-sm font-semibold text-gray-900">
-                {log.performedByName || log.performedById || 'Unknown'}
-              </span>
-              {log.performedByEmail && (
-                <span className="text-xs text-gray-400">{log.performedByEmail}</span>
-              )}
-            </div>
-            {/* When */}
-            <span className="text-xs text-gray-400 whitespace-nowrap shrink-0 flex items-center gap-1">
-              <Clock size={11} />
-              {log.createdAt ? new Date(log.createdAt).toLocaleString('en-GB', {
-                day: '2-digit', month: 'short', year: 'numeric',
-                hour: '2-digit', minute: '2-digit',
-              }) : '—'}
-            </span>
-          </div>
-
-          {/* Action + resource */}
-          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${actionColor(log.action)}`}>
-              {log.action.replace(/_/g, ' ')}
-            </span>
-            {log.entityType && (
-              <span className="inline-flex items-center gap-1 text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full border border-gray-200">
-                <Layers size={10} />
-                {log.entityType}
-                {log.entityId ? <span className="text-gray-400">#{log.entityId.slice(-6)}</span> : null}
-              </span>
-            )}
-          </div>
-
-          {/* Inline diff preview (collapsed) */}
-          {!expanded && hasDetail && (
-            <div className="mt-1.5">
-              <ChangeDiff oldVal={log.oldValue} newVal={log.newValue} />
-            </div>
-          )}
-        </div>
-
-        {/* Expand toggle */}
-        {hasDetail && (
-          <div className="shrink-0 text-gray-400 mt-1">
-            {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          </div>
-        )}
-      </div>
-
-      {/* Expanded detail */}
-      {expanded && hasDetail && (
-        <div className="px-5 pb-4 ml-12 space-y-3">
-          <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Change Details</p>
-            <ChangeDiff oldVal={log.oldValue} newVal={log.newValue} />
-          </div>
-          {log.oldValue && (
-            <details className="text-xs text-gray-400">
-              <summary className="cursor-pointer hover:text-gray-600">Raw before / after</summary>
-              <div className="mt-2 grid grid-cols-2 gap-3">
-                <div className="bg-red-50 rounded p-2 font-mono break-all text-red-600">{log.oldValue}</div>
-                <div className="bg-green-50 rounded p-2 font-mono break-all text-green-700">{log.newValue}</div>
-              </div>
-            </details>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ─── Role options ─────────────────────────────────────────────────────────────
 const ALL_ROLES = ['TENANT_ADMIN', 'TEAM_MEMBER'];
 
@@ -1663,7 +1509,7 @@ const TZ_SHORT: Record<string, string> = {
 
 // ─── UserRow ──────────────────────────────────────────────────────────────────
 const UserRow = ({
-  user, currentUserId, allowedInviteRoles, orgRoles, shifts,
+  user, currentUserId, allowedInviteRoles, orgRoles, shifts, officeLocations, canManageLocation,
   isEditingRole, editingRole, onStartEdit, onCancelEdit, onRoleChange, onSaveRoleDone, onDeactivate, onActivate,
 }: {
   user: UserType;
@@ -1671,6 +1517,8 @@ const UserRow = ({
   allowedInviteRoles: string[];
   orgRoles: OrgRole[];
   shifts: { id: string; name: string; startTime: string; timezone: string }[];
+  officeLocations: { id: string; name: string }[];
+  canManageLocation: boolean;
   isEditingRole: boolean;
   editingRole: string;
   onStartEdit: () => void;
@@ -1681,12 +1529,14 @@ const UserRow = ({
   onActivate: () => void;
 }) => {
   const updateUser = useUpdateAdminUser(user.id);
+  const updateLocation = useUpdateUserLocation();
   const isSelf = user.id === currentUserId;
   const canChangeRole = !isSelf && allowedInviteRoles.length > 0;
   const [showPerms, setShowPerms] = useState(false);
   const [editingTz, setEditingTz] = useState(false);
   const [tzValue, setTzValue] = useState(user.timezone || '');
   const [shiftValue, setShiftValue] = useState(user.shiftId || '');
+  const [locationValue, setLocationValue] = useState((user as any).officeLocationId || '');
 
   const saveRole = async () => {
     try { await updateUser.mutateAsync({ role: editingRole }); } catch { /* */ }
@@ -1831,6 +1681,30 @@ const UserRow = ({
             </div>
           )}
         </td>
+        {/* Location column */}
+        <td className="px-4 py-3">
+          {canManageLocation ? (
+            <select
+              className="form-select text-xs py-1 px-2 border-gray-300 rounded-lg max-w-[140px]"
+              value={locationValue}
+              onChange={async (e) => {
+                const val = e.target.value;
+                setLocationValue(val);
+                await updateLocation.mutateAsync({ userId: user.id, officeLocationId: val || null });
+              }}
+              disabled={updateLocation.isPending}
+            >
+              <option value="">— no location —</option>
+              {officeLocations.map((l) => (
+                <option key={l.id} value={l.id}>{l.name}</option>
+              ))}
+            </select>
+          ) : (
+            <span className="text-xs text-gray-500">
+              {officeLocations.find(l => l.id === locationValue)?.name || <span className="text-gray-300">—</span>}
+            </span>
+          )}
+        </td>
         <td className="px-4 py-3"><StatusBadge status={user.status} /></td>
         <td className="px-4 py-3">
           <div className="flex items-center gap-2">
@@ -1870,14 +1744,225 @@ const UserRow = ({
   );
 };
 
+// ─── OfficeLocationsTab ───────────────────────────────────────────────────────
+const WEEKEND_POLICY_OPTIONS = [
+  { value: 'all_off',           label: 'Sat & Sun off' },
+  { value: 'all_on',            label: 'No fixed weekends off' },
+  { value: '1st_3rd_off',       label: '1st & 3rd Saturday off' },
+  { value: '2nd_4th_off',       label: '2nd & 4th Saturday off' },
+  { value: '2nd_4th_5th_off',   label: '2nd, 4th & 5th Saturday off' },
+  { value: 'alternate_off',     label: 'Alternate Saturdays off' },
+  { value: '5th_sat_working',   label: 'Sat & Sun off (5th Sat is working)' },
+];
+
+interface LocForm { name: string; country?: string; timezone?: string; }
+
+export const OfficeLocationsTab = () => {
+  const { user: currentUser } = useAuth();
+  const canManage = hasPermission(currentUser, PERMISSIONS.LOCATION_ADMIN) || hasPermission(currentUser, PERMISSIONS.LEAVE_ADMIN);
+  const { data: rawConfig } = useCalendarConfig() as { data: any };
+  const saveCalConfig = useSaveCalendarConfig();
+  const { data: rawUsers = [] } = useAdminUsers();
+  const users = rawUsers as UserType[];
+
+  const [addOpen, setAddOpen] = useState(false);
+  const { register: regLoc, handleSubmit: handleLocSubmit, reset: resetLoc, formState: { isSubmitting: locSubmitting } } = useForm<LocForm>();
+
+  const calLocations: { id: string; name: string; country?: string; timezone?: string }[] = (rawConfig as any)?.locations ?? [];
+  const weekendPolicy: { default: string; perLocation: Record<string, string> } =
+    (rawConfig as any)?.weekendPolicy ?? { default: 'all_off', perLocation: {} };
+
+  const addLocation = async (data: LocForm) => {
+    const newLoc = { id: `loc_${Date.now()}`, name: data.name, ...(data.country && { country: data.country }), ...(data.timezone && { timezone: data.timezone }) };
+    await saveCalConfig.mutateAsync({ locations: [...calLocations, newLoc] });
+    resetLoc();
+    setAddOpen(false);
+  };
+
+  const removeLocation = async (locId: string) => {
+    await saveCalConfig.mutateAsync({ locations: calLocations.filter((l) => l.id !== locId) });
+  };
+
+  const updateWeekendPolicy = async (locId: string | 'default', value: string) => {
+    const updated = { ...weekendPolicy, perLocation: { ...weekendPolicy.perLocation } };
+    if (locId === 'default') updated.default = value;
+    else updated.perLocation[locId] = value;
+    await saveCalConfig.mutateAsync({ weekendPolicy: updated });
+  };
+
+  const usersInLocation = (locId: string) =>
+    users.filter((u) => (u as any).officeLocationId === locId);
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">Office Locations</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Define your company's office locations. Assign users to locations and configure location-specific holiday calendars.</p>
+        </div>
+        {canManage && (
+          <Button size="sm" icon={<Plus size={14} />} onClick={() => setAddOpen(true)}>Add Location</Button>
+        )}
+      </div>
+
+      {/* Info banner */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-700">
+        <p className="font-medium mb-1 flex items-center gap-2"><MapPin size={14} /> How it works</p>
+        <p className="text-xs text-blue-600">
+          Each user can be assigned to an office location from the <strong>Users</strong> tab. Their leave calendar will automatically show org-wide holidays plus their office location's specific holidays. Configure location calendars in the <strong>Leave &gt; Company Calendar</strong> tab.
+        </p>
+      </div>
+
+      {calLocations.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
+          <MapPin size={32} className="mx-auto text-gray-300 mb-2" />
+          <p className="text-sm font-medium text-gray-500">No office locations yet</p>
+          <p className="text-xs text-gray-400 mt-1">Add locations to assign users and configure location-specific holiday calendars.</p>
+          {canManage && (
+            <Button size="sm" icon={<Plus size={14} />} onClick={() => setAddOpen(true)} className="mt-4">
+              Add First Location
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {calLocations.map((loc) => {
+            const assigned = usersInLocation(loc.id);
+            const policyValue = weekendPolicy.perLocation?.[loc.id] ?? weekendPolicy.default;
+            const policyLabel = WEEKEND_POLICY_OPTIONS.find(p => p.value === policyValue)?.label ?? policyValue;
+            return (
+              <div key={loc.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-3">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
+                        <MapPin size={15} className="text-blue-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">{loc.name}</p>
+                        {loc.country && <p className="text-xs text-gray-400">{loc.country}</p>}
+                      </div>
+                    </div>
+                  </div>
+                  {canManage && (
+                    <button onClick={() => removeLocation(loc.id)}
+                      className="p-1 text-gray-300 hover:text-red-500 transition-colors rounded" title="Remove location">
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Weekend policy */}
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Weekend Policy</p>
+                  {canManage ? (
+                    <select
+                      className="form-select text-xs py-1 px-2 border-gray-300 rounded-lg w-full"
+                      value={policyValue}
+                      onChange={(e) => updateWeekendPolicy(loc.id, e.target.value)}
+                    >
+                      {WEEKEND_POLICY_OPTIONS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                    </select>
+                  ) : (
+                    <span className="text-xs text-gray-700">{policyLabel}</span>
+                  )}
+                </div>
+
+                {/* Assigned users */}
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">{assigned.length} user{assigned.length !== 1 ? 's' : ''} assigned</p>
+                  {assigned.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {assigned.slice(0, 5).map((u) => (
+                        <div key={u.id} className="flex items-center gap-1 bg-gray-100 rounded-full px-2 py-0.5">
+                          <UserAvatar name={u.name} avatarUrl={u.avatarUrl} size="xs" />
+                          <span className="text-xs text-gray-700">{u.name.split(' ')[0]}</span>
+                        </div>
+                      ))}
+                      {assigned.length > 5 && (
+                        <span className="text-xs text-gray-400 px-2 py-0.5">+{assigned.length - 5} more</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {loc.timezone && (
+                  <p className="text-xs text-gray-400 flex items-center gap-1"><Clock size={11} />{loc.timezone}</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Org-wide default weekend policy */}
+      {calLocations.length > 0 && canManage && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+          <p className="text-xs font-semibold text-gray-700 mb-2">Org-wide Default Weekend Policy</p>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-500 w-36 shrink-0">Applies when no location is assigned</span>
+            <select
+              className="form-select text-sm"
+              value={weekendPolicy.default}
+              onChange={(e) => updateWeekendPolicy('default', e.target.value)}
+            >
+              {WEEKEND_POLICY_OPTIONS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
+
+      {/* Add Location Modal */}
+      <Modal open={addOpen} onClose={() => { setAddOpen(false); resetLoc(); }} title="Add Office Location" size="sm">
+        <form onSubmit={handleLocSubmit(addLocation)} className="space-y-4">
+          <div>
+            <label className="form-label">Location Name *</label>
+            <input className="form-input" placeholder="e.g. Sydney Office" {...regLoc('name', { required: 'Required' })} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">Country</label>
+              <select className="form-select" {...regLoc('country')}>
+                <option value="">— Select country —</option>
+                {COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="form-label">Timezone</label>
+              <select className="form-select" {...regLoc('timezone')}>
+                <option value="">— Select timezone —</option>
+                {TZ_GROUPS.map((group) => (
+                  <optgroup key={group} label={group}>
+                    {TIMEZONES.filter((t) => t.group === group).map((t) => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+          </div>
+          <ModalActions>
+            <Button variant="outline" type="button" onClick={() => setAddOpen(false)}>Cancel</Button>
+            <Button type="submit" loading={locSubmitting} icon={<Plus size={14} />}>Add Location</Button>
+          </ModalActions>
+        </form>
+      </Modal>
+    </div>
+  );
+};
+
 // ─── AdminPage ────────────────────────────────────────────────────────────────
 const AdminPage = () => {
+  const { t } = useI18n();
   const { user: currentUser } = useAuth();
   const { confirm } = useConfirm();
   const canInvite = hasPermission(currentUser, PERMISSIONS.INVITE_USER);
   const canManageRoles = hasPermission(currentUser, PERMISSIONS.ORG_ROLE_WRITE);
   const allowedInviteRoles = INVITE_ALLOWED_ROLES[currentUser?.role ?? ''] ?? [];
-  const [tab, setTab] = useState<Tab>('users');
+  const [searchParams] = useSearchParams();
+  const initialTab = (searchParams.get('tab') as Tab) ?? 'users';
+  const [tab, setTab] = useState<Tab>(initialTab);
 
   // Org roles state
   const { data: orgRoles = [] as OrgRole[], isLoading: rolesLoading } = useOrgRoles() as { data: OrgRole[]; isLoading: boolean };
@@ -1897,25 +1982,6 @@ const AdminPage = () => {
   const [inviteError, setInviteError] = useState('');
   const [inviteSuccess, setInviteSuccess] = useState('');
 
-  // Audit filters
-  const [filterAction, setFilterAction] = useState('');
-  const [filterEntity, setFilterEntity] = useState('');
-  const [filterUser, setFilterUser] = useState('');
-  const [filterSearch, setFilterSearch] = useState('');
-  const [filterDateFrom, setFilterDateFrom] = useState('');
-  const [filterDateTo, setFilterDateTo] = useState('');
-  const [auditPage, setAuditPage] = useState(1);
-
-  const auditParams = useMemo(() => {
-    const p: Record<string, string> = {};
-    if (filterAction) p.action = filterAction;
-    if (filterEntity) p.entityType = filterEntity;
-    if (filterUser) p.performedBy = filterUser;
-    if (filterDateFrom) p.dateFrom = filterDateFrom;
-    if (filterDateTo) p.dateTo = filterDateTo + ' 23:59:59';
-    return p;
-  }, [filterAction, filterEntity, filterUser, filterDateFrom, filterDateTo]);
-
   const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
   const [editingRole, setEditingRole] = useState('');
 
@@ -1924,6 +1990,11 @@ const AdminPage = () => {
 
   const { data: users = [], isLoading } = useAdminUsers();
   const { data: shifts = [] } = useShifts();
+  const { data: officeLocations = [] } = useOfficeLocations();
+  const canManageLocations = hasPermission(currentUser, PERMISSIONS.LOCATION_ADMIN);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: calConfig } = useCalendarConfig() as { data: any };
+  const saveCalConfig = useSaveCalendarConfig();
 
   const filteredUsers = useMemo(() => {
     const q = userSearch.trim().toLowerCase();
@@ -1937,36 +2008,11 @@ const AdminPage = () => {
 
   const userTotalPages = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE));
   const pagedUsers     = filteredUsers.slice((userPage - 1) * PAGE_SIZE, userPage * PAGE_SIZE);
-  const { data: rawLogs = [], isLoading: auditLoading, refetch: refetchLogs } =
-    useAuditLogs(auditParams, tab === 'audit');
   const inviteUser = useInviteUser();
   const deactivateUser = useDeactivateUser();
   const activateUser = useActivateUser();
 
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<InviteForm>();
-
-  // Build userId → avatarUrl map from admin users list
-  const userAvatarMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    (users as UserType[]).forEach(u => { if (u.avatarUrl) map[u.id] = u.avatarUrl; });
-    return map;
-  }, [users]);
-
-  // Client-side search filter
-  const auditLogs = useMemo(() => {
-    const filtered = !filterSearch ? (rawLogs as AuditLog[]) : (rawLogs as AuditLog[]).filter(l => {
-      const q = filterSearch.toLowerCase();
-      return (l.performedByName || '').toLowerCase().includes(q) ||
-        (l.performedByEmail || '').toLowerCase().includes(q) ||
-        (l.action || '').toLowerCase().includes(q) ||
-        (l.entityType || '').toLowerCase().includes(q) ||
-        (l.newValue || '').toLowerCase().includes(q);
-    });
-    return filtered;
-  }, [rawLogs, filterSearch]);
-
-  const totalPages = Math.max(1, Math.ceil(auditLogs.length / PAGE_SIZE));
-  const pagedLogs = auditLogs.slice((auditPage - 1) * PAGE_SIZE, auditPage * PAGE_SIZE);
 
   const onInvite = async (data: InviteForm) => {
     try {
@@ -2008,34 +2054,11 @@ const AdminPage = () => {
   const cancelEditRole = () => { setEditingRoleId(null); setEditingRole(''); };
 
 
-  const clearFilters = () => {
-    setFilterAction(''); setFilterEntity(''); setFilterUser('');
-    setFilterDateFrom(''); setFilterDateTo(''); setFilterSearch('');
-    setAuditPage(1);
-  };
-  const hasFilters = !!(filterAction || filterEntity || filterUser || filterDateFrom || filterDateTo || filterSearch);
-
-  // Unique action types and entity types from loaded logs for filter dropdowns
-  const actionOptions = useMemo(() =>
-    Array.from(new Set((rawLogs as AuditLog[]).map(l => l.action).filter(Boolean))).sort(),
-    [rawLogs]);
-  const entityOptions = useMemo(() =>
-    Array.from(new Set((rawLogs as AuditLog[]).map(l => l.entityType).filter((v): v is string => !!v))).sort(),
-    [rawLogs]);
-  // Build user options from loaded logs
-  const userOptions = useMemo(() => {
-    const map = new Map<string, string>();
-    (rawLogs as AuditLog[]).forEach(l => {
-      if (l.performedById) map.set(l.performedById, l.performedByName || l.performedByEmail || l.performedById);
-    });
-    return Array.from(map.entries());
-  }, [rawLogs]);
-
   if (isLoading) return <Layout><PageLoader /></Layout>;
 
   return (
     <Layout>
-      <Header title="Admin" subtitle="User management and audit trail"
+      <Header title={t('nav.userManagement')} subtitle="Manage users, roles and org structure"
         actions={tab === 'users' && (canInvite
           ? <Button onClick={() => setShowInvite(true)} icon={<Plus size={16} />}>Invite User</Button>
           : <span className="flex items-center gap-1.5 text-sm text-gray-400"><Lock size={14} />No permission to invite users</span>)}
@@ -2048,7 +2071,6 @@ const AdminPage = () => {
             { key: 'users',    label: `Users (${users.length})` },
             { key: 'roles',    label: `Roles (${orgRoles.length})` },
             { key: 'orgchart', label: 'Org Chart' },
-            { key: 'audit',    label: `Audit Log${rawLogs.length ? ` (${rawLogs.length})` : ''}` },
           ] as { key: Tab; label: string }[]).map(({ key, label }) => (
             <button key={key} onClick={() => setTab(key)}
               className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
@@ -2082,14 +2104,14 @@ const AdminPage = () => {
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      {['Name', 'Email', 'Role', 'Shift', 'Status', 'Actions'].map((h) => (
+                      {['Name', 'Email', 'Role', 'Shift', 'Location', 'Status', 'Actions'].map((h) => (
                         <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {pagedUsers.length === 0 ? (
-                      <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">No users match "{userSearch}"</td></tr>
+                      <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">No users match "{userSearch}"</td></tr>
                     ) : pagedUsers.map((u: UserType) => (
                       <UserRow
                         key={u.id}
@@ -2098,6 +2120,8 @@ const AdminPage = () => {
                         allowedInviteRoles={allowedInviteRoles}
                         orgRoles={orgRoles}
                         shifts={shifts as any}
+                        officeLocations={officeLocations}
+                        canManageLocation={canManageLocations}
                         isEditingRole={editingRoleId === u.id}
                         editingRole={editingRole}
                         onStartEdit={() => startEditRole(u.id, u.role)}
@@ -2162,168 +2186,6 @@ const AdminPage = () => {
               )}
             </div>
           )
-        )}
-
-        {/* ── Audit Log tab ──────────────────────────────────────────────────── */}
-        {tab === 'audit' && (
-          <div className="space-y-4">
-
-            {/* Filter bar */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-3">
-              <div className="flex items-center gap-2 flex-wrap">
-                <Filter size={14} className="text-gray-400 shrink-0" />
-                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Filters</span>
-                {hasFilters && (
-                  <button onClick={clearFilters}
-                    className="ml-auto text-xs text-blue-600 hover:underline flex items-center gap-1">
-                    Clear all
-                  </button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                {/* Search */}
-                <div className="lg:col-span-2 relative">
-                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input
-                    className="form-input pl-8 text-xs w-full"
-                    placeholder="Search name, action, resource…"
-                    value={filterSearch}
-                    onChange={e => { setFilterSearch(e.target.value); setAuditPage(1); }}
-                  />
-                </div>
-
-                {/* Who (user) */}
-                <div className="relative">
-                  <User size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                  <select className="form-select pl-8 text-xs w-full" value={filterUser} onChange={e => { setFilterUser(e.target.value); setAuditPage(1); }}>
-                    <option value="">All users</option>
-                    {userOptions.map(([id, name]) => (
-                      <option key={id} value={id}>{name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Action */}
-                <div className="relative">
-                  <Tag size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                  <select className="form-select pl-8 text-xs w-full" value={filterAction} onChange={e => { setFilterAction(e.target.value); setAuditPage(1); }}>
-                    <option value="">All actions</option>
-                    {actionOptions.map(a => <option key={a} value={a}>{a.replace(/_/g, ' ')}</option>)}
-                  </select>
-                </div>
-
-                {/* Entity type */}
-                <div className="relative">
-                  <Layers size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                  <select className="form-select pl-8 text-xs w-full" value={filterEntity} onChange={e => { setFilterEntity(e.target.value); setAuditPage(1); }}>
-                    <option value="">All resources</option>
-                    {entityOptions.map(e => <option key={e} value={e}>{e}</option>)}
-                  </select>
-                </div>
-
-                {/* Date from */}
-                <div className="relative">
-                  <Calendar size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                  <input type="date" className="form-input pl-8 text-xs w-full" value={filterDateFrom} onChange={e => { setFilterDateFrom(e.target.value); setAuditPage(1); }} />
-                </div>
-
-                {/* Date to */}
-                <div className="relative">
-                  <Calendar size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                  <input type="date" className="form-input pl-8 text-xs w-full" value={filterDateTo} onChange={e => { setFilterDateTo(e.target.value); setAuditPage(1); }} />
-                </div>
-              </div>
-            </div>
-
-            {/* Results header */}
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-gray-500">
-                {auditLoading ? 'Loading…' : `${auditLogs.length} event${auditLogs.length !== 1 ? 's' : ''}${hasFilters ? ' matching filters' : ''}`}
-              </p>
-              <button onClick={() => refetchLogs()}
-                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors">
-                <RefreshCw size={12} /> Refresh
-              </button>
-            </div>
-
-            {/* Log list */}
-            {auditLoading ? (
-              <div className="bg-white rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-100">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="flex items-center gap-4 px-5 py-4">
-                    <div className="w-8 h-8 rounded-full bg-gray-100 animate-pulse shrink-0" />
-                    <div className="flex-1 space-y-2">
-                      <div className="h-3 bg-gray-100 rounded animate-pulse w-48" />
-                      <div className="h-3 bg-gray-100 rounded animate-pulse w-32" />
-                    </div>
-                    <div className="h-3 bg-gray-100 rounded animate-pulse w-24" />
-                  </div>
-                ))}
-              </div>
-            ) : auditLogs.length === 0 ? (
-              <EmptyState
-                title={hasFilters ? 'No events match your filters' : 'No audit events yet'}
-                description={hasFilters ? 'Try adjusting or clearing the filters.' : 'Activity will appear here as your team uses the platform.'}
-                action={hasFilters ? <Button variant="outline" onClick={clearFilters}>Clear filters</Button> : undefined}
-              />
-            ) : (
-              <>
-                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                  {pagedLogs.map((log) => (
-                    <LogRow key={log.id} log={log} avatarUrl={log.performedById ? userAvatarMap[log.performedById] : undefined} />
-                  ))}
-                </div>
-
-                {/* Pagination */}
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-between px-1">
-                    <p className="text-xs text-gray-500">
-                      Showing {(auditPage - 1) * PAGE_SIZE + 1}–{Math.min(auditPage * PAGE_SIZE, auditLogs.length)} of {auditLogs.length} events
-                    </p>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => setAuditPage(p => Math.max(1, p - 1))}
-                        disabled={auditPage === 1}
-                        className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                      >
-                        <ChevronLeft size={14} />
-                      </button>
-                      {Array.from({ length: totalPages }, (_, i) => i + 1)
-                        .filter(p => p === 1 || p === totalPages || Math.abs(p - auditPage) <= 1)
-                        .reduce<(number | '…')[]>((acc, p, i, arr) => {
-                          if (i > 0 && p - (arr[i - 1] as number) > 1) acc.push('…');
-                          acc.push(p);
-                          return acc;
-                        }, [])
-                        .map((p, i) => p === '…' ? (
-                          <span key={`ellipsis-${i}`} className="px-1 text-xs text-gray-400">…</span>
-                        ) : (
-                          <button
-                            key={p}
-                            onClick={() => setAuditPage(p as number)}
-                            className={`min-w-[28px] h-7 rounded-lg text-xs font-medium border transition-colors ${
-                              auditPage === p
-                                ? 'bg-blue-600 text-white border-blue-600'
-                                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                            }`}
-                          >
-                            {p}
-                          </button>
-                        ))}
-                      <button
-                        onClick={() => setAuditPage(p => Math.min(totalPages, p + 1))}
-                        disabled={auditPage === totalPages}
-                        className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                      >
-                        <ChevronRight size={14} />
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
         )}
 
         {/* ── Roles tab ──────────────────────────────────────────────────────── */}
@@ -2422,8 +2284,8 @@ const AdminPage = () => {
               onClose={() => { setPermModalOpen(false); setPermRole(null); }}
               role={permRole}
               saving={setRolePerms.isPending}
-              onSave={async (perms) => {
-                await setRolePerms.mutateAsync(perms);
+              onSave={async (perms, moduleAccess) => {
+                await setRolePerms.mutateAsync({ permissions: perms, moduleAccess });
                 setPermModalOpen(false);
                 setPermRole(null);
               }}
@@ -2451,6 +2313,7 @@ const AdminPage = () => {
             <OrgChartView />
           </div>
         )}
+
       </div>
 
       {/* Invite Modal */}

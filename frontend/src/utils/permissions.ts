@@ -50,6 +50,7 @@ export const PERMISSIONS = {
   LEAVE_WRITE:   'LEAVE_WRITE',
   LEAVE_APPROVE: 'LEAVE_APPROVE',
   LEAVE_ADMIN:   'LEAVE_ADMIN',
+  LOCATION_ADMIN:'LOCATION_ADMIN',
   // ── Assets ────────────────────────────────────────────────────────────────
   ASSET_READ:    'ASSET_READ',
   ASSET_WRITE:   'ASSET_WRITE',

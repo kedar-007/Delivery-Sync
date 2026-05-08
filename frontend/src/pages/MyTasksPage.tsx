@@ -9,6 +9,7 @@ import { format, parseISO, isPast, addDays, isBefore } from 'date-fns';
 import { useForm } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
+import { useI18n } from '../contexts/I18nContext';
 import Button from '../components/ui/Button';
 import Modal, { ModalActions } from '../components/ui/Modal';
 import EmptyState from '../components/ui/EmptyState';
@@ -39,6 +40,16 @@ const decimalToHHMM = (h: number): string => {
   const hrs = Math.floor(h);
   const mins = Math.round((h - hrs) * 60);
   return `${hrs}:${String(mins).padStart(2, '0')}`;
+};
+const fmtH = (h: number | string): string => {
+  const v = typeof h === 'string' ? parseFloat(h) : h;
+  if (!v || isNaN(v)) return '—';
+  const totalMin = Math.round(v * 60);
+  const hrs = Math.floor(totalMin / 60);
+  const mins = totalMin % 60;
+  if (hrs > 0 && mins > 0) return `${hrs}h ${mins}m`;
+  if (hrs > 0) return `${hrs}h`;
+  return `${mins}m`;
 };
 
 // ── Safe date formatter (Catalyst returns non-ISO strings) ────────────────────
@@ -678,7 +689,12 @@ function TaskDetailPanel({
                   const [sh, sm] = logTimeStartTime.split(':').map(Number);
                   const [eh, em] = logTimeEndTime.split(':').map(Number);
                   const diff = (eh * 60 + em) - (sh * 60 + sm);
-                  if (diff <= 0) return null;
+                  if (diff <= 0) return (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg -mt-1">
+                      <AlertCircle size={13} className="text-red-500 shrink-0" />
+                      <span className="text-sm text-red-700 font-medium">End time must be after start time</span>
+                    </div>
+                  );
                   const hh = Math.floor(diff / 60);
                   const mm = diff % 60;
                   const readable = hh > 0 && mm > 0 ? `${hh}h ${mm}m` : hh > 0 ? `${hh}h` : `${mm} min`;
@@ -749,7 +765,7 @@ function TaskDetailPanel({
                         <span className="text-xs font-medium text-gray-700 flex-1 truncate">
                           {e.user_name || e.userName || 'Unknown'}
                         </span>
-                        <span className="text-xs font-bold text-indigo-700 shrink-0">{e.hours}h</span>
+                        <span className="text-xs font-bold text-indigo-700 shrink-0">{fmtH(e.hours)}</span>
                         <span className="text-[11px] text-gray-400 shrink-0">
                           {safeFmt(e.entry_date, 'MMM d')}
                         </span>
@@ -772,7 +788,7 @@ function TaskDetailPanel({
                   ))}
                   <div className="text-right text-xs text-gray-500 pt-1">
                     Total: <span className="font-semibold text-gray-700">
-                      {taskTimeEntries.reduce((sum: number, e: any) => sum + (parseFloat(e.hours) || 0), 0).toFixed(2)}h
+                      {fmtH(taskTimeEntries.reduce((sum: number, e: any) => sum + (parseFloat(e.hours) || 0), 0))}
                     </span>
                   </div>
                 </div>
@@ -865,6 +881,7 @@ function TaskDetailPanel({
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function MyTasksPage() {
+  const { t } = useI18n();
   const { user } = useAuth();
   const { confirm } = useConfirm();
   const canCreateTask = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TASK_WRITE);
@@ -1023,7 +1040,10 @@ export default function MyTasksPage() {
       const [sh, sm] = logTimeStartTime.split(':').map(Number);
       const [eh, em] = logTimeEndTime.split(':').map(Number);
       const diff = (eh * 60 + em) - (sh * 60 + sm);
-      if (diff > 0) setLogTimeHours(decimalToHHMM(Math.round((diff / 60) * 100) / 100));
+      if (diff > 0) {
+        setLogTimeHours(decimalToHHMM(Math.round((diff / 60) * 100) / 100));
+        setLogTimeError('');
+      }
     }
   }, [logTimeStartTime, logTimeEndTime]);
 
@@ -1140,13 +1160,21 @@ export default function MyTasksPage() {
     const elapsed = (endTs - timerStart) / 3600000;
     localStorage.removeItem(`ds_timer_${taskDetailId}`);
     setTimerRunning(false); setTimerStart(null); setTimerDisplay('00:00:00');
-    setLogTimeHours(Math.max(0.25, Math.round(elapsed * 4) / 4).toFixed(2));
+    setLogTimeHours(Math.max(0.01, Math.round(elapsed * 100) / 100).toFixed(2));
     setLogTimeEndTime(fmtHHMM(endTs));
     setDetailTab('time');
   };
 
   const handleDetailLogTime = async () => {
     if (!taskDetailId || !logTimeHours || !detailTask) return;
+    if (logTimeStartTime && logTimeEndTime) {
+      const [sh, sm] = logTimeStartTime.split(':').map(Number);
+      const [eh, em] = logTimeEndTime.split(':').map(Number);
+      if ((eh * 60 + em) - (sh * 60 + sm) <= 0) {
+        setLogTimeError('End time must be after start time');
+        return;
+      }
+    }
     setLogTimePending(true); setLogTimeError('');
     try {
       await timeEntriesApi.create({
@@ -1207,7 +1235,7 @@ export default function MyTasksPage() {
   return (
     <Layout>
       <Header
-        title="My Tasks"
+        title={t('nav.myTasks')}
         subtitle={`${allMyTasks.length} task${allMyTasks.length !== 1 ? 's' : ''} assigned to you`}
         actions={canCreateTask ? (
           <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={openCreate}>
@@ -1373,7 +1401,7 @@ export default function MyTasksPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="form-label">Hours *</label>
-              <input type="number" step="0.25" min="0.25" className="form-input" placeholder="1.5"
+              <input type="number" step="0.01" min="0.01" className="form-input" placeholder="1.5"
                 value={logHours} onChange={(e) => setLogHours(e.target.value)} />
             </div>
             <div>
@@ -1591,7 +1619,7 @@ function TaskRow({
         {hoursLogged > 0 ? (
           <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5 font-medium">
             <Timer size={10} />
-            {hoursLogged % 1 === 0 ? hoursLogged : hoursLogged.toFixed(1)}h
+            {fmtH(hoursLogged)}
           </span>
         ) : (
           <span className="text-xs text-gray-300">—</span>

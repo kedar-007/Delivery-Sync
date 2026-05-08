@@ -1,0 +1,65 @@
+import { Translations } from './en';
+const zh: Translations = {
+  nav: {
+    dashboard: '仪表盘', portfolio: '项目组合', projects: '项目',
+    milestones: '里程碑', dailyUpdates: '每日更新',
+    submitStandup: '提交站会', submitEod: '提交EOD',
+    actions: '行动项', blockers: '阻碍', raidRegister: 'RAID登记表',
+    decisions: '决策', reports: '报告', admin: '管理',
+    settings: '设置', profile: '我的资料', signOut: '退出登录',
+    dailyWork: '日常工作', people: '人员', assets: '资产',
+    reportsAi: '报告与AI', executive: '高管',
+    administration: '管理员', bugReports: '错误报告', helpDocs: '帮助与文档',
+    allProjects: '所有项目', myTasks: '我的任务', sprintBoards: '冲刺看板', backlog: '待办列表',
+    standup: '站会', eod: 'EOD', timeTracking: '时间追踪',
+    attendance: '考勤', leave: '请假', teams: '团队', directory: '通讯录',
+    orgChart: '组织架构', announcements: '公告', peopleSettings: '人员设置',
+    userManagement: '用户管理', auditLogs: '审计日志', configWorkflows: '配置与工作流', dataSeeder: '数据填充',
+    ceoDashboard: 'CEO看板', ctoDashboard: 'CTO看板',
+    teamActivity: '团队活动', aiInsights: 'AI洞察',
+  },
+  common: {
+    save: '保存', cancel: '取消', create: '创建', edit: '编辑',
+    delete: '删除', remove: '移除', close: '关闭', back: '返回',
+    loading: '加载中…', saving: '保存中…', search: '搜索', filter: '筛选',
+    all: '全部', none: '无', yes: '是', no: '否', reset: '重置',
+    apply: '应用', confirm: '确认', success: '成功', error: '错误',
+    required: '必填', optional: '可选', new: '新', preview: '预览',
+    view: '查看', noData: '未找到数据。', actions: '操作',
+  },
+  settings: {
+    title: '设置', subtitle: '自定义您的工作区外观和偏好', saved: '偏好已保存',
+    theme: {
+      title: '外观', subtitle: '选择您偏好的主题和配色方案', themeLabel: '颜色主题',
+      autoTheme: '自动主题', autoThemeDesc: '根据时间自动切换（晚8点后切换为暗色）',
+      density: '界面密度', compact: '紧凑', default: '默认', comfortable: '舒适',
+      fontSize: '字体大小', small: '小', medium: '中', large: '大', reset: '重置为默认值',
+      accentLabel: '强调色',
+    },
+    sidebar: {
+      title: '侧边栏', subtitle: '重新排序并显示/隐藏导航项目',
+      collapse: '折叠启动', collapseDesc: '页面加载时侧边栏以仅图标模式打开',
+      items: '菜单项目', resetOrder: '重置顺序', visible: '可见', hidden: '已隐藏',
+      navOrder: '导航顺序',
+      dragHint: '拖动把手重新排序。切换眼睛图标显示或隐藏。',
+    },
+    language: {
+      title: '语言', subtitle: '选择您偏好的显示语言',
+      label: '界面语言', changeNote: '语言更改即时生效，无需刷新页面。',
+    },
+    preview: {
+      title: '排版预览',
+      subtitle: '字体和密度设置的实时预览',
+    },
+  },
+  profile: {
+    title: '我的资料', subtitle: '管理您的账户设置和头像', picture: '头像',
+    name: '显示名称', email: '电子邮件', role: '角色', status: '状态',
+    auth: '身份验证', userId: '用户ID', saveChanges: '保存更改',
+    uploadPhoto: '上传新头像', uploadHint: 'JPG、PNG或GIF · 最大2MB · 自动调整为256×256',
+    emailNote: '电子邮件由Zoho管理，无法在此处更改。',
+    roleNote: '请联系您的管理员更改角色。',
+    pictureUpdated: '头像已更新', profileSaved: '资料保存成功',
+  },
+} as const;
+export default zh;

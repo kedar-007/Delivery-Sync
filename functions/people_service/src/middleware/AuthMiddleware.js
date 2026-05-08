@@ -132,6 +132,9 @@ class AuthMiddleware {
           const parsed = JSON.parse(overrideRows[0].permissions || '{}');
           (parsed.granted || []).forEach((p) => base.add(p));
           (parsed.revoked || []).forEach((p) => base.delete(p));
+          if (parsed.officeLocationId) {
+            req.currentUser.officeLocationId = String(parsed.officeLocationId);
+          }
         }
       } catch (_) {}
       if (isFullAdmin) dataScope = 'ORG_WIDE';

@@ -25,6 +25,7 @@ import {
 import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
+import { useI18n } from '../contexts/I18nContext';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -494,6 +495,7 @@ const AnnouncementModal = ({ open, onClose, editing }: AnnouncementModalProps) =
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 const AnnouncementsPage = () => {
+  const { t } = useI18n();
   useParams<{ tenantSlug: string }>();
   const { user } = useAuth();
   const canManage = hasPermission(user, PERMISSIONS.ANNOUNCEMENT_WRITE);
@@ -536,7 +538,7 @@ const AnnouncementsPage = () => {
   return (
     <Layout>
       <Header
-        title="Announcements"
+        title={t('nav.announcements')}
         subtitle={
           unreadCount > 0
             ? `${unreadCount} unread announcement${unreadCount !== 1 ? 's' : ''}`

@@ -1,10 +1,11 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import {
   Settings, GitMerge, ToggleLeft, ToggleRight, Shield, FileText,
   CalendarDays, Award, Plus, Trash2, Edit2, CheckCircle2,
   AlertCircle, ChevronDown, ChevronRight, Zap, Flag, Users,
-  Lock, Unlock, RefreshCw, Info, Star, GripVertical, Search, Bot, Bug, X,
+  Lock, Unlock, RefreshCw, Info, Star, GripVertical, Search, Bot, Bug, X, Layers,
 } from 'lucide-react';
 import {
   DndContext,
@@ -37,15 +38,16 @@ import { adminConfigApi, adminApi } from '../lib/api';
 import { useBugConfig, useSaveBugConfig } from '../hooks/useBugReports';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../components/ui/ConfirmDialog';
+import { useI18n } from '../contexts/I18nContext';
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 
 const TABS = [
   { key: 'workflows',   label: 'Workflows',      icon: GitMerge },
+  { key: 'modules',     label: 'Modules',        icon: Layers },
   { key: 'features',    label: 'Feature Flags',  icon: Flag },
   { key: 'forms',       label: 'Form Configs',   icon: FileText },
   { key: 'permissions', label: 'Permissions',    icon: Shield },
-  { key: 'leave-types', label: 'Leave Types',    icon: CalendarDays },
   { key: 'badges',      label: 'Badge Catalog',  icon: Award },
   { key: 'bot',         label: 'AI Assistant',   icon: Bot },
   { key: 'bug-report',  label: 'Bug Reports',    icon: Bug },
@@ -588,6 +590,94 @@ function WorkflowsTab() {
           </ModalActions>
         </form>
       </Modal>
+    </div>
+  );
+}
+
+// ── Modules Tab ───────────────────────────────────────────────────────────────
+
+const MODULE_CATALOGUE = [
+  { key: 'projects', label: 'Projects & Sprints',   desc: 'Tasks, sprints, milestones, backlog, actions, blockers, RAID',     icon: '🗂️' },
+  { key: 'people',   label: 'People & HR',           desc: 'Attendance, leave, teams, directory, org chart, announcements',    icon: '👥' },
+  { key: 'assets',   label: 'Asset Management',      desc: 'Asset inventory, requests, assignments and maintenance',           icon: '📦' },
+  { key: 'time',     label: 'Time Tracking',         desc: 'Log hours, approvals and billable / non-billable reporting',       icon: '⏱️' },
+  { key: 'reports',  label: 'Reports & Analytics',   desc: 'Delivery reports, standup rollups, team activity',                 icon: '📊' },
+  { key: 'ai',       label: 'AI Insights',           desc: 'AI daily summary, suggestions, natural language queries',          icon: '✨' },
+  { key: 'exec',     label: 'Executive Dashboards',  desc: 'CEO / CTO dashboards and portfolio overview',                     icon: '💼' },
+];
+
+function ModulesTab() {
+  const qc = useQueryClient();
+  const [local, setLocal] = useState<Record<string, boolean>>({});
+  const [dirty, setDirty] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['admin-modules'],
+    queryFn: () => adminApi.getModules().then((d: any) => d.modules as Record<string, boolean>),
+  });
+
+  useEffect(() => {
+    if (data) setLocal(data);
+  }, [data]);
+
+  const save = useMutation({
+    mutationFn: () => adminApi.updateModules(local),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-modules'] });
+      qc.invalidateQueries({ queryKey: ['module-permissions'] });
+      setDirty(false);
+      setSaveError('');
+    },
+    onError: (e: any) => setSaveError(e.message),
+  });
+
+  const toggle = (key: string) => {
+    setLocal((prev) => ({ ...prev, [key]: !prev[key] }));
+    setDirty(true);
+  };
+
+  if (isLoading) return <PageSkeleton />;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">Module Visibility</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Enable or disable entire feature modules. Disabled modules hide the sidebar section and block navigation for all users (admins always see everything).</p>
+        </div>
+        {dirty && (
+          <Button size="sm" onClick={() => save.mutate()} loading={save.isPending}>Save Changes</Button>
+        )}
+      </div>
+      {saveError && <Alert type="error" message={saveError} />}
+      <div className="grid gap-3">
+        {MODULE_CATALOGUE.map((m) => {
+          const enabled = local[m.key] !== false;
+          return (
+            <Card key={m.key}>
+              <div className="flex items-center gap-4">
+                <span className="text-2xl w-8 shrink-0 text-center">{m.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900">{m.label}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{m.desc}</p>
+                </div>
+                <button
+                  onClick={() => toggle(m.key)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${enabled ? 'bg-blue-600' : 'bg-gray-200'}`}
+                  aria-checked={enabled}
+                  role="switch"
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+                <span className={`text-xs font-medium w-14 text-right ${enabled ? 'text-blue-600' : 'text-gray-400'}`}>
+                  {enabled ? 'Enabled' : 'Disabled'}
+                </span>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1252,7 +1342,7 @@ interface LeaveTypeForm {
   is_active: boolean;
 }
 
-function LeaveTypesTab() {
+export function LeaveTypesTab() {
   const { data, isLoading } = useLeaveTypes();
   const createType = useCreateLeaveType();
   const updateType = useUpdateLeaveType();
@@ -1892,6 +1982,7 @@ function BotSettingsTab() {
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function AdminConfigPage() {
+  const { t } = useI18n();
   const { confirm: openConfirm } = useConfirm();
   const [activeTab, setActiveTab] = useState<TabKey>('workflows');
   const [seeding, setSeeding]   = useState(false);
@@ -1911,20 +2002,20 @@ export default function AdminConfigPage() {
   }, [openConfirm]);
 
   const tabContent: Record<TabKey, React.ReactNode> = {
-    workflows:     <WorkflowsTab />,
-    features:      <FeatureFlagsTab />,
-    forms:         <FormConfigsTab />,
-    permissions:   <PermissionsTab />,
-    'leave-types': <LeaveTypesTab />,
-    badges:        <BadgeCatalogTab />,
-    bot:           <BotSettingsTab />,
-    'bug-report':  <BugReportConfigTab />,
+    workflows:   <WorkflowsTab />,
+    modules:     <ModulesTab />,
+    features:    <FeatureFlagsTab />,
+    forms:       <FormConfigsTab />,
+    permissions: <PermissionsTab />,
+    badges:      <BadgeCatalogTab />,
+    bot:         <BotSettingsTab />,
+    'bug-report':<BugReportConfigTab />,
   };
 
   return (
     <Layout>
       <Header
-        title="Admin Configuration"
+        title={t('nav.configWorkflows')}
         subtitle="Manage workflows, feature flags, permissions, leave types and badge catalog"
       />
 

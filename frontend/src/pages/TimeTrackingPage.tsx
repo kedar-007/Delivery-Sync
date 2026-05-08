@@ -2,12 +2,13 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Clock, Plus, Edit2, Trash2, Send, RotateCcw, CheckCircle2,
-  XCircle, DollarSign, CalendarDays, TrendingUp, Users,
+  XCircle, DollarSign, CalendarDays, TrendingUp, Users, AlertCircle,
 } from 'lucide-react';
 import { format, startOfWeek, addDays, startOfMonth, endOfMonth, eachDayOfInterval, parseISO, isValid } from 'date-fns';
 import { useForm, useWatch } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
+import { useI18n } from '../contexts/I18nContext';
 import Button from '../components/ui/Button';
 import Card, { StatCard } from '../components/ui/Card';
 import Modal, { ModalActions } from '../components/ui/Modal';
@@ -141,6 +142,16 @@ const decimalToHHMM = (h: number): string => {
   const mins = Math.round((h - hrs) * 60);
   return `${hrs}:${String(mins).padStart(2, '0')}`;
 };
+const fmtH = (h: number | string): string => {
+  const v = typeof h === 'string' ? parseFloat(h) : h;
+  if (!v || isNaN(v)) return '—';
+  const totalMin = Math.round(v * 60);
+  const hrs = Math.floor(totalMin / 60);
+  const mins = totalMin % 60;
+  if (hrs > 0 && mins > 0) return `${hrs}h ${mins}m`;
+  if (hrs > 0) return `${hrs}h`;
+  return `${mins}m`;
+};
 
 const safeFormat = (dateStr: string, fmt: string) => {
   try {
@@ -190,7 +201,10 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
       const [sh, sm] = watchedStart.split(':').map(Number);
       const [eh, em] = watchedEnd.split(':').map(Number);
       const diff = (eh * 60 + em) - (sh * 60 + sm);
-      if (diff > 0) setValue('hours', decimalToHHMM(Math.round((diff / 60) * 100) / 100), { shouldValidate: false });
+      if (diff > 0) {
+        setValue('hours', decimalToHHMM(Math.round((diff / 60) * 100) / 100), { shouldValidate: false });
+        setError('');
+      }
     }
   }, [watchedStart, watchedEnd, setValue]);
 
@@ -221,6 +235,14 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
   const onSubmit = async (data: TimeEntryFormData) => {
     try {
       setError('');
+      if (data.start_time && data.end_time) {
+        const [sh, sm] = data.start_time.split(':').map(Number);
+        const [eh, em] = data.end_time.split(':').map(Number);
+        if ((eh * 60 + em) - (sh * 60 + sm) <= 0) {
+          setError('End time must be after start time');
+          return;
+        }
+      }
       const selectedTask = data.task_id ? tasks.find(t => String((t as any).ROWID ?? t.id) === data.task_id) : null;
       const requireApproval = selectedTask?.require_approval === 'true' || selectedTask?.require_approval === true;
       const payload = {
@@ -300,7 +322,12 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
           const [sh, sm] = watchedStart.split(':').map(Number);
           const [eh, em] = watchedEnd.split(':').map(Number);
           const diff = (eh * 60 + em) - (sh * 60 + sm);
-          if (diff <= 0) return null;
+          if (diff <= 0) return (
+            <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg -mt-1">
+              <AlertCircle size={13} className="text-red-500 shrink-0" />
+              <span className="text-sm text-red-700">End time must be after start time</span>
+            </div>
+          );
           const hh = Math.floor(diff / 60);
           const mm = diff % 60;
           const readable = hh > 0 && mm > 0 ? `${hh}h ${mm}m` : hh > 0 ? `${hh}h` : `${mm} min`;
@@ -686,7 +713,7 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
                         : '—'}
                     </td>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
-                      {entry.hours}h
+                      {fmtH(entry.hours)}
                     </td>
                     <td className="px-4 py-3 text-center">
                       {entry.isBillable
@@ -979,7 +1006,7 @@ const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
                 key={idx}
                 className="text-[11px] bg-white border border-blue-100 text-blue-700 px-2.5 py-0.5 rounded-full shadow-sm font-medium"
               >
-                {p.projectName || '—'} · {p.hours}h
+                {p.projectName || '—'} · {fmtH(p.hours)}
               </span>
             ))}
           </div>
@@ -1032,7 +1059,7 @@ const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
                       <span className={`text-xs font-medium w-16 ${isToday ? 'text-blue-600' : 'text-gray-600'}`}>{dayFmt}</span>
                       {isToday && <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">Today</span>}
                     </div>
-                    <span className="text-xs font-semibold text-gray-800">{hours > 0 ? `${hours}h` : '—'}</span>
+                    <span className="text-xs font-semibold text-gray-800">{hours > 0 ? fmtH(hours) : '—'}</span>
                   </div>
                   <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                     <div
@@ -1044,7 +1071,7 @@ const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
                     <div className="mt-1 flex flex-wrap gap-1">
                       {de.map((e, idx) => (
                         <span key={idx} className="text-[11px] text-gray-500 bg-gray-50 px-2 py-0.5 rounded-full border border-gray-100">
-                          {e.projectName || '—'} · {e.hours}h
+                          {e.projectName || '—'} · {fmtH(e.hours)}
                         </span>
                       ))}
                     </div>
@@ -1131,7 +1158,7 @@ const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
                     <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{safeFormat(e.date, 'MMM d, yyyy')}</td>
                     <td className="px-4 py-2.5 text-gray-700 whitespace-nowrap">{e.projectName || projectMap[e.projectId] || e.projectId}</td>
                     <td className="px-4 py-2.5 text-gray-600 max-w-xs truncate">{e.description}</td>
-                    <td className="px-4 py-2.5 font-medium text-gray-900">{e.hours}h</td>
+                    <td className="px-4 py-2.5 font-medium text-gray-900">{fmtH(e.hours)}</td>
                     <td className="px-4 py-2.5 text-center">{e.isBillable ? <CheckCircle2 size={13} className="text-green-600 mx-auto" /> : <XCircle size={13} className="text-gray-300 mx-auto" />}</td>
                     <td className="px-4 py-2.5"><Badge variant={statusVariant(e.status)}>{statusLabel(e.status)}</Badge></td>
                   </tr>
@@ -1292,7 +1319,7 @@ const ApprovalsTab = () => {
                       {safeFormat(approval.date, 'MMM d, yyyy')}
                     </td>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
-                      {approval.hours}h
+                      {fmtH(approval.hours)}
                     </td>
                     <td className="px-4 py-3 text-center">
                       {approval.isBillable
@@ -1346,6 +1373,7 @@ const ApprovalsTab = () => {
 type Tab = 'my-log' | 'this-week' | 'approvals';
 
 const TimeTrackingPage = () => {
+  const { t } = useI18n();
   const { user } = useAuth();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const [activeTab, setActiveTab] = useState<Tab>('my-log');
@@ -1367,7 +1395,7 @@ const TimeTrackingPage = () => {
   return (
     <Layout>
       <Header
-        title="Time Tracking"
+        title={t('nav.timeTracking')}
         subtitle="Log and manage your time entries"
       />
 

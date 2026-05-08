@@ -6,11 +6,12 @@ import {
   Shield, FileText, Settings, LogOut, ChevronDown, ChevronRight,
   Milestone, ClipboardList, Clock, BookOpen, Briefcase, X,
   PanelLeftClose, PanelLeftOpen, Users, Sparkles, CalendarDays,
-  Timer, Package, BarChart3, Megaphone, GitBranch, FlaskConical,
+  Timer, Package, BarChart3, Megaphone, GitBranch, FlaskConical, ScrollText,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useMyProfile } from '../../hooks/useUsers';
 import { useSidebar } from '../../contexts/SidebarContext';
+import { useI18n } from '../../contexts/I18nContext';
 import { useFestival } from '../../contexts/FestivalContext';
 import { useModulePermissions } from '../../hooks/useModulePermissions';
 import { hasPermission, PERMISSIONS } from '../../utils/permissions';
@@ -27,8 +28,9 @@ interface NavItem {
   to?: string;
   icon: React.ReactNode;
   children?: NavItem[];
-  permission?: string; // hide item unless user has this permission
-  moduleKey?: string;  // gated by super-admin module toggle
+  permission?: string;    // hide item unless user has this permission
+  permissions?: string[]; // hide item unless user has ANY of these permissions
+  moduleKey?: string;     // gated by super-admin module toggle
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -53,7 +55,7 @@ const NAV_ITEMS: NavItem[] = [
 
   // ── Daily Work ────────────────────────────────────────────────────────────────
   {
-    label: 'Daily Work', icon: <Clock size={18} />, permission: PERMISSIONS.STANDUP_SUBMIT, moduleKey: 'projects',
+    label: 'Daily Work', icon: <Clock size={18} />, permission: PERMISSIONS.STANDUP_SUBMIT, moduleKey: 'daily-work',
     children: [
       { label: 'Standup',       to: '/standup',       icon: <ClipboardList size={16} />, permission: PERMISSIONS.STANDUP_SUBMIT },
       { label: 'EOD',           to: '/eod',           icon: <BookOpen size={16} />,      permission: PERMISSIONS.EOD_SUBMIT },
@@ -71,7 +73,6 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Directory',     to: '/directory',     icon: <Users size={16} />,        permission: PERMISSIONS.TEAM_READ },
       { label: 'Org Chart',     to: '/org-chart',     icon: <GitBranch size={16} />,    permission: PERMISSIONS.ORG_READ },
       { label: 'Announcements',   to: '/announcements', icon: <Megaphone size={16} />, permission: PERMISSIONS.ANNOUNCEMENT_READ },
-      { label: 'People Settings', to: '/ip-config',   icon: <Shield size={16} />,    permission: PERMISSIONS.IP_CONFIG_WRITE },
     ],
   },
 
@@ -92,7 +93,7 @@ const NAV_ITEMS: NavItem[] = [
   // No parent permission — child-level permissions handle visibility per role.
   // Group auto-hides when all children are invisible.
   {
-    label: 'Executive', icon: <Briefcase size={18} />, moduleKey: 'exec',
+    label: 'Executive', icon: <Briefcase size={18} />, moduleKey: 'executive',
     children: [
       { label: 'Portfolio',     to: '/portfolio',     icon: <Briefcase size={16} />,       permission: PERMISSIONS.ORG_ROLE_READ },
       { label: 'CEO Dashboard', to: '/ceo-dashboard', icon: <Briefcase size={16} />,       permission: PERMISSIONS.CEO_DASHBOARD },
@@ -101,14 +102,17 @@ const NAV_ITEMS: NavItem[] = [
   },
 
   // ── Administration ────────────────────────────────────────────────────────────
-  // Visible to anyone whose org role grants ADMIN_USERS (TENANT_ADMIN or CEO-level org roles)
+  // No parent permission — auto-hides when all children are invisible (like Executive).
+  // Each child is gated individually so HR/IT roles can access People Settings
+  // without needing ADMIN_USERS.
   {
-    label: 'Administration', icon: <Settings size={18} />, permission: PERMISSIONS.ADMIN_USERS,
+    label: 'Administration', icon: <Settings size={18} />,
     children: [
-      { label: 'User Management',    to: '/admin',        icon: <Users size={16} /> },
-      { label: 'Config & Workflows', to: '/admin-config', icon: <GitBranch size={16} /> },
-      { label: 'People Settings',    to: '/ip-config',    icon: <Shield size={16} />, permission: PERMISSIONS.IP_CONFIG_WRITE },
-      { label: 'Data Seeder',        to: '/data-seed',    icon: <FlaskConical size={16} /> },
+      { label: 'User Management',    to: '/admin',           icon: <Users size={16} />,        permission: PERMISSIONS.ADMIN_USERS },
+      { label: 'People Settings',    to: '/people-settings', icon: <Shield size={16} />,       permissions: [PERMISSIONS.LEAVE_ADMIN, PERMISSIONS.LOCATION_ADMIN, PERMISSIONS.IP_CONFIG_WRITE] },
+      { label: 'Audit Logs',          to: '/audit-logs',      icon: <ScrollText size={16} />,   permission: PERMISSIONS.ADMIN_USERS },
+      { label: 'Config & Workflows', to: '/admin-config',    icon: <GitBranch size={16} />,    permission: PERMISSIONS.ADMIN_USERS },
+      { label: 'Data Seeder',        to: '/data-seed',       icon: <FlaskConical size={16} />, permission: PERMISSIONS.DATA_SEED },
     ],
   },
   // ── Support ───────────────────────────────────────────────────────────────────
@@ -121,19 +125,21 @@ const NAV_ITEMS: NavItem[] = [
 // ─── Single nav item ──────────────────────────────────────────────────────────
 
 const SidebarNavItem = ({
-  item, collapsed, onClose, user, modules,
+  item, collapsed, onClose, user, modules, navLabel,
 }: {
-  item: NavItem; collapsed: boolean; onClose?: () => void; user?: CurrentUser | null; modules: Record<string, boolean>;
+  item: NavItem; collapsed: boolean; onClose?: () => void; user?: CurrentUser | null;
+  modules: Record<string, boolean>; navLabel: (label: string) => string;
 }) => {
   const location = useLocation();
+  const displayLabel = navLabel(item.label);
   const [expanded, setExpanded] = useState(
     item.children?.some((c) => c.to && location.pathname.includes(c.to)) ?? false,
   );
 
   if (item.children) {
-    // Filter children by permission and module key
     const visibleChildren = item.children.filter((c) => {
       if (c.permission && !hasPermission(user, c.permission as any)) return false;
+      if (c.permissions && !c.permissions.some((p) => hasPermission(user, p as any))) return false;
       if (c.moduleKey && !(modules as Record<string, boolean>)[c.moduleKey]) return false;
       return true;
     });
@@ -143,7 +149,7 @@ const SidebarNavItem = ({
       <div className="mb-0.5">
         <button
           onClick={() => setExpanded(!expanded)}
-          title={collapsed ? item.label : undefined}
+          title={collapsed ? displayLabel : undefined}
           aria-expanded={expanded}
           className={clsx(
             'sidebar-item w-full',
@@ -153,15 +159,15 @@ const SidebarNavItem = ({
         >
           <span className={clsx('flex items-center', collapsed ? 'justify-center' : 'gap-3')}>
             {item.icon}
-            {!collapsed && <span className="font-medium">{item.label}</span>}
+            {!collapsed && <span className="font-medium">{displayLabel}</span>}
           </span>
-          {!collapsed && (expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />)}
+          {!collapsed && (expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} className="rtl:scale-x-[-1]" />)}
         </button>
         {expanded && !collapsed && (
-          <div className="ml-3 mt-0.5 space-y-0.5 border-l pl-2"
+          <div className="ms-3 mt-0.5 space-y-0.5 border-s ps-2"
             style={{ borderColor: 'rgba(var(--ds-sidebar-text), 0.1)' }}>
             {visibleChildren.map((child) => (
-              <SidebarNavItem key={child.to || child.label} item={child} collapsed={false} onClose={onClose} user={user} modules={modules} />
+              <SidebarNavItem key={child.to || child.label} item={child} collapsed={false} onClose={onClose} user={user} modules={modules} navLabel={navLabel} />
             ))}
           </div>
         )}
@@ -173,8 +179,8 @@ const SidebarNavItem = ({
     <NavLink
       to={item.to!}
       onClick={onClose}
-      title={collapsed ? item.label : undefined}
-      aria-label={item.label}
+      title={collapsed ? displayLabel : undefined}
+      aria-label={displayLabel}
       className={({ isActive }) =>
         clsx(
           'sidebar-item text-sm',
@@ -184,7 +190,7 @@ const SidebarNavItem = ({
       }
     >
       {item.icon}
-      {!collapsed && <span>{item.label}</span>}
+      {!collapsed && <span>{displayLabel}</span>}
     </NavLink>
   );
 };
@@ -198,11 +204,58 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
   const { collapsed, toggleCollapsed, items } = useSidebar();
   const { festival } = useFestival();
   const modules = useModulePermissions();
+  const { t } = useI18n();
+
+  const navLabel = (label: string): string => {
+    const map: Record<string, string> = {
+      'Dashboard':          t('nav.dashboard'),
+      'Projects':           t('nav.projects'),
+      'All Projects':       t('nav.allProjects'),
+      'My Tasks':           t('nav.myTasks'),
+      'Sprint Boards':      t('nav.sprintBoards'),
+      'Milestones':         t('nav.milestones'),
+      'Backlog':            t('nav.backlog'),
+      'Actions':            t('nav.actions'),
+      'Blockers':           t('nav.blockers'),
+      'RAID Register':      t('nav.raidRegister'),
+      'Decisions':          t('nav.decisions'),
+      'Daily Work':         t('nav.dailyWork'),
+      'Standup':            t('nav.standup'),
+      'EOD':                t('nav.eod'),
+      'Time Tracking':      t('nav.timeTracking'),
+      'People':             t('nav.people'),
+      'Attendance':         t('nav.attendance'),
+      'Leave':              t('nav.leave'),
+      'Teams':              t('nav.teams'),
+      'Directory':          t('nav.directory'),
+      'Org Chart':          t('nav.orgChart'),
+      'Announcements':      t('nav.announcements'),
+      'People Settings':    t('nav.peopleSettings'),
+      'Assets':             t('nav.assets'),
+      'Reports & AI':       t('nav.reportsAi'),
+      'Reports':            t('nav.reports'),
+      'Team Activity':      t('nav.teamActivity'),
+      'AI Insights':        t('nav.aiInsights'),
+      'Executive':          t('nav.executive'),
+      'Portfolio':          t('nav.portfolio'),
+      'CEO Dashboard':      t('nav.ceoDashboard'),
+      'CTO Dashboard':      t('nav.ctoDashboard'),
+      'Administration':     t('nav.administration'),
+      'User Management':    t('nav.userManagement'),
+      'Audit Logs':         t('nav.auditLogs'),
+      'Config & Workflows': t('nav.configWorkflows'),
+      'Data Seeder':        t('nav.dataSeeder'),
+      'Bug Reports':        t('nav.bugReports'),
+      'Help & Docs':        t('nav.helpDocs'),
+    };
+    return map[label] ?? label;
+  };
 
   // Filter nav items by permission and module toggle.
   // No hardcoded role arrays — access is entirely driven by org role permissions.
   const visibleItems = NAV_ITEMS.filter((item) => {
     if (item.permission && !hasPermission(user, item.permission as any)) return false;
+    if (item.permissions && !item.permissions.some((p) => hasPermission(user, p as any))) return false;
     if (item.moduleKey && !(modules as Record<string, boolean>)[item.moduleKey]) return false;
     return true;
   });
@@ -233,12 +286,12 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
     <aside
       className={clsx(
         w, 'shrink-0 flex flex-col h-full transition-all duration-200',
-        'border-r',
+        'border-e',
       )}
       style={{
         backgroundColor: `rgb(var(--ds-sidebar-bg))`,
         borderColor: festival ? festival.sidebarAccent : `rgb(var(--ds-sidebar-border))`,
-        borderRightWidth: festival ? 2 : 1,
+        borderInlineEndWidth: festival ? 2 : 1,
       }}
       aria-label="Main navigation"
     >
@@ -308,12 +361,12 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
               <X size={16} />
             </button>
           )}
-          {/* Desktop collapse toggle */}
+          {/* Desktop collapse toggle — icons flip in RTL */}
           {!collapsed && (
             <button
               onClick={toggleCollapsed}
               aria-label="Collapse sidebar"
-              className="hidden lg:flex p-1.5 rounded-lg opacity-40 hover:opacity-80 transition-opacity"
+              className="hidden lg:flex p-1.5 rounded-lg opacity-40 hover:opacity-80 transition-opacity rtl:scale-x-[-1]"
               style={{ color: `rgb(var(--ds-sidebar-text))` }}
             >
               <PanelLeftClose size={15} />
@@ -323,7 +376,7 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
             <button
               onClick={toggleCollapsed}
               aria-label="Expand sidebar"
-              className="hidden lg:flex p-1.5 rounded-lg opacity-40 hover:opacity-80 transition-opacity"
+              className="hidden lg:flex p-1.5 rounded-lg opacity-40 hover:opacity-80 transition-opacity rtl:scale-x-[-1]"
               style={{ color: `rgb(var(--ds-sidebar-text))` }}
             >
               <PanelLeftOpen size={15} />
@@ -343,6 +396,7 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
             onClose={onClose}
             user={user}
             modules={modules as Record<string, boolean>}
+            navLabel={navLabel}
           />
         ))}
       </nav>
@@ -355,15 +409,15 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
         <Link
           to={`/${tenantSlug}/settings`}
           onClick={onClose}
-          title={collapsed ? 'Settings' : undefined}
-          aria-label="Settings"
+          title={collapsed ? t('nav.settings') : undefined}
+          aria-label={t('nav.settings')}
           className={clsx(
             'sidebar-item mb-1 sidebar-item-inactive',
             collapsed && 'justify-center px-0',
           )}
         >
           <Settings size={16} />
-          {!collapsed && <span className="text-xs">Settings</span>}
+          {!collapsed && <span className="text-xs">{t('nav.settings')}</span>}
         </Link>
 
         {/* Profile link */}
@@ -394,15 +448,15 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
 
         {/* Sign out */}
         <button onClick={logout}
-          title={collapsed ? 'Sign out' : undefined}
-          aria-label="Sign out"
+          title={collapsed ? t('nav.signOut') : undefined}
+          aria-label={t('nav.signOut')}
           className={clsx(
             'sidebar-item w-full sidebar-item-inactive',
             collapsed && 'justify-center px-0',
           )}
         >
           <LogOut size={14} />
-          {!collapsed && <span className="text-xs">Sign out</span>}
+          {!collapsed && <span className="text-xs">{t('nav.signOut')}</span>}
         </button>
       </div>
     </aside>

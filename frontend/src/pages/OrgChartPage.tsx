@@ -5,6 +5,7 @@ import { Search, List, GitBranch, UserPlus, X, Maximize2, Minimize2, ZoomIn, Zoo
 import { useForm } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
+import { useI18n } from '../contexts/I18nContext';
 import Button from '../components/ui/Button';
 import Modal, { ModalActions } from '../components/ui/Modal';
 import Alert from '../components/ui/Alert';
@@ -894,6 +895,7 @@ const SetManagerModal = ({
 type ViewMode = 'chart' | 'list';
 
 const OrgChartPage = () => {
+  const { t } = useI18n();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const { user } = useAuth();
   const isAdmin = hasPermission(user, PERMISSIONS.ORG_WRITE);
@@ -922,7 +924,7 @@ const OrgChartPage = () => {
   if (isLoading)
     return (
       <Layout>
-        <Header title="Organization Chart" subtitle="View your company's reporting structure" />
+        <Header title={t('nav.orgChart')} subtitle="View your company's reporting structure" />
         <div className="p-6">
           <PageSkeleton />
         </div>
@@ -932,7 +934,7 @@ const OrgChartPage = () => {
   if (error)
     return (
       <Layout>
-        <Header title="Organization Chart" subtitle="View your company's reporting structure" />
+        <Header title={t('nav.orgChart')} subtitle="View your company's reporting structure" />
         <div className="p-6">
           <Alert type="error" message="Failed to load organization hierarchy." />
         </div>
@@ -942,7 +944,7 @@ const OrgChartPage = () => {
   return (
     <Layout>
       <Header
-        title="Organization Chart"
+        title={t('nav.orgChart')}
         subtitle="View your company's reporting structure"
       />
       <div className="p-6 space-y-5">

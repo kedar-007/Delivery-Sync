@@ -2,11 +2,23 @@ import React, { useEffect, useState } from 'react';
 import {
   Shield, Lock, Unlock, Check, Loader, Sparkles, Wifi, ChevronRight,
   AlertTriangle, Info, Users, Zap, Eye, EyeOff, X,
+  FolderKanban, Clock, Package, BarChart3, LayoutDashboard, Briefcase, Settings,
 } from 'lucide-react';
 import Modal, { ModalActions } from './Modal';
 import Button from './Button';
 import Alert from './Alert';
 import { useUserPermissions, useSetUserPermissions } from '../../hooks/useAdmin';
+
+// ─── Sidebar module catalogue (mirrors AdminPage SIDEBAR_MODULES) ─────────────
+const USER_MODULES = [
+  { key: 'projects',   label: 'Projects',     Icon: FolderKanban },
+  { key: 'daily-work', label: 'Daily Work',   Icon: Clock },
+  { key: 'people',     label: 'People',       Icon: Users },
+  { key: 'assets',     label: 'Assets',       Icon: Package },
+  { key: 'reports',    label: 'Reports',      Icon: BarChart3 },
+  { key: 'ai',         label: 'AI & Insights',Icon: LayoutDashboard },
+  { key: 'executive',  label: 'Executive',    Icon: Briefcase },
+] as const;
 
 // ─── Permission catalogue ─────────────────────────────────────────────────────
 
@@ -99,7 +111,7 @@ const PERM_GROUPS: PermGroup[] = [
       { key: 'LEAVE_READ',    label: 'View Leave',    desc: 'See own leave requests and balances' },
       { key: 'LEAVE_WRITE',   label: 'Request Leave', desc: 'Submit leave applications' },
       { key: 'LEAVE_APPROVE', label: 'Approve Leave', desc: 'Approve or reject team leave requests' },
-      { key: 'LEAVE_ADMIN',   label: 'Manage Leave',  desc: 'Manage leave types, balances and policies' },
+      { key: 'LEAVE_ADMIN',   label: 'Manage Leave',  desc: 'Manage leave types, balances, policies and company calendar (holidays, weekend policy)' },
     ],
   },
   {
@@ -119,6 +131,7 @@ const PERM_GROUPS: PermGroup[] = [
       { key: 'ANNOUNCEMENT_WRITE', label: 'Post Announcements', desc: 'Create and publish announcements' },
       { key: 'NOTIFICATION_READ',  label: 'Notifications',      desc: 'Receive in-app notifications' },
       { key: 'INVITE_USER',        label: 'Invite Users',       desc: 'Send invitations to new team members' },
+      { key: 'LOCATION_ADMIN',     label: 'Manage Locations',   desc: 'Create and edit office locations, assign users to locations' },
     ],
   },
   {
@@ -185,7 +198,7 @@ interface AiGuide {
 const AI_GUIDE: Record<string, AiGuide> = {
   IP_CONFIG_WRITE: {
     summary: 'Controls who can manage the office IP whitelist — the network addresses that employees must be on to clock in as Present. The holder can add or remove IP ranges (e.g. 192.168.1.0/24), toggle enforcement on or off, and effectively override location-based attendance controls for the whole organisation.',
-    unlocks: ['IP Config page under Admin › Attendance', 'Add / remove CIDR IP ranges', 'Enable or disable IP enforcement globally', 'View currently whitelisted ranges'],
+    unlocks: ['People Settings › IP Restrictions tab', 'People Settings › Geo Restrictions tab', 'People Settings › Zone Restrictions tab', 'People Settings › Work Shifts tab', 'Add / remove CIDR IP ranges', 'Enable or disable IP enforcement globally', 'Configure geo-fencing and radius zones', 'Manage work shift schedules'],
     defaultRoles: ['TENANT_ADMIN'],
     risk: 'high',
     tip: 'Only grant to IT administrators or senior HR managers who own office network config. A wrong IP range silently blocks every employee from checking in.',
@@ -423,10 +436,17 @@ const AI_GUIDE: Record<string, AiGuide> = {
   },
   LEAVE_ADMIN: {
     summary: 'Provides full leave management: create/edit leave types, set individual balances, manage company holidays, and view all-staff leave.',
-    unlocks: ['Leave Types management', 'Set leave balance per user', 'Company holiday calendar admin', 'All-staff leave overview'],
+    unlocks: ['People Settings › Leave Types tab', 'People Settings › Leave Balances tab', 'People Settings › Company Calendar tab', 'People Settings › Office Locations tab (shared with LOCATION_ADMIN)', 'Set leave balance per user', 'Company holiday calendar admin', 'All-staff leave overview'],
     defaultRoles: ['TENANT_ADMIN'],
     risk: 'high',
     tip: 'Restrict to HR administrators only. Incorrect balance changes affect payroll.',
+  },
+  LOCATION_ADMIN: {
+    summary: 'Allows creating and editing office locations, assigning users to locations, and configuring weekend attendance policies per location. Unlocks the Office Locations tab in People Settings.',
+    unlocks: ['People Settings › Office Locations tab', 'Add / remove office locations', 'Assign users to locations', 'Configure weekend policy per location', 'Location-specific holiday calendars'],
+    defaultRoles: ['TENANT_ADMIN'],
+    risk: 'medium',
+    tip: 'Grant to HR administrators who manage office locations and attendance policies.',
   },
   TEAM_READ: {
     summary: 'Allows viewing teams, their members, and team details.',
@@ -706,6 +726,14 @@ const CRUD_MODULES: CrudSection[] = [
     ],
   },
   {
+    section: 'People Settings',
+    rows: [
+      { name: 'Office Locations',                          admin: 'LOCATION_ADMIN' },
+      { name: 'Leave Types · Leave Balances · Calendar',   admin: 'LEAVE_ADMIN' },
+      { name: 'IP · Geo · Zone Restrictions · Work Shifts', admin: 'IP_CONFIG_WRITE' },
+    ],
+  },
+  {
     section: 'Assets & Badges',
     rows: [
       { name: 'Assets',         view: 'ASSET_READ', write: 'ASSET_WRITE', approve: 'ASSET_ASSIGN', admin: 'ASSET_ADMIN' },
@@ -730,7 +758,6 @@ const CRUD_MODULES: CrudSection[] = [
       { name: 'User Management',  write: 'INVITE_USER',     admin: 'ADMIN_USERS' },
       { name: 'Audit & Settings', admin: 'ADMIN_SETTINGS' },
       { name: 'System Config',    view:  'CONFIG_READ',     write: 'CONFIG_WRITE' },
-      { name: 'IP Restrictions',  admin: 'IP_CONFIG_WRITE' },
       { name: 'Data Seeding',     admin: 'DATA_SEED' },
     ],
   },
@@ -768,11 +795,12 @@ const PERM_INFO: Record<string, { label: string; desc: string }> = {
   ATTENDANCE_WRITE:     { label: 'Check In/Out',    desc: 'Log daily attendance, WFH, breaks' },
   ATTENDANCE_TEAM_VIEW: { label: 'Team View',       desc: "See peers' attendance — live view, records, export" },
   ATTENDANCE_ADMIN:     { label: 'Admin',           desc: 'Override records, export CSV, full access' },
-  IP_CONFIG_WRITE:    { label: 'IP Config',         desc: 'Manage office IP whitelist & toggle enforcement' },
+  IP_CONFIG_WRITE:    { label: 'Configure',          desc: 'Manage IP/Geo/Zone restrictions & work shifts in People Settings' },
   LEAVE_READ:         { label: 'View',              desc: 'See own leave requests and balance' },
   LEAVE_WRITE:        { label: 'Request',           desc: 'Submit leave applications' },
   LEAVE_APPROVE:      { label: 'Approve',           desc: 'Approve or reject team leave' },
-  LEAVE_ADMIN:        { label: 'Manage',            desc: 'Manage types, balances, policies' },
+  LEAVE_ADMIN:        { label: 'Configure',          desc: 'Manage leave types, balances, policies & company calendar in People Settings' },
+  LOCATION_ADMIN:     { label: 'Configure',          desc: 'Create/edit office locations and assign users in People Settings' },
   TEAM_READ:          { label: 'View',              desc: 'See team structure and members' },
   TEAM_WRITE:         { label: 'Manage',            desc: 'Create and edit teams' },
   ORG_READ:           { label: 'View',              desc: 'See organisational hierarchy' },
@@ -930,9 +958,9 @@ const AiAdvisorPanel = ({
             <div className="flex items-start gap-2">
               <Wifi size={13} className="text-blue-600 mt-0.5 shrink-0" />
               <div>
-                <p className="text-xs font-semibold text-blue-800 mb-1">IP Restriction Config</p>
+                <p className="text-xs font-semibold text-blue-800 mb-1">People Settings access</p>
                 <p className="text-[11px] text-blue-700 leading-relaxed">
-                  The <strong>IP Restriction Config</strong> permission (under Attendance) controls who can manage office IP ranges and toggle location-based check-in enforcement.
+                  The <strong>People Settings</strong> section below shows every tab in that page. Grant <strong>LEAVE_ADMIN</strong> for leave & calendar tabs, <strong>LOCATION_ADMIN</strong> for office locations, or <strong>IP_CONFIG_WRITE</strong> for attendance security tabs.
                 </p>
               </div>
             </div>
@@ -1004,6 +1032,7 @@ const UserPermissionsModal = ({ open, onClose, userId, userName, userRole }: Pro
   const save = useSetUserPermissions(userId);
 
   const [enabled, setEnabled] = useState<Set<string>>(new Set());
+  const [disabledModules, setDisabledModules] = useState<Set<string>>(new Set());
   const [dirty, setDirty] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [selectedPerm, setSelectedPerm] = useState<string | null>(null);
@@ -1018,6 +1047,7 @@ const UserPermissionsModal = ({ open, onClose, userId, userName, userRole }: Pro
     const effective = new Set<string>([...Array.from(roleSet), ...Array.from(granted)]);
     revoked.forEach((p) => effective.delete(p));
     setEnabled(effective);
+    setDisabledModules(new Set<string>((data as any).moduleAccess ?? []));
     setDirty(false);
   }, [data]);
 
@@ -1045,8 +1075,9 @@ const UserPermissionsModal = ({ open, onClose, userId, userName, userRole }: Pro
     const allKnownPerms = PERM_GROUPS.flatMap((g) => g.perms.map((p) => p.key));
     const granted = Array.from(enabled).filter((p) => !roleSet.has(p));
     const revoked = allKnownPerms.filter((p) => roleSet.has(p) && !enabled.has(p));
+    const moduleAccess = Array.from(disabledModules);
     try {
-      await save.mutateAsync({ granted, revoked });
+      await save.mutateAsync({ granted, revoked, moduleAccess });
       setDirty(false);
       onClose();
     } catch (e) {
@@ -1091,10 +1122,15 @@ const UserPermissionsModal = ({ open, onClose, userId, userName, userRole }: Pro
             </div>
             <div className="flex-1">
               <h2 className="text-base font-bold text-gray-900">Permissions — {userName}</h2>
-              <div className="flex items-center gap-2 mt-0.5">
+              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-full border border-indigo-200">
                   {userRole.replace(/_/g, ' ')}
                 </span>
+                {(data as any)?.orgRoleName && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 text-xs font-semibold rounded-full border border-blue-200">
+                    {(data as any).orgRoleName}
+                  </span>
+                )}
                 <span className="text-xs text-gray-400">Role defaults pre-filled · toggle to grant extra or revoke</span>
               </div>
             </div>
@@ -1122,6 +1158,42 @@ const UserPermissionsModal = ({ open, onClose, userId, userName, userRole }: Pro
 
             {/* Left: CRUD permission matrix */}
             <div className="flex-1 min-w-0 flex flex-col">
+
+              {/* ── Module Access section ── */}
+              <div className="mb-3 shrink-0">
+                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
+                  Module Access (user-level override)
+                </p>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {USER_MODULES.map(({ key, label, Icon }) => {
+                    const isDisabled = disabledModules.has(key);
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => {
+                          setDisabledModules((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
+                          setDirty(true);
+                        }}
+                        className={`flex flex-col items-center gap-1 px-2 py-2 rounded-lg border text-center transition-all ${
+                          isDisabled
+                            ? 'border-red-200 bg-red-50 opacity-70'
+                            : 'border-indigo-200 bg-indigo-50'
+                        }`}
+                      >
+                        <Icon size={13} className={isDisabled ? 'text-red-400' : 'text-indigo-500'} />
+                        <span className={`text-[9px] font-semibold leading-tight ${isDisabled ? 'text-red-500' : 'text-indigo-700'}`}>
+                          {isDisabled ? '✕ ' : ''}{label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1.5">
+                  Disabled modules are hidden from this user's sidebar, regardless of role settings.
+                </p>
+              </div>
+
               {/* Search */}
               <div className="relative mb-3 shrink-0">
                 <input
@@ -1149,9 +1221,9 @@ const UserPermissionsModal = ({ open, onClose, userId, userName, userRole }: Pro
                 {filteredCrudModules.length === 0 ? (
                   <p className="text-sm text-gray-400 text-center py-8">No modules match "{search}"</p>
                 ) : filteredCrudModules.map(({ section, rows }) => {
-                  const allPerms = rows.flatMap((r) =>
+                  const allPerms = Array.from(new Set(rows.flatMap((r) =>
                     ([r.view, r.write, r.approve, r.admin] as (string | undefined)[]).filter(Boolean) as string[]
-                  );
+                  )));
                   const allOn  = allPerms.length > 0 && allPerms.every((p) => enabled.has(p));
                   const someOn = !allOn && allPerms.some((p) => enabled.has(p));
                   return (

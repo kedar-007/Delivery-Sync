@@ -2,15 +2,25 @@ import { createContext, useContext, useState, useCallback, ReactNode } from 'rea
 import en, { Translations } from '../locales/en';
 import hi from '../locales/hi';
 import es from '../locales/es';
+import fr from '../locales/fr';
+import de from '../locales/de';
+import zh from '../locales/zh';
+import pt from '../locales/pt';
+import ar from '../locales/ar';
 
 // ─── Locale registry ──────────────────────────────────────────────────────────
 
-export type LocaleCode = 'en' | 'hi' | 'es';
+export type LocaleCode = 'en' | 'hi' | 'es' | 'fr' | 'de' | 'zh' | 'pt' | 'ar';
 
 export const LOCALES: Record<LocaleCode, { label: string; flag: string; translations: Translations }> = {
-  en: { label: 'English',  flag: '🇮🇳', translations: en },
-  hi: { label: 'हिंदी',    flag: '🇮🇳', translations: hi },
-  es: { label: 'Español',  flag: '🇪🇸', translations: es },
+  en: { label: 'English',   flag: '🇬🇧', translations: en },
+  hi: { label: 'हिंदी',     flag: '🇮🇳', translations: hi },
+  es: { label: 'Español',   flag: '🇪🇸', translations: es },
+  fr: { label: 'Français',  flag: '🇫🇷', translations: fr },
+  de: { label: 'Deutsch',   flag: '🇩🇪', translations: de },
+  zh: { label: '中文',       flag: '🇨🇳', translations: zh },
+  pt: { label: 'Português', flag: '🇧🇷', translations: pt },
+  ar: { label: 'العربية',   flag: '🇸🇦', translations: ar },
 };
 
 const STORAGE_KEY = 'ds_locale';
@@ -58,8 +68,8 @@ export const I18nProvider = ({ children }: { children: ReactNode }) => {
   const setLocale = useCallback((code: LocaleCode) => {
     setLocaleState(code);
     localStorage.setItem(STORAGE_KEY, code);
-    // Set lang attribute for screen-reader and browser tools
     document.documentElement.lang = code;
+    document.documentElement.dir = code === 'ar' ? 'rtl' : 'ltr';
   }, []);
 
   const t = useCallback(
@@ -68,8 +78,9 @@ export const I18nProvider = ({ children }: { children: ReactNode }) => {
     [locale],
   );
 
-  // Set initial lang attribute
+  // Set initial lang + writing direction
   document.documentElement.lang = locale;
+  document.documentElement.dir = locale === 'ar' ? 'rtl' : 'ltr';
 
   return (
     <I18nContext.Provider value={{ locale, setLocale, t }}>

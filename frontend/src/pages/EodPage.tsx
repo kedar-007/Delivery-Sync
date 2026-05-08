@@ -18,6 +18,7 @@ import {
   CheckCircle, Sparkles, History, Pencil, X,
   FolderOpen, ChevronDown, ChevronRight, TrendingUp,
 } from 'lucide-react';
+import { useI18n } from '../contexts/I18nContext';
 
 interface EodForm {
   project_id: string;
@@ -163,6 +164,7 @@ const ProjectSection = ({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 const EodPage = () => {
+  const { t } = useI18n();
   const [searchParams] = useSearchParams();
   const preselectedProject = searchParams.get('projectId') || '';
 
@@ -292,7 +294,7 @@ const EodPage = () => {
 
   return (
     <Layout>
-      <Header title="End of Day" subtitle="Daily EOD updates" />
+      <Header title={t('nav.eod')} subtitle="Daily EOD updates" />
       <div className="p-6 space-y-5">
 
         {/* Tabs */}
