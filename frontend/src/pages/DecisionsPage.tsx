@@ -15,6 +15,7 @@ import { useDecisions, useCreateDecision, useUpdateDecision } from '../hooks/use
 import { useProjects } from '../hooks/useProjects';
 import { Decision } from '../types';
 import { format } from 'date-fns';
+import { useI18n } from '../contexts/I18nContext';
 
 interface DecisionForm {
   project_id: string; title: string; description: string;
@@ -22,6 +23,7 @@ interface DecisionForm {
 }
 
 const DecisionsPage = () => {
+  const { t } = useI18n();
   const [searchParams] = useSearchParams();
   const preselectedProject = searchParams.get('projectId') || '';
   const [filterProject, setFilterProject] = useState(preselectedProject);
@@ -88,7 +90,7 @@ const DecisionsPage = () => {
   return (
     <Layout>
       <Header
-        title="Decision Log"
+        title={t('nav.decisions')}
         subtitle={`${decisions.length} decision${decisions.length !== 1 ? 's' : ''}`}
         actions={<Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>Log Decision</Button>}
       />

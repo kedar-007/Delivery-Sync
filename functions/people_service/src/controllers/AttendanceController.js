@@ -60,8 +60,9 @@ function getNowInTZ(tz) {
 const todayIST = (tz) => getNowInTZ(tz || 'Asia/Kolkata').split(' ')[0];
 
 class AttendanceController {
-  constructor(catalystApp) {
+  constructor(catalystApp, adminCatalystApp) {
     this.db = new DataStoreService(catalystApp);
+    this.adminDb = new DataStoreService(adminCatalystApp || catalystApp);
     this.audit = new AuditService(this.db);
     this.notif = new NotificationService(catalystApp, this.db);
   }
@@ -570,6 +571,7 @@ class AttendanceController {
         is_active: 'true',
         created_by: String(req.currentUser.id),
       });
+      await this.audit.log({ tenantId: req.tenantId, entityType: 'IP_CONFIG', entityId: String(row.ROWID), action: AUDIT_ACTION.CREATE, newValue: { label, ip_address }, performedBy: req.currentUser.id });
       return ResponseHelper.created(res, row);
     } catch (e) {
       if (e.message && e.message.includes('No privileges')) {
@@ -584,6 +586,7 @@ class AttendanceController {
     const row = await this.db.findById(TABLES.IP_WHITELISTS, req.params.configId, req.tenantId);
     if (!row) return ResponseHelper.notFound(res, 'IP config not found');
     await this.db.update(TABLES.IP_WHITELISTS, { ROWID: req.params.configId, is_active: 'false' });
+    await this.audit.log({ tenantId: req.tenantId, entityType: 'IP_CONFIG', entityId: String(req.params.configId), action: AUDIT_ACTION.DELETE, oldValue: { label: row.label, ip_address: row.ip_address }, performedBy: req.currentUser.id });
     return ResponseHelper.success(res, { message: 'IP removed' });
   }
 
@@ -610,7 +613,8 @@ class AttendanceController {
       if (!rows.length) return ResponseHelper.notFound(res, 'Tenant not found');
       const settings = JSON.parse(rows[0].settings || '{}');
       settings.ip_restrictions_enabled = enabled;
-      await this.db.update(TABLES.TENANTS, { ROWID: rows[0].ROWID, settings: JSON.stringify(settings) });
+      await this.adminDb.update(TABLES.TENANTS, { ROWID: rows[0].ROWID, settings: JSON.stringify(settings) });
+      await this.audit.log({ tenantId: req.tenantId, entityType: 'IP_SETTINGS', entityId: String(req.tenantId), action: AUDIT_ACTION.UPDATE, newValue: { ip_restrictions_enabled: enabled }, performedBy: req.currentUser.id });
       return ResponseHelper.success(res, { enabled });
     } catch (e) {
       return ResponseHelper.serverError(res, e.message || 'Failed to update IP settings');
@@ -718,7 +722,8 @@ class AttendanceController {
       if (!rows.length) return ResponseHelper.notFound(res, 'Tenant not found');
       const settings = JSON.parse(rows[0].settings || '{}');
       settings.geo_restrictions_enabled = enabled;
-      await this.db.update(TABLES.TENANTS, { ROWID: rows[0].ROWID, settings: JSON.stringify(settings) });
+      await this.adminDb.update(TABLES.TENANTS, { ROWID: rows[0].ROWID, settings: JSON.stringify(settings) });
+      await this.audit.log({ tenantId: req.tenantId, entityType: 'GEO_SETTINGS', entityId: String(req.tenantId), action: AUDIT_ACTION.UPDATE, newValue: { geo_restrictions_enabled: enabled }, performedBy: req.currentUser.id });
       return ResponseHelper.success(res, { enabled });
     } catch (e) {
       return ResponseHelper.serverError(res, e.message || 'Failed to update geo settings');
@@ -750,6 +755,7 @@ class AttendanceController {
         is_active:    'true',
         created_by:   String(req.currentUser.id),
       });
+      await this.audit.log({ tenantId: req.tenantId, entityType: 'GEO_CONFIG', entityId: String(row.ROWID), action: AUDIT_ACTION.CREATE, newValue: { country_code: country_code.toUpperCase(), country_name }, performedBy: req.currentUser.id });
       return ResponseHelper.created(res, row);
     } catch (e) {
       if (e.message && e.message.includes('No privileges')) {
@@ -764,6 +770,7 @@ class AttendanceController {
     const row = await this.db.findById(TABLES.GEO_RESTRICTIONS, req.params.configId, req.tenantId);
     if (!row) return ResponseHelper.notFound(res, 'Geo config not found');
     await this.db.update(TABLES.GEO_RESTRICTIONS, { ROWID: req.params.configId, is_active: 'false' });
+    await this.audit.log({ tenantId: req.tenantId, entityType: 'GEO_CONFIG', entityId: String(req.params.configId), action: AUDIT_ACTION.DELETE, oldValue: { country_code: row.country_code, country_name: row.country_name }, performedBy: req.currentUser.id });
     return ResponseHelper.success(res, { message: 'Country removed' });
   }
 
@@ -879,7 +886,8 @@ class AttendanceController {
       if (!rows.length) return ResponseHelper.notFound(res, 'Tenant not found');
       const settings = JSON.parse(rows[0].settings || '{}');
       settings.geo_zones_enabled = enabled;
-      await this.db.update(TABLES.TENANTS, { ROWID: rows[0].ROWID, settings: JSON.stringify(settings) });
+      await this.adminDb.update(TABLES.TENANTS, { ROWID: rows[0].ROWID, settings: JSON.stringify(settings) });
+      await this.audit.log({ tenantId: req.tenantId, entityType: 'GEO_ZONE_SETTINGS', entityId: String(req.tenantId), action: AUDIT_ACTION.UPDATE, newValue: { geo_zones_enabled: enabled }, performedBy: req.currentUser.id });
       return ResponseHelper.success(res, { enabled });
     } catch (e) { return ResponseHelper.serverError(res, e.message || 'Failed to update geo zone settings'); }
   }
@@ -911,6 +919,7 @@ class AttendanceController {
         is_active:  'true',
         created_by: String(req.currentUser.id),
       });
+      await this.audit.log({ tenantId: req.tenantId, entityType: 'GEO_ZONE', entityId: String(row.ROWID), action: AUDIT_ACTION.CREATE, newValue: { name, latitude: lat, longitude: lon, radius_km: radius }, performedBy: req.currentUser.id });
       return ResponseHelper.created(res, row);
     } catch (e) {
       if (e.message && e.message.includes('No privileges'))
@@ -923,6 +932,7 @@ class AttendanceController {
     const row = await this.db.findById(TABLES.GEO_ZONES, req.params.zoneId, req.tenantId);
     if (!row) return ResponseHelper.notFound(res, 'Geo zone not found');
     await this.db.update(TABLES.GEO_ZONES, { ROWID: req.params.zoneId, is_active: 'false' });
+    await this.audit.log({ tenantId: req.tenantId, entityType: 'GEO_ZONE', entityId: String(req.params.zoneId), action: AUDIT_ACTION.DELETE, oldValue: { name: row.name, radius_km: row.radius_km }, performedBy: req.currentUser.id });
     return ResponseHelper.success(res, { message: 'Zone removed' });
   }
 
@@ -1037,6 +1047,7 @@ class AttendanceController {
         is_active:     'true',
         created_by:    String(req.currentUser.id),
       });
+      await this.audit.log({ tenantId: req.tenantId, entityType: 'SHIFT', entityId: String(row.ROWID), action: AUDIT_ACTION.CREATE, newValue: { name, start_time, end_time, timezone }, performedBy: req.currentUser.id });
       return ResponseHelper.created(res, row);
     } catch (e) {
       if (e.message && e.message.includes('No privileges'))
@@ -1057,6 +1068,7 @@ class AttendanceController {
     if (timezone)      updates.timezone      = DataStoreService.escape(timezone);
     if (grace_minutes !== undefined) updates.grace_minutes = String(parseInt(grace_minutes) || 15);
     await this.db.update(TABLES.SHIFTS, updates);
+    await this.audit.log({ tenantId: req.tenantId, entityType: 'SHIFT', entityId: String(shiftId), action: AUDIT_ACTION.UPDATE, oldValue: { name: row.name, start_time: row.start_time }, newValue: updates, performedBy: req.currentUser.id });
     return ResponseHelper.success(res, { message: 'Shift updated' });
   }
 
@@ -1064,6 +1076,7 @@ class AttendanceController {
     const row = await this.db.findById(TABLES.SHIFTS, req.params.shiftId, req.tenantId);
     if (!row) return ResponseHelper.notFound(res, 'Shift not found');
     await this.db.update(TABLES.SHIFTS, { ROWID: req.params.shiftId, is_active: 'false' });
+    await this.audit.log({ tenantId: req.tenantId, entityType: 'SHIFT', entityId: String(req.params.shiftId), action: AUDIT_ACTION.DELETE, oldValue: { name: row.name }, performedBy: req.currentUser.id });
     return ResponseHelper.success(res, { message: 'Shift deleted' });
   }
 

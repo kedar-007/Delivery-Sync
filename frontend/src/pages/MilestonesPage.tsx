@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { Plus, CheckCircle, Clock, Flag } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
+import { useI18n } from '../contexts/I18nContext';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import { StatusBadge } from '../components/ui/Badge';
@@ -22,6 +23,7 @@ interface MilestoneForm {
 }
 
 const MilestonesPage = () => {
+  const { t } = useI18n();
   const [searchParams] = useSearchParams();
   const preselectedProject = searchParams.get('projectId') || '';
   const [selectedProject, setSelectedProject] = useState(preselectedProject);
@@ -77,7 +79,7 @@ const MilestonesPage = () => {
 
   return (
     <Layout>
-      <Header title="Milestones" subtitle={selectedProject ? `${milestones.length} milestones · ${overdue.length} overdue` : 'Select a project'}
+      <Header title={t('nav.milestones')} subtitle={selectedProject ? `${milestones.length} milestones · ${overdue.length} overdue` : 'Select a project'}
         actions={selectedProject && <Button onClick={openCreate} icon={<Plus size={16} />}>Add Milestone</Button>}
       />
       <div className="p-6 space-y-5">

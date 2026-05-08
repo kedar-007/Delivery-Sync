@@ -20,6 +20,7 @@ import {
   useAiDetectBlockers, useAiTrends, useAiRetrospective, useAiNLQuery,
   useAiHolisticPerformance,
 } from '../hooks/useAiInsights';
+import { useI18n } from '../contexts/I18nContext';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -318,6 +319,7 @@ const ROLE_BANNER: Record<string, { title: string; desc: string } | undefined> =
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 const AiInsightsPage = () => {
+  const { t } = useI18n();
   const { user } = useAuth();
   const { data: projects = [] } = useProjects();
   const role = (user?.role ?? 'TENANT_ADMIN') as string;
@@ -411,7 +413,7 @@ const AiInsightsPage = () => {
   return (
     <Layout>
       <Header
-        title="AI Insights"
+        title={t('nav.aiInsights')}
         subtitle="Powered by DSV AI — intelligent analysis of your team's activity"
       />
 

@@ -15,6 +15,8 @@ export interface CurrentUser {
   orgRoleId?: string | null;
   orgRoleName?: string | null;
   permissions?: string[];
+  moduleAccess?: string[]; // disabled sidebar module keys from org role
+  officeLocationId?: string | null;
   botEnabled?: boolean;
 }
 

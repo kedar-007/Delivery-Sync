@@ -4,6 +4,7 @@ import { Plus, Search, Calendar, Pencil, Loader2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
+import { useI18n } from '../contexts/I18nContext';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import { RAGBadge, StatusBadge } from '../components/ui/Badge';
@@ -30,6 +31,7 @@ interface RenameForm {
 }
 
 const ProjectsPage = () => {
+  const { t } = useI18n();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const { user } = useAuth();
   const canCreateProject = hasPermission(user, PERMISSIONS.PROJECT_WRITE);
@@ -121,7 +123,7 @@ const ProjectsPage = () => {
   return (
     <Layout>
       <Header
-        title="Projects"
+        title={t('nav.allProjects')}
         subtitle={isSearchMode ? `${total} result${total !== 1 ? 's' : ''} for "${debouncedSearch}"` : `${total} project${total !== 1 ? 's' : ''}`}
         actions={
           canCreateProject ? (

@@ -18,6 +18,7 @@ import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
 import { Blocker } from '../types';
 import { canDo, PERMISSIONS } from '../utils/permissions';
+import { useI18n } from '../contexts/I18nContext';
 
 interface BlockerForm {
   project_id: string;
@@ -36,6 +37,7 @@ interface RenameForm {
 }
 
 const BlockersPage = () => {
+  const { t } = useI18n();
   const [searchParams] = useSearchParams();
   const preselectedProject = searchParams.get('projectId') || '';
   const [filterProject, setFilterProject] = useState(preselectedProject);
@@ -129,7 +131,7 @@ const BlockersPage = () => {
   return (
     <Layout>
       <Header
-        title="Blockers"
+        title={t('nav.blockers')}
         subtitle={`${openBlockers.length} open · ${resolvedBlockers.length} resolved`}
         actions={
           canWrite ? (

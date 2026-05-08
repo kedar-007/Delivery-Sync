@@ -102,6 +102,16 @@ const decimalToHHMM = (h: number): string => {
   const mins = Math.round((h - hrs) * 60);
   return `${hrs}:${String(mins).padStart(2, '0')}`;
 };
+const fmtH = (h: number | string): string => {
+  const v = typeof h === 'string' ? parseFloat(h) : h;
+  if (!v || isNaN(v)) return '—';
+  const totalMin = Math.round(v * 60);
+  const hrs = Math.floor(totalMin / 60);
+  const mins = totalMin % 60;
+  if (hrs > 0 && mins > 0) return `${hrs}h ${mins}m`;
+  if (hrs > 0) return `${hrs}h`;
+  return `${mins}m`;
+};
 
 const COLUMNS: { key: TaskStatus; label: string; color: string; bg: string }[] = [
   { key: 'TODO',        label: 'To Do',       color: 'text-slate-500',  bg: 'bg-slate-50' },
@@ -429,6 +439,7 @@ export default function SprintBoardPage() {
   const [logTimePending, setLogTimePending] = useState(false);
   const [logTimeStartTime, setLogTimeStartTime] = useState('');
   const [logTimeEndTime, setLogTimeEndTime] = useState('');
+  const [logTimeError, setLogTimeError] = useState('');
   const [submittingEntryId, setSubmittingEntryId] = useState<string | null>(null);
   const [timeError, setTimeError] = useState<string | null>(null);
   const [createTaskRequireApproval, setCreateTaskRequireApproval] = useState(false);
@@ -449,7 +460,10 @@ export default function SprintBoardPage() {
       const [sh, sm] = logTimeStartTime.split(':').map(Number);
       const [eh, em] = logTimeEndTime.split(':').map(Number);
       const diff = (eh * 60 + em) - (sh * 60 + sm);
-      if (diff > 0) setLogTimeHours(decimalToHHMM(Math.round((diff / 60) * 100) / 100));
+      if (diff > 0) {
+        setLogTimeHours(decimalToHHMM(Math.round((diff / 60) * 100) / 100));
+        setLogTimeError('');
+      }
     }
   }, [logTimeStartTime, logTimeEndTime]);
 
@@ -632,6 +646,16 @@ export default function SprintBoardPage() {
   // Log time against task
   const handleLogTime = async () => {
     if (!detailTask || !logTimeHours) return;
+    // Validate start/end time
+    if (logTimeStartTime && logTimeEndTime) {
+      const [sh, sm] = logTimeStartTime.split(':').map(Number);
+      const [eh, em] = logTimeEndTime.split(':').map(Number);
+      if ((eh * 60 + em) - (sh * 60 + sm) <= 0) {
+        setLogTimeError('End time must be after start time');
+        return;
+      }
+    }
+    setLogTimeError('');
     setLogTimePending(true);
     try {
       await timeEntriesApi.create({
@@ -691,7 +715,7 @@ export default function SprintBoardPage() {
     const elapsed = (Date.now() - timerStart) / 3600000;
     localStorage.removeItem(`ds_timer_${taskDetailId}`);
     setTimerRunning(false); setTimerStart(null); setTimerDisplay('00:00:00');
-    setLogTimeHours(Math.max(0.25, Math.round(elapsed * 4) / 4).toFixed(2));
+    setLogTimeHours(Math.max(0.01, Math.round(elapsed * 100) / 100).toFixed(2));
     setDetailTab('time');
   };
 
@@ -1359,7 +1383,7 @@ export default function SprintBoardPage() {
                                   {/* Hours pill */}
                                   <div className="flex items-center justify-center bg-indigo-600 text-white rounded-xl px-3 py-1.5 shrink-0">
                                     <Clock size={11} className="mr-1 opacity-80" />
-                                    <span className="text-sm font-bold">{parseFloat(e.hours ?? 0).toFixed(2)}h</span>
+                                    <span className="text-sm font-bold">{fmtH(e.hours ?? 0)}</span>
                                   </div>
                                   {/* Description + date */}
                                   <div className="flex-1 min-w-0">
@@ -1415,6 +1439,12 @@ export default function SprintBoardPage() {
                         <div className="text-xs font-bold text-indigo-700 flex items-center gap-1.5">
                           <Timer size={13} /> Log New Time Entry
                         </div>
+                        {logTimeError && (
+                          <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
+                            <AlertCircle size={13} className="text-red-500 shrink-0" />
+                            <span className="text-xs text-red-700 font-medium">{logTimeError}</span>
+                          </div>
+                        )}
                         {/* Start / End first — drives Hours auto-fill */}
                         <div className="grid grid-cols-2 gap-3">
                           <div>
@@ -1431,7 +1461,12 @@ export default function SprintBoardPage() {
                           const [sh, sm] = logTimeStartTime.split(':').map(Number);
                           const [eh, em] = logTimeEndTime.split(':').map(Number);
                           const diff = (eh * 60 + em) - (sh * 60 + sm);
-                          if (diff <= 0) return null;
+                          if (diff <= 0) return (
+                            <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-xl">
+                              <AlertCircle size={13} className="text-red-500 shrink-0" />
+                              <span className="text-sm text-red-700 font-medium">End time must be after start time</span>
+                            </div>
+                          );
                           const hh = Math.floor(diff / 60);
                           const mm = diff % 60;
                           const readable = hh > 0 && mm > 0 ? `${hh}h ${mm}m` : hh > 0 ? `${hh}h` : `${mm} min`;

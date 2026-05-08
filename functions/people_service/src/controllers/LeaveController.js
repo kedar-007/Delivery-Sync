@@ -9,8 +9,9 @@ const { TABLES, LEAVE_STATUS, AUDIT_ACTION, NOTIFICATION_TYPE } = require('../ut
 const fmtDT = (d) => DataStoreService.fmtDT(d);
 
 class LeaveController {
-  constructor(catalystApp) {
+  constructor(catalystApp, adminCatalystApp) {
     this.db = new DataStoreService(catalystApp);
+    this.adminDb = new DataStoreService(adminCatalystApp || catalystApp);
     this.audit = new AuditService(this.db);
     this.notif = new NotificationService(catalystApp, this.db);
   }
@@ -37,6 +38,7 @@ class LeaveController {
       is_active: 'true',
       created_by: String(req.currentUser.id),
     });
+    await this.audit.log({ tenantId: req.tenantId, entityType: 'LEAVE_TYPE', entityId: String(row.ROWID), action: AUDIT_ACTION.CREATE, newValue: { name, code, days_per_year }, performedBy: req.currentUser.id });
     return ResponseHelper.created(res, row);
   }
 
@@ -47,6 +49,7 @@ class LeaveController {
     const updates = {};
     allowed.forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
     const updated = await this.db.update(TABLES.LEAVE_TYPES, { ROWID: req.params.typeId, ...updates });
+    await this.audit.log({ tenantId: req.tenantId, entityType: 'LEAVE_TYPE', entityId: String(req.params.typeId), action: AUDIT_ACTION.UPDATE, oldValue: type, newValue: updates, performedBy: req.currentUser.id });
     return ResponseHelper.success(res, updated);
   }
 
@@ -570,11 +573,41 @@ class LeaveController {
 
   async getCompanyCalendar(req, res) {
     try {
+      // If caller doesn't pass locationId but the authenticated user has one, use it as default
       const { year } = req.query;
+      const locationId = req.query.locationId || req.currentUser.officeLocationId || null;
       const y = year || new Date().getFullYear();
-      const holidays = await this.db.findWhere(TABLES.LEAVE_CALENDAR, req.tenantId,
+
+      // Fetch org-wide holidays from leave_calendar table
+      const dbHolidays = await this.db.findWhere(TABLES.LEAVE_CALENDAR, req.tenantId,
         `year = '${y}'`, { orderBy: 'holiday_date ASC', limit: 200 });
-      return ResponseHelper.success(res, holidays);
+      const orgHolidays = dbHolidays.map(h => ({ ...h, id: String(h.ROWID), source: 'org' }));
+
+      // Include location-specific holidays from tenant settings
+      // If locationId provided: fetch only that location; otherwise fetch all locations
+      let locationHolidays = [];
+      try {
+        const tenantRows = await this.db.query(
+          `SELECT settings FROM ${TABLES.TENANTS} WHERE ROWID = '${req.tenantId}' LIMIT 1`
+        );
+        if (tenantRows.length > 0) {
+          const settings = JSON.parse(tenantRows[0].settings || '{}');
+          const locationCalendar = settings.locationCalendar || {};
+          const locIds = locationId ? [locationId] : Object.keys(locationCalendar);
+          for (const locId of locIds) {
+            const locYearEntries = (locationCalendar[locId] || {})[String(y)] || [];
+            const mapped = locYearEntries.map(h => ({
+              ...h,
+              id: String(h.id ?? ''),
+              locationId: h.location_id || locId,
+              source: 'location',
+            }));
+            locationHolidays.push(...mapped);
+          }
+        }
+      } catch (_) { /* settings not available — return org holidays only */ }
+
+      return ResponseHelper.success(res, [...orgHolidays, ...locationHolidays]);
     } catch (err) {
       console.error('[LeaveController.getCompanyCalendar]', err.message);
       return ResponseHelper.serverError(res, err.message);
@@ -583,15 +616,58 @@ class LeaveController {
 
   async createHoliday(req, res) {
     try {
-      const { name, holiday_date, year, is_optional } = req.body;
+      const { name, holiday_date, year, is_optional, location_id } = req.body;
       if (!name || !holiday_date) return ResponseHelper.validationError(res, 'name and holiday_date required');
-      const y = year || holiday_date.slice(0, 4);
+      const y = String(year || holiday_date.slice(0, 4));
+
+      if (location_id) {
+        // Location-specific holiday — store in tenant settings.locationCalendar
+        let tenantRow = null;
+        let settings = {};
+        try {
+          const tenantRows = await this.db.query(
+            `SELECT ROWID, settings FROM ${TABLES.TENANTS} WHERE ROWID = '${req.tenantId}' LIMIT 1`
+          );
+          if (tenantRows.length > 0) {
+            tenantRow = tenantRows[0];
+            settings = JSON.parse(tenantRow.settings || '{}');
+          }
+        } catch (_) { /* settings not yet available */ }
+
+        if (!tenantRow) return ResponseHelper.notFound(res, 'Tenant not found');
+
+        const locationCalendar = settings.locationCalendar || {};
+        if (!locationCalendar[location_id]) locationCalendar[location_id] = {};
+        if (!locationCalendar[location_id][y]) locationCalendar[location_id][y] = [];
+
+        const newHoliday = {
+          id: 'loc_' + Date.now(),
+          name,
+          holiday_date,
+          year: y,
+          is_optional: !!is_optional,
+          location_id,
+        };
+        locationCalendar[location_id][y].push(newHoliday);
+        settings.locationCalendar = locationCalendar;
+
+        await this.adminDb.update(TABLES.TENANTS, {
+          ROWID: String(tenantRow.ROWID),
+          settings: JSON.stringify(settings),
+        });
+
+        await this.audit.log({ tenantId: req.tenantId, entityType: 'HOLIDAY', entityId: newHoliday.id, action: AUDIT_ACTION.CREATE, newValue: newHoliday, performedBy: req.currentUser.id });
+        return ResponseHelper.created(res, newHoliday);
+      }
+
+      // Org-wide holiday — insert into leave_calendar table
       const row = await this.db.insert(TABLES.LEAVE_CALENDAR, {
         tenant_id: String(req.tenantId),
-        name, holiday_date, year: String(y),
+        name, holiday_date, year: y,
         is_optional: is_optional ? 'true' : 'false',
         created_by: String(req.currentUser.id),
       });
+      await this.audit.log({ tenantId: req.tenantId, entityType: 'HOLIDAY', entityId: String(row.ROWID), action: AUDIT_ACTION.CREATE, newValue: { name, holiday_date, year: y, is_optional }, performedBy: req.currentUser.id });
       return ResponseHelper.created(res, row);
     } catch (err) {
       console.error('[LeaveController.createHoliday]', err.message);
@@ -601,12 +677,167 @@ class LeaveController {
 
   async deleteHoliday(req, res) {
     try {
+      const { locationId } = req.query;
+
+      if (locationId) {
+        // Remove from tenant settings.locationCalendar
+        let tenantRow = null;
+        let settings = {};
+        try {
+          const tenantRows = await this.db.query(
+            `SELECT ROWID, settings FROM ${TABLES.TENANTS} WHERE ROWID = '${req.tenantId}' LIMIT 1`
+          );
+          if (tenantRows.length > 0) {
+            tenantRow = tenantRows[0];
+            settings = JSON.parse(tenantRow.settings || '{}');
+          }
+        } catch (_) { /* settings not available */ }
+
+        if (!tenantRow) return ResponseHelper.notFound(res, 'Tenant not found');
+
+        const holidayId = req.params.holidayId;
+        const locationCalendar = settings.locationCalendar || {};
+        const locEntry = locationCalendar[locationId] || {};
+        for (const yr of Object.keys(locEntry)) {
+          locEntry[yr] = (locEntry[yr] || []).filter(h => h.id !== holidayId);
+        }
+        settings.locationCalendar = locationCalendar;
+
+        await this.adminDb.update(TABLES.TENANTS, {
+          ROWID: String(tenantRow.ROWID),
+          settings: JSON.stringify(settings),
+        });
+
+        await this.audit.log({ tenantId: req.tenantId, entityType: 'HOLIDAY', entityId: req.params.holidayId, action: AUDIT_ACTION.DELETE, oldValue: { location_id: locationId }, performedBy: req.currentUser.id });
+        return ResponseHelper.success(res, { message: 'Holiday deleted' });
+      }
+
+      // Org-wide holiday — delete from leave_calendar table
       const holiday = await this.db.findById(TABLES.LEAVE_CALENDAR, req.params.holidayId, req.tenantId);
       if (!holiday) return ResponseHelper.notFound(res, 'Holiday not found');
       await this.db.delete(TABLES.LEAVE_CALENDAR, req.params.holidayId);
+      await this.audit.log({ tenantId: req.tenantId, entityType: 'HOLIDAY', entityId: String(req.params.holidayId), action: AUDIT_ACTION.DELETE, oldValue: { name: holiday.name, holiday_date: holiday.holiday_date }, performedBy: req.currentUser.id });
       return ResponseHelper.success(res, { message: 'Holiday deleted' });
     } catch (err) {
       console.error('[LeaveController.deleteHoliday]', err.message);
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  async updateHoliday(req, res) {
+    try {
+      const { holidayId } = req.params;
+      const { locationId } = req.query;
+      const { name, holiday_date, is_optional } = req.body;
+      if (!name || !holiday_date) return ResponseHelper.validationError(res, 'name and holiday_date required');
+
+      if (locationId) {
+        // Location-specific — update in tenant settings JSON
+        const tenantRows = await this.db.query(
+          `SELECT ROWID, settings FROM ${TABLES.TENANTS} WHERE ROWID = '${req.tenantId}' LIMIT 1`
+        );
+        if (!tenantRows.length) return ResponseHelper.notFound(res, 'Tenant not found');
+        const tenantRow = tenantRows[0];
+        let settings = {};
+        try { settings = JSON.parse(tenantRow.settings || '{}'); } catch (_) {}
+
+        const locationCalendar = settings.locationCalendar || {};
+        const locEntry = locationCalendar[locationId] || {};
+        let found = false;
+        for (const yr of Object.keys(locEntry)) {
+          locEntry[yr] = (locEntry[yr] || []).map(h => {
+            if (h.id === holidayId) {
+              found = true;
+              return { ...h, name, holiday_date, year: holiday_date.slice(0, 4), is_optional: !!is_optional };
+            }
+            return h;
+          });
+        }
+        if (!found) return ResponseHelper.notFound(res, 'Holiday not found');
+        settings.locationCalendar = locationCalendar;
+        await this.adminDb.update(TABLES.TENANTS, { ROWID: String(tenantRow.ROWID), settings: JSON.stringify(settings) });
+        await this.audit.log({ tenantId: req.tenantId, entityType: 'HOLIDAY', entityId: holidayId, action: AUDIT_ACTION.UPDATE, newValue: { name, holiday_date, is_optional: !!is_optional, location_id: locationId }, performedBy: req.currentUser.id });
+        return ResponseHelper.success(res, { id: holidayId, name, holiday_date, is_optional: !!is_optional });
+      }
+
+      // Org-wide holiday — update in leave_calendar table
+      const holiday = await this.db.findById(TABLES.LEAVE_CALENDAR, holidayId, req.tenantId);
+      if (!holiday) return ResponseHelper.notFound(res, 'Holiday not found');
+      await this.db.update(TABLES.LEAVE_CALENDAR, {
+        ROWID: holidayId,
+        name,
+        holiday_date,
+        year: holiday_date.slice(0, 4),
+        is_optional: is_optional ? 'true' : 'false',
+      });
+      await this.audit.log({ tenantId: req.tenantId, entityType: 'HOLIDAY', entityId: String(holidayId), action: AUDIT_ACTION.UPDATE, oldValue: { name: holiday.name, holiday_date: holiday.holiday_date }, newValue: { name, holiday_date, is_optional: !!is_optional }, performedBy: req.currentUser.id });
+      return ResponseHelper.success(res, { id: holidayId, name, holiday_date, is_optional: !!is_optional });
+    } catch (err) {
+      console.error('[LeaveController.updateHoliday]', err.message);
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  async getCalendarConfig(req, res) {
+    try {
+      const tenantRows = await this.db.query(
+        `SELECT settings FROM ${TABLES.TENANTS} WHERE ROWID = '${req.tenantId}' LIMIT 1`
+      );
+      let settings = {};
+      if (tenantRows.length > 0) {
+        try { settings = JSON.parse(tenantRows[0].settings || '{}'); } catch (_) { /* malformed JSON */ }
+      }
+      const locations = settings.officeLocations || [];
+      const weekendPolicy = settings.weekendPolicy || { default: 'all_off', perLocation: {} };
+      const locationCalendar = settings.locationCalendar || {};
+      return ResponseHelper.success(res, { locations, weekendPolicy, locationCalendar });
+    } catch (err) {
+      console.error('[LeaveController.getCalendarConfig]', err.message);
+      return ResponseHelper.success(res, {
+        locations: [],
+        weekendPolicy: { default: 'all_off', perLocation: {} },
+        locationCalendar: {},
+      });
+    }
+  }
+
+  async saveCalendarConfig(req, res) {
+    try {
+      const { locations, weekendPolicy, locationCalendar } = req.body;
+
+      let tenantRow = null;
+      let settings = {};
+      try {
+        const tenantRows = await this.db.query(
+          `SELECT ROWID, settings FROM ${TABLES.TENANTS} WHERE ROWID = '${req.tenantId}' LIMIT 1`
+        );
+        if (tenantRows.length > 0) {
+          tenantRow = tenantRows[0];
+          settings = JSON.parse(tenantRow.settings || '{}');
+        }
+      } catch (_) { /* settings not yet available */ }
+
+      if (!tenantRow) return ResponseHelper.notFound(res, 'Tenant not found');
+
+      // Merge — only update provided fields
+      const updatedSettings = { ...settings };
+      if (locations !== undefined) updatedSettings.officeLocations = locations;
+      if (weekendPolicy !== undefined) updatedSettings.weekendPolicy = weekendPolicy;
+      if (locationCalendar !== undefined) updatedSettings.locationCalendar = locationCalendar;
+
+      await this.adminDb.update(TABLES.TENANTS, {
+        ROWID: String(tenantRow.ROWID),
+        settings: JSON.stringify(updatedSettings),
+      });
+
+      await this.audit.log({ tenantId: req.tenantId, entityType: 'CALENDAR_CONFIG', entityId: String(req.tenantId), action: AUDIT_ACTION.UPDATE, newValue: { locations: locations !== undefined, weekendPolicy: weekendPolicy !== undefined, locationCalendar: locationCalendar !== undefined }, performedBy: req.currentUser.id });
+      return ResponseHelper.success(res, {
+        locations: updatedSettings.officeLocations || [],
+        weekendPolicy: updatedSettings.weekendPolicy || { default: 'all_off', perLocation: {} },
+        locationCalendar: updatedSettings.locationCalendar || {},
+      });
+    } catch (err) {
+      console.error('[LeaveController.saveCalendarConfig]', err.message);
       return ResponseHelper.serverError(res, err.message);
     }
   }

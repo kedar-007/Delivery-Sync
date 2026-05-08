@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { HashRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/layout/ProtectedRoute";
@@ -40,6 +40,7 @@ import TimeTrackingPage from "./pages/TimeTrackingPage";
 import TeamActivityPage from "./pages/TeamActivityPage";
 import AssetManagementPage from "./pages/AssetManagementPage";
 import AdminConfigPage from "./pages/AdminConfigPage";
+import PeopleSettingsPage from "./pages/PeopleSettingsPage";
 import ProjectTasksPage from "./pages/ProjectTasksPage";
 import MyTasksPage from "./pages/MyTasksPage";
 import SprintsPage from "./pages/SprintsPage";
@@ -48,16 +49,18 @@ import DataSeedPage from "./pages/DataSeedPage";
 import IpConfigPage from "./pages/IpConfigPage";
 import AccessRevokedPage from "./pages/AccessRevokedPage";
 import BugReportsPage from "./pages/BugReportsPage";
+import AuditLogsPage from "./pages/AuditLogsPage";
 import { ConfirmProvider } from "./components/ui/ConfirmDialog";
 import { ToastProvider } from "./components/ui/Toast";
 
 // ── Permission-gated route wrapper ───────────────────────────────────────────
 // Redirects to /:tenantSlug/dashboard if the current user lacks `permission`.
 // Must be rendered inside /:tenantSlug so useParams can read the slug.
-const PermRoute = ({ permission, children }: { permission: Permission; children: React.ReactNode }) => {
+const PermRoute = ({ permission, children }: { permission: Permission | Permission[]; children: React.ReactNode }) => {
   const { user } = useAuth();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
-  if (!hasPermission(user, permission)) {
+  const perms = Array.isArray(permission) ? permission : [permission];
+  if (!perms.some((p) => hasPermission(user, p))) {
     return <Navigate to={`/${tenantSlug}/dashboard`} replace />;
   }
   return <>{children}</>;
@@ -155,8 +158,10 @@ const AppRoutes = () => {
         <Route path="cto-dashboard"  element={<PermRoute permission="CTO_DASHBOARD"><CtoDashboardPage /></PermRoute>} />
 
         {/* ── Administration module ── */}
-        <Route path="admin"        element={<PermRoute permission="ADMIN_USERS"><AdminPage /></PermRoute>} />
-        <Route path="admin-config" element={<PermRoute permission="ADMIN_USERS"><AdminConfigPage /></PermRoute>} />
+        <Route path="admin"           element={<PermRoute permission="ADMIN_USERS"><AdminPage /></PermRoute>} />
+        <Route path="admin-config"    element={<PermRoute permission="ADMIN_USERS"><AdminConfigPage /></PermRoute>} />
+        <Route path="people-settings" element={<PermRoute permission={['LEAVE_ADMIN', 'LOCATION_ADMIN', 'IP_CONFIG_WRITE']}><PeopleSettingsPage /></PermRoute>} />
+        <Route path="audit-logs"   element={<PermRoute permission="ADMIN_USERS"><AuditLogsPage /></PermRoute>} />
         <Route path="data-seed"    element={<PermRoute permission="DATA_SEED"><DataSeedPage /></PermRoute>} />
         <Route path="ip-config"    element={<PermRoute permission="IP_CONFIG_WRITE"><IpConfigPage /></PermRoute>} />
       </Route>

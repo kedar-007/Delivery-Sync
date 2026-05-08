@@ -493,7 +493,7 @@ export default function ProjectTasksPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="form-label">Hours *</label>
-              <input type="number" step="0.25" min="0.25" className="form-input"
+              <input type="number" step="0.01" min="0.01" className="form-input"
                 placeholder="1.5" value={logHours} onChange={(e) => setLogHours(e.target.value)} />
             </div>
             <div>

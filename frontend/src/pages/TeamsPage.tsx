@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
+import { useI18n } from '../contexts/I18nContext';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import Modal, { ModalActions } from '../components/ui/Modal';
@@ -446,6 +447,7 @@ const MemberCard = ({ member, showCrown }: { member: any; showCrown?: boolean })
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 const TeamsPage = () => {
+  const { t } = useI18n();
   const { user } = useAuth();
   const { confirm } = useConfirm();
   const canWrite = canDo(user?.role, PERMISSIONS.TEAM_WRITE);
@@ -557,7 +559,7 @@ const TeamsPage = () => {
   return (
     <Layout>
       <Header
-        title="Teams"
+        title={t('nav.teams')}
         subtitle="Manage project teams and reporting structure"
         actions={
           canWrite ? (

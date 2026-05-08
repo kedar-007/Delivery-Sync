@@ -5,7 +5,7 @@ import {
   Building2, Users, Shield, Bell, Lock, Unlock, Eye, Search, X, Check,
   UserX, UserCheck, Layers, LogOut, PanelLeftClose, PanelLeftOpen,
   RefreshCw, ChevronRight, ChevronLeft, AlertTriangle, Settings, BarChart2,
-  CreditCard, Activity, TrendingUp, Zap, Filter, CheckCircle2, Bug, Mail, Plus, Save,
+  CreditCard, Activity, TrendingUp, Zap, Filter, CheckCircle2, Bug, Mail, Plus, Save, Reply,
 } from 'lucide-react';
 import { superAdminApi, bugApi } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -657,6 +657,356 @@ const BugDetailAttachments: React.FC<{ reportId: string }> = ({ reportId }) => {
   );
 };
 
+// ── Bug Reply Media — shows attachments uploaded at/after the reporter reply ───
+const BugReplyMedia: React.FC<{ reportId: string; replyAt?: string }> = ({ reportId, replyAt }) => {
+  const { data } = useQuery({
+    queryKey: ['bug-detail', reportId],
+    queryFn:  () => bugApi.get(reportId).then((d: any) => d),
+    enabled:  !!reportId,
+    staleTime: 60_000,
+  });
+
+  const all: any[] = (data as any)?.attachments ?? [];
+
+  // Filter: attachments whose CREATEDTIME is at or after the reply timestamp
+  // Give a 10-min back-buffer to catch files uploaded just before the text was saved
+  const replyTs = replyAt ? new Date(replyAt).getTime() - 10 * 60 * 1000 : 0;
+  const attachments = replyAt
+    ? all.filter((a: any) => {
+        const t = a.CREATEDTIME ? new Date(a.CREATEDTIME).getTime() : 0;
+        return t >= replyTs;
+      })
+    : all;
+
+  if (attachments.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-3 mt-2">
+      {attachments.map((att: any) => {
+        const url     = att.file_url ?? '';
+        const name    = att.file_name ?? 'file';
+        const mime    = att.mime_type ?? '';
+        const isImage = mime.startsWith('image/');
+        const isVideo = mime.startsWith('video/');
+        const sizeKb  = att.file_size ? Math.round(Number(att.file_size) / 1024) : null;
+
+        if (isImage) return (
+          <a key={att.ROWID ?? url} href={url} target="_blank" rel="noopener noreferrer"
+            className="block rounded-xl overflow-hidden border border-indigo-200 hover:border-indigo-400 transition-colors shrink-0" title={name}>
+            <img src={url} alt={name} className="h-28 w-auto object-cover" />
+            <p className="px-2 py-1 text-[10px] text-gray-400 truncate max-w-[128px] bg-white">{name}</p>
+          </a>
+        );
+
+        if (isVideo) return (
+          <div key={att.ROWID ?? url} className="rounded-xl overflow-hidden border border-indigo-200 shrink-0">
+            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+            <video src={url} controls className="h-28 max-w-[200px] object-contain bg-black" />
+            <p className="px-2 py-1 text-[10px] text-gray-400 truncate max-w-[200px] bg-white">{name}</p>
+          </div>
+        );
+
+        return (
+          <a key={att.ROWID ?? url} href={url} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-2 px-3 py-2 rounded-xl border border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50 transition-colors text-xs text-gray-700 max-w-[200px]">
+            <span className="text-lg">📎</span>
+            <div className="min-w-0">
+              <p className="font-medium truncate">{name}</p>
+              {sizeKb !== null && <p className="text-[10px] text-gray-400">{sizeKb} KB</p>}
+            </div>
+          </a>
+        );
+      })}
+    </div>
+  );
+};
+
+// ── Severity → header gradient ─────────────────────────────────────────────────
+const SEV_HEADER: Record<string, string> = {
+  CRITICAL: 'from-red-600 to-rose-600',
+  HIGH:     'from-orange-500 to-amber-600',
+  MEDIUM:   'from-amber-400 to-yellow-500',
+  LOW:      'from-slate-400 to-gray-500',
+};
+
+// ── Bug Detail Slide-over ──────────────────────────────────────────────────────
+function BugDetailSlider({ bug, seenReplies, onMarkSeen, onClose, onStatusChange, onReply, onResolve, statusChangePending, replyPending, resolvePending }: {
+  bug: any;
+  seenReplies: Set<string>;
+  onMarkSeen: (id: string) => void;
+  onClose: () => void;
+  onStatusChange: (id: string, status: string) => void;
+  onReply: (id: string, note: string) => Promise<any>;
+  onResolve: (id: string, note: string) => Promise<any>;
+  statusChangePending: boolean;
+  replyPending: boolean;
+  resolvePending: boolean;
+}) {
+  const rowId = bug.ROWID ?? bug.id;
+  const hasReply = !!bug.reporter_reply;
+  // Capture unseen status at open time so the "NEW" badge persists while reading
+  const [wasUnseenAtOpen] = useState(() => hasReply && !seenReplies.has(rowId));
+  const [replyOpen,   setReplyOpen]   = useState(false);
+  const [replyNote,   setReplyNote]   = useState('');
+  const [resolveOpen, setResolveOpen] = useState(false);
+  const [resolveNote, setResolveNote] = useState('');
+
+  // Auto-mark seen when the panel opens — admin has viewed the reply
+  useEffect(() => {
+    if (hasReply) onMarkSeen(rowId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowId]);
+
+  const grad = SEV_HEADER[bug.severity] ?? 'from-slate-400 to-gray-500';
+
+  return (
+    <>
+      {/* Dim overlay */}
+      <div className="fixed inset-0 z-40 bg-black/25 backdrop-blur-[1px]" onClick={onClose} />
+
+      {/* Panel */}
+      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl bg-white shadow-2xl border-l border-gray-200 flex flex-col">
+
+        {/* ── Header ── */}
+        <div className={`bg-gradient-to-r ${grad} px-6 py-5 shrink-0`}>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              {/* Badges row */}
+              <div className="flex flex-wrap items-center gap-2 mb-2.5">
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-white/25 text-white border border-white/30 uppercase tracking-wide">
+                  {bug.severity || '—'}
+                </span>
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white/15 text-white/90">
+                  {(bug.report_type || '—').replace(/_/g, ' ')}
+                </span>
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${BUG_STATUS_COLORS[bug.status] ?? 'bg-white/10 text-white border-white/20'}`}>
+                  {(bug.status || '—').replace(/_/g, ' ')}
+                </span>
+                {wasUnseenAtOpen && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-400 text-white border border-amber-300 animate-pulse">
+                    ↩ NEW REPLY
+                  </span>
+                )}
+              </div>
+              {/* Title */}
+              <h2 className="text-xl font-bold text-white leading-snug">{bug.title || '—'}</h2>
+              {/* Reporter meta */}
+              <div className="flex items-center flex-wrap gap-1.5 mt-2 text-white/70 text-xs">
+                <UserAvatar name={bug.reporter_name || '?'} size="xs" />
+                <span className="font-medium text-white/90">{bug.reporter_name || '—'}</span>
+                <span>·</span>
+                <Building2 size={10} className="shrink-0" />
+                <span>{bug.tenant_name || '—'}</span>
+                <span>·</span>
+                <span>{relativeTime(bug.CREATEDTIME)}</span>
+                {bug.reporter_email && <><span>·</span><span className="opacity-60">{bug.reporter_email}</span></>}
+              </div>
+            </div>
+            <button onClick={onClose} className="shrink-0 w-9 h-9 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white transition-colors mt-0.5">
+              <X size={17} />
+            </button>
+          </div>
+        </div>
+
+        {/* ── Scrollable body ── */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-6 space-y-6">
+
+            {/* Reporter's reply — highlighted at top since it's the reason admin opened this */}
+            {hasReply && (
+              <div className={`rounded-2xl border-2 p-5 space-y-3 ${wasUnseenAtOpen ? 'bg-amber-50 border-amber-300' : 'bg-indigo-50/50 border-indigo-200'}`}>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${wasUnseenAtOpen ? 'bg-amber-500 animate-pulse' : 'bg-indigo-400'}`} />
+                  <Reply size={14} className={wasUnseenAtOpen ? 'text-amber-600 shrink-0' : 'text-indigo-500 shrink-0'} />
+                  <p className={`text-sm font-bold uppercase tracking-wide ${wasUnseenAtOpen ? 'text-amber-800' : 'text-indigo-700'}`}>
+                    Reporter's Reply
+                    {wasUnseenAtOpen && (
+                      <span className="ml-2 px-2 py-0.5 text-[10px] font-extrabold bg-amber-500 text-white rounded-full normal-case tracking-normal">NEW</span>
+                    )}
+                  </p>
+                  {bug.reporter_reply_at && (
+                    <span className={`ml-auto text-xs font-medium ${wasUnseenAtOpen ? 'text-amber-600' : 'text-indigo-400'}`}>
+                      {new Date(bug.reporter_reply_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
+                </div>
+
+                <div className={`rounded-xl px-4 py-4 text-sm leading-relaxed whitespace-pre-wrap ${wasUnseenAtOpen ? 'bg-white text-amber-900 border border-amber-200' : 'bg-white text-gray-800 border border-indigo-100'}`}>
+                  {bug.reporter_reply}
+                </div>
+
+                <BugReplyMedia reportId={rowId} replyAt={bug.reporter_reply_at} />
+
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <p className={`text-xs font-medium ${wasUnseenAtOpen ? 'text-amber-600' : 'text-indigo-500'}`}>
+                    From: <strong>{bug.reporter_name || 'Reporter'}</strong>{bug.reporter_email ? ` · ${bug.reporter_email}` : ''}
+                  </p>
+                  {wasUnseenAtOpen && (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-700 bg-amber-100 border border-amber-200 px-3 py-1.5 rounded-lg">
+                      <Eye size={11} /> Marked as read when you opened this
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Description */}
+            <div>
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Description</p>
+              <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-4 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed min-h-[60px]">
+                {bug.description || <span className="text-gray-400 italic">No description provided</span>}
+              </div>
+            </div>
+
+            {/* Environment */}
+            {(bug.page_url || bug.browser_info) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {bug.page_url && (
+                  <div>
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Page URL</p>
+                    <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2.5">
+                      <p className="text-xs text-indigo-700 break-all font-mono">{bug.page_url}</p>
+                    </div>
+                  </div>
+                )}
+                {bug.browser_info && (
+                  <div>
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Browser / Device</p>
+                    <div className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5">
+                      <p className="text-xs text-gray-600">{bug.browser_info}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Original attachments */}
+            <div>
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Attachments</p>
+              <BugDetailAttachments reportId={rowId} />
+            </div>
+
+            {/* Resolution note */}
+            {bug.resolution_notes && (
+              <div>
+                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Resolution Note</p>
+                <div className="bg-emerald-50 border-l-4 border-emerald-400 rounded-r-xl px-4 py-4">
+                  <p className="text-sm text-emerald-800 whitespace-pre-wrap leading-relaxed">{bug.resolution_notes}</p>
+                  {bug.resolved_by && <p className="text-xs text-emerald-500 mt-2 font-medium">— {bug.resolved_by}</p>}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Footer — admin actions ── */}
+        <div className="border-t border-gray-100 bg-gray-50 px-6 py-5 space-y-4 shrink-0">
+
+          {/* Reply form */}
+          {replyOpen && (
+            <div className="bg-white border border-indigo-200 rounded-2xl p-4 space-y-3">
+              <p className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                <Mail size={13} className="text-indigo-500" /> Reply to Reporter
+              </p>
+              {bug.reporter_email && (
+                <p className="text-[11px] text-gray-400">Sending to <strong className="text-gray-600">{bug.reporter_email}</strong></p>
+              )}
+              <textarea
+                rows={4}
+                value={replyNote}
+                onChange={e => setReplyNote(e.target.value)}
+                placeholder="Write your reply to the reporter…"
+                className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              />
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => { setReplyOpen(false); setReplyNote(''); }}
+                  className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 rounded-xl hover:bg-gray-100 transition-colors">
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => { await onReply(rowId, replyNote); setReplyOpen(false); setReplyNote(''); }}
+                  disabled={!replyNote.trim() || replyPending}
+                  className="px-5 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-2"
+                >
+                  <Mail size={13} />{replyPending ? 'Sending…' : 'Send Reply'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Resolve form */}
+          {resolveOpen && (
+            <div className="bg-white border border-emerald-200 rounded-2xl p-4 space-y-3">
+              <p className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                <CheckCircle2 size={13} className="text-emerald-500" /> Mark as Resolved
+              </p>
+              {bug.reporter_email && (
+                <p className="text-[11px] text-gray-400">A thank-you email will be sent to <strong className="text-gray-600">{bug.reporter_email}</strong></p>
+              )}
+              <textarea
+                rows={3}
+                value={resolveNote}
+                onChange={e => setResolveNote(e.target.value)}
+                placeholder="Optional resolution note for the reporter…"
+                className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-300"
+              />
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => { setResolveOpen(false); setResolveNote(''); }}
+                  className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 rounded-xl hover:bg-gray-100 transition-colors">
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => { await onResolve(rowId, resolveNote); setResolveOpen(false); setResolveNote(''); }}
+                  disabled={resolvePending}
+                  className="px-5 py-2 text-sm font-semibold bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-colors flex items-center gap-2"
+                >
+                  <CheckCircle2 size={13} />{resolvePending ? 'Resolving…' : 'Confirm Resolve'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Action bar */}
+          {!replyOpen && !resolveOpen && (
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-gray-500">Status:</span>
+                <select
+                  value={bug.status ?? 'OPEN'}
+                  disabled={statusChangePending}
+                  onChange={e => onStatusChange(rowId, e.target.value)}
+                  className={`text-xs font-bold rounded-full border px-3 py-1.5 cursor-pointer outline-none appearance-none transition-colors disabled:opacity-60 ${BUG_STATUS_COLORS[bug.status] ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}
+                >
+                  <option value="OPEN">Open</option>
+                  <option value="IN_REVIEW">In Review</option>
+                  <option value="RESOLVED">Resolved</option>
+                  <option value="CLOSED">Closed</option>
+                  <option value="DUPLICATE">Duplicate</option>
+                  <option value="WONT_FIX">Won't Fix</option>
+                </select>
+              </div>
+              <button
+                onClick={() => { setReplyOpen(true); setResolveOpen(false); }}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-xl hover:bg-indigo-100 transition-colors"
+              >
+                <Mail size={14} /> Reply to Reporter
+              </button>
+              {bug.status !== 'RESOLVED' && bug.status !== 'CLOSED' && (
+                <button
+                  onClick={() => { setResolveOpen(true); setReplyOpen(false); }}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl hover:bg-emerald-100 transition-colors"
+                >
+                  <CheckCircle2 size={14} /> Mark Resolved
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────────
 const SuperAdminPage: React.FC = () => {
   const qc = useQueryClient();
@@ -691,11 +1041,11 @@ const SuperAdminPage: React.FC = () => {
   const [cfgSaving,      setCfgSaving]      = useState(false);
   const [cfgSaved,       setCfgSaved]       = useState(false);
 
-  const [expandedBugId,  setExpandedBugId]  = useState<string | null>(null);
-  const [replyBugId,     setReplyBugId]     = useState<string | null>(null);
-  const [replyNote,      setReplyNote]      = useState('');
-  const [resolvingBugId, setResolvingBugId] = useState<string | null>(null);
-  const [resolveNote,    setResolveNote]    = useState('');
+  const [selectedBugId,  setSelectedBugId]  = useState<string | null>(null);
+  const [seenReplies,    setSeenReplies]    = useState<Set<string>>(() => {
+    try { const raw = localStorage.getItem('seen_bug_replies'); return new Set(raw ? JSON.parse(raw) : []); }
+    catch { return new Set<string>(); }
+  });
 
   const [lockTarget,     setLockTarget]     = useState<{ id: string; name: string } | null>(null);
   const [unlockTarget,   setUnlockTarget]   = useState<{ id: string; name: string } | null>(null);
@@ -793,9 +1143,7 @@ const SuperAdminPage: React.FC = () => {
     mutationFn: ({ id, notes }: { id: string; notes: string }) => bugApi.resolve(id, notes),
     onSuccess:  () => {
       qc.invalidateQueries({ queryKey: ['sa-bug-reports'] });
-      setResolvingBugId(null);
-      setResolveNote('');
-      setExpandedBugId(null);
+      setSelectedBugId(null);
     },
   });
 
@@ -803,8 +1151,6 @@ const SuperAdminPage: React.FC = () => {
     mutationFn: ({ id, notes }: { id: string; notes: string }) => bugApi.reply(id, notes),
     onSuccess:  () => {
       qc.invalidateQueries({ queryKey: ['sa-bug-reports'] });
-      setReplyBugId(null);
-      setReplyNote('');
     },
   });
 
@@ -859,8 +1205,39 @@ const SuperAdminPage: React.FC = () => {
 
   const BUG_PAGE_SIZE = 10;
 
+  const markReplySeen = (id: string) => {
+    setSeenReplies(prev => {
+      const next = new Set(prev);
+      next.add(id);
+      try { localStorage.setItem('seen_bug_replies', JSON.stringify(Array.from(next))); } catch {}
+      return next;
+    });
+  };
+
+  // Unseen = has reporter_reply AND not yet read by admin
+  const needsAttentionCount = useMemo(() =>
+    (bugReports as any[]).filter((r: any) => !!r.reporter_reply && !seenReplies.has(r.ROWID ?? r.id)).length,
+  [bugReports, seenReplies]);
+
   const filteredBugs = useMemo(() => {
     let rows = (bugReports as any[]).slice().sort((a: any, b: any) => {
+      const aId = a.ROWID ?? a.id;
+      const bId = b.ROWID ?? b.id;
+      // Unseen replies float highest
+      const aUnseen = !!a.reporter_reply && !seenReplies.has(aId);
+      const bUnseen = !!b.reporter_reply && !seenReplies.has(bId);
+      if (aUnseen !== bUnseen) return aUnseen ? -1 : 1;
+      // Then any replied
+      const aReplied = !!a.reporter_reply;
+      const bReplied = !!b.reporter_reply;
+      if (aReplied !== bReplied) return aReplied ? -1 : 1;
+      // Within replied group: sort by reply time desc
+      if (aReplied && bReplied) {
+        const ra = a.reporter_reply_at ? new Date(a.reporter_reply_at).getTime() : 0;
+        const rb = b.reporter_reply_at ? new Date(b.reporter_reply_at).getTime() : 0;
+        if (ra !== rb) return rb - ra;
+      }
+      // Fallback: newest report first
       const ta = a.CREATEDTIME ? new Date(a.CREATEDTIME).getTime() : 0;
       const tb = b.CREATEDTIME ? new Date(b.CREATEDTIME).getTime() : 0;
       return tb - ta;
@@ -874,7 +1251,7 @@ const SuperAdminPage: React.FC = () => {
       );
     }
     return rows;
-  }, [bugReports, bugSearch]);
+  }, [bugReports, bugSearch, seenReplies]);
 
   const pagedBugs = filteredBugs.slice((bugPage - 1) * BUG_PAGE_SIZE, bugPage * BUG_PAGE_SIZE);
 
@@ -1501,22 +1878,48 @@ const SuperAdminPage: React.FC = () => {
           {/* ═══════════════════════════ BUG REPORTS ════════════════════════ */}
           {activeTab === 'bug-reports' && (
             <div className="space-y-4">
-              {/* KPI strip */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+
+              {/* ── KPI Strip ── */}
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                 {[
-                  { label: 'Total Reports',  value: (bugReports as any[]).length,                                               color: 'bg-blue-50 text-blue-900'    },
-                  { label: 'Open',           value: (bugReports as any[]).filter((r: any) => r.status === 'OPEN').length,       color: 'bg-amber-50 text-amber-900'  },
-                  { label: 'Critical',       value: (bugReports as any[]).filter((r: any) => r.severity === 'CRITICAL').length, color: 'bg-red-50 text-red-900'      },
-                  { label: 'Resolved',       value: (bugReports as any[]).filter((r: any) => r.status === 'RESOLVED' || r.status === 'CLOSED').length, color: 'bg-emerald-50 text-emerald-900' },
+                  { label: 'Total',           value: (bugReports as any[]).length,                                                                      icon: <Bug size={15} />,          color: 'bg-blue-50 text-blue-900',    ring: '' },
+                  { label: 'Open',            value: (bugReports as any[]).filter((r: any) => r.status === 'OPEN').length,                              icon: <AlertTriangle size={15} />, color: 'bg-amber-50 text-amber-900',  ring: '' },
+                  { label: 'Critical',        value: (bugReports as any[]).filter((r: any) => r.severity === 'CRITICAL').length,                        icon: <Zap size={15} />,          color: 'bg-red-50 text-red-900',      ring: '' },
+                  { label: 'Resolved',        value: (bugReports as any[]).filter((r: any) => r.status === 'RESOLVED' || r.status === 'CLOSED').length, icon: <CheckCircle2 size={15} />, color: 'bg-emerald-50 text-emerald-900', ring: '' },
+                  { label: 'Needs Attention', value: needsAttentionCount,                                                                                icon: <Reply size={15} />,        color: needsAttentionCount > 0 ? 'bg-amber-50 text-amber-900' : 'bg-gray-50 text-gray-700', ring: needsAttentionCount > 0 ? 'ring-2 ring-amber-400 ring-offset-1' : '' },
                 ].map(c => (
-                  <div key={c.label} className={`rounded-2xl p-5 ${c.color} flex flex-col gap-1`}>
-                    <span className="text-sm font-medium opacity-70">{c.label}</span>
+                  <div key={c.label} className={`rounded-2xl p-5 ${c.color} ${c.ring} flex flex-col gap-1.5`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold opacity-60">{c.label}</span>
+                      <span className="opacity-30">{c.icon}</span>
+                    </div>
                     <p className="text-3xl font-bold">{bugLoading ? '—' : c.value}</p>
+                    {c.label === 'Needs Attention' && c.value > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                        <p className="text-[10px] font-semibold opacity-70">Unread repl{c.value > 1 ? 'ies' : 'y'}</p>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
 
-              {/* Filters */}
+              {/* ── Attention banner ── */}
+              {needsAttentionCount > 0 && !bugLoading && (
+                <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4">
+                  <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse shrink-0 mt-1" />
+                  <div>
+                    <p className="text-sm font-bold text-amber-900">
+                      {needsAttentionCount} unread reporter repl{needsAttentionCount > 1 ? 'ies' : 'y'}
+                    </p>
+                    <p className="text-xs text-amber-700 mt-0.5">
+                      Replied tickets are sorted to the top. Click any row to open the full detail view — the reply is automatically marked as read when you open it.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Filters ── */}
               <div className="bg-white rounded-2xl border border-gray-200 px-4 py-3 flex flex-wrap gap-3 items-center">
                 <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 shrink-0"><Filter size={13} /> Filters</span>
                 <div className="relative">
@@ -1540,267 +1943,176 @@ const SuperAdminPage: React.FC = () => {
                   <button onClick={() => { setBugSearch(''); setBugStatus(''); setBugSeverity(''); setBugTenant(''); }}
                     className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700"><X size={12} /> Clear</button>
                 )}
-                <span className="ml-auto text-xs text-gray-400">{filteredBugs.length} reports</span>
+                <span className="ml-auto text-xs text-gray-400 font-medium">{filteredBugs.length} reports</span>
               </div>
 
-              {/* Error state */}
+              {/* ── Error state ── */}
               {bugError && (
                 <div className="bg-red-50 border border-red-200 rounded-2xl px-5 py-4 flex items-center gap-3 text-red-700">
                   <AlertTriangle size={16} className="shrink-0" />
                   <div>
                     <p className="text-sm font-semibold">Failed to load bug reports</p>
-                    <p className="text-xs mt-0.5 opacity-80">{(bugFetchError as any)?.message || 'An error occurred. Check that the bug_service is running and the session is valid.'}</p>
+                    <p className="text-xs mt-0.5 opacity-80">{(bugFetchError as any)?.message || 'Check that the bug_service is running and session is valid.'}</p>
                   </div>
                 </div>
               )}
 
-              {/* Table */}
+              {/* ── Bug list ── */}
               {bugLoading ? (
-                <div className="text-center py-16 text-gray-400">Loading bug reports…</div>
+                <div className="flex items-center justify-center gap-2 py-20 text-gray-400 text-sm bg-white rounded-2xl border border-gray-200">
+                  <RefreshCw size={16} className="animate-spin" /> Loading bug reports…
+                </div>
               ) : (
                 <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-100 bg-gray-50">
-                        <th className="w-8 px-3 py-3" />
-                        {['Reporter','Organisation','Type','Severity','Title','Status','Reported'].map(h => (
-                          <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
+
+                  {/* Column header bar */}
+                  <div className="hidden sm:grid grid-cols-[24px_1fr_140px_110px_76px_20px] gap-4 items-center px-5 py-2.5 bg-gray-50 border-b border-gray-100">
+                    <div />
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Report</p>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Reporter</p>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Status</p>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right">Date</p>
+                    <div />
+                  </div>
+
+                  {pagedBugs.length === 0 && !bugError ? (
+                    <div className="text-center py-16 text-gray-400">
+                      <Bug size={28} className="mx-auto mb-3 opacity-25" />
+                      <p className="text-sm font-semibold">No bug reports found</p>
+                      <p className="text-xs mt-1 opacity-60">Try adjusting your filters</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-gray-100">
                       {pagedBugs.map((r: any) => {
                         const rowId = r.ROWID ?? r.id;
-                        const isExpanded = expandedBugId === rowId;
+                        const hasReply   = !!r.reporter_reply;
+                        const replyUnseen = hasReply && !seenReplies.has(rowId);
                         return (
-                          <React.Fragment key={rowId}>
-                            <tr
-                              className={`border-b border-gray-100 cursor-pointer transition-colors ${isExpanded ? 'bg-indigo-50/40' : 'hover:bg-gray-50/60'}`}
-                              onClick={() => setExpandedBugId(isExpanded ? null : rowId)}
-                            >
-                              <td className="px-3 py-3 text-gray-400">
-                                {isExpanded ? <ChevronRight size={14} className="rotate-90 transition-transform" /> : <ChevronRight size={14} className="transition-transform" />}
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-2">
-                                  <UserAvatar name={r.reporter_name || '?'} size="sm" />
-                                  <div>
-                                    <p className="text-xs font-semibold text-gray-800 leading-tight">{r.reporter_name || '—'}</p>
-                                    <p className="text-[10px] text-gray-400 truncate max-w-[120px]">{r.reporter_email || ''}</p>
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="px-4 py-3">
-                                <span className="flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-lg font-medium whitespace-nowrap">
-                                  <Building2 size={10} className="opacity-60 shrink-0" />
-                                  {r.tenant_name || '—'}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold ${BUG_TYPE_COLORS[r.report_type] ?? 'bg-gray-50 text-gray-600'}`}>
-                                  {(r.report_type || '—').replace(/_/g,' ')}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${BUG_SEVERITY_COLORS[r.severity] ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                          <div
+                            key={rowId}
+                            onClick={() => setSelectedBugId(rowId)}
+                            className={`grid grid-cols-[24px_1fr_140px_110px_76px_20px] gap-4 items-center px-5 py-4 cursor-pointer group transition-all ${
+                              replyUnseen
+                                ? 'bg-amber-50/60 hover:bg-amber-50 border-l-[3px] border-amber-400'
+                                : hasReply
+                                  ? 'bg-indigo-50/20 hover:bg-indigo-50/40 border-l-[3px] border-indigo-300'
+                                  : 'border-l-[3px] border-transparent hover:bg-gray-50/70'
+                            }`}
+                          >
+                            {/* Indicator dot */}
+                            <div className="flex justify-center">
+                              {replyUnseen
+                                ? <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse shrink-0" title="New reply from reporter" />
+                                : hasReply
+                                  ? <span className="w-2.5 h-2.5 rounded-full bg-indigo-300 shrink-0" title="Reply seen" />
+                                  : null
+                              }
+                            </div>
+
+                            {/* Title + badges */}
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-semibold text-gray-800 truncate flex-1 min-w-0" title={r.title}>{r.title || '—'}</p>
+                                {replyUnseen && (
+                                  <span className="inline-flex items-center gap-1 shrink-0 text-[9px] font-extrabold bg-amber-500 text-white px-2 py-0.5 rounded-full tracking-wide whitespace-nowrap">
+                                    ↩ NEW REPLY
+                                  </span>
+                                )}
+                                {hasReply && !replyUnseen && (
+                                  <span className="inline-flex items-center gap-1 shrink-0 text-[9px] font-semibold text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded-full whitespace-nowrap">
+                                    ↩ Replied
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold border ${BUG_SEVERITY_COLORS[r.severity] ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}>
                                   {r.severity || '—'}
                                 </span>
-                              </td>
-                              <td className="px-4 py-3 max-w-[200px]">
-                                <p className="text-xs font-medium text-gray-800 truncate" title={r.title}>{r.title || '—'}</p>
-                              </td>
-                              <td className="px-4 py-3">
-                                <select
-                                  value={r.status ?? 'OPEN'}
-                                  disabled={updateBugStatus.isPending}
-                                  onChange={(e) => updateBugStatus.mutate({ id: rowId, status: e.target.value })}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className={`text-xs font-semibold rounded-full border px-2.5 py-0.5 cursor-pointer outline-none appearance-none transition-colors disabled:opacity-60 ${BUG_STATUS_COLORS[r.status] ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}
-                                >
-                                  <option value="OPEN">OPEN</option>
-                                  <option value="IN_REVIEW">IN REVIEW</option>
-                                  <option value="RESOLVED">RESOLVED</option>
-                                  <option value="CLOSED">CLOSED</option>
-                                  <option value="DUPLICATE">DUPLICATE</option>
-                                </select>
-                              </td>
-                              <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
-                                {r.CREATEDTIME ? relativeTime(r.CREATEDTIME) : '—'}
-                              </td>
-                            </tr>
-                            {isExpanded && (
-                              <tr className="border-b border-indigo-100 bg-indigo-50/30">
-                                <td colSpan={8} className="px-8 py-5">
-                                  <div className="space-y-4 max-w-3xl">
-                                    {/* Title + meta row */}
-                                    <div className="flex flex-wrap gap-2 items-center">
-                                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${BUG_SEVERITY_COLORS[r.severity] ?? ''}`}>{r.severity}</span>
-                                      <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold ${BUG_TYPE_COLORS[r.report_type] ?? 'bg-gray-50 text-gray-600'}`}>{(r.report_type || '').replace(/_/g,' ')}</span>
-                                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${BUG_STATUS_COLORS[r.status] ?? ''}`}>{(r.status || '').replace(/_/g,' ')}</span>
-                                      {r.tags && <span className="text-[11px] text-gray-400">Tags: {r.tags}</span>}
-                                    </div>
+                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold ${BUG_TYPE_COLORS[r.report_type] ?? 'bg-gray-50 text-gray-600'}`}>
+                                  {(r.report_type || '—').replace(/_/g, ' ')}
+                                </span>
+                                {r.tenant_name && (
+                                  <span className="text-[9px] text-gray-400 flex items-center gap-0.5">
+                                    <Building2 size={8} className="opacity-60 shrink-0" />{r.tenant_name}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
 
-                                    {/* Description */}
-                                    <div>
-                                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Description</p>
-                                      <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">
-                                        {r.description || '—'}
-                                      </div>
-                                    </div>
+                            {/* Reporter */}
+                            <div className="flex items-center gap-2 min-w-0">
+                              <UserAvatar name={r.reporter_name || '?'} size="sm" />
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold text-gray-700 truncate leading-tight">{r.reporter_name || '—'}</p>
+                                {hasReply && (
+                                  <p className="text-[9px] text-indigo-400 mt-0.5 truncate">replied {relativeTime(r.reporter_reply_at)}</p>
+                                )}
+                              </div>
+                            </div>
 
-                                    {/* Page URL + Browser */}
-                                    <div className="flex flex-wrap gap-6">
-                                      {r.page_url && (
-                                        <div>
-                                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Page URL</p>
-                                          <p className="text-xs text-indigo-600 break-all">{r.page_url}</p>
-                                        </div>
-                                      )}
-                                      {r.browser_info && (
-                                        <div>
-                                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Browser</p>
-                                          <p className="text-xs text-gray-600">{r.browser_info}</p>
-                                        </div>
-                                      )}
-                                    </div>
+                            {/* Status dropdown — stop propagation so row click doesn't fire */}
+                            <div onClick={e => e.stopPropagation()}>
+                              <select
+                                value={r.status ?? 'OPEN'}
+                                disabled={updateBugStatus.isPending}
+                                onChange={e => updateBugStatus.mutate({ id: rowId, status: e.target.value })}
+                                className={`text-[10px] font-bold rounded-full border px-2 py-1.5 cursor-pointer outline-none appearance-none transition-colors disabled:opacity-60 w-full ${BUG_STATUS_COLORS[r.status] ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}
+                              >
+                                <option value="OPEN">OPEN</option>
+                                <option value="IN_REVIEW">IN REVIEW</option>
+                                <option value="RESOLVED">RESOLVED</option>
+                                <option value="CLOSED">CLOSED</option>
+                                <option value="DUPLICATE">DUPLICATE</option>
+                                <option value="WONT_FIX">WON'T FIX</option>
+                              </select>
+                            </div>
 
-                                    {/* Reporter */}
-                                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                                      <span className="font-semibold">Reported by:</span>
-                                      <span>{r.reporter_name}</span>
-                                      {r.reporter_email && <span className="text-gray-400">({r.reporter_email})</span>}
-                                      <span className="text-gray-400">· {r.tenant_name || r.tenant_id}</span>
-                                      {r.CREATEDTIME && <span className="text-gray-400">· {relativeTime(r.CREATEDTIME)}</span>}
-                                    </div>
+                            {/* Date */}
+                            <div className="text-right">
+                              <p className="text-[10px] font-semibold text-gray-500">{relativeTime(r.CREATEDTIME)}</p>
+                              <p className="text-[9px] text-gray-300 mt-0.5">{r.CREATEDTIME ? new Date(r.CREATEDTIME).toLocaleDateString() : ''}</p>
+                            </div>
 
-                                    {/* Attachments */}
-                                    <BugDetailAttachments reportId={rowId} />
-
-                                    {/* Resolution note (if saved) */}
-                                    {r.resolution_notes && (
-                                      <div>
-                                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Resolution Note</p>
-                                        <div className="bg-emerald-50 border-l-4 border-emerald-400 rounded-r-xl px-4 py-3 text-xs text-emerald-800 whitespace-pre-wrap leading-relaxed">
-                                          {r.resolution_notes}
-                                        </div>
-                                        {r.resolved_by && (
-                                          <p className="text-[11px] text-gray-400 mt-1">Resolved by {r.resolved_by}</p>
-                                        )}
-                                      </div>
-                                    )}
-
-                                    {/* Reply inline panel */}
-                                    {replyBugId === rowId && (
-                                      <div className="bg-white border border-indigo-200 rounded-xl p-4 space-y-3">
-                                        <p className="text-xs font-semibold text-gray-700">Add a note / reply</p>
-                                        <textarea
-                                          rows={3}
-                                          value={replyNote}
-                                          onChange={e => setReplyNote(e.target.value)}
-                                          placeholder="Write an internal note or reply to the reporter…"
-                                          className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                                        />
-                                        <div className="flex gap-2 justify-end">
-                                          <button
-                                            onClick={() => { setReplyBugId(null); setReplyNote(''); }}
-                                            className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700"
-                                          >Cancel</button>
-                                          <button
-                                            onClick={() => replyBug.mutate({ id: rowId, notes: replyNote })}
-                                            disabled={!replyNote.trim() || replyBug.isPending}
-                                            className="px-4 py-1.5 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-                                          >{replyBug.isPending ? 'Saving…' : 'Save Note'}</button>
-                                        </div>
-                                      </div>
-                                    )}
-
-                                    {/* Resolve inline panel */}
-                                    {resolvingBugId === rowId && (
-                                      <div className="bg-white border border-emerald-200 rounded-xl p-4 space-y-3">
-                                        <div className="flex items-center gap-2">
-                                          <CheckCircle2 size={14} className="text-emerald-500" />
-                                          <p className="text-xs font-semibold text-gray-700">Mark as Resolved</p>
-                                        </div>
-                                        <p className="text-[11px] text-gray-400">A thank-you email will be sent to <strong>{r.reporter_email}</strong></p>
-                                        <textarea
-                                          rows={3}
-                                          value={resolveNote}
-                                          onChange={e => setResolveNote(e.target.value)}
-                                          placeholder="Optional resolution note for the reporter…"
-                                          className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-300"
-                                        />
-                                        <div className="flex gap-2 justify-end">
-                                          <button
-                                            onClick={() => { setResolvingBugId(null); setResolveNote(''); }}
-                                            className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700"
-                                          >Cancel</button>
-                                          <button
-                                            onClick={() => resolveBug.mutate({ id: rowId, notes: resolveNote })}
-                                            disabled={resolveBug.isPending}
-                                            className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
-                                          ><CheckCircle2 size={12} />{resolveBug.isPending ? 'Resolving…' : 'Confirm Resolve'}</button>
-                                        </div>
-                                      </div>
-                                    )}
-
-                                    {/* Action buttons */}
-                                    <div className="flex flex-wrap items-center gap-2 pt-1">
-                                      {/* Inline status changer — always visible */}
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="text-xs text-gray-400 font-medium">Status:</span>
-                                        <select
-                                          value={r.status ?? 'OPEN'}
-                                          disabled={updateBugStatus.isPending}
-                                          onChange={(e) => updateBugStatus.mutate({ id: rowId, status: e.target.value })}
-                                          className={`text-xs font-semibold rounded-full border px-2.5 py-1 cursor-pointer outline-none appearance-none transition-colors disabled:opacity-60 ${BUG_STATUS_COLORS[r.status] ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}
-                                        >
-                                          <option value="OPEN">Open</option>
-                                          <option value="IN_REVIEW">In Review</option>
-                                          <option value="RESOLVED">Resolved</option>
-                                          <option value="CLOSED">Closed</option>
-                                          <option value="DUPLICATE">Duplicate</option>
-                                        </select>
-                                      </div>
-
-                                      {replyBugId !== rowId && resolvingBugId !== rowId && (
-                                        <>
-                                          <button
-                                            onClick={() => { setReplyBugId(rowId); setReplyNote(r.resolution_notes || ''); setResolvingBugId(null); }}
-                                            className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors"
-                                          >
-                                            <Mail size={13} /> Reply
-                                          </button>
-                                          {r.status !== 'RESOLVED' && r.status !== 'CLOSED' && (
-                                            <button
-                                              onClick={() => { setResolvingBugId(rowId); setResolveNote(''); setReplyBugId(null); }}
-                                              className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
-                                            >
-                                              <CheckCircle2 size={13} /> Mark as Resolved
-                                            </button>
-                                          )}
-                                        </>
-                                      )}
-                                    </div>
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
-                          </React.Fragment>
+                            {/* Chevron */}
+                            <ChevronRight size={14} className="text-gray-300 group-hover:text-gray-500 transition-colors shrink-0" />
+                          </div>
                         );
                       })}
-                      {!pagedBugs.length && !bugError && (
-                        <tr><td colSpan={8} className="text-center py-14 text-gray-400">No bug reports found</td></tr>
-                      )}
-                    </tbody>
-                  </table>
+                    </div>
+                  )}
+
+                  {/* Footer */}
                   <div className="px-5 py-3 flex items-center justify-between border-t border-gray-100 bg-gray-50/50">
                     <span className="text-xs text-gray-400">
-                      Showing {filteredBugs.length === 0 ? 0 : (bugPage - 1) * BUG_PAGE_SIZE + 1}–{Math.min(bugPage * BUG_PAGE_SIZE, filteredBugs.length)} of {filteredBugs.length} reports · newest first
+                      {filteredBugs.length === 0 ? '0' : `${(bugPage - 1) * BUG_PAGE_SIZE + 1}–${Math.min(bugPage * BUG_PAGE_SIZE, filteredBugs.length)}`} of {filteredBugs.length} reports
                     </span>
                     <Pagination page={bugPage} total={filteredBugs.length} pageSize={BUG_PAGE_SIZE} onChange={setBugPage} />
                   </div>
                 </div>
               )}
+
+              {/* ── Detail slide-over ── */}
+              {selectedBugId && (() => {
+                const bug = (bugReports as any[]).find((r: any) => (r.ROWID ?? r.id) === selectedBugId);
+                if (!bug) return null;
+                return (
+                  <BugDetailSlider
+                    bug={bug}
+                    seenReplies={seenReplies}
+                    onMarkSeen={markReplySeen}
+                    onClose={() => setSelectedBugId(null)}
+                    onStatusChange={(id, status) => updateBugStatus.mutate({ id, status })}
+                    onReply={(id, note) => replyBug.mutateAsync({ id, notes: note })}
+                    onResolve={async (id, note) => {
+                      await resolveBug.mutateAsync({ id, notes: note });
+                      setSelectedBugId(null);
+                    }}
+                    statusChangePending={updateBugStatus.isPending}
+                    replyPending={replyBug.isPending}
+                    resolvePending={resolveBug.isPending}
+                  />
+                );
+              })()}
 
             </div>
           )}

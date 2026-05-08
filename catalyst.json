@@ -12,7 +12,8 @@
       "reporting_service",
       "user_confirmation",
       "bot_service",
-      "bug_service"
+      "bug_service",
+      "automated_checkout"
     ],
     "ignore": [],
     "source": "functions"

@@ -39,6 +39,7 @@ import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { attendanceApi } from '../lib/api';
 import { useMyPermissions } from '../hooks/useAdmin';
 import { Download, Shield, Plus, Trash2, CheckCircle, XCircle, Clock as ClockIcon, Send } from 'lucide-react';
+import { useI18n } from '../contexts/I18nContext';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1332,6 +1333,7 @@ const WfhRequestsTab = () => {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 const AttendancePage = () => {
+  const { t } = useI18n();
   useParams<{ tenantSlug: string }>();
   const { user } = useAuth();
   const { data: myPerms } = useMyPermissions();
@@ -1359,7 +1361,7 @@ const AttendancePage = () => {
 
   return (
     <Layout>
-      <Header title="Attendance" subtitle="Track daily attendance and team presence" />
+      <Header title={t('nav.attendance')} subtitle="Track daily attendance and team presence" />
 
       <div className="p-6 space-y-5">
         {/* Tab Bar */}

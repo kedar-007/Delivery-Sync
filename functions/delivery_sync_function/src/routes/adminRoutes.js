@@ -25,6 +25,7 @@ router.get('/tenant',            auth, can(PERMISSIONS.ADMIN_SETTINGS), asyncHan
 router.patch('/tenant/settings', auth, admin(),                          asyncHandler((req, res) => ctrl(req).updateTenantSettings(req, res)));
 router.get('/audit-logs', auth, can(PERMISSIONS.ADMIN_SETTINGS), asyncHandler((req, res) => ctrl(req).getAuditLogs(req, res)));
 router.get('/modules', auth, asyncHandler((req, res) => ctrl(req).getModulePermissions(req, res)));
+router.put('/modules', auth, admin(), asyncHandler((req, res) => ctrl(req).updateModulePermissions(req, res)));
 
 // Current user's own effective permissions (role defaults + overrides) — no admin required
 router.get('/my-permissions', auth, asyncHandler((req, res) => ctrl(req).getMyPermissions(req, res)));
@@ -32,6 +33,12 @@ router.get('/my-permissions', auth, asyncHandler((req, res) => ctrl(req).getMyPe
 // Per-user permission overrides
 router.get('/users/:userId/permissions', auth, admin(), asyncHandler((req, res) => ctrl(req).getUserPermissions(req, res)));
 router.put('/users/:userId/permissions', auth, admin(), asyncHandler((req, res) => ctrl(req).setUserPermissions(req, res)));
+
+// User office location assignment
+router.put('/users/:userId/location', auth, can(PERMISSIONS.LOCATION_ADMIN), asyncHandler((req, res) => ctrl(req).updateUserLocation(req, res)));
+
+// Office locations (read from tenant settings)
+router.get('/office-locations', auth, asyncHandler((req, res) => ctrl(req).getOfficeLocations(req, res)));
 
 // ── Org Roles & Permissions ────────────────────────────────────────────────────
 // List all available app permissions (grouped) — any authenticated user

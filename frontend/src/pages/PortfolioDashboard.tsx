@@ -3,12 +3,14 @@ import { Link } from 'react-router-dom';
 import { AlertTriangle, Flag, TrendingUp } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
+import { useI18n } from '../contexts/I18nContext';
 import { StatCard } from '../components/ui/Card';
 import { RAGBadge, StatusBadge } from '../components/ui/Badge';
 import { PageLoader } from '../components/ui/Spinner';
 import { usePortfolioDashboard } from '../hooks/useDashboard';
 
 const PortfolioDashboard = () => {
+  const { t } = useI18n();
   const { data, isLoading } = usePortfolioDashboard();
 
   if (isLoading) return <Layout><PageLoader /></Layout>;
@@ -21,7 +23,7 @@ const PortfolioDashboard = () => {
 
   return (
     <Layout>
-      <Header title="Portfolio Dashboard" subtitle={`${summary.totalProjects ?? 0} active projects`} />
+      <Header title={t('nav.portfolio')} subtitle={`${summary.totalProjects ?? 0} active projects`} />
       <div className="p-6 space-y-6">
 
         {/* Summary KPIs */}

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
+import { useI18n } from '../contexts/I18nContext';
 import Button from '../components/ui/Button';
 import Card, { CardHeader, CardTitle } from '../components/ui/Card';
 import { RAGBadge, StatusBadge } from '../components/ui/Badge';
@@ -23,6 +24,7 @@ import { Report } from '../types';
 import { format, subDays } from 'date-fns';
 
 const ReportsPage = () => {
+  const { t } = useI18n();
   const { user } = useAuth();
   const canWriteReports = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.REPORT_WRITE);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -121,7 +123,7 @@ const ReportsPage = () => {
   return (
     <Layout>
       <Header
-        title="Reports"
+        title={t('nav.reports')}
         subtitle="Weekly and custom delivery reports"
         actions={canWriteReports ? <Button onClick={() => setShowGenerate(true)} icon={<Plus size={16} />}>Generate Report</Button> : undefined}
       />

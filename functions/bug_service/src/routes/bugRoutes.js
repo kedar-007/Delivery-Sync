@@ -16,10 +16,11 @@ router.get('/reports',     auth, asyncHandler((req, res) => ctrl(req).listReport
 router.post('/reports',    auth, asyncHandler((req, res) => ctrl(req).submitReport(req, res)));
 
 router.post('/reports/:id/attachments', auth, asyncHandler((req, res) => ctrl(req).uploadAttachment(req, res)));
-router.post('/reports/:id/notify',      auth, asyncHandler((req, res) => ctrl(req).notifyReport(req, res)));
-router.post('/reports/:id/resolve',     auth, asyncHandler((req, res) => ctrl(req).resolveReport(req, res)));
-router.post('/reports/:id/reply',       auth, asyncHandler((req, res) => ctrl(req).replyReport(req, res)));
-router.get('/reports/:id',              auth, asyncHandler((req, res) => ctrl(req).getReport(req, res)));
+router.post('/reports/:id/notify',          auth, asyncHandler((req, res) => ctrl(req).notifyReport(req, res)));
+router.post('/reports/:id/resolve',         auth, asyncHandler((req, res) => ctrl(req).resolveReport(req, res)));
+router.post('/reports/:id/reply',           auth, asyncHandler((req, res) => ctrl(req).replyReport(req, res)));
+router.post('/reports/:id/reporter-reply',  auth, asyncHandler((req, res) => ctrl(req).reporterReplyReport(req, res)));
+router.get('/reports/:id',                  auth, asyncHandler((req, res) => ctrl(req).getReport(req, res)));
 router.patch('/reports/:id',            auth, asyncHandler((req, res) => ctrl(req).updateReport(req, res)));
 
 module.exports = router;

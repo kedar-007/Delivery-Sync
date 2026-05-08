@@ -161,6 +161,7 @@ class AuthMiddleware {
       let orgRoleId = null;
       let orgRoleName = null;
       let orgRolePermissions = [];
+      let orgModuleAccess = [];
       let dataScope = null;
       if (!isSuperAdmin && user.tenant_id) {
         try {
@@ -192,7 +193,16 @@ class AuthMiddleware {
             );
             console.log(`[AuthMiddleware] org_role_permissions lookup for roleId=${orgRoleId}: found=${permsRows.length}`, permsRows.length > 0 ? { raw: permsRows[0].permissions } : 'none');
             if (permsRows.length > 0) {
-              orgRolePermissions = JSON.parse(permsRows[0].permissions || '[]');
+              // Supports both legacy array format and new object format { p: [...], m: [...] }
+              try {
+                const parsedPerms = JSON.parse(permsRows[0].permissions || '[]');
+                if (Array.isArray(parsedPerms)) {
+                  orgRolePermissions = parsedPerms;
+                } else if (parsedPerms && typeof parsedPerms === 'object') {
+                  orgRolePermissions = Array.isArray(parsedPerms.p) ? parsedPerms.p : [];
+                  orgModuleAccess    = Array.isArray(parsedPerms.m) ? parsedPerms.m : [];
+                }
+              } catch (_) {}
               console.log(`[AuthMiddleware] parsed orgRolePermissions (${orgRolePermissions.length}):`, orgRolePermissions);
             }
 
@@ -219,7 +229,7 @@ class AuthMiddleware {
         const isFullAdmin = isSuperAdmin || resolvedRole === 'TENANT_ADMIN';
         const roleBase = isFullAdmin ? Object.values(PERMISSIONS) : (ROLE_PERMISSIONS[resolvedRole] || []);
         const base = new Set([...roleBase, ...(orgRoleId ? orgRolePermissions : [])]);
-        // Apply individual grants / revokes on top
+        // Apply individual grants / revokes on top; also collect per-user moduleAccess
         const overrideRows = await db.query(
           `SELECT permissions FROM ${TABLES.PERMISSION_OVERRIDES} WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = 'true' LIMIT 1`
         );
@@ -227,6 +237,15 @@ class AuthMiddleware {
           const parsed = JSON.parse(overrideRows[0].permissions || '{}');
           (parsed.granted || []).forEach((p) => base.add(p));
           (parsed.revoked || []).forEach((p) => base.delete(p));
+          // Merge per-user module disables on top of org role's module disables
+          const userModuleAccess = parsed.moduleAccess || [];
+          if (userModuleAccess.length > 0) {
+            const merged = new Set([...orgModuleAccess, ...userModuleAccess]);
+            orgModuleAccess = Array.from(merged);
+          }
+          if (parsed.officeLocationId) {
+            req.currentUser.officeLocationId = String(parsed.officeLocationId);
+          }
         }
         effectivePermissions = Array.from(base);
 
@@ -245,6 +264,7 @@ class AuthMiddleware {
       req.currentUser.orgRoleId = orgRoleId;
       req.currentUser.orgRoleName = orgRoleName;
       req.currentUser.orgRolePermissions = orgRolePermissions;
+      req.currentUser.moduleAccess = orgModuleAccess; // disabled sidebar module keys for this org role
       req.currentUser.permissions = effectivePermissions; // full effective permissions for this request
       req.currentUser.dataScope = dataScope; // ORG_WIDE | OWN_DATA | ROLE_PEERS | SUBORDINATES | null
 

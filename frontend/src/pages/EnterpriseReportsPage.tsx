@@ -23,6 +23,7 @@ import {
   useExecutiveBrief,
   useGeneratePdfExport,
 } from '../hooks/useEnterpriseReports';
+import { useI18n } from '../contexts/I18nContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -943,13 +944,14 @@ const AssetsTab = () => {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 const EnterpriseReportsPage = () => {
+  const { t } = useI18n();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const [activeTab, setActiveTab] = useState<Tab>('Executive Brief');
 
   return (
     <Layout>
       <Header
-        title="Enterprise Reports"
+        title={t('nav.reports')}
         subtitle="Executive-level cross-domain insights and analytics"
       />
       <div className="p-6 space-y-6">

@@ -180,6 +180,20 @@ class AdminController {
         });
       } catch (_) {}
 
+      // Fetch officeLocationId per user from permission_overrides
+      let locationMap = {};
+      try {
+        const overrides = await this.db.query(
+          `SELECT user_id, permissions FROM ${TABLES.PERMISSION_OVERRIDES} WHERE tenant_id = '${tenantId}' AND is_active = 'true' LIMIT 300`
+        );
+        overrides.forEach((o) => {
+          try {
+            const parsed = JSON.parse(o.permissions || '{}');
+            if (parsed.officeLocationId) locationMap[String(o.user_id)] = String(parsed.officeLocationId);
+          } catch (_) {}
+        });
+      } catch (_) {}
+
       return ResponseHelper.success(res, {
         users: users.map((u) => ({
           id: String(u.ROWID), name: u.name, email: u.email,
@@ -188,6 +202,7 @@ class AdminController {
           orgRoleId: orgRoleMap[String(u.ROWID)] || null,
           timezone: timezoneMap[String(u.ROWID)] || '',
           shiftId: shiftIdMap[String(u.ROWID)] || null,
+          officeLocationId: locationMap[String(u.ROWID)] || null,
         })),
       });
     } catch (err) {
@@ -258,6 +273,74 @@ class AdminController {
       return ResponseHelper.success(res, {
         userId, role: role || existing.role, status: status || existing.status,
       });
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
+   * PUT /api/admin/users/:userId/location
+   * Assign a user to an office location (stored in PERMISSION_OVERRIDES JSON).
+   */
+  async updateUserLocation(req, res) {
+    try {
+      const { tenantId } = req.currentUser;
+      const { userId } = req.params;
+      const { officeLocationId } = req.body; // null to unassign
+
+      const existing = await this.db.findById(TABLES.USERS, userId, tenantId);
+      if (!existing) return ResponseHelper.notFound(res, 'User not found');
+
+      // Read existing PERMISSION_OVERRIDES for this user
+      const overrideRows = await this.db.query(
+        `SELECT ROWID, permissions FROM ${TABLES.PERMISSION_OVERRIDES} WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = 'true' LIMIT 1`
+      );
+      let currentOverride = { granted: [], revoked: [], moduleAccess: [] };
+      let overrideRowId = null;
+      if (overrideRows.length > 0) {
+        try { currentOverride = JSON.parse(overrideRows[0].permissions || '{}'); } catch (_) {}
+        overrideRowId = String(overrideRows[0].ROWID);
+      }
+
+      // Merge officeLocationId into existing override
+      const updated = { ...currentOverride };
+      if (officeLocationId) updated.officeLocationId = String(officeLocationId);
+      else delete updated.officeLocationId;
+
+      if (overrideRowId) {
+        await this.db.update(TABLES.PERMISSION_OVERRIDES, {
+          ROWID: overrideRowId,
+          permissions: JSON.stringify(updated),
+        });
+      } else {
+        await this.db.insert(TABLES.PERMISSION_OVERRIDES, {
+          tenant_id: tenantId, user_id: userId,
+          permissions: JSON.stringify(updated),
+          is_active: 'true',
+        });
+      }
+
+      return ResponseHelper.success(res, { userId, officeLocationId: officeLocationId || null });
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
+   * GET /api/admin/office-locations
+   * Returns office locations from tenant settings.
+   */
+  async getOfficeLocations(req, res) {
+    try {
+      const { tenantId } = req.currentUser;
+      const tenantRows = await this.db.query(
+        `SELECT settings FROM ${TABLES.TENANTS} WHERE ROWID = '${tenantId}' LIMIT 1`
+      );
+      let settings = {};
+      if (tenantRows.length > 0) {
+        try { settings = JSON.parse(tenantRows[0].settings || '{}'); } catch (_) {}
+      }
+      return ResponseHelper.success(res, { locations: settings.officeLocations || [] });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }
@@ -461,10 +544,55 @@ class AdminController {
       const { ROLE_PERMISSIONS, PERMISSIONS } = require('../utils/Constants');
       const rolePerms = ROLE_PERMISSIONS[user.role] || [];
 
+      // Load org role permissions and merge with base role permissions
+      let allRolePerms = rolePerms;
+      let orgRoleId = null;
+      let orgRoleName = null;
+      try {
+        const orgRoleRows = await this.db.query(
+          `SELECT org_role_id FROM ${TABLES.USER_ORG_ROLES} ` +
+          `WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active != 'false' LIMIT 1`
+        );
+        if (orgRoleRows.length > 0) {
+          orgRoleId = orgRoleRows[0].org_role_id;
+
+          // Load org role permissions
+          const orgRolePermRows = await this.db.query(
+            `SELECT permissions FROM ${TABLES.ORG_ROLE_PERMISSIONS} ` +
+            `WHERE org_role_id = '${orgRoleId}' LIMIT 1`
+          );
+          if (orgRolePermRows.length > 0) {
+            let orgRolePermissions = [];
+            try {
+              const parsed = JSON.parse(orgRolePermRows[0].permissions || '[]');
+              if (Array.isArray(parsed)) {
+                // Legacy format: ["TASK_READ", ...]
+                orgRolePermissions = parsed;
+              } else if (parsed && Array.isArray(parsed.p)) {
+                // New object format: { "p": ["TASK_READ", ...], "m": ["people"] }
+                orgRolePermissions = parsed.p;
+              }
+            } catch (_) { /* malformed JSON — skip */ }
+            allRolePerms = [...new Set([...rolePerms, ...orgRolePermissions])];
+          }
+
+          // Load org role name
+          const orgRoleNameRows = await this.db.query(
+            `SELECT name FROM ${TABLES.ORG_ROLES} WHERE ROWID = '${orgRoleId}' LIMIT 1`
+          );
+          if (orgRoleNameRows.length > 0) {
+            orgRoleName = orgRoleNameRows[0].name;
+          }
+        }
+      } catch (_) {
+        // Org role tables not yet created or lookup failed — fall back to role defaults only
+        allRolePerms = rolePerms;
+      }
+
       // Load per-user overrides from permission_overrides table
       // Schema: tenant_id(bigint), user_id(varchar), role(varchar), permissions(text JSON), is_active(boolean)
       // permissions JSON format: { "granted": [...], "revoked": [...] }
-      let granted = [], revoked = [];
+      let granted = [], revoked = [], moduleAccess = [];
       try {
         const rows = await this.db.query(
           `SELECT permissions FROM ${TABLES.PERMISSION_OVERRIDES} ` +
@@ -474,6 +602,7 @@ class AdminController {
           const parsed = JSON.parse(rows[0].permissions || '{}');
           granted = parsed.granted || [];
           revoked = parsed.revoked || [];
+          moduleAccess = parsed.moduleAccess || [];
         }
       } catch (_) {
         // Table not yet created or user_id column missing — return role defaults only
@@ -482,9 +611,12 @@ class AdminController {
       return ResponseHelper.success(res, {
         userId,
         role: user.role,
-        rolePermissions: rolePerms,
+        rolePermissions: allRolePerms,
+        orgRoleId,
+        orgRoleName,
         granted,
         revoked,
+        moduleAccess,
         allPermissions: Object.values(PERMISSIONS),
       });
     } catch (err) {
@@ -501,7 +633,7 @@ class AdminController {
     try {
       const { tenantId, id: performedBy } = req.currentUser;
       const { userId } = req.params;
-      const { granted = [], revoked = [] } = req.body;
+      const { granted = [], revoked = [], moduleAccess = [] } = req.body;
 
       const user = await this.db.findById(TABLES.USERS, userId, tenantId);
       if (!user) return ResponseHelper.notFound(res, 'User not found');
@@ -512,8 +644,9 @@ class AdminController {
       const isValidPermKey = (p) => typeof p === 'string' && /^[A-Z][A-Z0-9_]{1,99}$/.test(p);
       const cleanGranted = granted.filter(isValidPermKey);
       const cleanRevoked = revoked.filter(isValidPermKey);
+      const cleanModuleAccess = Array.isArray(moduleAccess) ? moduleAccess.filter((m) => typeof m === 'string') : [];
 
-      const permJson = JSON.stringify({ granted: cleanGranted, revoked: cleanRevoked });
+      const permJson = JSON.stringify({ granted: cleanGranted, revoked: cleanRevoked, moduleAccess: cleanModuleAccess });
 
       const existing = await this.db.query(
         `SELECT ROWID FROM ${TABLES.PERMISSION_OVERRIDES} ` +
@@ -544,7 +677,35 @@ class AdminController {
         performedBy,
       });
 
-      return ResponseHelper.success(res, { userId, granted: cleanGranted, revoked: cleanRevoked });
+      return ResponseHelper.success(res, { userId, granted: cleanGranted, revoked: cleanRevoked, moduleAccess: cleanModuleAccess });
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /** PUT /api/admin/modules — TENANT_ADMIN saves module enabled/disabled state */
+  async updateModulePermissions(req, res) {
+    try {
+      const { tenantId } = req.currentUser;
+      const { modules } = req.body;
+      if (!modules || typeof modules !== 'object' || Array.isArray(modules)) {
+        return ResponseHelper.validationError(res, 'modules must be an object map of { key: boolean }');
+      }
+
+      const rows = await this.db.query(
+        `SELECT ROWID, settings FROM ${TABLES.TENANTS} WHERE ROWID = '${tenantId}' LIMIT 1`
+      );
+      if (rows.length === 0) return ResponseHelper.notFound(res, 'Tenant not found');
+
+      const current = (() => { try { return JSON.parse(rows[0].settings || '{}'); } catch { return {}; } })();
+      current.modules = { ...(current.modules || {}), ...modules };
+
+      await this.db.update(TABLES.TENANTS, {
+        ROWID: String(rows[0].ROWID),
+        settings: JSON.stringify(current),
+      });
+
+      return ResponseHelper.success(res, { modules: current.modules });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }

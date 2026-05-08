@@ -29,6 +29,7 @@ import { useTasks } from '../hooks/useTaskSprint';
 import { useProjects } from '../hooks/useProjects';
 import { useMyProfile } from '../hooks/useBadgeProfile';
 import PerformanceModal from '../components/ui/PerformanceModal';
+import { useI18n } from '../contexts/I18nContext';
 
 // ── Live Timer ────────────────────────────────────────────────────────────────
 
@@ -865,6 +866,7 @@ function TeamMemberKpiStrip({ tenantSlug, tasks, userId }: { tenantSlug: string;
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 
 const DashboardPage = () => {
+  const { t } = useI18n();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const slug = tenantSlug ?? '';
   const { user } = useAuth();
@@ -890,7 +892,7 @@ const DashboardPage = () => {
   return (
     <Layout>
       <Header
-        title={`${greeting}, ${user?.name?.split(' ')[0] ?? 'there'} 👋`}
+        title={t('nav.dashboard')}
         subtitle={today}
         actions={
           isManager ? (

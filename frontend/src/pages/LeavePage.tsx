@@ -1,10 +1,11 @@
 import React, { useState ,useEffect} from 'react';
 import { useParams } from 'react-router-dom';
-import { Plus, Calendar, CheckCircle, XCircle, Clock, BarChart2, Building2, Trash2, Upload, LayoutGrid, LayoutList } from 'lucide-react';
+import { Plus, Calendar, CheckCircle, XCircle, Clock, BarChart2, Building2, Trash2, Upload, LayoutGrid, LayoutList, MapPin, Pencil, Users } from 'lucide-react';
 import { useForm } from 'react-hook-form';
-import { format, parseISO, differenceInCalendarDays } from 'date-fns';
+import { format, parseISO, differenceInCalendarDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
+import { useI18n } from '../contexts/I18nContext';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import Badge from '../components/ui/Badge';
@@ -24,7 +25,9 @@ import {
   useRejectLeave,
   useCompanyCalendar,
   useCreateHoliday,
+  useUpdateHoliday,
   useDeleteHoliday,
+  useCalendarConfig,
   useAllLeaveBalances,
   useSetLeaveBalance,
 } from '../hooks/usePeople';
@@ -111,7 +114,7 @@ const calcDays = (start: string, end: string) => {
 };
 
 
-type Tab = 'my' | 'apply' | 'team' | 'calendar' | 'balance' | 'company-calendar' | 'leave-balances';
+type Tab = 'my' | 'apply' | 'team' | 'who-is-off' | 'calendar' | 'balance' | 'company-calendar' | 'leave-balances';
 
 // ── My Leaves Tab ─────────────────────────────────────────────────────────────
 
@@ -535,12 +538,155 @@ const TeamRequestsTab = () => {
   );
 };
 
+// ── Team On Leave Tab ─────────────────────────────────────────────────────────
+
+const TeamOnLeaveTab = () => {
+  const now = new Date();
+  const todayStr = format(now, 'yyyy-MM-dd');
+  const [filter, setFilter] = useState<'today' | 'week' | 'month'>('today');
+
+  const dateFrom =
+    filter === 'today' ? todayStr
+    : filter === 'week' ? format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd')
+    : format(startOfMonth(now), 'yyyy-MM-dd');
+  const dateTo =
+    filter === 'today' ? todayStr
+    : filter === 'week' ? format(endOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd')
+    : format(endOfMonth(now), 'yyyy-MM-dd');
+
+  const { data: leaveData, isLoading } = useLeaveCalendar({ date_from: dateFrom, date_to: dateTo });
+  const entries: CalendarEntry[] = (leaveData as CalendarEntry[]) ?? [];
+
+  // Group by person → [{ leaveTypeName, dates[] }]
+  const byPerson: Record<string, { leaveTypeName: string; dates: string[] }[]> = {};
+  entries.forEach((e) => {
+    if (!byPerson[e.userName]) byPerson[e.userName] = [];
+    const grp = byPerson[e.userName].find((g) => g.leaveTypeName === e.leaveTypeName);
+    if (grp) { if (!grp.dates.includes(e.date)) grp.dates.push(e.date); }
+    else byPerson[e.userName].push({ leaveTypeName: e.leaveTypeName, dates: [e.date] });
+  });
+
+  const people = Object.entries(byPerson).map(([name, groups]) => {
+    const allDates = groups.flatMap((g) => g.dates).sort();
+    return { name, groups, startDate: allDates[0], endDate: allDates[allDates.length - 1], totalDays: allDates.length };
+  }).sort((a, b) => a.startDate.localeCompare(b.startDate));
+
+  const filterLabel = filter === 'today' ? 'today' : filter === 'week' ? 'this week' : 'this month';
+
+  return (
+    <div className="space-y-5">
+      {/* Header + filter */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">Team on Leave</h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {isLoading ? 'Loading…' : people.length > 0
+              ? `${people.length} team member${people.length === 1 ? '' : 's'} on leave ${filterLabel}`
+              : `No team members on leave ${filterLabel}`}
+          </p>
+        </div>
+        <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-lg">
+          {(['today', 'week', 'month'] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                filter === f ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {f === 'today' ? 'Today' : f === 'week' ? 'This Week' : 'This Month'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {isLoading ? (
+        <PageSkeleton />
+      ) : people.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="w-14 h-14 rounded-full bg-green-50 flex items-center justify-center mb-3">
+            <CheckCircle size={26} className="text-green-400" />
+          </div>
+          <p className="text-sm font-medium text-gray-700">All hands on deck!</p>
+          <p className="text-xs text-gray-400 mt-1">No team members are on leave {filterLabel}.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {people.map((person) => (
+            <div
+              key={person.name}
+              className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow"
+            >
+              <div className="flex items-start gap-3">
+                <UserAvatar name={person.name} size="md" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{person.name}</p>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {person.groups.map((g, i) => (
+                      <span key={i} className="inline-flex text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
+                        {g.leaveTypeName}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-2 text-xs text-gray-500">
+                    <Calendar size={11} className="shrink-0" />
+                    <span>
+                      {person.startDate === person.endDate
+                        ? formatDate(person.startDate)
+                        : `${formatDate(person.startDate)} – ${formatDate(person.endDate)}`}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-0.5">
+                    {person.totalDays} day{person.totalDays !== 1 ? 's' : ''}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── Calendar Tab ──────────────────────────────────────────────────────────────
 
 const WEEK_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
+// Returns which Nth Saturday (1–5) a given date is within its month.
+function getNthSaturday(year: number, month: number, date: number): number {
+  let count = 0;
+  for (let d = 1; d <= date; d++) {
+    if (new Date(year, month, d).getDay() === 6) count++;
+  }
+  return count;
+}
+
+// Returns true if the given day (0=Sun,6=Sat) falls on a non-working day per policy.
+function isWeekendOff(dayOfWeek: number, year: number, month: number, date: number, policy: string): boolean {
+  if (policy === 'all_on') return false;
+  if (dayOfWeek === 0) return true; // Sunday always off (for all except all_on)
+  if (dayOfWeek !== 6) return false;
+  // Saturday logic
+  if (policy === 'all_off') return true;
+  const nth = getNthSaturday(year, month, date);
+  if (policy === '1st_3rd_off')     return nth === 1 || nth === 3;
+  if (policy === '2nd_4th_off')     return nth === 2 || nth === 4;
+  if (policy === '2nd_4th_5th_off') return nth === 2 || nth === 4 || nth === 5;
+  if (policy === 'alternate_off')   return nth % 2 === 1;
+  // All Saturdays off EXCEPT the 5th Saturday (quarterly), which is a working day
+  if (policy === '5th_sat_working') return nth !== 5; // 5th Sat → working; 1st–4th → off
+  return true; // default: all_off
+}
+
+// Returns true if this is the 5th Saturday in the month AND policy treats it as a working day
+function is5thSatWorking(dayOfWeek: number, year: number, month: number, date: number, policy: string): boolean {
+  return policy === '5th_sat_working' && dayOfWeek === 6 && getNthSaturday(year, month, date) === 5;
+}
+
 const CalendarTab = () => {
+  const { user } = useAuth();
   const now = new Date();
   const [viewDate, setViewDate] = useState(new Date(now.getFullYear(), now.getMonth(), 1));
   const [view, setView] = useState<'calendar' | 'list'>('calendar');
@@ -556,9 +702,20 @@ const CalendarTab = () => {
   const todayStr = format(now, 'yyyy-MM-dd');
 
   const { data: leaveData, isLoading, error } = useLeaveCalendar({ date_from: dateFrom, date_to: dateTo });
-  const { data: holidayData } = useCompanyCalendar({ year: yrStr });
+  const { data: calConfig } = useCalendarConfig();
+  // Auto-pass user's office location so backend returns org-wide + location-specific holidays
+  const holidayParams: Record<string, string> = { year: yrStr };
+  if (user?.officeLocationId) holidayParams.locationId = user.officeLocationId;
+  const { data: holidayData } = useCompanyCalendar(holidayParams);
   const entries: CalendarEntry[] = (leaveData as CalendarEntry[]) ?? [];
   const holidays: Holiday[] = (holidayData as Holiday[]) ?? [];
+
+  // Resolve weekend policy for this user's location
+  const weekendPolicy: { default: string; perLocation: Record<string, string> } =
+    (calConfig as any)?.weekendPolicy ?? { default: 'all_off', perLocation: {} };
+  const userPolicy = user?.officeLocationId
+    ? (weekendPolicy.perLocation?.[user.officeLocationId] ?? weekendPolicy.default)
+    : weekendPolicy.default;
 
   // Map by date
   const leaveByDate = entries.reduce<Record<string, CalendarEntry[]>>((acc, e) => {
@@ -619,11 +776,14 @@ const CalendarTab = () => {
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-4 text-xs text-gray-500">
+      <div className="flex items-center flex-wrap gap-4 text-xs text-gray-500">
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-green-200 border border-green-300 inline-block" />Leave</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-100 border border-red-200 inline-block" />Holiday</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-blue-100 border border-blue-200 inline-block" />Today</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-gray-100 inline-block" />Weekend</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-rose-100 border border-rose-200 inline-block" />Weekend off</span>
+        {userPolicy !== 'all_off' && userPolicy !== 'all_on' && (
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-white border border-orange-300 inline-block" /><span className="text-orange-500">{userPolicy === '5th_sat_working' ? '5th Sat (working)' : 'Working Sat'}</span></span>
+        )}
       </div>
 
       {isLoading ? (
@@ -646,7 +806,9 @@ const CalendarTab = () => {
               }
               const ds = cell.dateStr;
               const dayOfWeek = (firstDow + cell.day - 1) % 7;
-              const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+              const isDayOff = isWeekendOff(dayOfWeek, yr, mo, cell.day, userPolicy);
+              const isWorkingSat = dayOfWeek === 6 && !isDayOff;
+              const isQuarterlySat = is5thSatWorking(dayOfWeek, yr, mo, cell.day, userPolicy);
               const isToday = ds === todayStr;
               const leavesOnDay = leaveByDate[ds] ?? [];
               const holiday = holidayByDate[ds];
@@ -655,19 +817,33 @@ const CalendarTab = () => {
                 <div
                   key={ds}
                   className={`min-h-[80px] p-1.5 border-b border-gray-100 transition-colors
-                    ${isToday ? 'bg-blue-50' : isWeekend ? 'bg-gray-50/60' : holiday ? 'bg-red-50/40' : 'bg-white'}
+                    ${isToday ? 'bg-blue-50' : holiday ? 'bg-red-50/50' : isDayOff ? 'bg-rose-50/70' : 'bg-white'}
                   `}
                 >
                   {/* Day number */}
                   <div className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-semibold mb-1
-                    ${isToday ? 'bg-blue-600 text-white' : isWeekend ? 'text-gray-400' : 'text-gray-700'}
+                    ${isToday ? 'bg-blue-600 text-white' : (isDayOff && !holiday) ? 'text-rose-400' : holiday ? 'text-red-500' : (isWorkingSat || isQuarterlySat) ? 'text-orange-500' : 'text-gray-700'}
                   `}>
                     {cell.day}
                   </div>
 
+                  {/* Weekend off chip */}
+                  {isDayOff && !holiday && (
+                    <div className="text-[9px] font-medium text-rose-600 bg-rose-100 border border-rose-200 px-1 py-0.5 rounded truncate mb-0.5">
+                      {dayOfWeek === 0 ? 'Sunday' : 'Saturday'}
+                    </div>
+                  )}
+
+                  {/* Working Saturday chip (including the quarterly 5th Saturday) */}
+                  {(isWorkingSat || isQuarterlySat) && !holiday && (
+                    <div className="text-[9px] font-medium text-orange-600 bg-orange-50 border border-orange-200 px-1 py-0.5 rounded truncate mb-0.5">
+                      {isQuarterlySat ? 'Working (5th)' : 'Working'}
+                    </div>
+                  )}
+
                   {/* Holiday chip */}
                   {holiday && (
-                    <div className="text-[9px] font-medium text-red-700 bg-red-100 px-1 py-0.5 rounded truncate mb-0.5" title={holiday}>
+                    <div className="text-[9px] font-medium text-red-700 bg-red-100 border border-red-200 px-1 py-0.5 rounded truncate mb-0.5" title={holiday}>
                       {holiday}
                     </div>
                   )}
@@ -815,39 +991,138 @@ interface Holiday {
   is_optional?: string | boolean;
 }
 
+interface HolidayExtended extends Holiday {
+  source?: 'org' | 'location';
+  locationId?: string;
+  locationName?: string;
+}
+
 interface HolidayForm {
   name: string;
   holiday_date: string;
   is_optional: boolean;
 }
 
-const CompanyCalendarTab = () => {
-  const [addOpen, setAddOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [submitError, setSubmitError] = useState('');
+interface HolidayFormExtended extends HolidayForm {
+  location_id?: string;
+}
+
+interface OrgLocation {
+  id: string;
+  name: string;
+  country?: string;
+  timezone?: string;
+}
+
+
+
+export const CompanyCalendarTab = () => {
+  const { user } = useAuth();
+  const canManage = hasPermission(user, PERMISSIONS.LEAVE_ADMIN);
 
   const now = new Date();
   const [year, setYear] = useState(String(now.getFullYear()));
   const years = Array.from({ length: 3 }, (_, i) => String(now.getFullYear() - 1 + i));
 
-  const { data: raw = [], isLoading, error } = useCompanyCalendar({ year });
-  const holidays: Holiday[] = (raw as Holiday[]).sort((a, b) => (a.holiday_date ?? '').localeCompare(b.holiday_date ?? ''));
+  const [selectedLocation, setSelectedLocation] = useState<string>('all');
+  const [addOpen, setAddOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; locationId?: string } | null>(null);
+  const [editTarget, setEditTarget] = useState<HolidayExtended | null>(null);
+  const [submitError, setSubmitError] = useState('');
+  const [editError, setEditError] = useState('');
+  // Multi-location selection for Add Holiday
+  const [addLocIds, setAddLocIds] = useState<string[]>([]);
+  const [addOrgWide, setAddOrgWide] = useState(false);
+
+  // Calendar config (locations only — for holiday filtering)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: config } = useCalendarConfig() as { data: any };
+  const locations: OrgLocation[] = config?.locations ?? [];
+
+  // Holidays — pass locationId for specific tabs so backend merges org-wide + location
+  const calParams: Record<string, string> = { year };
+  if (selectedLocation !== 'all') calParams.locationId = selectedLocation;
+  const { data: raw = [], isLoading, error } = useCompanyCalendar(calParams);
+
+  const holidays: HolidayExtended[] = (raw as HolidayExtended[]).sort(
+    (a, b) => (a.holiday_date ?? '').localeCompare(b.holiday_date ?? '')
+  );
 
   const createHoliday = useCreateHoliday();
+  const updateHoliday = useUpdateHoliday();
   const deleteHoliday = useDeleteHoliday();
 
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<HolidayForm>({
+  // Add holiday form
+  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<HolidayFormExtended>({
     defaultValues: { is_optional: false },
   });
 
-  const onAdd = async (data: HolidayForm) => {
+  // Edit holiday form
+  const { register: regEdit, handleSubmit: handleEditSubmit, reset: resetEdit, formState: { isSubmitting: editSubmitting } } = useForm<HolidayFormExtended>();
+
+  const openEdit = (h: HolidayExtended) => {
+    setEditTarget(h);
+    setEditError('');
+    resetEdit({
+      name: h.name,
+      holiday_date: h.holiday_date,
+      is_optional: h.is_optional === true || h.is_optional === 'true',
+      location_id: h.locationId ?? '',
+    });
+  };
+
+  const openAdd = () => {
+    reset({ is_optional: false });
+    // Pre-select the current location tab, or nothing for "all"
+    if (selectedLocation !== 'all') {
+      setAddLocIds([selectedLocation]);
+      setAddOrgWide(false);
+    } else {
+      setAddLocIds([]);
+      setAddOrgWide(locations.length === 0); // if no locations, default org-wide
+    }
+    setSubmitError('');
+    setAddOpen(true);
+  };
+
+  const toggleAddLoc = (locId: string) => {
+    setAddLocIds((prev) =>
+      prev.includes(locId) ? prev.filter((id) => id !== locId) : [...prev, locId]
+    );
+  };
+
+  const onAdd = async (data: HolidayFormExtended) => {
     try {
       setSubmitError('');
-      await createHoliday.mutateAsync({ ...data, year: data.holiday_date.slice(0, 4) });
+      const base = { name: data.name, holiday_date: data.holiday_date, is_optional: data.is_optional, year: data.holiday_date.slice(0, 4) };
+      if (addOrgWide || addLocIds.length === 0) {
+        await createHoliday.mutateAsync(base);
+      } else {
+        for (const locId of addLocIds) {
+          await createHoliday.mutateAsync({ ...base, location_id: locId });
+        }
+      }
       reset({ is_optional: false });
+      setAddLocIds([]);
+      setAddOrgWide(false);
       setAddOpen(false);
     } catch (err: unknown) {
       setSubmitError((err as Error).message);
+    }
+  };
+
+  const onEdit = async (data: HolidayFormExtended) => {
+    if (!editTarget) return;
+    try {
+      setEditError('');
+      await updateHoliday.mutateAsync({
+        id: editTarget.id,
+        locationId: editTarget.locationId,
+        data: { name: data.name, holiday_date: data.holiday_date, is_optional: data.is_optional },
+      });
+      setEditTarget(null);
+    } catch (err: unknown) {
+      setEditError((err as Error).message);
     }
   };
 
@@ -859,66 +1134,104 @@ const CompanyCalendarTab = () => {
     } catch { /* noop */ }
   };
 
-  const isOptional = (h: Holiday) => h.is_optional === true || h.is_optional === 'true';
+  const isOptional = (h: HolidayExtended) => h.is_optional === true || h.is_optional === 'true';
+  const getLocationName = (locId?: string) => locations.find((l) => l.id === locId)?.name ?? locId ?? '';
 
   return (
     <div className="space-y-5">
       {error && <Alert type="error" message={(error as Error).message} />}
 
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div>
-            <label className="form-label">Year</label>
-            <select className="form-select" value={year} onChange={(e) => setYear(e.target.value)}>
-              {years.map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
-          </div>
-        </div>
-        <Button icon={<Plus size={15} />} onClick={() => setAddOpen(true)}>Add Holiday</Button>
-      </div>
-
-      {/* Weekend policy info banner */}
-      <Card>
-        <div className="flex items-start gap-3">
-          <div className="p-2 bg-blue-50 rounded-lg">
-            <Calendar size={16} className="text-blue-600" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-gray-800">Weekend Policy</p>
-            <p className="text-xs text-gray-500 mt-0.5">Saturday &amp; Sunday are non-working days by default. Public holidays listed below are additional company-wide off days.</p>
-          </div>
-        </div>
-      </Card>
-
+      {/* Holiday Calendar */}
       <Card padding={false}>
+        {/* Header */}
         <div className="px-5 py-4 border-b border-gray-100">
-          <h3 className="text-sm font-semibold text-gray-900">Holidays &amp; Company Off Days — {year}</h3>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <h3 className="text-sm font-semibold text-gray-900">Holidays &amp; Company Off Days</h3>
+            <div className="flex items-center gap-2">
+              <select className="form-select text-sm py-1.5" value={year} onChange={(e) => setYear(e.target.value)}>
+                {years.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+              {canManage && (
+                <Button size="sm" icon={<Plus size={14} />} onClick={openAdd}>
+                  Add Holiday
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Location filter tabs — All + each location (no "Org-wide" tab) */}
+          <div className="flex gap-1.5 mt-3 flex-wrap">
+            {[{ id: 'all', name: 'All' }, ...locations].map((loc) => (
+              <button
+                key={loc.id}
+                onClick={() => setSelectedLocation(loc.id)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  selectedLocation === loc.id
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {loc.name}
+              </button>
+            ))}
+          </div>
         </div>
+
+        {/* Holiday list */}
         {isLoading ? (
           <PageSkeleton />
         ) : holidays.length === 0 ? (
-          <EmptyState title="No holidays configured" description="Add public holidays and company off days." />
+          <EmptyState title="No holidays configured" description={selectedLocation === 'all' ? 'Add public holidays and company off days.' : `No holidays for this location yet.`} />
         ) : (
           <div className="divide-y divide-gray-50">
             {holidays.map((h) => (
-              <div key={h.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50">
-                <div className="w-24 shrink-0">
-                  <p className="text-sm font-medium text-gray-900">{formatDate(h.holiday_date)}</p>
-                  <p className="text-xs text-gray-400">{h.holiday_date ? format(parseISO(h.holiday_date), 'EEEE') : ''}</p>
+              <div key={h.id} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50/70 group">
+                {/* Date column */}
+                <div className="w-[90px] shrink-0">
+                  <p className="text-sm font-semibold text-gray-900">{formatDate(h.holiday_date)}</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">{h.holiday_date ? format(parseISO(h.holiday_date), 'EEEE') : ''}</p>
                 </div>
+
+                {/* Name + location badge */}
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-800">{h.name}</p>
+                  <p className="text-sm font-medium text-gray-800 truncate">{h.name}</p>
+                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                    {h.locationId ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">
+                        <MapPin size={9} />{getLocationName(h.locationId)}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 border border-gray-200">
+                        All locations
+                      </span>
+                    )}
+                    {isOptional(h) && (
+                      <span className="inline-flex text-[10px] font-medium px-1.5 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-100">
+                        Optional
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <Badge variant={isOptional(h) ? 'warning' : 'success'}>
-                  {isOptional(h) ? 'Optional' : 'Public Holiday'}
-                </Badge>
-                <button
-                  onClick={() => setDeleteTarget(h.id)}
-                  className="p-1.5 text-gray-400 hover:text-red-500 transition-colors rounded"
-                  title="Delete holiday"
-                >
-                  <Trash2 size={14} />
-                </button>
+
+                {/* Actions — only shown to admins, visible on hover */}
+                {canManage && (
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    <button
+                      onClick={() => openEdit(h)}
+                      className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors rounded"
+                      title="Edit holiday"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                    <button
+                      onClick={() => setDeleteTarget({ id: h.id, locationId: h.locationId })}
+                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors rounded"
+                      title="Delete holiday"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -926,26 +1239,116 @@ const CompanyCalendarTab = () => {
       </Card>
 
       {/* Add Holiday Modal */}
-      <Modal open={addOpen} onClose={() => { setAddOpen(false); reset({ is_optional: false }); }} title="Add Holiday" size="sm">
+      <Modal open={addOpen} onClose={() => { setAddOpen(false); reset({ is_optional: false }); setAddLocIds([]); setAddOrgWide(false); }} title="Add Holiday" size="sm">
         <form onSubmit={handleSubmit(onAdd)} className="space-y-4">
           {submitError && <Alert type="error" message={submitError} />}
+
           <div>
             <label className="form-label">Holiday Name *</label>
             <input className="form-input" placeholder="e.g. Republic Day" {...register('name', { required: 'Required' })} />
             {errors.name && <p className="form-error">{errors.name.message}</p>}
           </div>
+
           <div>
             <label className="form-label">Date *</label>
             <input type="date" className="form-input" {...register('holiday_date', { required: 'Required' })} />
             {errors.holiday_date && <p className="form-error">{errors.holiday_date.message}</p>}
           </div>
-          <div className="flex items-center gap-2">
+
+          {/* Multi-location selection */}
+          {locations.length > 0 && (
+            <div>
+              <label className="form-label">Apply to Locations</label>
+              <div className="rounded-xl border border-gray-200 overflow-hidden divide-y divide-gray-100">
+                {/* All locations option */}
+                <label className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors">
+                  <input
+                    type="checkbox"
+                    className="rounded border-gray-300 text-blue-600"
+                    checked={addOrgWide}
+                    onChange={(e) => {
+                      setAddOrgWide(e.target.checked);
+                      if (e.target.checked) setAddLocIds([]);
+                    }}
+                  />
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">All locations</p>
+                    <p className="text-xs text-gray-400">Common holiday — applies org-wide</p>
+                  </div>
+                </label>
+
+                {/* Individual locations */}
+                {locations.map((loc) => (
+                  <label
+                    key={loc.id}
+                    className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors ${addOrgWide ? 'opacity-40 pointer-events-none' : 'hover:bg-gray-50'}`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="rounded border-gray-300 text-blue-600"
+                      checked={addLocIds.includes(loc.id)}
+                      onChange={() => toggleAddLoc(loc.id)}
+                      disabled={addOrgWide}
+                    />
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">{loc.name}</p>
+                      {loc.country && <p className="text-xs text-gray-400">{loc.country}</p>}
+                    </div>
+                  </label>
+                ))}
+              </div>
+              {!addOrgWide && addLocIds.length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">Select at least one location, or choose "All locations".</p>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 pt-1">
             <input type="checkbox" id="is_optional" className="rounded border-gray-300" {...register('is_optional')} />
-            <label htmlFor="is_optional" className="text-sm text-gray-700 cursor-pointer">Optional Holiday (employee can choose to take or not)</label>
+            <label htmlFor="is_optional" className="text-sm text-gray-700 cursor-pointer">Optional holiday <span className="text-gray-400">(employee can choose to take it)</span></label>
+          </div>
+
+          <ModalActions>
+            <Button variant="outline" type="button" onClick={() => { setAddOpen(false); setAddLocIds([]); setAddOrgWide(false); }}>Cancel</Button>
+            <Button
+              type="submit"
+              loading={isSubmitting}
+              disabled={locations.length > 0 && !addOrgWide && addLocIds.length === 0}
+              icon={<Plus size={14} />}
+            >
+              {addLocIds.length > 1 ? `Add to ${addLocIds.length} locations` : 'Add Holiday'}
+            </Button>
+          </ModalActions>
+        </form>
+      </Modal>
+
+      {/* Edit Holiday Modal */}
+      <Modal open={!!editTarget} onClose={() => setEditTarget(null)} title="Edit Holiday" size="sm">
+        <form onSubmit={handleEditSubmit(onEdit)} className="space-y-4">
+          {editError && <Alert type="error" message={editError} />}
+          <div>
+            <label className="form-label">Holiday Name *</label>
+            <input className="form-input" placeholder="e.g. Republic Day" {...regEdit('name', { required: 'Required' })} />
+          </div>
+          <div>
+            <label className="form-label">Date *</label>
+            <input type="date" className="form-input" {...regEdit('holiday_date', { required: 'Required' })} />
+          </div>
+          {/* Location is not editable — shown read-only */}
+          <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 flex items-center gap-2">
+            <MapPin size={13} className="text-gray-400 shrink-0" />
+            <span className="text-sm text-gray-600">
+              {editTarget?.locationId ? getLocationName(editTarget.locationId) : 'All locations'}
+            </span>
+            <span className="text-xs text-gray-400 ml-1">(location cannot be changed)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <input type="checkbox" id="edit_optional" className="rounded border-gray-300" {...regEdit('is_optional')} />
+            <label htmlFor="edit_optional" className="text-sm text-gray-700 cursor-pointer">Optional holiday</label>
           </div>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button type="submit" loading={isSubmitting} icon={<Plus size={14} />}>Add Holiday</Button>
+            <Button variant="outline" type="button" onClick={() => setEditTarget(null)}>Cancel</Button>
+            <Button type="submit" loading={editSubmitting} icon={<Pencil size={14} />}>Save Changes</Button>
           </ModalActions>
         </form>
       </Modal>
@@ -996,7 +1399,7 @@ const LEAVE_COLORS = [
 
 const getLeaveColor = (idx: number) => LEAVE_COLORS[idx % LEAVE_COLORS.length];
 
-const LeaveBalancesTab = () => {
+export const LeaveBalancesTab = () => {
   const [setOpen, setSetOpen] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [filterUser, setFilterUser] = useState('');
@@ -1338,6 +1741,7 @@ const LeaveBalancesTab = () => {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 const LeavePage = () => {
+  const { t } = useI18n();
   useParams<{ tenantSlug: string }>();
   const { user } = useAuth();
   const isManager = hasPermission(user, PERMISSIONS.LEAVE_APPROVE);
@@ -1345,13 +1749,14 @@ const LeavePage = () => {
   const [tab, setTab] = useState<Tab>('my');
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode; managerOnly?: boolean; adminOnly?: boolean }[] = [
-    { id: 'my', label: 'My Leaves', icon: <Clock size={15} /> },
-    { id: 'apply', label: 'Apply', icon: <Plus size={15} /> },
-    { id: 'team', label: 'Team Requests', icon: <CheckCircle size={15} />, managerOnly: true },
-    { id: 'calendar', label: 'Calendar', icon: <Calendar size={15} /> },
-    { id: 'balance', label: 'My Balance', icon: <BarChart2 size={15} /> },
-    { id: 'company-calendar', label: 'Company Calendar', icon: <Building2 size={15} />, managerOnly: true },
-    { id: 'leave-balances', label: 'Manage Balances', icon: <Upload size={15} />, adminOnly: true },
+    { id: 'my',             label: 'My Leaves',       icon: <Clock size={15} /> },
+    { id: 'apply',          label: 'Apply',            icon: <Plus size={15} /> },
+    { id: 'team',           label: 'Team Requests',    icon: <CheckCircle size={15} />, managerOnly: true },
+    { id: 'who-is-off',     label: 'Who\'s Off',       icon: <Users size={15} /> },
+    { id: 'calendar',       label: 'Calendar',         icon: <Calendar size={15} /> },
+    { id: 'balance',        label: 'My Balance',       icon: <BarChart2 size={15} /> },
+    { id: 'company-calendar', label: 'Company Calendar', icon: <Building2 size={15} />, adminOnly: true },
+    { id: 'leave-balances', label: 'Manage Balances',  icon: <Upload size={15} />, adminOnly: true },
   ];
 
   const visibleTabs = tabs.filter((t) => {
@@ -1363,7 +1768,7 @@ const LeavePage = () => {
   return (
     <Layout>
       <Header
-        title="Leave Management"
+        title={t('nav.leave')}
         subtitle="Apply for leave and track your team's time off"
         actions={
           <Button onClick={() => setTab('apply')} icon={<Plus size={16} />}>
@@ -1396,9 +1801,10 @@ const LeavePage = () => {
         {tab === 'my' && <MyLeavesTab />}
         {tab === 'apply' && <ApplyTab />}
         {tab === 'team' && isManager && <TeamRequestsTab />}
+        {tab === 'who-is-off' && <TeamOnLeaveTab />}
         {tab === 'calendar' && <CalendarTab />}
         {tab === 'balance' && <BalanceTab />}
-        {tab === 'company-calendar' && isManager && <CompanyCalendarTab />}
+        {tab === 'company-calendar' && isAdmin && <CompanyCalendarTab />}
         {tab === 'leave-balances' && isAdmin && <LeaveBalancesTab />}
       </div>
     </Layout>

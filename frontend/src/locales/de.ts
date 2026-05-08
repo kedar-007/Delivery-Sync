@@ -1,0 +1,65 @@
+import { Translations } from './en';
+const de: Translations = {
+  nav: {
+    dashboard: 'Dashboard', portfolio: 'Portfolio', projects: 'Projekte',
+    milestones: 'Meilensteine', dailyUpdates: 'Tagesberichte',
+    submitStandup: 'Standup einreichen', submitEod: 'EOD einreichen',
+    actions: 'Aktionen', blockers: 'Blocker', raidRegister: 'RAID-Register',
+    decisions: 'Entscheidungen', reports: 'Berichte', admin: 'Verwaltung',
+    settings: 'Einstellungen', profile: 'Mein Profil', signOut: 'Abmelden',
+    dailyWork: 'Tagesarbeit', people: 'Personen', assets: 'Assets',
+    reportsAi: 'Berichte & KI', executive: 'Führungsebene',
+    administration: 'Verwaltung', bugReports: 'Fehlermeldungen', helpDocs: 'Hilfe & Docs',
+    allProjects: 'Alle Projekte', myTasks: 'Meine Aufgaben', sprintBoards: 'Sprint-Boards', backlog: 'Backlog',
+    standup: 'Standup', eod: 'EOD', timeTracking: 'Zeiterfassung',
+    attendance: 'Anwesenheit', leave: 'Urlaub', teams: 'Teams', directory: 'Verzeichnis',
+    orgChart: 'Organigramm', announcements: 'Ankündigungen', peopleSettings: 'Personaleinstellungen',
+    userManagement: 'Benutzerverwaltung', auditLogs: 'Audit-Protokolle', configWorkflows: 'Konfiguration & Workflows', dataSeeder: 'Datenseeder',
+    ceoDashboard: 'CEO-Dashboard', ctoDashboard: 'CTO-Dashboard',
+    teamActivity: 'Teamaktivität', aiInsights: 'KI-Einblicke',
+  },
+  common: {
+    save: 'Speichern', cancel: 'Abbrechen', create: 'Erstellen', edit: 'Bearbeiten',
+    delete: 'Löschen', remove: 'Entfernen', close: 'Schließen', back: 'Zurück',
+    loading: 'Laden…', saving: 'Speichern…', search: 'Suchen', filter: 'Filtern',
+    all: 'Alle', none: 'Keine', yes: 'Ja', no: 'Nein', reset: 'Zurücksetzen',
+    apply: 'Anwenden', confirm: 'Bestätigen', success: 'Erfolg', error: 'Fehler',
+    required: 'Erforderlich', optional: 'Optional', new: 'Neu', preview: 'Vorschau',
+    view: 'Ansicht', noData: 'Keine Daten gefunden.', actions: 'Aktionen',
+  },
+  settings: {
+    title: 'Einstellungen', subtitle: 'Passen Sie Ihren Arbeitsbereich an', saved: 'Einstellungen gespeichert',
+    theme: {
+      title: 'Darstellung', subtitle: 'Wählen Sie Ihr bevorzugtes Thema', themeLabel: 'Farbthema',
+      autoTheme: 'Automatisches Thema', autoThemeDesc: 'Automatisch wechseln nach Tageszeit (dunkel nach 20 Uhr)',
+      density: 'Schnittstellendichte', compact: 'Kompakt', default: 'Standard', comfortable: 'Komfortabel',
+      fontSize: 'Schriftgröße', small: 'Klein', medium: 'Mittel', large: 'Groß', reset: 'Zurücksetzen',
+      accentLabel: 'Akzentfarbe',
+    },
+    sidebar: {
+      title: 'Seitenleiste', subtitle: 'Navigationselemente neu anordnen und ein-/ausblenden',
+      collapse: 'Eingeklappt starten', collapseDesc: 'Seitenleiste öffnet beim Laden im Symbol-Modus',
+      items: 'Menüelemente', resetOrder: 'Reihenfolge zurücksetzen', visible: 'Sichtbar', hidden: 'Versteckt',
+      navOrder: 'Navigationsreihenfolge',
+      dragHint: 'Griff ziehen zum Neuordnen. Auge umschalten zum Ein-/Ausblenden.',
+    },
+    language: {
+      title: 'Sprache', subtitle: 'Wählen Sie Ihre bevorzugte Anzeigesprache',
+      label: 'Oberflächensprache', changeNote: 'Sprachänderungen werden sofort angewendet.',
+    },
+    preview: {
+      title: 'Typografievorschau',
+      subtitle: 'Live-Vorschau Ihrer Schriftart- und Dichteeinstellungen',
+    },
+  },
+  profile: {
+    title: 'Mein Profil', subtitle: 'Verwalten Sie Ihr Konto und Profilbild', picture: 'Profilbild',
+    name: 'Anzeigename', email: 'E-Mail', role: 'Rolle', status: 'Status',
+    auth: 'Authentifizierung', userId: 'Benutzer-ID', saveChanges: 'Änderungen speichern',
+    uploadPhoto: 'Foto hochladen', uploadHint: 'JPG, PNG oder GIF · Max. 2 MB · Auf 256×256 skaliert',
+    emailNote: 'E-Mail wird von Zoho verwaltet und kann hier nicht geändert werden.',
+    roleNote: 'Kontaktieren Sie Ihren Administrator, um Ihre Rolle zu ändern.',
+    pictureUpdated: 'Profilbild aktualisiert', profileSaved: 'Profil erfolgreich gespeichert',
+  },
+} as const;
+export default de;

@@ -6,11 +6,12 @@ import {
   Phone, Briefcase, BookOpen, Calendar, FileText, AlertTriangle, LogOut,
   BarChart2, ChevronDown, ChevronUp, Lock, Wifi, WifiOff, Info,
   FolderOpen, Clock, Users, Package, Award, Settings, Zap, BarChart,
-  ClipboardList, Eye,
+  ClipboardList, Eye, MapPin,
 } from 'lucide-react';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
+import { useI18n } from '../contexts/I18nContext';
 import Button from '../components/ui/Button';
 import Alert from '../components/ui/Alert';
 import PerformanceModal from '../components/ui/PerformanceModal';
@@ -22,6 +23,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { PageLoader } from '../components/ui/Spinner';
 import { attendanceApi } from '../lib/api';
+import { useOfficeLocations } from '../hooks/useAdmin';
 
 interface ProfileForm { name: string; }
 interface EmailForm { email: string; confirmEmail: string; }
@@ -216,6 +218,7 @@ const Section = ({ title, icon: Icon, children, className = '' }: {
 
 // ── Profile page ──────────────────────────────────────────────────────────────
 const ProfilePage = () => {
+  const { t } = useI18n();
   const { user: authUser, logout } = useAuth();
   const { data: profile, isLoading } = useMyProfile();
   const { data: extProfile } = useMyExtendedProfile();
@@ -224,6 +227,7 @@ const ProfilePage = () => {
   const uploadAvatar    = useUploadAvatar();
   const uploadFile      = useUploadProfileFile();
   const updateEmail     = useUpdateEmail();
+  const { data: officeLocations = [] } = useOfficeLocations();
   const { allowed: networkAllowed, clientIp, checking: networkChecking, enabled: ipEnabled } = useNetworkAllowed();
 
   const [avatarPreview, setAvatarPreview]     = useState<string | null>(null);
@@ -338,7 +342,7 @@ const ProfilePage = () => {
 
   return (
     <Layout>
-      <Header title="My Profile" subtitle="Manage your account settings and preferences" />
+      <Header title={t('profile.title')} subtitle="Manage your account settings and preferences" />
       <div className="p-6 max-w-4xl space-y-5">
 
         {/* ── Hero card ─────────────────────────────────────────────────── */}
@@ -526,6 +530,37 @@ const ProfilePage = () => {
             </div>
           )}
         </div>
+
+        {/* ── Sitting Location ──────────────────────────────────────────── */}
+        <Section title="Sitting Location" icon={MapPin}>
+          {(() => {
+            const assigned = officeLocations.find((l) => l.id === authUser?.officeLocationId);
+            return (
+              <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-200 bg-gray-50">
+                <MapPin size={16} className={assigned ? 'text-blue-600' : 'text-gray-400'} />
+                <div className="min-w-0 flex-1">
+                  {assigned ? (
+                    <>
+                      <p className="text-sm font-semibold text-gray-900">{assigned.name}</p>
+                      {(assigned.country || assigned.timezone) && (
+                        <p className="text-xs text-gray-500 mt-0.5">{[assigned.country, assigned.timezone].filter(Boolean).join(' · ')}</p>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm font-medium text-gray-500">No location assigned</p>
+                      <p className="text-xs text-gray-400 mt-0.5">Your admin will assign your office location</p>
+                    </>
+                  )}
+                </div>
+                {assigned && (
+                  <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Active</span>
+                )}
+              </div>
+            );
+          })()}
+          <p className="text-xs text-gray-400 mt-2">Location is assigned by your admin. It controls which holidays appear on your leave calendar.</p>
+        </Section>
 
         {/* ── Change email ──────────────────────────────────────────────── */}
         <div className={`rounded-2xl border shadow-sm overflow-hidden transition-colors ${emailConfirmOpen ? 'border-amber-300' : 'border-gray-200 bg-white'}`}>

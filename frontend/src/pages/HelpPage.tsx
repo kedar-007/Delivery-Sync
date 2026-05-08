@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
+import { useI18n } from '../contexts/I18nContext';
 import {
   BookOpen, ChevronDown, ChevronRight, LayoutDashboard, FolderKanban,
   CheckSquare, GitBranch, ClipboardList, Clock, Users, Package,
@@ -904,6 +905,7 @@ const SECTIONS: Section[] = [
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function HelpPage() {
+  const { t } = useI18n();
   const [search, setSearch] = useState('');
   const [activeSection, setActiveSection] = useState<string | null>(null);
 
@@ -919,7 +921,7 @@ export default function HelpPage() {
 
   return (
     <Layout>
-      <Header title="Help & Documentation" subtitle="How to use every feature in DSV OpsPulse" />
+      <Header title={t('nav.helpDocs')} subtitle="How to use every feature in DSV OpsPulse" />
       <div className="p-6 max-w-4xl mx-auto space-y-6">
 
         {/* Search */}

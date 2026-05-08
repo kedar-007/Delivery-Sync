@@ -65,6 +65,18 @@ export const useReplyBugReport = () => {
   });
 };
 
+export const useReporterReplyBugReport = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reply }: { id: string; reply: string }) =>
+      bugApi.reporterReply(id, reply),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['bug-reports'] });
+      qc.invalidateQueries({ queryKey: ['bug-reports-all'] });
+    },
+  });
+};
+
 export const useBugConfig = () =>
   useQuery({
     queryKey: ['bug-config'],

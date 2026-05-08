@@ -19,6 +19,7 @@ import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
 import { Action } from '../types';
 import { canDo, PERMISSIONS } from '../utils/permissions';
+import { useI18n } from '../contexts/I18nContext';
 
 interface ActionForm {
   project_id: string;
@@ -31,6 +32,7 @@ interface ActionForm {
 }
 
 const ActionsPage = () => {
+  const { t } = useI18n();
   const [searchParams] = useSearchParams();
   const preselectedProject = searchParams.get('projectId') || '';
   const [filterProject, setFilterProject] = useState(preselectedProject);
@@ -93,7 +95,7 @@ const ActionsPage = () => {
 
   return (
     <Layout>
-      <Header title="Actions" subtitle={`${total} action${total !== 1 ? 's' : ''}`}
+      <Header title={t('nav.actions')} subtitle={`${total} action${total !== 1 ? 's' : ''}`}
         actions={canWrite
           ? <Button onClick={() => { setEditingAction(null); reset({ project_id: preselectedProject, priority: 'MEDIUM' }); setShowCreate(true); }} icon={<Plus size={16} />}>New Action</Button>
           : <span className="flex items-center gap-1.5 text-sm text-gray-400"><Lock size={14} />No permission to add actions</span>}

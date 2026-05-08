@@ -398,6 +398,46 @@ class UserController {
       return ResponseHelper.serverError(res, err.message);
     }
   }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // PUT /api/users/me/location
+  // Body: { officeLocationId: string | null }
+  // ─────────────────────────────────────────────────────────────────────────────
+  async updateMyLocation(req, res) {
+    try {
+      const { id: userId, tenantId } = req.currentUser;
+      const { officeLocationId } = req.body;
+
+      const overrideRows = await this.db.query(
+        `SELECT ROWID, permissions FROM ${TABLES.PERMISSION_OVERRIDES} WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = 'true' LIMIT 1`
+      );
+      let current = { granted: [], revoked: [], moduleAccess: [] };
+      let overrideRowId = null;
+      if (overrideRows.length > 0) {
+        try { current = JSON.parse(overrideRows[0].permissions || '{}'); } catch (_) {}
+        overrideRowId = String(overrideRows[0].ROWID);
+      }
+
+      const updated = { ...current };
+      if (officeLocationId) updated.officeLocationId = String(officeLocationId);
+      else delete updated.officeLocationId;
+
+      if (overrideRowId) {
+        await this.db.update(TABLES.PERMISSION_OVERRIDES, { ROWID: overrideRowId, permissions: JSON.stringify(updated) });
+      } else {
+        await this.db.insert(TABLES.PERMISSION_OVERRIDES, {
+          tenant_id: tenantId, user_id: userId,
+          permissions: JSON.stringify(updated),
+          is_active: 'true',
+        });
+      }
+
+      return ResponseHelper.success(res, { officeLocationId: officeLocationId || null }, 'Location updated');
+    } catch (err) {
+      console.error('[UserController.updateMyLocation]', err.message);
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
 }
 
 module.exports = UserController;

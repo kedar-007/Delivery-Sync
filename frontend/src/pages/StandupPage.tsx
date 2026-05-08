@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
+import { useI18n } from '../contexts/I18nContext';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import Alert from '../components/ui/Alert';
@@ -140,6 +141,7 @@ const PROJECT_COLORS = [
 // ─── Main component ───────────────────────────────────────────────────────────
 
 const StandupPage = () => {
+  const { t } = useI18n();
   const [searchParams] = useSearchParams();
   const preselectedProject = searchParams.get('projectId') || '';
 
@@ -262,7 +264,7 @@ const StandupPage = () => {
 
   return (
     <Layout>
-      <Header title="Standups" subtitle="Daily standup updates" />
+      <Header title={t('nav.standup')} subtitle="Daily standup updates" />
       <div className="p-6 space-y-5">
 
         {/* Tabs */}

@@ -4,6 +4,7 @@ import { useForm, Controller } from 'react-hook-form';
 import { Plus, Lock, Pencil } from 'lucide-react'; // ✅ Added Pencil
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
+import { useI18n } from '../contexts/I18nContext';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import { StatusBadge } from '../components/ui/Badge';
@@ -26,6 +27,7 @@ import { canDo, PERMISSIONS } from '../utils/permissions';
 type Tab = 'risks' | 'issues' | 'dependencies' | 'assumptions';
 
 const RaidPage = () => {
+  const { t } = useI18n();
   const [searchParams] = useSearchParams();
   const preselectedProject = searchParams.get('projectId') || '';
   const [tab, setTab] = useState<Tab>('risks');
@@ -259,7 +261,7 @@ const RaidPage = () => {
 
   return (
     <Layout>
-      <Header title="RAID Register"
+      <Header title={t('nav.raidRegister')}
         subtitle="Risks, Issues, Dependencies, Assumptions"
         actions={canWrite
           ? <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>New {tab.slice(0, -1)}</Button>

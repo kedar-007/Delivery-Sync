@@ -1,0 +1,65 @@
+import { Translations } from './en';
+const ar: Translations = {
+  nav: {
+    dashboard: 'لوحة التحكم', portfolio: 'المحفظة', projects: 'المشاريع',
+    milestones: 'المعالم', dailyUpdates: 'التحديثات اليومية',
+    submitStandup: 'إرسال الاجتماع', submitEod: 'إرسال نهاية اليوم',
+    actions: 'الإجراءات', blockers: 'العوائق', raidRegister: 'سجل RAID',
+    decisions: 'القرارات', reports: 'التقارير', admin: 'الإدارة',
+    settings: 'الإعدادات', profile: 'ملفي الشخصي', signOut: 'تسجيل الخروج',
+    dailyWork: 'العمل اليومي', people: 'الأشخاص', assets: 'الأصول',
+    reportsAi: 'التقارير والذكاء الاصطناعي', executive: 'الإدارة التنفيذية',
+    administration: 'الإدارة', bugReports: 'تقارير الأخطاء', helpDocs: 'المساعدة والمستندات',
+    allProjects: 'جميع المشاريع', myTasks: 'مهامي', sprintBoards: 'لوحات السباق', backlog: 'قائمة الانتظار',
+    standup: 'اجتماع الوقوف', eod: 'EOD', timeTracking: 'تتبع الوقت',
+    attendance: 'الحضور', leave: 'الإجازات', teams: 'الفرق', directory: 'الدليل',
+    orgChart: 'الهيكل التنظيمي', announcements: 'الإعلانات', peopleSettings: 'إعدادات الموارد البشرية',
+    userManagement: 'إدارة المستخدمين', auditLogs: 'سجلات التدقيق', configWorkflows: 'الإعدادات والسير', dataSeeder: 'مُغذّي البيانات',
+    ceoDashboard: 'لوحة المدير التنفيذي', ctoDashboard: 'لوحة المدير التقني',
+    teamActivity: 'نشاط الفريق', aiInsights: 'رؤى الذكاء الاصطناعي',
+  },
+  common: {
+    save: 'حفظ', cancel: 'إلغاء', create: 'إنشاء', edit: 'تعديل',
+    delete: 'حذف', remove: 'إزالة', close: 'إغلاق', back: 'رجوع',
+    loading: 'جارٍ التحميل…', saving: 'جارٍ الحفظ…', search: 'بحث', filter: 'تصفية',
+    all: 'الكل', none: 'لا شيء', yes: 'نعم', no: 'لا', reset: 'إعادة تعيين',
+    apply: 'تطبيق', confirm: 'تأكيد', success: 'نجح', error: 'خطأ',
+    required: 'مطلوب', optional: 'اختياري', new: 'جديد', preview: 'معاينة',
+    view: 'عرض', noData: 'لم يتم العثور على بيانات.', actions: 'إجراءات',
+  },
+  settings: {
+    title: 'الإعدادات', subtitle: 'تخصيص مساحة العمل الخاصة بك', saved: 'تم حفظ التفضيلات',
+    theme: {
+      title: 'المظهر', subtitle: 'اختر السمة ونظام الألوان المفضل لديك', themeLabel: 'سمة الألوان',
+      autoTheme: 'سمة تلقائية', autoThemeDesc: 'التبديل التلقائي بناءً على وقت اليوم (مظلم بعد الساعة 8 مساءً)',
+      density: 'كثافة الواجهة', compact: 'مضغوط', default: 'افتراضي', comfortable: 'مريح',
+      fontSize: 'حجم الخط', small: 'صغير', medium: 'متوسط', large: 'كبير', reset: 'إعادة تعيين الإعدادات الافتراضية',
+      accentLabel: 'لون التمييز',
+    },
+    sidebar: {
+      title: 'الشريط الجانبي', subtitle: 'إعادة ترتيب وإظهار/إخفاء عناصر التنقل',
+      collapse: 'بدء مطوية', collapseDesc: 'يفتح الشريط الجانبي في وضع الأيقونات عند التحميل',
+      items: 'عناصر القائمة', resetOrder: 'إعادة تعيين الترتيب', visible: 'مرئي', hidden: 'مخفي',
+      navOrder: 'ترتيب التنقل',
+      dragHint: 'اسحب المقبض لإعادة الترتيب. بدّل العين للإظهار أو الإخفاء.',
+    },
+    language: {
+      title: 'اللغة', subtitle: 'اختر لغة العرض المفضلة لديك',
+      label: 'لغة الواجهة', changeNote: 'تُطبَّق تغييرات اللغة فوراً دون إعادة تحميل الصفحة.',
+    },
+    preview: {
+      title: 'معاينة الطباعة',
+      subtitle: 'معاينة مباشرة لإعدادات الخط والكثافة',
+    },
+  },
+  profile: {
+    title: 'ملفي الشخصي', subtitle: 'إدارة إعدادات حسابك وصورة الملف الشخصي', picture: 'صورة الملف الشخصي',
+    name: 'الاسم المعروض', email: 'البريد الإلكتروني', role: 'الدور', status: 'الحالة',
+    auth: 'المصادقة', userId: 'معرف المستخدم', saveChanges: 'حفظ التغييرات',
+    uploadPhoto: 'تحميل صورة جديدة', uploadHint: 'JPG أو PNG أو GIF · الحد الأقصى 2 MB · يُعاد تحجيمه إلى 256×256',
+    emailNote: 'يُدار البريد الإلكتروني بواسطة Zoho ولا يمكن تغييره هنا.',
+    roleNote: 'اتصل بمسؤولك لتغيير دورك.',
+    pictureUpdated: 'تم تحديث صورة الملف الشخصي', profileSaved: 'تم حفظ الملف الشخصي بنجاح',
+  },
+} as const;
+export default ar;

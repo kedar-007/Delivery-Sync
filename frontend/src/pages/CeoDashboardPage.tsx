@@ -16,6 +16,7 @@ import Alert from '../components/ui/Alert';
 import { useExecSummary, type ExecProject } from '../hooks/useExecDashboard';
 import { useAiProjectHealth, useAiSuggestions, useAiDetectBlockers, useAiTrends } from '../hooks/useAiInsights';
 import { format, parseISO } from 'date-fns';
+import { useI18n } from '../contexts/I18nContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -479,6 +480,7 @@ const AiBriefPanel = ({
 // ─── CEO Dashboard Page ───────────────────────────────────────────────────────
 
 const CeoDashboardPage = () => {
+  const { t } = useI18n();
   const { data, isLoading, error, refetch, dataUpdatedAt } = useExecSummary();
   const aiHealth   = useAiProjectHealth();
   const aiSuggests = useAiSuggestions();
@@ -511,7 +513,7 @@ const CeoDashboardPage = () => {
   return (
     <Layout>
       <Header
-        title="CEO Dashboard"
+        title={t('nav.ceoDashboard')}
         subtitle={`Executive portfolio overview${lastUpdated ? ` · Updated ${lastUpdated}` : ''}`}
         actions={
           <div className="flex items-center gap-2">

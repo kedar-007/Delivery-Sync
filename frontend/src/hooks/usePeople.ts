@@ -685,13 +685,45 @@ export const useCreateHoliday = () => {
   });
 };
 
+export const useUpdateHoliday = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: ({ id, locationId, data }: { id: string; locationId?: string; data: unknown }) =>
+      leaveApi.updateHoliday({ id, locationId, data }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['leave', 'company-calendar'] }); toast.success('Holiday updated'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update holiday'),
+  });
+};
+
 export const useDeleteHoliday = () => {
   const qc = useQueryClient();
   const toast = useToast();
   return useMutation({
-    mutationFn: (id: string) => leaveApi.deleteHoliday(id),
+    mutationFn: ({ id, locationId }: { id: string; locationId?: string }) => leaveApi.deleteHoliday({ id, locationId }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['leave', 'company-calendar'] }); toast.success('Holiday removed'); },
     onError: (e: Error) => toast.error(e.message || 'Failed to remove holiday'),
+  });
+};
+
+// ── Calendar Config ────────────────────────────────────────────────────────────
+export const useCalendarConfig = () =>
+  useQuery({
+    queryKey: ['leave', 'calendar-config'],
+    queryFn: () => leaveApi.getCalendarConfig(),
+  });
+
+export const useSaveCalendarConfig = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (data: unknown) => leaveApi.saveCalendarConfig(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['leave', 'calendar-config'] });
+      qc.invalidateQueries({ queryKey: ['leave', 'company-calendar'] });
+      toast.success('Calendar settings saved');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to save settings'),
   });
 };
 

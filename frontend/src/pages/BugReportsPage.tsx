@@ -1,9 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
 import {
-  Bug, Plus, Search, Filter, CheckCircle2, Clock, AlertCircle,
-  ChevronRight, X, Send, RotateCcw, RefreshCw, Settings,
-  AlertTriangle, Paperclip, Tag, User, Calendar, MessageSquare,
-  ToggleLeft, ToggleRight, Circle, Layers, Zap, Eye,
+  Bug, Plus, Search, CheckCircle2, Clock, AlertCircle,
+  ChevronRight, X, Send, RotateCcw, Settings,
+  Paperclip, Tag, User, Calendar, MessageSquare,
+  ToggleLeft, ToggleRight, Circle, Layers, Zap, Eye, Reply, Upload, Trash2, Loader2,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import Layout from '../components/layout/Layout';
@@ -17,9 +17,10 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   useBugReports, useAllBugReports, useSubmitBugReport,
   useUpdateBugReport, useResolveBugReport, useReplyBugReport,
-  useBugConfig, useSaveBugConfig,
+  useReporterReplyBugReport, useBugConfig, useSaveBugConfig,
 } from '../hooks/useBugReports';
-import { BugReport } from '../lib/api';
+import { BugReport, bugApi } from '../lib/api';
+import { useI18n } from '../contexts/I18nContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -188,25 +189,63 @@ const SubmitModal = ({ open, onClose }: { open: boolean; onClose: () => void }) 
   );
 };
 
+// ─── Attachment helpers ───────────────────────────────────────────────────────
+
+interface ReplyAttachment {
+  id:        string;
+  file:      File;
+  preview:   string | null;
+  base64?:   string;
+  fileType:  'IMAGE' | 'VIDEO' | 'FILE';
+  uploading: boolean;
+  error?:    string;
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function detectType(file: File): 'IMAGE' | 'VIDEO' | 'FILE' {
+  if (file.type.startsWith('image/')) return 'IMAGE';
+  if (file.type.startsWith('video/')) return 'VIDEO';
+  return 'FILE';
+}
+
 // ─── Detail / management modal ────────────────────────────────────────────────
 
 const DetailModal = ({ report, isAdmin, open, onClose }: {
   report: BugReport | null; isAdmin: boolean; open: boolean; onClose: () => void;
 }) => {
-  const update  = useUpdateBugReport();
-  const resolve = useResolveBugReport();
-  const reply   = useReplyBugReport();
-  const [notes, setNotes]   = useState('');
-  const [status, setStatus] = useState('');
-  const [error, setError]   = useState('');
-  const [success, setSuccess] = useState('');
+  const update        = useUpdateBugReport();
+  const resolve       = useResolveBugReport();
+  const reply         = useReplyBugReport();
+  const reporterReply = useReporterReplyBugReport();
+
+  const [notes, setNotes]           = useState('');
+  const [status, setStatus]         = useState('');
+  const [error, setError]           = useState('');
+  const [success, setSuccess]       = useState('');
+  const [replyText, setReplyText]   = useState('');
+  const [replyError, setReplyError] = useState('');
+  const [replySuccess, setReplySuccess] = useState('');
+  const [replyAttachments, setReplyAttachments] = useState<ReplyAttachment[]>([]);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
+  const replyFileRef = useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     if (open && report) {
       setStatus(report.status ?? 'OPEN');
       setNotes(report.resolution_notes ?? '');
-      setError('');
-      setSuccess('');
+      setReplyText(report.reporter_reply ?? '');
+      setReplyAttachments([]);
+      setUploadingFiles(false);
+      setError(''); setSuccess('');
+      setReplyError(''); setReplySuccess('');
     }
   }, [open, report]);
 
@@ -236,6 +275,64 @@ const DetailModal = ({ report, isAdmin, open, onClose }: {
       setSuccess('Report marked as resolved — reporter notified');
       setStatus('RESOLVED');
     } catch (err: unknown) { setError((err as Error).message); }
+  };
+
+  const handleReplyFiles = useCallback(async (files: FileList | File[]) => {
+    const arr = Array.from(files);
+    if (replyAttachments.length + arr.length > 5) {
+      setReplyError('Maximum 5 attachments allowed.');
+      return;
+    }
+    setReplyError('');
+    for (const file of arr) {
+      if (file.size > 50 * 1024 * 1024) { setReplyError(`${file.name} exceeds 50 MB.`); continue; }
+      const id      = `${Date.now()}-${Math.random()}`;
+      const ft      = detectType(file);
+      const preview = ft !== 'FILE' ? URL.createObjectURL(file) : null;
+      setReplyAttachments((prev) => [...prev, { id, file, preview, fileType: ft, uploading: false }]);
+      try {
+        const b64 = await fileToBase64(file);
+        setReplyAttachments((prev) => prev.map((a) => a.id === id ? { ...a, base64: b64 } : a));
+      } catch (_) {}
+    }
+  }, [replyAttachments.length]);
+
+  const removeReplyAttachment = (id: string) => {
+    setReplyAttachments((prev) => {
+      const a = prev.find((x) => x.id === id);
+      if (a?.preview) URL.revokeObjectURL(a.preview);
+      return prev.filter((x) => x.id !== id);
+    });
+  };
+
+  const handleReporterReply = async () => {
+    if (!report?.ROWID || !replyText.trim()) { setReplyError('Reply cannot be empty'); return; }
+    setReplyError(''); setReplySuccess('');
+    try {
+      await reporterReply.mutateAsync({ id: report.ROWID, reply: replyText });
+
+      // Upload any attached files
+      if (replyAttachments.length > 0) {
+        setUploadingFiles(true);
+        for (const att of replyAttachments) {
+          if (!att.base64) continue;
+          setReplyAttachments((prev) => prev.map((a) => a.id === att.id ? { ...a, uploading: true } : a));
+          try {
+            await bugApi.uploadAttachment(report.ROWID!, {
+              base64: att.base64, file_name: att.file.name,
+              file_type: att.fileType, mime_type: att.file.type, file_size: att.file.size,
+            });
+            setReplyAttachments((prev) => prev.map((a) => a.id === att.id ? { ...a, uploading: false } : a));
+          } catch (_) {
+            setReplyAttachments((prev) => prev.map((a) => a.id === att.id ? { ...a, uploading: false, error: 'Upload failed' } : a));
+          }
+        }
+        setUploadingFiles(false);
+      }
+
+      setReplySuccess('Your reply has been submitted — the admin team can see it');
+      setReplyAttachments([]);
+    } catch (err: unknown) { setReplyError((err as Error).message); }
   };
 
   if (!report) return null;
@@ -295,62 +392,195 @@ const DetailModal = ({ report, isAdmin, open, onClose }: {
           )}
         </div>
 
-        {/* Resolution note (always show if exists) */}
-        {report.resolution_notes && !isAdmin && (
-          <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-            <p className="text-xs font-semibold text-green-700 uppercase tracking-wider mb-1.5">Admin Note</p>
-            <p className="text-sm text-green-800 whitespace-pre-wrap">{report.resolution_notes}</p>
-            {report.resolved_by && (
-              <p className="text-xs text-green-600 mt-2">— {report.resolved_by}{report.resolved_at ? `, ${fmtDate(report.resolved_at)}` : ''}</p>
+        {/* ── REPORTER VIEW ─────────────────────────────────────── */}
+        {!isAdmin && (
+          <>
+            {/* Admin note (if any) */}
+            {report.resolution_notes && (
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <MessageSquare size={13} className="text-green-600" />
+                  <p className="text-xs font-semibold text-green-700 uppercase tracking-wider">Admin Note</p>
+                </div>
+                <p className="text-sm text-green-800 whitespace-pre-wrap leading-relaxed">{report.resolution_notes}</p>
+                {report.resolved_by && (
+                  <p className="text-xs text-green-600 mt-2">— {report.resolved_by}{report.resolved_at ? `, ${fmtDate(report.resolved_at)}` : ''}</p>
+                )}
+              </div>
             )}
-          </div>
+
+            {/* Existing reporter reply (read-only preview) */}
+            {report.reporter_reply && (
+              <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Reply size={13} className="text-indigo-600" />
+                  <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wider">Your Reply</p>
+                  {report.reporter_reply_at && (
+                    <span className="ml-auto text-[11px] text-indigo-400">{fmtDate(report.reporter_reply_at)}</span>
+                  )}
+                </div>
+                <p className="text-sm text-indigo-900 whitespace-pre-wrap leading-relaxed">{report.reporter_reply}</p>
+              </div>
+            )}
+
+            {/* Reply form — always available so reporter can add/update their note */}
+            <div className="border border-indigo-100 bg-indigo-50/40 rounded-xl p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <Reply size={14} className="text-indigo-500" />
+                <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wider">
+                  {report.reporter_reply ? 'Update Your Reply' : 'Add a Reply'}
+                </p>
+              </div>
+              <p className="text-xs text-gray-500">
+                {report.resolution_notes
+                  ? 'Respond to the admin note or add more information about your report.'
+                  : 'Add extra context or follow-up information to help the team investigate.'}
+              </p>
+              {replyError   && <Alert type="error"   message={replyError}   />}
+              {replySuccess && <Alert type="success" message={replySuccess} />}
+              <textarea
+                className="form-input min-h-[90px] resize-y text-sm w-full"
+                placeholder="Type your reply or additional info here…"
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+              />
+
+              {/* Attachment previews */}
+              {replyAttachments.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {replyAttachments.map((att) => (
+                    <div key={att.id} className="relative group rounded-lg border border-gray-200 overflow-hidden bg-white">
+                      {att.fileType === 'IMAGE' && att.preview ? (
+                        <img src={att.preview} alt={att.file.name} className="h-16 w-20 object-cover" />
+                      ) : (
+                        <div className="h-16 w-20 flex flex-col items-center justify-center gap-1 bg-gray-50 px-2">
+                          <Paperclip size={14} className="text-gray-400" />
+                          <p className="text-[10px] text-gray-500 truncate w-full text-center">{att.file.name}</p>
+                        </div>
+                      )}
+                      {att.uploading && (
+                        <div className="absolute inset-0 bg-white/70 flex items-center justify-center">
+                          <Loader2 size={14} className="animate-spin text-indigo-500" />
+                        </div>
+                      )}
+                      {att.error && (
+                        <div className="absolute inset-0 bg-red-50/80 flex items-center justify-center">
+                          <p className="text-[9px] text-red-600 font-semibold text-center px-1">{att.error}</p>
+                        </div>
+                      )}
+                      {!att.uploading && (
+                        <button
+                          type="button"
+                          onClick={() => removeReplyAttachment(att.id)}
+                          className="absolute top-0.5 right-0.5 bg-white/90 rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700"
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Action row */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  size="sm"
+                  onClick={handleReporterReply}
+                  loading={reporterReply.isPending || uploadingFiles}
+                  icon={<Send size={13} />}
+                >
+                  {report.reporter_reply ? 'Update Reply' : 'Submit Reply'}
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => replyFileRef.current?.click()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  <Upload size={13} /> Attach files
+                </button>
+                {replyAttachments.length > 0 && (
+                  <span className="text-xs text-gray-400">{replyAttachments.length} file{replyAttachments.length > 1 ? 's' : ''} selected</span>
+                )}
+              </div>
+              <input
+                ref={replyFileRef}
+                type="file"
+                multiple
+                accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip"
+                className="hidden"
+                onChange={(e) => e.target.files && handleReplyFiles(e.target.files)}
+              />
+            </div>
+          </>
         )}
 
-        {/* Admin controls */}
+        {/* ── ADMIN VIEW ────────────────────────────────────────── */}
         {isAdmin && (
-          <div className="border-t border-gray-100 pt-4 space-y-3">
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Admin Actions</p>
+          <>
+            {/* Reporter reply — prominently shown to admin */}
+            {report.reporter_reply && (
+              <div className="bg-indigo-50 border-2 border-indigo-200 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Reply size={14} className="text-indigo-600" />
+                  <p className="text-sm font-bold text-indigo-700">Reporter's Reply</p>
+                  {report.reporter_reply_at && (
+                    <span className="ml-auto text-xs text-indigo-400 font-medium">{fmtDate(report.reporter_reply_at)}</span>
+                  )}
+                </div>
+                <p className="text-sm text-indigo-900 whitespace-pre-wrap leading-relaxed">{report.reporter_reply}</p>
+                <p className="text-xs text-indigo-500 mt-2 font-medium">
+                  From: {report.reporter_name ?? report.reporter_email ?? 'Reporter'}
+                </p>
+              </div>
+            )}
 
-            {/* Status changer */}
-            <div className="flex items-center gap-2">
-              <select className="form-select flex-1" value={status}
-                onChange={(e) => setStatus(e.target.value)}>
-                <option value="OPEN">Open</option>
-                <option value="IN_REVIEW">In Review</option>
-                <option value="RESOLVED">Resolved</option>
-                <option value="CLOSED">Closed</option>
-                <option value="DUPLICATE">Duplicate</option>
-              </select>
-              <Button variant="outline" size="sm" onClick={handleStatusUpdate}
-                loading={update.isPending} icon={<RotateCcw size={13} />}>
-                Update Status
-              </Button>
-            </div>
+            <div className="border-t border-gray-100 pt-4 space-y-3">
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Admin Actions</p>
 
-            {/* Reply note */}
-            <div>
-              <label className="form-label">Resolution Note <span className="text-gray-400 font-normal">(visible to reporter)</span></label>
-              <textarea className="form-input min-h-[80px] resize-y text-sm"
-                placeholder="Describe what was done or what the reporter should try…"
-                value={notes} onChange={(e) => setNotes(e.target.value)} />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={handleReply}
-                loading={reply.isPending} icon={<MessageSquare size={13} />}>
-                Save Note
-              </Button>
-              {report.status !== 'RESOLVED' && report.status !== 'CLOSED' && (
-                <Button size="sm"
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                  onClick={handleResolve}
-                  loading={resolve.isPending}
-                  icon={<CheckCircle2 size={13} />}>
-                  Mark Resolved
+              {/* Status changer */}
+              <div className="flex items-center gap-2">
+                <select className="form-select flex-1" value={status}
+                  onChange={(e) => setStatus(e.target.value)}>
+                  <option value="OPEN">Open</option>
+                  <option value="IN_REVIEW">In Review</option>
+                  <option value="RESOLVED">Resolved</option>
+                  <option value="CLOSED">Closed</option>
+                  <option value="DUPLICATE">Duplicate</option>
+                </select>
+                <Button variant="outline" size="sm" onClick={handleStatusUpdate}
+                  loading={update.isPending} icon={<RotateCcw size={13} />}>
+                  Update Status
                 </Button>
-              )}
+              </div>
+
+              {/* Resolution note */}
+              <div>
+                <label className="form-label">
+                  Resolution Note <span className="text-gray-400 font-normal">(visible to reporter)</span>
+                </label>
+                <textarea className="form-input min-h-[80px] resize-y text-sm"
+                  placeholder="Describe what was done or what the reporter should try…"
+                  value={notes} onChange={(e) => setNotes(e.target.value)} />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handleReply}
+                  loading={reply.isPending} icon={<MessageSquare size={13} />}>
+                  Save Note
+                </Button>
+                {report.status !== 'RESOLVED' && report.status !== 'CLOSED' && (
+                  <Button size="sm"
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                    onClick={handleResolve}
+                    loading={resolve.isPending}
+                    icon={<CheckCircle2 size={13} />}>
+                    Mark Resolved
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
 
@@ -451,6 +681,11 @@ const ReportCard = ({ report, isAdmin, onClick }: {
               <MessageSquare size={11} />Has note
             </span>
           )}
+          {report.reporter_reply && (
+            <span className="flex items-center gap-1 text-indigo-600 font-semibold">
+              <Reply size={11} />Reporter replied
+            </span>
+          )}
         </div>
       </div>
 
@@ -522,6 +757,7 @@ const ConfigPanel = ({ onClose }: { onClose: () => void }) => {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function BugReportsPage() {
+  const { t } = useI18n();
   const { user } = useAuth();
   const isAdmin = user?.role === 'TENANT_ADMIN' || user?.role === 'SUPER_ADMIN';
 
@@ -573,7 +809,7 @@ export default function BugReportsPage() {
   return (
     <Layout>
       <Header
-        title="Bug Reports"
+        title={t('nav.bugReports')}
         subtitle={isAdmin ? `${stats.total} total reports across your organisation` : "Track issues you've reported"}
         actions={
           <div className="flex items-center gap-2">

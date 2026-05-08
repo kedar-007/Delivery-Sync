@@ -1,0 +1,65 @@
+import { Translations } from './en';
+const fr: Translations = {
+  nav: {
+    dashboard: 'Tableau de bord', portfolio: 'Portefeuille', projects: 'Projets',
+    milestones: 'Jalons', dailyUpdates: 'Mises à jour quotidiennes',
+    submitStandup: 'Soumettre standup', submitEod: 'Soumettre EOD',
+    actions: 'Actions', blockers: 'Bloqueurs', raidRegister: 'Registre RAID',
+    decisions: 'Décisions', reports: 'Rapports', admin: 'Administration',
+    settings: 'Paramètres', profile: 'Mon profil', signOut: 'Se déconnecter',
+    dailyWork: 'Travail quotidien', people: 'Personnes', assets: 'Ressources',
+    reportsAi: 'Rapports et IA', executive: 'Direction',
+    administration: 'Administration', bugReports: 'Signalements', helpDocs: 'Aide et docs',
+    allProjects: 'Tous les projets', myTasks: 'Mes tâches', sprintBoards: 'Tableaux de sprint', backlog: 'Backlog',
+    standup: 'Standup', eod: 'EOD', timeTracking: 'Suivi du temps',
+    attendance: 'Présence', leave: 'Congés', teams: 'Équipes', directory: 'Annuaire',
+    orgChart: 'Organigramme', announcements: 'Annonces', peopleSettings: 'Paramètres RH',
+    userManagement: 'Gestion des utilisateurs', auditLogs: "Journaux d'audit", configWorkflows: 'Config et flux', dataSeeder: 'Données de test',
+    ceoDashboard: 'Tableau PDG', ctoDashboard: 'Tableau DSI',
+    teamActivity: "Activité d'équipe", aiInsights: 'Insights IA',
+  },
+  common: {
+    save: 'Enregistrer', cancel: 'Annuler', create: 'Créer', edit: 'Modifier',
+    delete: 'Supprimer', remove: 'Retirer', close: 'Fermer', back: 'Retour',
+    loading: 'Chargement…', saving: 'Sauvegarde…', search: 'Rechercher',
+    filter: 'Filtrer', all: 'Tous', none: 'Aucun', yes: 'Oui', no: 'Non',
+    reset: 'Réinitialiser', apply: 'Appliquer', confirm: 'Confirmer',
+    success: 'Succès', error: 'Erreur', required: 'Obligatoire', optional: 'Facultatif',
+    new: 'Nouveau', preview: 'Aperçu', view: 'Voir', noData: 'Aucune donnée trouvée.', actions: 'Actions',
+  },
+  settings: {
+    title: 'Paramètres', subtitle: 'Personnalisez votre espace de travail', saved: 'Préférences enregistrées',
+    theme: {
+      title: 'Apparence', subtitle: 'Choisissez votre thème et palette de couleurs', themeLabel: 'Thème de couleur',
+      autoTheme: 'Thème automatique', autoThemeDesc: "Basculer automatiquement selon l'heure (sombre après 20h)",
+      density: "Densité de l'interface", compact: 'Compact', default: 'Standard', comfortable: 'Confortable',
+      fontSize: 'Taille de police', small: 'Petite', medium: 'Moyenne', large: 'Grande', reset: 'Réinitialiser',
+      accentLabel: "Couleur d'accent",
+    },
+    sidebar: {
+      title: 'Barre latérale', subtitle: 'Réordonner et afficher/masquer les éléments de navigation',
+      collapse: 'Démarrer réduit', collapseDesc: 'La barre latérale s\'ouvre en mode icônes au chargement',
+      items: 'Éléments du menu', resetOrder: "Réinitialiser l'ordre", visible: 'Visible', hidden: 'Masqué',
+      navOrder: 'Ordre de navigation',
+      dragHint: 'Faites glisser la poignée pour réorganiser. Cliquez sur l\'œil pour afficher/masquer.',
+    },
+    language: {
+      title: 'Langue', subtitle: "Choisissez votre langue d'affichage préférée",
+      label: "Langue de l'interface", changeNote: 'Les changements de langue s\'appliquent instantanément.',
+    },
+    preview: {
+      title: 'Aperçu typographique',
+      subtitle: 'Aperçu en direct de vos paramètres de police et de densité',
+    },
+  },
+  profile: {
+    title: 'Mon profil', subtitle: 'Gérez votre compte et photo de profil', picture: 'Photo de profil',
+    name: "Nom d'affichage", email: 'E-mail', role: 'Rôle', status: 'Statut',
+    auth: 'Authentification', userId: 'ID utilisateur', saveChanges: 'Enregistrer les modifications',
+    uploadPhoto: 'Téléverser une photo', uploadHint: 'JPG, PNG ou GIF · Max 2 Mo · Redimensionné à 256×256',
+    emailNote: "L'e-mail est géré par Zoho et ne peut pas être modifié ici.",
+    roleNote: 'Contactez votre administrateur pour changer votre rôle.',
+    pictureUpdated: 'Photo de profil mise à jour', profileSaved: 'Profil enregistré avec succès',
+  },
+} as const;
+export default fr;
