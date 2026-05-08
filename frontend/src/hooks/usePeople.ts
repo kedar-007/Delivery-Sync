@@ -25,6 +25,7 @@ const normaliseAttendance = (r: any) => ({
   isLocationVerified:  r.is_location_verified === 'true' || r.is_location_verified === true,
   overrideReason:      r.override_reason   ?? r.overrideReason ?? '',
   overriddenBy:        r.overridden_by     ?? r.overriddenBy   ?? null,
+  botCheckout:         r.bot_checkout      ?? r.botCheckout    ?? null,
   createdBy:           r.CREATORID         ?? r.created_by     ?? r.createdBy,
   createdAt:           (() => { const raw = r.CREATEDTIME ?? r.created_at ?? r.createdAt; if (!raw) return null; const n = Number(raw); return (!isNaN(n) && n > 946684800000) ? new Date(n).toISOString() : String(raw); })(),
   updatedAt:           r.MODIFIEDTIME      ?? r.updated_at     ?? r.updatedAt,

@@ -3,6 +3,31 @@ from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger()
 
+# IST = UTC+05:30
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def parse_stored_dt(value):
+    """
+    Parse a datetime string stored by the app.
+    The app stores times as UTC in 'YYYY-MM-DD HH:MM:SS' format (no tz suffix).
+    Returns a UTC-aware datetime, or None if parsing fails.
+    """
+    if not value:
+        return None
+    s = str(value).strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ"):
+        try:
+            return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def fmt_utc(dt_utc):
+    """Format a UTC-aware datetime as 'YYYY-MM-DD HH:MM:SS' for DataStore storage."""
+    return dt_utc.strftime("%Y-%m-%d %H:%M:%S")
+
 
 def fetch_all_unchecked(zcql, today_str, page_size=200):
     """Paginated fetch of all records where check_in exists but check_out is NULL."""
@@ -11,7 +36,8 @@ def fetch_all_unchecked(zcql, today_str, page_size=200):
 
     while True:
         query = (
-            "SELECT ROWID, user_id, tenant_id, check_in_time, check_out_time, status "
+            "SELECT ROWID, user_id, tenant_id, check_in_time, check_out_time, "
+            "status, total_break_minutes "
             "FROM attendance_records "
             f"WHERE attendance_date = '{today_str}' "
             "AND check_in_time IS NOT NULL "
@@ -58,16 +84,24 @@ def handler(job_request, context):
         app = catalyst.initialize()
         logger.info("Catalyst app initialized successfully")
 
-        # ── Today's date & forced checkout time in IST ──────────────────────
-        IST      = timezone(timedelta(hours=5, minutes=30))
-        now_ist  = datetime.now(IST)
-        today_str     = now_ist.strftime("%Y-%m-%d")   # e.g. "2026-05-07"
-        checkout_time = f"{today_str} 23:59:00"         # 11:59 PM IST
+        # ── Compute today in IST ────────────────────────────────────────────
+        now_utc  = datetime.now(timezone.utc)
+        now_ist  = now_utc.astimezone(IST)
+        today_str = now_ist.strftime("%Y-%m-%d")   # attendance_date stored as IST date
 
-        logger.info(f"UTC now          : {datetime.now(timezone.utc)}")
+        # ── Forced checkout: 23:59:00 IST → stored as UTC ──────────────────
+        # The app stores all datetimes as UTC ('YYYY-MM-DD HH:MM:SS').
+        # The frontend appends 'Z' and converts to local time for display.
+        # Storing the naive IST string ("23:59:00") caused it to be read as
+        # UTC → displayed as 05:29 AM IST (next day). Fix: convert to UTC first.
+        checkout_ist = datetime(now_ist.year, now_ist.month, now_ist.day, 23, 59, 0, tzinfo=IST)
+        checkout_utc = checkout_ist.astimezone(timezone.utc)
+        checkout_time_utc = fmt_utc(checkout_utc)   # "2026-05-08 18:29:00"
+
+        logger.info(f"UTC now          : {now_utc}")
         logger.info(f"IST now          : {now_ist}")
         logger.info(f"Date for query   : {today_str}")
-        logger.info(f"Forced checkout  : {checkout_time}")
+        logger.info(f"Forced checkout  : {checkout_ist} IST → {checkout_time_utc} UTC (stored)")
 
         # ── Fetch all unchecked-out records (paginated) ─────────────────────
         logger.info("Fetching records with missing checkout...")
@@ -105,12 +139,26 @@ def handler(job_request, context):
                 continue
 
             try:
+                # ── Calculate work hours from actual check-in → 23:59 IST ──
+                check_in_utc = parse_stored_dt(row.get("check_in_time"))
+                if check_in_utc and checkout_utc > check_in_utc:
+                    total_seconds   = (checkout_utc - check_in_utc).total_seconds()
+                    gross_hours     = round(total_seconds / 3600, 2)
+                    break_minutes   = float(row.get("total_break_minutes") or 0)
+                    net_hours       = round(max(0.0, gross_hours - break_minutes / 60), 2)
+                else:
+                    gross_hours = 0.0
+                    net_hours   = 0.0
+
                 update_data = {
-                    "ROWID"         : row_id,
-                    "check_out_time": checkout_time,  # "2026-05-07 23:59:00"
-                    "bot_checkout"  : True,            # marks it was done by the job
+                    "ROWID"              : row_id,
+                    "check_out_time"     : checkout_time_utc,  # UTC equivalent of 23:59 IST
+                    "bot_checkout"       : "true",
+                    "work_hours"         : gross_hours,
+                    "net_work_hours"     : net_hours,
                 }
 
+                logger.info(f"  ↳ check_in={row.get('check_in_time')} | gross={gross_hours}h | breaks={break_minutes}m | net={net_hours}h")
                 logger.info(f"  ↳ Updating ROWID={row_id} with: {update_data}")
                 update_response = table.update_row(update_data)
                 logger.info(f"  ↳ Update response: {update_response}")
@@ -127,6 +175,7 @@ def handler(job_request, context):
         # ── Final summary ───────────────────────────────────────────────────
         logger.info("=== Auto Checkout Job — Summary ===")
         logger.info(f"  Date processed       : {today_str}")
+        logger.info(f"  Checkout stored as   : {checkout_time_utc} UTC (= 23:59 IST)")
         logger.info(f"  Total records found  : {len(rows)}")
         logger.info(f"  Successfully updated : {success_count}")
         logger.info(f"  Failed to update     : {failure_count}")

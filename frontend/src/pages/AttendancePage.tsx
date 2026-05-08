@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { Clock, LogIn, LogOut, Home, Users, BarChart2, AlertTriangle, UtensilsCrossed, Coffee } from 'lucide-react';
+import { Clock, LogIn, LogOut, Home, Users, BarChart2, AlertTriangle, UtensilsCrossed, Coffee, Bot } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { format, parseISO, startOfWeek, endOfWeek, addDays } from 'date-fns';
 import Layout from '../components/layout/Layout';
@@ -123,73 +123,10 @@ const ATTENDANCE_MANAGER_PERMS = ['ATTENDANCE_ADMIN', 'ATTENDANCE_TEAM_VIEW'];
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 
-type Tab = 'my' | 'wfh' | 'live' | 'records' | 'summary' | 'ip-config';
+type Tab = 'my' | 'wfh' | 'live' | 'records' | 'summary';
 
 // ── IP Config Tab ─────────────────────────────────────────────────────────────
-const IpConfigTab = () => {
-  const { data: ips = [], isLoading } = useIpConfig();
-  const addIp = useAddIpConfig();
-  const deleteIp = useDeleteIpConfig();
-  const [label, setLabel] = useState('');
-  const [ipAddr, setIpAddr] = useState('');
-  const [err, setErr] = useState('');
 
-  const handleAdd = async () => {
-    setErr('');
-    if (!label.trim() || !ipAddr.trim()) { setErr('Label and IP address are required'); return; }
-    try {
-      await addIp.mutateAsync({ label: label.trim(), ip_address: ipAddr.trim() });
-      setLabel(''); setIpAddr('');
-    } catch (e: any) { setErr(e?.message ?? 'Failed to add'); }
-  };
-
-  return (
-    <div className="space-y-5 max-w-xl">
-      <Card>
-        <div className="flex items-center gap-2 mb-4">
-          <Shield size={16} className="text-indigo-600" />
-          <h3 className="font-semibold text-gray-800 text-sm">Allowed IP Addresses</h3>
-        </div>
-        <p className="text-xs text-gray-500 mb-4">
-          When IPs are configured, employees must check in / out from one of these addresses.
-          Outside these networks only WFH check-in is allowed. Supports exact IPs and CIDR notation (e.g. <code>192.168.1.0/24</code>).
-        </p>
-
-        {err && <Alert type="error" message={err} />}
-
-        {/* Add form */}
-        <div className="flex gap-2 mb-4">
-          <input className="form-input flex-1 text-sm" placeholder="Label (e.g. Office)" value={label} onChange={e => setLabel(e.target.value)} />
-          <input className="form-input flex-1 text-sm" placeholder="192.168.1.0/24" value={ipAddr} onChange={e => setIpAddr(e.target.value)} />
-          <Button size="sm" icon={<Plus size={13} />} loading={addIp.isPending} onClick={handleAdd}>Add</Button>
-        </div>
-
-        {/* List */}
-        {isLoading ? <PageSkeleton /> : (ips as any[]).length === 0 ? (
-          <p className="text-xs text-gray-400 text-center py-4">No IP restrictions configured — all networks allowed.</p>
-        ) : (
-          <div className="space-y-2">
-            {(ips as any[]).map((ip: any) => (
-              <div key={ip.ROWID ?? ip.id} className="flex items-center justify-between px-3 py-2.5 bg-gray-50 rounded-xl border border-gray-100">
-                <div>
-                  <p className="text-sm font-medium text-gray-800">{ip.label}</p>
-                  <p className="text-xs text-gray-400 font-mono">{ip.ip_address}</p>
-                </div>
-                <button
-                  onClick={() => deleteIp.mutate(String(ip.ROWID ?? ip.id))}
-                  disabled={deleteIp.isPending}
-                  className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-    </div>
-  );
-};
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -577,7 +514,16 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
                       </div>
                     </td>
                     <td className="py-2.5 pr-4 text-gray-600">{formatTime(rec.checkInTime)}</td>
-                    <td className="py-2.5 pr-4 text-gray-600">{formatTime(rec.checkOutTime)}</td>
+                    <td className="py-2.5 pr-4">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-gray-600">{formatTime((rec as any).checkOutTime)}</span>
+                        {(rec as any).botCheckout && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded-full" title="Auto checked out by system at 23:59">
+                            <Bot size={9} /> Bot
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="py-2.5 pr-4">
                       <BreakCell rec={rec as any} />
                     </td>
@@ -869,7 +815,16 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
                     <td className="px-4 py-3 text-gray-700">{formatDate(rec.date)}</td>
                     <td className="px-4 py-3"><AttendanceStatusBadge status={rec.status} /></td>
                     <td className="px-4 py-3 text-gray-600">{formatTime(rec.checkInTime)}</td>
-                    <td className="px-4 py-3 text-gray-600">{formatTime(rec.checkOutTime)}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-gray-600">{formatTime(rec.checkOutTime)}</span>
+                        {(rec as any).botCheckout && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded-full" title="Auto checked out by system at 23:59">
+                            <Bot size={9} /> Bot
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-gray-600">{rec.hoursWorked?.toFixed(1) ?? '—'}h</td>
                     <td className="px-4 py-3">
                       {rec.isWfh ? <Badge variant="info">WFH</Badge> : <span className="text-gray-300 text-xs">—</span>}
@@ -1350,7 +1305,6 @@ const AttendancePage = () => {
     { id: 'live',      label: 'Team Live',       icon: <Users size={15} />,    managerOnly: true },
     { id: 'records',   label: 'Records',         icon: <BarChart2 size={15} /> },
     { id: 'summary',   label: 'Summary',         icon: <BarChart2 size={15} /> },
-    { id: 'ip-config', label: 'IP Restrictions', icon: <Shield size={15} />,   ipOnly: true },
   ];
 
   const visibleTabs = tabs.filter((t) => {
@@ -1390,7 +1344,6 @@ const AttendancePage = () => {
         {tab === 'live' && isManager && <TeamLiveTab />}
         {tab === 'records' && <RecordsTab isManager={isManager} />}
         {tab === 'summary' && <SummaryTab />}
-        {tab === 'ip-config' && canManageIp && <IpConfigTab />}
       </div>
     </Layout>
   );
