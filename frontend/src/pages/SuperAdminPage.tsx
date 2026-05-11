@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Building2, Users, Shield, Bell, Lock, Unlock, Eye, Search, X, Check,
+  Building2, Users, Shield, Bell, Lock, Unlock, Eye, Search, X, Check, Copy,
   UserX, UserCheck, Layers, LogOut, PanelLeftClose, PanelLeftOpen,
   RefreshCw, ChevronRight, ChevronLeft, AlertTriangle, Settings, BarChart2,
   CreditCard, Activity, TrendingUp, Zap, Filter, CheckCircle2, Bug, Mail, Plus, Save, Reply,
@@ -750,6 +750,20 @@ function BugDetailSlider({ bug, seenReplies, onMarkSeen, onClose, onStatusChange
   const [replyNote,   setReplyNote]   = useState('');
   const [resolveOpen, setResolveOpen] = useState(false);
   const [resolveNote, setResolveNote] = useState('');
+  const [copied,      setCopied]      = useState(false);
+
+  // Commit-friendly short ID — last 7 digits of the Catalyst ROWID
+  const idStr     = String(rowId ?? '');
+  const shortId   = idStr.length > 7 ? idStr.slice(-7) : idStr;
+  const reportTag = `REPORT-${shortId}`;
+
+  const handleCopyReportId = async () => {
+    try {
+      await navigator.clipboard.writeText(reportTag);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (_) { /* clipboard unavailable */ }
+  };
 
   // Auto-mark seen when the panel opens — admin has viewed the reply
   useEffect(() => {
@@ -782,6 +796,21 @@ function BugDetailSlider({ bug, seenReplies, onMarkSeen, onClose, onStatusChange
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${BUG_STATUS_COLORS[bug.status] ?? 'bg-white/10 text-white border-white/20'}`}>
                   {(bug.status || '—').replace(/_/g, ' ')}
                 </span>
+                {/* Copyable Report ID — for pasting into commit messages */}
+                <button
+                  type="button"
+                  onClick={handleCopyReportId}
+                  title={copied ? 'Copied!' : `Click to copy "${reportTag}"\nFull ROWID: ${idStr}`}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-mono font-bold border transition-colors ${
+                    copied
+                      ? 'bg-green-400 text-white border-green-300'
+                      : 'bg-white/95 text-indigo-700 border-white/40 hover:bg-white'
+                  }`}
+                >
+                  {copied
+                    ? <><Check size={11} strokeWidth={3} /> Copied!</>
+                    : <><Copy size={11} /> {reportTag}</>}
+                </button>
                 {wasUnseenAtOpen && (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-400 text-white border border-amber-300 animate-pulse">
                     ↩ NEW REPLY
@@ -2028,8 +2057,9 @@ const SuperAdminPage: React.FC = () => {
                 <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
 
                   {/* Column header bar */}
-                  <div className="hidden sm:grid grid-cols-[24px_1fr_140px_110px_76px_20px] gap-4 items-center px-5 py-2.5 bg-gray-50 border-b border-gray-100">
+                  <div className="hidden sm:grid grid-cols-[24px_120px_1fr_140px_110px_76px_20px] gap-4 items-center px-5 py-2.5 bg-gray-50 border-b border-gray-100">
                     <div />
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Report&nbsp;ID</p>
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Report</p>
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Reporter</p>
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Status</p>
@@ -2049,11 +2079,17 @@ const SuperAdminPage: React.FC = () => {
                         const rowId = r.ROWID ?? r.id;
                         const hasReply   = !!r.reporter_reply;
                         const replyUnseen = hasReply && !seenReplies.has(rowId);
+                        // Short commit-friendly ID — last 7 digits of the
+                        // Catalyst ROWID (the first 10 digits are a fixed
+                        // project/tenant prefix). Format: REPORT-1234567
+                        const idStr     = String(rowId ?? '');
+                        const shortId   = idStr.length > 7 ? idStr.slice(-7) : idStr;
+                        const shortBug  = `REPORT-${shortId}`;
                         return (
                           <div
                             key={rowId}
                             onClick={() => setSelectedBugId(rowId)}
-                            className={`grid grid-cols-[24px_1fr_140px_110px_76px_20px] gap-4 items-center px-5 py-4 cursor-pointer group transition-all ${
+                            className={`grid grid-cols-[24px_120px_1fr_140px_110px_76px_20px] gap-4 items-center px-5 py-4 cursor-pointer group transition-all ${
                               replyUnseen
                                 ? 'bg-amber-50/60 hover:bg-amber-50 border-l-[3px] border-amber-400'
                                 : hasReply
@@ -2070,6 +2106,19 @@ const SuperAdminPage: React.FC = () => {
                                   : null
                               }
                             </div>
+
+                            {/* Report ID — click to copy. Tooltip shows full ROWID. */}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard?.writeText(shortBug);
+                              }}
+                              title={`Full ROWID: ${idStr}\nClick to copy "${shortBug}"`}
+                              className="font-mono text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-md px-2 py-1 truncate text-left transition-colors"
+                            >
+                              {shortBug}
+                            </button>
 
                             {/* Title + badges */}
                             <div className="min-w-0">

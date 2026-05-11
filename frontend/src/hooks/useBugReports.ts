@@ -18,10 +18,16 @@ export const useBugReport = (id: string) =>
     enabled:  !!id,
   });
 
-export const useAllBugReports = (params?: Record<string, string>) =>
+// `enabled` lets callers (e.g. BugReportsPage) gate the request on isAdmin so
+// non-admins don't trigger a 403 on /reports/all that the backend would log.
+export const useAllBugReports = (
+  params?: Record<string, string>,
+  options?: { enabled?: boolean }
+) =>
   useQuery({
     queryKey: ['bug-reports-all', params],
     queryFn:  () => bugApi.listAll(params),
+    enabled:  options?.enabled !== false,
     refetchOnMount: 'always',
   });
 

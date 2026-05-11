@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Bug, Plus, Search, CheckCircle2, Clock, AlertCircle,
   ChevronRight, X, Send, RotateCcw, Settings,
@@ -123,6 +124,112 @@ function detectType(file: File): 'IMAGE' | 'VIDEO' | 'FILE' {
   if (file.type.startsWith('video/')) return 'VIDEO';
   return 'FILE';
 }
+
+// ─── Bug Report Attachments — gallery shown inside the detail modal ──────────
+// Fetches the full report via bugApi.get (which returns `attachments`) and
+// renders images inline, videos with a player, and other files as download
+// chips. Mirrors the pattern used by the super-admin slider.
+const BugReportAttachments: React.FC<{ reportId: string; replyAt?: string | null }> = ({ reportId, replyAt }) => {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['bug-detail', reportId],
+    queryFn:  () => bugApi.get(reportId).then((d: any) => d),
+    enabled:  !!reportId,
+    staleTime: 30_000,
+  });
+
+  const allAttachments: any[] = (data as any)?.attachments ?? [];
+
+  // Split into "original" (uploaded with the report) vs "reply" (uploaded
+  // when the reporter posted their follow-up reply) so the user can tell
+  // which set belongs to which conversation step.
+  const replyMs = replyAt ? new Date(replyAt).getTime() : 0;
+  const originals = replyMs
+    ? allAttachments.filter((a: any) => {
+        const t = a.CREATEDTIME ? new Date(a.CREATEDTIME).getTime() : 0;
+        // Allow a 30-second grace so attachments uploaded right after the
+        // reply still count as reply attachments, not original.
+        return !t || t < replyMs - 30_000;
+      })
+    : allAttachments;
+  const replyAttachments = replyMs
+    ? allAttachments.filter((a: any) => {
+        const t = a.CREATEDTIME ? new Date(a.CREATEDTIME).getTime() : 0;
+        return t >= replyMs - 30_000;
+      })
+    : [];
+
+  if (isLoading) return <p className="text-xs text-gray-400">Loading attachments…</p>;
+  if (isError)   return <p className="text-xs text-red-400">Could not load attachments.</p>;
+  if (allAttachments.length === 0) return null;
+
+  const renderOne = (att: any) => {
+    const url     = att.file_url ?? '';
+    const name    = att.file_name ?? 'file';
+    const mime    = String(att.mime_type ?? '').toLowerCase();
+    const ftype   = String(att.file_type ?? '').toLowerCase();
+    const isImage = mime.startsWith('image/') || ftype === 'image';
+    const isVideo = mime.startsWith('video/') || ftype === 'video';
+    const sizeKb  = att.file_size ? Math.round(Number(att.file_size) / 1024) : null;
+
+    if (isImage) {
+      return (
+        <a key={att.ROWID ?? url} href={url} target="_blank" rel="noopener noreferrer"
+          className="block rounded-xl overflow-hidden border border-gray-200 hover:border-indigo-400 transition-colors shrink-0"
+          title={`${name} — click to open full size`}>
+          <img src={url} alt={name} loading="lazy" className="h-32 w-auto object-cover bg-gray-50" />
+          <p className="px-2 py-1 text-[10px] text-gray-500 truncate max-w-[160px]">{name}</p>
+        </a>
+      );
+    }
+    if (isVideo) {
+      return (
+        <div key={att.ROWID ?? url} className="rounded-xl overflow-hidden border border-gray-200 shrink-0">
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+          <video src={url} controls className="h-32 max-w-[240px] object-contain bg-black" />
+          <p className="px-2 py-1 text-[10px] text-gray-500 truncate max-w-[240px]">{name}</p>
+        </div>
+      );
+    }
+    return (
+      <a key={att.ROWID ?? url} href={url} target="_blank" rel="noopener noreferrer"
+        className="flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 hover:border-indigo-400 hover:bg-indigo-50 transition-colors text-xs text-gray-700 max-w-[240px]"
+        title={name}>
+        <Paperclip size={14} className="text-gray-400 shrink-0" />
+        <div className="min-w-0">
+          <p className="font-medium truncate">{name}</p>
+          {sizeKb !== null && <p className="text-[10px] text-gray-400">{sizeKb} KB</p>}
+        </div>
+      </a>
+    );
+  };
+
+  return (
+    <div className="space-y-3">
+      {originals.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <Paperclip size={12} className="text-gray-400" />
+            Attachments ({originals.length})
+          </p>
+          <div className="flex flex-wrap gap-2.5">
+            {originals.map(renderOne)}
+          </div>
+        </div>
+      )}
+      {replyAttachments.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold text-indigo-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <Reply size={12} />
+            Reply attachments ({replyAttachments.length})
+          </p>
+          <div className="flex flex-wrap gap-2.5">
+            {replyAttachments.map(renderOne)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ─── Detail / management modal ────────────────────────────────────────────────
 
@@ -299,6 +406,16 @@ const DetailModal = ({ report, isAdmin, open, onClose }: {
             </div>
           )}
         </div>
+
+        {/* ── Attachment gallery — visible to both reporter and admin ── */}
+        {Number(report.attachment_count) > 0 && report.ROWID && (
+          <div className="border-t border-gray-100 pt-4">
+            <BugReportAttachments
+              reportId={report.ROWID}
+              replyAt={report.reporter_reply_at ?? null}
+            />
+          </div>
+        )}
 
         {/* ── REPORTER VIEW ─────────────────────────────────────── */}
         {!isAdmin && (
@@ -683,8 +800,12 @@ export default function BugReportsPage() {
 
   // Queries — pass `all=true` so super admin sees the full result set
   // (paginated internally on the backend past ZCQL's 200-row per-query cap).
+  // Gate /reports/all on isAdmin — non-admins hit a 403 otherwise.
   const { data: rawMine = [], isLoading: loadingMine } = useBugReports();
-  const { data: rawAll  = [], isLoading: loadingAll  } = useAllBugReports({ all: 'true' });
+  const { data: rawAll  = [], isLoading: loadingAll  } = useAllBugReports(
+    { all: 'true' },
+    { enabled: isAdmin }
+  );
   const { data: rawConfig } = useBugConfig();
 
   const cfg         = rawConfig as any;

@@ -185,11 +185,16 @@ class BugReportController {
     const effectiveTenantId = existingReport.tenant_id || tenantId;
     console.log('[BugReportCtrl] uploadAttachment Step 4 — inserting attachment record');
     try {
+      // IMPORTANT: pass bug_report_id as a quoted string, NOT parseInt().
+      // Catalyst ROWIDs exceed Number.MAX_SAFE_INTEGER (~9.0×10^15) so
+      // parseInt('17682000001598517', 10) rounds and the FK lookup fails with
+      // "Invalid Foreign key value for column bug_report_id". Keeping the raw
+      // string preserves the full precision.
       await req.catalystApp.zcql().executeZCQLQuery(
         `INSERT INTO ${TABLES.BUG_REPORT_ATTACHMENTS}
            (bug_report_id, tenant_id, file_url, file_name, file_type, mime_type, file_size)
          VALUES
-           ('${parseInt(reportId, 10)}', '${esc(effectiveTenantId)}', '${esc(fileUrl)}',
+           ('${esc(reportId)}', '${esc(effectiveTenantId)}', '${esc(fileUrl)}',
             '${esc(file_name)}', '${esc(file_type || ext)}', '${esc(mime_type || 'application/octet-stream')}',
             '${esc(String(file_size || buffer.length))}')`
       );
@@ -219,7 +224,7 @@ class BugReportController {
     try {
       const raw  = await req.catalystApp.zcql().executeZCQLQuery(
         `SELECT * FROM ${TABLES.BUG_REPORT_ATTACHMENTS}
-         WHERE bug_report_id = ${parseInt(reportId, 10)}
+         WHERE bug_report_id = '${esc(reportId)}'
            AND file_url = '${esc(fileUrl)}' LIMIT 1`
       );
       const rows = flattenRows(raw);
@@ -263,7 +268,7 @@ class BugReportController {
     try {
       const rawAtt = await req.catalystApp.zcql().executeZCQLQuery(
         `SELECT * FROM ${TABLES.BUG_REPORT_ATTACHMENTS}
-         WHERE bug_report_id = ${parseInt(reportId, 10)}
+         WHERE bug_report_id = '${esc(reportId)}'
          ORDER BY ROWID ASC LIMIT 20`
       );
       attachments = flattenRows(rawAtt);
@@ -467,7 +472,7 @@ class BugReportController {
     try {
       const rawAtt = await req.catalystApp.zcql().executeZCQLQuery(
         `SELECT * FROM ${TABLES.BUG_REPORT_ATTACHMENTS}
-         WHERE bug_report_id = ${parseInt(reportId, 10)}
+         WHERE bug_report_id = '${esc(reportId)}'
          ORDER BY ROWID ASC LIMIT 50`
       );
       attachments = flattenRows(rawAtt);
