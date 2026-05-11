@@ -334,7 +334,7 @@ class LeaveController {
 
       if (balance.length > 0 && parseFloat(balance[0].remaining_days) < days_count)
         return ResponseHelper.validationError(res,
-          `Insufficient leave balance. Available: ${balance[0].remaining_days} days`);
+          `Insufficient ${leaveTypeName} balance. Available: ${parseFloat(balance[0].remaining_days)} days, Requested: ${days_count} days`);
 
       // ── Insert request ─────────────────────────────────────────────────────
       //   Pass as strings — avoids both precision loss and BigInt serialization error
@@ -838,6 +838,72 @@ class LeaveController {
       });
     } catch (err) {
       console.error('[LeaveController.saveCalendarConfig]', err.message);
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  // ── Leave Accrual Policy ──────────────────────────────────────────────────────
+  async getLeavePolicy(req, res) {
+    try {
+      const tenantRows = await this.db.query(
+        `SELECT settings FROM ${TABLES.TENANTS} WHERE ROWID = '${req.tenantId}' LIMIT 1`
+      );
+      let settings = {};
+      if (tenantRows.length > 0) {
+        try { settings = JSON.parse(tenantRows[0].settings || '{}'); } catch (_) {}
+      }
+      return ResponseHelper.success(res, settings.leavePolicy || {
+        accrualEnabled: false,
+        probationMonths: 3,
+        leaveTypes: {},
+      });
+    } catch (err) {
+      console.error('[LeaveController.getLeavePolicy]', err.message);
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  async saveLeavePolicy(req, res) {
+    try {
+      const { accrualEnabled, probationMonths, leaveTypes } = req.body;
+
+      let tenantRow = null;
+      let settings = {};
+      try {
+        const tenantRows = await this.db.query(
+          `SELECT ROWID, settings FROM ${TABLES.TENANTS} WHERE ROWID = '${req.tenantId}' LIMIT 1`
+        );
+        if (tenantRows.length > 0) {
+          tenantRow = tenantRows[0];
+          settings = JSON.parse(tenantRow.settings || '{}');
+        }
+      } catch (_) {}
+
+      if (!tenantRow) return ResponseHelper.notFound(res, 'Tenant not found');
+
+      settings.leavePolicy = {
+        accrualEnabled: !!accrualEnabled,
+        probationMonths: Number(probationMonths ?? 3),
+        leaveTypes: leaveTypes || {},
+      };
+
+      await this.adminDb.update(TABLES.TENANTS, {
+        ROWID: String(tenantRow.ROWID),
+        settings: JSON.stringify(settings),
+      });
+
+      await this.audit.log({
+        tenantId: req.tenantId,
+        entityType: 'LEAVE_POLICY',
+        entityId: String(req.tenantId),
+        action: AUDIT_ACTION.UPDATE,
+        newValue: settings.leavePolicy,
+        performedBy: req.currentUser.id,
+      });
+
+      return ResponseHelper.success(res, settings.leavePolicy);
+    } catch (err) {
+      console.error('[LeaveController.saveLeavePolicy]', err.message);
       return ResponseHelper.serverError(res, err.message);
     }
   }

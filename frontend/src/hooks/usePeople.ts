@@ -750,3 +750,22 @@ export const useSetLeaveBalance = () => {
     onError: (e: Error) => toast.error(e.message || 'Failed to update leave balance'),
   });
 };
+
+export const useLeavePolicy = () =>
+  useQuery({
+    queryKey: ['leave', 'policy'],
+    queryFn: () => leaveApi.getLeavePolicy(),
+  });
+
+export const useSaveLeavePolicy = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (data: unknown) => leaveApi.saveLeavePolicy(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['leave', 'policy'] });
+      toast.success('Leave accrual policy saved');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to save leave policy'),
+  });
+};

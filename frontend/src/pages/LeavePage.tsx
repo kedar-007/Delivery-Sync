@@ -1,6 +1,6 @@
 import React, { useState ,useEffect} from 'react';
 import { useParams } from 'react-router-dom';
-import { Plus, Calendar, CheckCircle, XCircle, Clock, BarChart2, Building2, Trash2, Upload, LayoutGrid, LayoutList, MapPin, Pencil, Users } from 'lucide-react';
+import { Plus, Calendar, CheckCircle, XCircle, Clock, BarChart2, Building2, Trash2, Upload, LayoutGrid, LayoutList, MapPin, Pencil, Users, Save, ChevronDown, ChevronUp, Settings2, AlertTriangle, Info } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { format, parseISO, differenceInCalendarDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import Layout from '../components/layout/Layout';
@@ -30,6 +30,8 @@ import {
   useCalendarConfig,
   useAllLeaveBalances,
   useSetLeaveBalance,
+  useLeavePolicy,
+  useSaveLeavePolicy,
 } from '../hooks/usePeople';
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
@@ -1734,6 +1736,325 @@ export const LeaveBalancesTab = () => {
           </ModalActions>
         </form>
       </Modal>
+    </div>
+  );
+};
+
+// ── Leave Accrual Policy Tab ──────────────────────────────────────────────────
+
+const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+interface LeaveTypePolicy {
+  accrualMethod: 'none' | 'monthly' | 'yearly';
+  monthlyAmount?: number;
+  skipMonths?: number[];
+  carryForwardEnabled?: boolean;
+  maxCarryForwardDays?: number;
+}
+
+interface LeavePolicyData {
+  accrualEnabled: boolean;
+  probationMonths: number;
+  leaveTypes: Record<string, LeaveTypePolicy>;
+}
+
+const DEFAULT_TYPE_POLICY: LeaveTypePolicy = {
+  accrualMethod: 'none',
+  monthlyAmount: 1.25,
+  skipMonths: [],
+  carryForwardEnabled: false,
+  maxCarryForwardDays: 0,
+};
+
+export const LeaveAccrualPolicyTab = () => {
+  const { data: typesData, isLoading: typesLoading } = useLeaveTypes();
+  const leaveTypes: { id: string; name: string; code: string }[] = (typesData as any[]) ?? [];
+  const { data: policyData, isLoading: policyLoading } = useLeavePolicy();
+  const savePolicy = useSaveLeavePolicy();
+
+  const [policy, setPolicy] = React.useState<LeavePolicyData>({
+    accrualEnabled: false,
+    probationMonths: 3,
+    leaveTypes: {},
+  });
+  const [savedEnabled, setSavedEnabled] = React.useState(false); // track what's actually saved in DB
+  const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
+  const [saveError, setSaveError] = React.useState('');
+  const [showEnableConfirm, setShowEnableConfirm] = React.useState(false);
+
+  React.useEffect(() => {
+    if (policyData) {
+      const pd = policyData as LeavePolicyData;
+      setPolicy(pd);
+      setSavedEnabled(!!pd.accrualEnabled);
+    }
+  }, [policyData]);
+
+  const typePol = (id: string): LeaveTypePolicy =>
+    policy.leaveTypes[id] ?? { ...DEFAULT_TYPE_POLICY };
+
+  const setTypePol = (id: string, patch: Partial<LeaveTypePolicy>) => {
+    setPolicy((p) => ({
+      ...p,
+      leaveTypes: { ...p.leaveTypes, [id]: { ...typePol(id), ...patch } },
+    }));
+  };
+
+  const toggleSkipMonth = (typeId: string, month: number) => {
+    const current = typePol(typeId).skipMonths ?? [];
+    const next = current.includes(month)
+      ? current.filter((m) => m !== month)
+      : [...current, month].sort((a, b) => a - b);
+    setTypePol(typeId, { skipMonths: next });
+  };
+
+  const handleToggleAccrual = (enabled: boolean) => {
+    if (enabled && !savedEnabled) {
+      // Turning ON from saved-OFF state — require confirmation
+      setShowEnableConfirm(true);
+    } else {
+      setPolicy((p) => ({ ...p, accrualEnabled: enabled }));
+    }
+  };
+
+  const confirmEnableAccrual = () => {
+    setPolicy((p) => ({ ...p, accrualEnabled: true }));
+    setShowEnableConfirm(false);
+  };
+
+  const handleSave = async () => {
+    try {
+      setSaveError('');
+      await savePolicy.mutateAsync(policy);
+      setSavedEnabled(policy.accrualEnabled);
+    } catch (err: unknown) {
+      setSaveError((err as Error).message);
+    }
+  };
+
+  if (typesLoading || policyLoading) return <PageSkeleton />;
+
+  return (
+    <div className="space-y-5 max-w-2xl">
+      {saveError && <Alert type="error" message={saveError} />}
+
+      {/* Info banner */}
+      <div className="flex items-start gap-2.5 p-3 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-700">
+        <Info size={14} className="mt-0.5 flex-shrink-0" />
+        <span>
+          Saving this policy only stores the configuration.{' '}
+          <strong>Leave balances are only updated when the monthly accrual cron runs</strong>{' '}
+          (scheduled for the 1st of each month). Saving this form will not immediately change any employee's balance.
+        </span>
+      </div>
+
+      {/* Global toggle */}
+      <Card>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900">Leave Accrual</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Automatically accrue leave balance for active employees each month.
+            </p>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              className="sr-only peer"
+              checked={policy.accrualEnabled}
+              onChange={(e) => handleToggleAccrual(e.target.checked)}
+            />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600" />
+          </label>
+        </div>
+
+        {policy.accrualEnabled && (
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <label className="form-label">Probation Period (months)</label>
+            <div className="flex items-center gap-2 mt-1">
+              <input
+                type="number"
+                min={0}
+                max={24}
+                className="form-input w-24"
+                value={policy.probationMonths}
+                onChange={(e) => setPolicy((p) => ({ ...p, probationMonths: Number(e.target.value) }))}
+              />
+              <span className="text-xs text-gray-500">
+                New employees will not accrue leave during probation.
+              </span>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* Enable accrual confirmation modal */}
+      <Modal
+        open={showEnableConfirm}
+        onClose={() => setShowEnableConfirm(false)}
+        title="Enable Leave Accrual?"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <AlertTriangle size={16} className="text-amber-600 mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-amber-800">
+              When the monthly accrual cron runs, it will automatically <strong>add days to every active employee's leave balance</strong> based on the amounts configured below. This affects live data — make sure your settings are correct before the cron runs.
+            </p>
+          </div>
+          <p className="text-sm text-gray-600">
+            You can configure the amounts per leave type below before saving. The cron only runs on the 1st of each month, so you have time to review.
+          </p>
+          <ModalActions>
+            <Button variant="outline" type="button" onClick={() => setShowEnableConfirm(false)}>
+              Cancel
+            </Button>
+            <Button onClick={confirmEnableAccrual}>
+              Enable Accrual
+            </Button>
+          </ModalActions>
+        </div>
+      </Modal>
+
+      {/* Per leave-type settings */}
+      {policy.accrualEnabled && leaveTypes.map((lt) => {
+        const ltp   = typePol(lt.id);
+        const isExp = expanded[lt.id] ?? false;
+
+        return (
+          <Card key={lt.id} padding={false}>
+            <button
+              type="button"
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
+              onClick={() => setExpanded((e) => ({ ...e, [lt.id]: !isExp }))}
+            >
+              <div className="flex items-center gap-3">
+                <Settings2 size={15} className="text-gray-400" />
+                <div className="text-left">
+                  <span className="text-sm font-medium text-gray-900">{lt.name}</span>
+                  <span className="ml-2 text-xs text-gray-400 font-mono">{lt.code}</span>
+                </div>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                  ltp.accrualMethod === 'monthly' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                }`}>
+                  {ltp.accrualMethod === 'monthly' ? `${ltp.monthlyAmount ?? 0} days/mo` : 'No accrual'}
+                </span>
+              </div>
+              {isExp ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
+            </button>
+
+            {isExp && (
+              <div className="px-4 pb-4 pt-1 border-t border-gray-100 space-y-4">
+
+                {/* Accrual method */}
+                <div>
+                  <label className="form-label">Accrual Method</label>
+                  <select
+                    className="form-select"
+                    value={ltp.accrualMethod}
+                    onChange={(e) => setTypePol(lt.id, { accrualMethod: e.target.value as any })}
+                  >
+                    <option value="none">No Accrual</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+
+                {ltp.accrualMethod === 'monthly' && (
+                  <>
+                    {/* Monthly amount */}
+                    <div>
+                      <label className="form-label">Days per Month</label>
+                      <input
+                        type="number"
+                        min={0.25}
+                        max={5}
+                        step={0.25}
+                        className="form-input w-28"
+                        value={ltp.monthlyAmount ?? 1.25}
+                        onChange={(e) => setTypePol(lt.id, { monthlyAmount: parseFloat(e.target.value) })}
+                      />
+                    </div>
+
+                    {/* Skip months */}
+                    <div>
+                      <label className="form-label mb-1.5">Skip Accrual in Months</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {MONTH_LABELS.map((label, idx) => {
+                          const month = idx + 1;
+                          const skipped = (ltp.skipMonths ?? []).includes(month);
+                          return (
+                            <button
+                              key={month}
+                              type="button"
+                              onClick={() => toggleSkipMonth(lt.id, month)}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                                skipped
+                                  ? 'bg-red-50 border-red-200 text-red-700'
+                                  : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {(ltp.skipMonths ?? []).length === 0
+                          ? 'Accruing all 12 months'
+                          : `Skipping ${(ltp.skipMonths ?? []).map((m) => MONTH_LABELS[m - 1]).join(', ')} — ${12 - (ltp.skipMonths ?? []).length} months/year`}
+                      </p>
+                    </div>
+                  </>
+                )}
+
+                {/* Carry-forward */}
+                <div className="pt-1 border-t border-gray-50">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">Carry Forward</p>
+                      <p className="text-xs text-gray-500">Allow unused balance to roll over to next year.</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        checked={ltp.carryForwardEnabled ?? false}
+                        onChange={(e) => setTypePol(lt.id, { carryForwardEnabled: e.target.checked })}
+                      />
+                      <div className="w-9 h-5 bg-gray-200 peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600" />
+                    </label>
+                  </div>
+                  {ltp.carryForwardEnabled && (
+                    <div className="mt-3 flex items-center gap-2">
+                      <label className="text-xs text-gray-600 whitespace-nowrap">Max carry-forward days:</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={30}
+                        step={0.5}
+                        className="form-input w-20"
+                        value={ltp.maxCarryForwardDays ?? 0}
+                        onChange={(e) => setTypePol(lt.id, { maxCarryForwardDays: parseFloat(e.target.value) })}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </Card>
+        );
+      })}
+
+      {/* Save */}
+      <div className="flex justify-end">
+        <Button
+          icon={<Save size={15} />}
+          loading={savePolicy.isPending}
+          onClick={handleSave}
+        >
+          Save Accrual Policy
+        </Button>
+      </div>
     </div>
   );
 };

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   MapPin, CalendarDays, BarChart2, Building2,
-  Wifi, Globe, Target, Clock, Lock, Info,
+  Wifi, Globe, Target, Clock, Lock, Info, TrendingUp,
 } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
@@ -11,7 +11,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { OfficeLocationsTab } from './AdminPage';
 import { LeaveTypesTab } from './AdminConfigPage';
-import { CompanyCalendarTab, LeaveBalancesTab } from './LeavePage';
+import { CompanyCalendarTab, LeaveBalancesTab, LeaveAccrualPolicyTab } from './LeavePage';
 import { IpRestrictionsTab, GeoRestrictionsTab, ZoneRestrictionsTab, ShiftsTab } from './IpConfigPage';
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
@@ -21,6 +21,7 @@ type TabKey =
   | 'leave-types'
   | 'leave-balances'
   | 'company-calendar'
+  | 'leave-accrual-policy'
   | 'ip-restrictions'
   | 'geo-restrictions'
   | 'zone-restrictions'
@@ -70,6 +71,15 @@ const TABS: TabDef[] = [
     icon: Building2,
     color: 'text-red-500',
     activeColor: 'bg-red-50 text-red-700 border-red-100',
+    section: 'leave',
+    permission: PERMISSIONS.LEAVE_ADMIN,
+  },
+  {
+    key: 'leave-accrual-policy',
+    label: 'Accrual Policy',
+    icon: TrendingUp,
+    color: 'text-orange-500',
+    activeColor: 'bg-orange-50 text-orange-700 border-orange-100',
     section: 'leave',
     permission: PERMISSIONS.LEAVE_ADMIN,
   },
@@ -237,14 +247,15 @@ const PeopleSettingsPage = () => {
               </div>
             )}
 
-            {activeTab === 'office-locations'  && <OfficeLocationsTab />}
-            {activeTab === 'leave-types'        && <LeaveTypesTab />}
-            {activeTab === 'leave-balances'     && <LeaveBalancesTab />}
-            {activeTab === 'company-calendar'   && <CompanyCalendarTab />}
-            {activeTab === 'ip-restrictions'    && <IpRestrictionsTab />}
-            {activeTab === 'geo-restrictions'   && <GeoRestrictionsTab />}
-            {activeTab === 'zone-restrictions'  && <ZoneRestrictionsTab />}
-            {activeTab === 'work-shifts'        && <ShiftsTab />}
+            {activeTab === 'office-locations'    && <OfficeLocationsTab />}
+            {activeTab === 'leave-types'         && <LeaveTypesTab />}
+            {activeTab === 'leave-balances'      && <LeaveBalancesTab />}
+            {activeTab === 'company-calendar'    && <CompanyCalendarTab />}
+            {activeTab === 'leave-accrual-policy' && <LeaveAccrualPolicyTab />}
+            {activeTab === 'ip-restrictions'     && <IpRestrictionsTab />}
+            {activeTab === 'geo-restrictions'    && <GeoRestrictionsTab />}
+            {activeTab === 'zone-restrictions'   && <ZoneRestrictionsTab />}
+            {activeTab === 'work-shifts'         && <ShiftsTab />}
           </div>
         </div>
       )}

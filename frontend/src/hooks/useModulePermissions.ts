@@ -39,7 +39,9 @@ export function useModulePermissions() {
 
   if (skip) return DEFAULTS;
 
-  const tenantModules = data ?? DEFAULTS;
+  // Merge API data with DEFAULTS so any key the backend doesn't return yet
+  // (e.g. newly added modules) stays enabled rather than becoming undefined → falsy.
+  const tenantModules: ModulePermissions = data ? { ...DEFAULTS, ...data } : DEFAULTS;
 
   // Overlay org-role module access: if the user's org role has disabled a module,
   // mark it false regardless of the tenant-level setting.

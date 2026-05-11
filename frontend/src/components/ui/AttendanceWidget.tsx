@@ -108,30 +108,48 @@ const AttendanceWidget: React.FC = () => {
           </div>
         )}
 
-        {/* Active break indicator + End Break */}
-        {onBreak && (
-          <div className="flex items-center gap-1">
-            <div className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-xs font-mono ${isOverBreak ? 'bg-red-50 border-red-300 text-red-700' : 'bg-orange-50 border-orange-200 text-orange-700'}`}>
-              {activeBreak?.break_type === 'LUNCH' ? <UtensilsCrossed size={11} /> : <Coffee size={11} />}
-              <span>{activeBreak?.break_type === 'LUNCH' ? 'Lunch' : 'Break'}</span>
-              <span className="font-bold">{fmt2(Math.floor(breakSecs / 60))}:{fmt2(breakSecs % 60)}</span>
-              {isOverBreak && (
-                <span className="flex items-center gap-0.5 text-red-600 font-semibold ml-1">
-                  <AlertTriangle size={10} />+{overMins}m
-                </span>
-              )}
+        {/* Active break indicator + End Break — color-coded per break type so
+            it's obvious at a glance whether the user is on Lunch or a Short
+            break. Lunch = amber (food), Short = sky-blue (coffee/tea). */}
+        {onBreak && (() => {
+          const isLunch = activeBreak?.break_type === 'LUNCH';
+          const Icon   = isLunch ? UtensilsCrossed : Coffee;
+          const label  = isLunch ? 'Lunch Break' : 'Short Break';
+          // Over-allowance always escalates to red regardless of type
+          const styles = isOverBreak
+            ? 'bg-red-50 border-red-300 text-red-700'
+            : isLunch
+              ? 'bg-amber-50 border-amber-300 text-amber-800'
+              : 'bg-sky-50 border-sky-300 text-sky-800';
+          const endBtn = isLunch
+            ? 'bg-amber-100 hover:bg-amber-200 border-amber-300 text-amber-800'
+            : 'bg-sky-100 hover:bg-sky-200 border-sky-300 text-sky-800';
+          return (
+            <div className="flex items-center gap-1">
+              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs ${styles}`}>
+                <Icon size={13} className="shrink-0" />
+                <span className="font-semibold">{label}</span>
+                <span className="font-mono font-bold">{fmt2(Math.floor(breakSecs / 60))}:{fmt2(breakSecs % 60)}</span>
+                {isOverBreak && (
+                  <span className="flex items-center gap-0.5 text-red-600 font-semibold ml-0.5">
+                    <AlertTriangle size={10} />+{overMins}m
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={handleBreakEnd}
+                disabled={breakEnd.isPending}
+                className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-xs font-medium transition-colors disabled:opacity-60 ${endBtn}`}
+              >
+                {breakEnd.isPending ? '…' : 'End Break'}
+              </button>
             </div>
-            <button
-              onClick={handleBreakEnd}
-              disabled={breakEnd.isPending}
-              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-orange-100 hover:bg-orange-200 border border-orange-300 text-orange-700 text-xs font-medium transition-colors disabled:opacity-60"
-            >
-              {breakEnd.isPending ? '…' : 'End Break'}
-            </button>
-          </div>
-        )}
+          );
+        })()}
 
-        {/* Break buttons — Lunch and Short, only when working and not on break */}
+        {/* Break buttons — Lunch (amber) and Short (sky-blue), only when
+            working and not on break. Colors match the active-break pill above
+            so users build muscle memory: amber = food, sky-blue = coffee. */}
         {isWorking && !onBreak && (
           <>
             <button
@@ -141,11 +159,11 @@ const AttendanceWidget: React.FC = () => {
               className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-xs transition-colors disabled:opacity-60 ${
                 lunchInfo.remaining_minutes === 0
                   ? 'border-gray-200 text-gray-300 cursor-default'
-                  : 'border-transparent hover:bg-orange-50 hover:border-orange-200 text-gray-400 hover:text-orange-600'
+                  : 'border-transparent hover:bg-amber-50 hover:border-amber-200 text-gray-500 hover:text-amber-700'
               }`}
             >
-              <UtensilsCrossed size={12} />
-              <span className="hidden sm:inline">Lunch</span>
+              <UtensilsCrossed size={13} />
+              <span className="hidden sm:inline font-medium">Lunch</span>
               <span className="text-gray-300 text-xs">{lunchInfo.remaining_minutes}m</span>
             </button>
             <button
@@ -155,11 +173,11 @@ const AttendanceWidget: React.FC = () => {
               className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-xs transition-colors disabled:opacity-60 ${
                 shortInfo.remaining_minutes === 0
                   ? 'border-gray-200 text-gray-300 cursor-default'
-                  : 'border-transparent hover:bg-orange-50 hover:border-orange-200 text-gray-400 hover:text-orange-600'
+                  : 'border-transparent hover:bg-sky-50 hover:border-sky-200 text-gray-500 hover:text-sky-700'
               }`}
             >
-              <Coffee size={12} />
-              <span className="hidden sm:inline">Break</span>
+              <Coffee size={13} />
+              <span className="hidden sm:inline font-medium">Short</span>
               <span className="text-gray-300 text-xs">{shortInfo.remaining_minutes}m</span>
             </button>
           </>

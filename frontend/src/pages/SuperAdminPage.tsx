@@ -1031,6 +1031,9 @@ const SuperAdminPage: React.FC = () => {
   const [bugSeverity, setBugSeverity] = useState('');
   const [bugTenant,   setBugTenant]   = useState('');
   const [bugPage,     setBugPage]     = useState(1);
+  // Sub-view tab so reports and reporter replies don't get mixed together —
+  // 'all' (sorted newest-first), 'reports' (no reply yet), 'replies' (has reply)
+  const [bugView,     setBugView]     = useState<'all' | 'reports' | 'replies'>('all');
 
   // Notification config state
   const [cfgEmails,      setCfgEmails]      = useState<string[]>([]);
@@ -1219,29 +1222,38 @@ const SuperAdminPage: React.FC = () => {
     (bugReports as any[]).filter((r: any) => !!r.reporter_reply && !seenReplies.has(r.ROWID ?? r.id)).length,
   [bugReports, seenReplies]);
 
+  // ROWID is monotonically increasing on the backend — newest insert always
+  // has the largest value. Use it as the source-of-truth for "newest first"
+  // since CREATEDTIME on incoming rows can be a number, string, or undefined.
+  const rowIdNum = (r: any): number => {
+    const v = r?.ROWID ?? r?.id;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const replyTime = (r: any): number =>
+    r?.reporter_reply_at ? new Date(r.reporter_reply_at).getTime() : 0;
+
   const filteredBugs = useMemo(() => {
-    let rows = (bugReports as any[]).slice().sort((a: any, b: any) => {
-      const aId = a.ROWID ?? a.id;
-      const bId = b.ROWID ?? b.id;
-      // Unseen replies float highest
-      const aUnseen = !!a.reporter_reply && !seenReplies.has(aId);
-      const bUnseen = !!b.reporter_reply && !seenReplies.has(bId);
-      if (aUnseen !== bUnseen) return aUnseen ? -1 : 1;
-      // Then any replied
-      const aReplied = !!a.reporter_reply;
-      const bReplied = !!b.reporter_reply;
-      if (aReplied !== bReplied) return aReplied ? -1 : 1;
-      // Within replied group: sort by reply time desc
-      if (aReplied && bReplied) {
-        const ra = a.reporter_reply_at ? new Date(a.reporter_reply_at).getTime() : 0;
-        const rb = b.reporter_reply_at ? new Date(b.reporter_reply_at).getTime() : 0;
-        if (ra !== rb) return rb - ra;
-      }
-      // Fallback: newest report first
-      const ta = a.CREATEDTIME ? new Date(a.CREATEDTIME).getTime() : 0;
-      const tb = b.CREATEDTIME ? new Date(b.CREATEDTIME).getTime() : 0;
-      return tb - ta;
-    });
+    // 1. Split by sub-view so reports and replies aren't mixed
+    let rows = (bugReports as any[]).slice();
+    if (bugView === 'reports')      rows = rows.filter((r: any) => !r.reporter_reply);
+    else if (bugView === 'replies') rows = rows.filter((r: any) => !!r.reporter_reply);
+
+    // 2. Sort
+    //    - 'replies' view: newest reply first (unseen still float higher within that)
+    //    - 'all' / 'reports': newest report first (by ROWID)
+    if (bugView === 'replies') {
+      rows.sort((a: any, b: any) => {
+        const aUnseen = !seenReplies.has(a.ROWID ?? a.id);
+        const bUnseen = !seenReplies.has(b.ROWID ?? b.id);
+        if (aUnseen !== bUnseen) return aUnseen ? -1 : 1;
+        return replyTime(b) - replyTime(a);
+      });
+    } else {
+      rows.sort((a: any, b: any) => rowIdNum(b) - rowIdNum(a));
+    }
+
+    // 3. Search filter
     if (bugSearch) {
       const q = bugSearch.toLowerCase();
       rows = rows.filter((r: any) =>
@@ -1251,9 +1263,22 @@ const SuperAdminPage: React.FC = () => {
       );
     }
     return rows;
-  }, [bugReports, bugSearch, seenReplies]);
+  }, [bugReports, bugSearch, seenReplies, bugView]);
 
   const pagedBugs = filteredBugs.slice((bugPage - 1) * BUG_PAGE_SIZE, bugPage * BUG_PAGE_SIZE);
+
+  // Counts for the sub-view tab strip
+  const reportsOnlyCount = useMemo(
+    () => (bugReports as any[]).filter((r: any) => !r.reporter_reply).length,
+    [bugReports]
+  );
+  const repliesOnlyCount = useMemo(
+    () => (bugReports as any[]).filter((r: any) => !!r.reporter_reply).length,
+    [bugReports]
+  );
+
+  // Reset to page 1 whenever filters / sub-view change so the new newest row is visible
+  useEffect(() => { setBugPage(1); }, [bugView, bugSearch, bugStatus, bugSeverity, bugTenant]);
 
   const uniqueBugTenants = useMemo(() =>
     Array.from(new Set((bugReports as any[]).map((r: any) => r.tenant_id).filter(Boolean)))
@@ -1913,11 +1938,48 @@ const SuperAdminPage: React.FC = () => {
                       {needsAttentionCount} unread reporter repl{needsAttentionCount > 1 ? 'ies' : 'y'}
                     </p>
                     <p className="text-xs text-amber-700 mt-0.5">
-                      Replied tickets are sorted to the top. Click any row to open the full detail view — the reply is automatically marked as read when you open it.
+                      Switch to the <strong>Replies</strong> tab below to see them sorted by most recent reply. Opening a row marks the reply as read.
                     </p>
                   </div>
                 </div>
               )}
+
+              {/* ── Sub-view tabs (segregate reports vs replies) ── */}
+              <div className="bg-white rounded-2xl border border-gray-200 px-3 py-2 flex items-center gap-2">
+                {([
+                  { id: 'all',     label: 'All',          count: (bugReports as any[]).length },
+                  { id: 'reports', label: 'New Reports',  count: reportsOnlyCount },
+                  { id: 'replies', label: 'Replies',      count: repliesOnlyCount },
+                ] as const).map(v => {
+                  const active = bugView === v.id;
+                  return (
+                    <button
+                      key={v.id}
+                      onClick={() => setBugView(v.id)}
+                      className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                        active
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      <span>{v.label}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                        active ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-600'
+                      }`}>{v.count}</span>
+                    </button>
+                  );
+                })}
+                {bugView === 'all' && (
+                  <span className="ml-auto text-[10px] text-gray-400 hidden sm:inline">
+                    Sorted by most recent first
+                  </span>
+                )}
+                {bugView === 'replies' && (
+                  <span className="ml-auto text-[10px] text-amber-600 hidden sm:inline">
+                    Unread replies appear first, then newest reply
+                  </span>
+                )}
+              </div>
 
               {/* ── Filters ── */}
               <div className="bg-white rounded-2xl border border-gray-200 px-4 py-3 flex flex-wrap gap-3 items-center">

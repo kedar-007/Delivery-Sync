@@ -6,6 +6,9 @@ export const useBugReports = (params?: Record<string, string>) =>
   useQuery({
     queryKey: ['bug-reports', params],
     queryFn:  () => bugApi.list(params),
+    // Always re-fetch on mount so new submissions appear when the user comes
+    // back to the page — without this, React Query serves the cached list.
+    refetchOnMount: 'always',
   });
 
 export const useBugReport = (id: string) =>
@@ -19,13 +22,17 @@ export const useAllBugReports = (params?: Record<string, string>) =>
   useQuery({
     queryKey: ['bug-reports-all', params],
     queryFn:  () => bugApi.listAll(params),
+    refetchOnMount: 'always',
   });
 
 export const useSubmitBugReport = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: Partial<BugReport>) => bugApi.submit(data),
-    onSuccess:  () => qc.invalidateQueries({ queryKey: ['bug-reports'] }),
+    onSuccess:  () => {
+      qc.invalidateQueries({ queryKey: ['bug-reports'] });
+      qc.invalidateQueries({ queryKey: ['bug-reports-all'] }); // super-admin view
+    },
   });
 };
 

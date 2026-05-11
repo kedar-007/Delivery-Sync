@@ -21,6 +21,7 @@ import {
 } from '../hooks/useBugReports';
 import { BugReport, bugApi } from '../lib/api';
 import { useI18n } from '../contexts/I18nContext';
+import ReportBugWidget from '../components/bugs/ReportBugWidget';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -95,99 +96,6 @@ const StatCard = ({ label, value, icon, accent }: {
     </div>
   </div>
 );
-
-// ─── Submit modal ─────────────────────────────────────────────────────────────
-
-const SubmitModal = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
-  const submit = useSubmitBugReport();
-  const [form, setForm] = useState<{
-    title: string; description: string;
-    report_type: BugReport['report_type']; severity: BugReport['severity']; page_url: string;
-  }>({
-    title: '', description: '', report_type: 'BUG', severity: 'MEDIUM', page_url: '',
-  });
-  const [error, setError] = useState('');
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    if (!form.title.trim()) { setError('Title is required'); return; }
-    if (!form.description.trim()) { setError('Description is required'); return; }
-    try {
-      await submit.mutateAsync(form);
-      setForm({ title: '', description: '', report_type: 'BUG', severity: 'MEDIUM', page_url: '' });
-      onClose();
-    } catch (err: unknown) {
-      setError((err as Error).message);
-    }
-  };
-
-  return (
-    <Modal open={open} onClose={onClose} size="lg">
-      <div className="flex items-center gap-3 mb-5">
-        <div className="w-10 h-10 rounded-xl bg-red-50 border border-red-200 flex items-center justify-center">
-          <Bug size={18} className="text-red-600" />
-        </div>
-        <div>
-          <h2 className="text-base font-bold text-gray-900">Report an Issue</h2>
-          <p className="text-xs text-gray-400 mt-0.5">Help us improve by describing what you encountered</p>
-        </div>
-      </div>
-
-      {error && <Alert type="error" message={error} className="mb-4" />}
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="form-label">Type</label>
-            <select className="form-select" value={form.report_type}
-              onChange={(e) => setForm((f) => ({ ...f, report_type: e.target.value as BugReport['report_type'] }))}>
-              <option value="BUG">Bug</option>
-              <option value="ISSUE">Issue</option>
-              <option value="FEEDBACK">Feedback</option>
-              <option value="FEATURE_REQUEST">Feature Request</option>
-            </select>
-          </div>
-          <div>
-            <label className="form-label">Severity</label>
-            <select className="form-select" value={form.severity}
-              onChange={(e) => setForm((f) => ({ ...f, severity: e.target.value as BugReport['severity'] }))}>
-              <option value="LOW">Low</option>
-              <option value="MEDIUM">Medium</option>
-              <option value="HIGH">High</option>
-              <option value="CRITICAL">Critical</option>
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <label className="form-label">Title <span className="text-red-500">*</span></label>
-          <input className="form-input" placeholder="Brief summary of the issue…"
-            value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} />
-        </div>
-
-        <div>
-          <label className="form-label">Description <span className="text-red-500">*</span></label>
-          <textarea className="form-input min-h-[120px] resize-y"
-            placeholder="Steps to reproduce, expected vs actual behaviour, any error messages…"
-            value={form.description}
-            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
-        </div>
-
-        <div>
-          <label className="form-label">Page URL <span className="text-gray-400 font-normal">(optional)</span></label>
-          <input className="form-input" placeholder="https://…"
-            value={form.page_url} onChange={(e) => setForm((f) => ({ ...f, page_url: e.target.value }))} />
-        </div>
-
-        <ModalActions>
-          <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
-          <Button type="submit" loading={submit.isPending} icon={<Send size={14} />}>Submit Report</Button>
-        </ModalActions>
-      </form>
-    </Modal>
-  );
-};
 
 // ─── Attachment helpers ───────────────────────────────────────────────────────
 
@@ -769,10 +677,14 @@ export default function BugReportsPage() {
   const [showSubmit,   setShowSubmit]   = useState(false);
   const [selectedId,   setSelectedId]   = useState<string | null>(null);
   const [showConfig,   setShowConfig]   = useState(false);
+  const PAGE_SIZE = 25;
+  const [page, setPage] = useState(1);
+  React.useEffect(() => { setPage(1); }, [tab, search, filterStatus, filterType, filterSev]);
 
-  // Queries
+  // Queries — pass `all=true` so super admin sees the full result set
+  // (paginated internally on the backend past ZCQL's 200-row per-query cap).
   const { data: rawMine = [], isLoading: loadingMine } = useBugReports();
-  const { data: rawAll  = [], isLoading: loadingAll  } = useAllBugReports();
+  const { data: rawAll  = [], isLoading: loadingAll  } = useAllBugReports({ all: 'true' });
   const { data: rawConfig } = useBugConfig();
 
   const cfg         = rawConfig as any;
@@ -803,6 +715,12 @@ export default function BugReportsPage() {
       return true;
     });
   }, [activeList, search, filterStatus, filterType, filterSev]);
+
+  // Client-side pagination — slice the filtered list into pages
+  const totalPages    = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage      = Math.min(page, totalPages);
+  const pageStart     = (safePage - 1) * PAGE_SIZE;
+  const paginatedList = filtered.slice(pageStart, pageStart + PAGE_SIZE);
 
   if (isLoading && myReports.length === 0) return <Layout><PageLoader /></Layout>;
 
@@ -923,21 +841,57 @@ export default function BugReportsPage() {
             ) : undefined}
           />
         ) : (
-          <div className="space-y-3">
-            {filtered.map((r) => (
-              <ReportCard
-                key={r.ROWID}
-                report={r}
-                isAdmin={isAdmin}
-                onClick={() => setSelectedId(r.ROWID ?? null)}
-              />
-            ))}
-          </div>
+          <>
+            <div className="space-y-3">
+              {paginatedList.map((r) => (
+                <ReportCard
+                  key={r.ROWID}
+                  report={r}
+                  isAdmin={isAdmin}
+                  onClick={() => setSelectedId(r.ROWID ?? null)}
+                />
+              ))}
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between pt-4 border-t border-gray-100">
+                <p className="text-xs text-gray-500">
+                  Showing <span className="font-semibold text-gray-700">{pageStart + 1}</span>–
+                  <span className="font-semibold text-gray-700">{Math.min(pageStart + PAGE_SIZE, filtered.length)}</span>{' '}
+                  of <span className="font-semibold text-gray-700">{filtered.length}</span> reports
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={safePage <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-xs text-gray-600 px-2">
+                    Page <span className="font-semibold text-gray-900">{safePage}</span> of {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={safePage >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
-      {/* Modals */}
-      <SubmitModal open={showSubmit} onClose={() => setShowSubmit(false)} />
+      {/* Modals — use ReportBugWidget (same component as the floating bug icon)
+          so this form has attachment support and matches the bug-icon flow.
+          The widget renders in controlled mode (no floating trigger) when given
+          `open` / `onOpenChange`. */}
+      <ReportBugWidget open={showSubmit} onOpenChange={setShowSubmit} />
       <DetailModal
         report={selected}
         isAdmin={isAdmin}

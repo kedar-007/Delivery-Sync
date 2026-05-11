@@ -93,7 +93,10 @@ class BugReportController {
     }
     console.log('[BugReportCtrl] submitReport Step 2 ✓ — INSERT succeeded');
 
-    // Step 3: retrieve the inserted row (query back by reporter_id + CREATEDTIME DESC LIMIT 1)
+    // Step 3: retrieve the inserted row (highest ROWID for this reporter+tenant).
+    // ROWID is monotonically increasing, so the just-inserted row always has the
+    // largest value — more reliable than CREATEDTIME, which ZCQL does not
+    // consistently sort by.
     console.log('[BugReportCtrl] submitReport Step 3 — retrieving inserted row');
     let report;
     try {
@@ -101,7 +104,7 @@ class BugReportController {
         `SELECT * FROM ${TABLES.BUG_REPORTS}
          WHERE reporter_id = '${esc(userId)}'
            AND tenant_id   = '${esc(tenantId)}'
-         ORDER BY CREATEDTIME DESC LIMIT 1`
+         ORDER BY ROWID DESC LIMIT 1`
       );
       const rows = flattenRows(raw);
       if (rows.length === 0) {
@@ -261,7 +264,7 @@ class BugReportController {
       const rawAtt = await req.catalystApp.zcql().executeZCQLQuery(
         `SELECT * FROM ${TABLES.BUG_REPORT_ATTACHMENTS}
          WHERE bug_report_id = ${parseInt(reportId, 10)}
-         ORDER BY CREATEDTIME ASC LIMIT 20`
+         ORDER BY ROWID ASC LIMIT 20`
       );
       attachments = flattenRows(rawAtt);
       console.log(`[BugReportCtrl] notifyReport Step 2 ✓ — ${attachments.length} attachments`);
@@ -356,11 +359,12 @@ class BugReportController {
       severity,
       report_type,
       page  = 1,
-      limit = 20,
+      limit = 50,
     } = req.query;
 
     const pageNum  = Math.max(1, parseInt(page, 10)  || 1);
-    const limitNum = Math.min(100, parseInt(limit, 10) || 20);
+    const limitNum = Math.min(200, parseInt(limit, 10) || 50);
+    const offsetNum = (pageNum - 1) * limitNum;
 
     console.log(`[BugReportCtrl] listReports Step 1 — userId=${userId} tenantId=${tenantId} role=${role} page=${pageNum} limit=${limitNum}`);
 
@@ -382,28 +386,37 @@ class BugReportController {
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    console.log(`[BugReportCtrl] listReports Step 3 — querying with: ${whereClause || '(no filter)'}`);
+    console.log(`[BugReportCtrl] listReports Step 3 — querying with: ${whereClause || '(no filter)'} OFFSET ${offsetNum}`);
+    // ZCQL has a per-query row cap (~200) — paginate internally so callers
+    // requesting more get the full set. Fetch limit+1 to detect "has more".
+    //
+    // IMPORTANT: order by ROWID DESC, not CREATEDTIME DESC. Catalyst ZCQL does
+    // not reliably sort by CREATEDTIME (it's not indexed for sort) — recent
+    // inserts can end up mid-list. ROWID is monotonically increasing so the
+    // newest row always has the largest ROWID.
     let reports = [];
     try {
-      const raw = await req.catalystApp.zcql().executeZCQLQuery(
-        `SELECT * FROM ${TABLES.BUG_REPORTS}
-         ${whereClause}
-         ORDER BY CREATEDTIME DESC
-         LIMIT ${limitNum}`
+      reports = await _fetchAllPaginated(
+        req.catalystApp,
+        `SELECT * FROM ${TABLES.BUG_REPORTS} ${whereClause} ORDER BY ROWID DESC`,
+        { limit: limitNum + 1, offset: offsetNum }
       );
-      reports = flattenRows(raw);
       console.log(`[BugReportCtrl] listReports Step 3 ✓ — ${reports.length} rows returned`);
     } catch (dbErr) {
       console.error('[BugReportCtrl] listReports Step 3 ✗ — query failed:', dbErr.message);
       return ResponseHelper.serverError(res, 'Failed to fetch bug reports');
     }
 
+    const hasMore = reports.length > limitNum;
+    if (hasMore) reports = reports.slice(0, limitNum);
+
     console.log('[BugReportCtrl] listReports ✓ — complete');
     return ResponseHelper.success(res, {
       reports,
-      total: reports.length,
-      page:  pageNum,
-      limit: limitNum,
+      total:    reports.length,
+      page:     pageNum,
+      limit:    limitNum,
+      has_more: hasMore,
     });
   }
 
@@ -455,7 +468,7 @@ class BugReportController {
       const rawAtt = await req.catalystApp.zcql().executeZCQLQuery(
         `SELECT * FROM ${TABLES.BUG_REPORT_ATTACHMENTS}
          WHERE bug_report_id = ${parseInt(reportId, 10)}
-         ORDER BY CREATEDTIME ASC LIMIT 50`
+         ORDER BY ROWID ASC LIMIT 50`
       );
       attachments = flattenRows(rawAtt);
       console.log(`[BugReportCtrl] getReport Step 3 ✓ — ${attachments.length} attachments`);
@@ -551,12 +564,17 @@ class BugReportController {
   // ─── GET /api/bugs/reports/all ─────────────────────────────────────────────
   async listAllReports(req, res) {
     const { role } = req.currentUser;
-    const { tenant_id, status, severity, superAdmin } = req.query;
+    const { tenant_id, status, severity, page = 1, limit = 50, all } = req.query;
 
-    console.log(`[BugReportCtrl] listAllReports Step 1 — role=${role} superAdmin=${superAdmin}`);
+    const pageNum   = Math.max(1, parseInt(page, 10)  || 1);
+    const limitNum  = Math.min(200, parseInt(limit, 10) || 50);
+    const offsetNum = (pageNum - 1) * limitNum;
+    // `all=true` flag returns the entire result set (paginated internally to
+    // overcome ZCQL's per-query cap). Used by stat tiles + "view all" mode.
+    const fetchAll  = String(all).toLowerCase() === 'true';
 
-    // Allow only TENANT_ADMIN or higher (the frontend only renders this route for SUPER_ADMIN role);
-    // since all requests are Catalyst-session-authenticated, this is safe.
+    console.log(`[BugReportCtrl] listAllReports Step 1 — role=${role} page=${pageNum} limit=${limitNum} all=${fetchAll}`);
+
     if (!ADMIN_ROLES.includes(role) && role !== 'SUPER_ADMIN') {
       console.warn(`[BugReportCtrl] listAllReports ✗ — role ${role} not permitted`);
       return ResponseHelper.forbidden(res, 'Admin access required');
@@ -569,17 +587,28 @@ class BugReportController {
     if (severity)  conditions.push(`severity = '${esc(severity)}'`);
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    // Order by ROWID DESC instead of CREATEDTIME DESC — Catalyst ZCQL does not
+    // reliably sort by CREATEDTIME so newly-inserted reports were getting
+    // dropped past the row cap or appearing mid-list. ROWID is monotonically
+    // increasing and indexed → newest insert always has the largest value.
+    const baseQuery   = `SELECT * FROM ${TABLES.BUG_REPORTS} ${whereClause} ORDER BY ROWID DESC`;
 
-    console.log(`[BugReportCtrl] listAllReports Step 2 — querying all tenants${whereClause ? ' with filters' : ''}`);
+    console.log(`[BugReportCtrl] listAllReports Step 2 — querying${whereClause ? ' with filters' : ''}`);
     let reports = [];
+    let hasMore = false;
     try {
-      const raw = await req.catalystApp.zcql().executeZCQLQuery(
-        `SELECT * FROM ${TABLES.BUG_REPORTS}
-         ${whereClause}
-         ORDER BY CREATEDTIME DESC LIMIT 100`
-      );
-      reports = flattenRows(raw);
-      console.log(`[BugReportCtrl] listAllReports Step 2 ✓ — ${reports.length} rows returned`);
+      if (fetchAll) {
+        // Walk the entire result set in 200-row pages (ZCQL hard cap)
+        reports = await _fetchAllPaginated(req.catalystApp, baseQuery, { pageSize: 200 });
+      } else {
+        // Fetch limit+1 to detect has_more without a separate COUNT query
+        const chunk = await _fetchAllPaginated(req.catalystApp, baseQuery, {
+          limit: limitNum + 1, offset: offsetNum,
+        });
+        hasMore = chunk.length > limitNum;
+        reports = hasMore ? chunk.slice(0, limitNum) : chunk;
+      }
+      console.log(`[BugReportCtrl] listAllReports Step 2 ✓ — ${reports.length} rows returned (hasMore=${hasMore})`);
     } catch (dbErr) {
       console.error('[BugReportCtrl] listAllReports Step 2 ✗ — query failed:', dbErr.message);
       return ResponseHelper.serverError(res, 'Failed to fetch all bug reports');
@@ -592,7 +621,7 @@ class BugReportController {
       if (tenantIds.length > 0) {
         const tenantConditions = tenantIds.map((tid) => `ROWID = '${esc(String(tid))}'`).join(' OR ');
         const tRaw   = await req.catalystApp.zcql().executeZCQLQuery(
-          `SELECT ROWID, name FROM ${TABLES.TENANTS} WHERE ${tenantConditions} LIMIT 100`
+          `SELECT ROWID, name FROM ${TABLES.TENANTS} WHERE ${tenantConditions} LIMIT 200`
         );
         const tenantMap = {};
         flattenRows(tRaw).forEach((t) => { tenantMap[String(t.ROWID)] = t.name; });
@@ -607,7 +636,13 @@ class BugReportController {
     }
 
     console.log('[BugReportCtrl] listAllReports ✓ — complete');
-    return ResponseHelper.success(res, { reports });
+    return ResponseHelper.success(res, {
+      reports,
+      total:    reports.length,
+      page:     pageNum,
+      limit:    limitNum,
+      has_more: hasMore,
+    });
   }
 
   // ─── POST /api/bugs/reports/:id/resolve ───────────────────────────────────
@@ -788,6 +823,33 @@ class BugReportController {
 }
 
 // ─── Private helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Walk a ZCQL query in pages of `pageSize` rows (ZCQL's per-query cap is ~200).
+ * - `limit`  : maximum rows to return overall (default: unlimited)
+ * - `offset` : starting row offset (default: 0)
+ * - `pageSize`: rows per ZCQL call (default: 200)
+ *
+ * The `baseQuery` MUST NOT include LIMIT/OFFSET — they are appended here.
+ */
+async function _fetchAllPaginated(catalystApp, baseQuery, { limit = Infinity, offset = 0, pageSize = 200 } = {}) {
+  const results = [];
+  let cursor = offset;
+  let remaining = limit;
+
+  while (remaining > 0) {
+    const take = Math.min(pageSize, remaining);
+    const sql  = `${baseQuery} LIMIT ${cursor}, ${take}`;
+    const raw  = await catalystApp.zcql().executeZCQLQuery(sql);
+    const rows = (raw || []).map((r) => Object.assign({}, ...Object.values(r)));
+    results.push(...rows);
+    if (rows.length < take) break;     // last page
+    cursor    += rows.length;
+    remaining -= rows.length;
+  }
+
+  return results;
+}
 
 function _parseJsonArray(val) {
   if (!val) return [];

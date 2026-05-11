@@ -512,6 +512,9 @@ export const leaveApi = {
   // Leave balance admin
   setBalance:         (data: unknown) => peopleClient.post('/leave/balance/set', data).then((r) => r.data.data),
   getAllBalances:      (params?: Record<string, string>) => peopleClient.get('/leave/balance/all', { params }).then((r) => r.data.data),
+  // Leave accrual policy
+  getLeavePolicy:     () => peopleClient.get('/leave/policy').then((r) => r.data.data),
+  saveLeavePolicy:    (data: unknown) => peopleClient.put('/leave/policy', data).then((r) => r.data.data),
 };
 
 export const announcementsApi = {

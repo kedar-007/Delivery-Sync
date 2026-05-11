@@ -597,13 +597,14 @@ function WorkflowsTab() {
 // ── Modules Tab ───────────────────────────────────────────────────────────────
 
 const MODULE_CATALOGUE = [
-  { key: 'projects', label: 'Projects & Sprints',   desc: 'Tasks, sprints, milestones, backlog, actions, blockers, RAID',     icon: '🗂️' },
-  { key: 'people',   label: 'People & HR',           desc: 'Attendance, leave, teams, directory, org chart, announcements',    icon: '👥' },
-  { key: 'assets',   label: 'Asset Management',      desc: 'Asset inventory, requests, assignments and maintenance',           icon: '📦' },
-  { key: 'time',     label: 'Time Tracking',         desc: 'Log hours, approvals and billable / non-billable reporting',       icon: '⏱️' },
-  { key: 'reports',  label: 'Reports & Analytics',   desc: 'Delivery reports, standup rollups, team activity',                 icon: '📊' },
-  { key: 'ai',       label: 'AI Insights',           desc: 'AI daily summary, suggestions, natural language queries',          icon: '✨' },
-  { key: 'exec',     label: 'Executive Dashboards',  desc: 'CEO / CTO dashboards and portfolio overview',                     icon: '💼' },
+  { key: 'projects',   label: 'Projects & Sprints',   desc: 'Tasks, sprints, milestones, backlog, actions, blockers, RAID',     icon: '🗂️' },
+  { key: 'daily-work', label: 'Daily Work',           desc: 'Standup, EOD and time tracking submissions',                       icon: '📋' },
+  { key: 'people',     label: 'People & HR',           desc: 'Attendance, leave, teams, directory, org chart, announcements',    icon: '👥' },
+  { key: 'assets',     label: 'Asset Management',      desc: 'Asset inventory, requests, assignments and maintenance',           icon: '📦' },
+  { key: 'time',       label: 'Time Tracking',         desc: 'Log hours, approvals and billable / non-billable reporting',       icon: '⏱️' },
+  { key: 'reports',    label: 'Reports & Analytics',   desc: 'Delivery reports, standup rollups, team activity',                 icon: '📊' },
+  { key: 'ai',         label: 'AI Insights',           desc: 'AI daily summary, suggestions, natural language queries',          icon: '✨' },
+  { key: 'executive',  label: 'Executive Dashboards',  desc: 'CEO / CTO dashboards and portfolio overview',                     icon: '💼' },
 ];
 
 function ModulesTab() {

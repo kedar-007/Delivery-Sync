@@ -41,4 +41,8 @@ router.delete('/company-calendar/:holidayId', RBACMiddleware.require(PERMISSIONS
 router.get('/calendar-config',                RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    (req, res) => ctrl(req).getCalendarConfig(req, res));
 router.put('/calendar-config',                RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).saveCalendarConfig(req, res));
 
+// ── Leave Accrual Policy ──────────────────────────────────────────────────────
+router.get('/policy',                         RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).getLeavePolicy(req, res));
+router.put('/policy',                         RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).saveLeavePolicy(req, res));
+
 module.exports = router;

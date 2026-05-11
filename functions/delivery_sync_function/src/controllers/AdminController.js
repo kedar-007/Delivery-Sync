@@ -716,13 +716,14 @@ class AdminController {
     try {
       const { tenantId } = req;
       const ALL_MODULES = [
-        { key: 'projects', label: 'Projects & Sprints',  defaultEnabled: true  },
-        { key: 'people',   label: 'People & HR',         defaultEnabled: true  },
-        { key: 'assets',   label: 'Asset Management',    defaultEnabled: true  },
-        { key: 'time',     label: 'Time Tracking',       defaultEnabled: true  },
-        { key: 'reports',  label: 'Reports & Analytics', defaultEnabled: true  },
-        { key: 'ai',       label: 'AI Insights',         defaultEnabled: true  },
-        { key: 'exec',     label: 'Executive Dashboard', defaultEnabled: true  },
+        { key: 'projects',    label: 'Projects & Sprints',  defaultEnabled: true },
+        { key: 'daily-work',  label: 'Daily Work',          defaultEnabled: true },
+        { key: 'people',      label: 'People & HR',         defaultEnabled: true },
+        { key: 'assets',      label: 'Asset Management',    defaultEnabled: true },
+        { key: 'time',        label: 'Time Tracking',       defaultEnabled: true },
+        { key: 'reports',     label: 'Reports & Analytics', defaultEnabled: true },
+        { key: 'ai',          label: 'AI Insights',         defaultEnabled: true },
+        { key: 'executive',   label: 'Executive Dashboard', defaultEnabled: true },
       ];
 
       let savedModules = {};
@@ -734,6 +735,11 @@ class AdminController {
           savedModules = (JSON.parse(rows[0].settings || '{}').modules) || {};
         }
       } catch (_) {}
+
+      // Migrate legacy 'exec' key → 'executive' so old tenant settings still apply
+      if ('exec' in savedModules && !('executive' in savedModules)) {
+        savedModules['executive'] = savedModules['exec'];
+      }
 
       const modules = Object.fromEntries(
         ALL_MODULES.map((m) => [

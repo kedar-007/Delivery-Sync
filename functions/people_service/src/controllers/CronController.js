@@ -5,12 +5,16 @@ const NotificationService = require('../services/NotificationService');
 const ResponseHelper      = require('../utils/ResponseHelper');
 const { TABLES, NOTIFICATION_TYPE } = require('../utils/Constants');
 
+const CRON_AUTH = (req) => {
+  const isCron     = req.headers['x-zoho-catalyst-is-cron'] === 'true';
+  const isInternal = req.headers['x-delivery-sync-internal'] === process.env.INTERNAL_SECRET;
+  return isCron || isInternal;
+};
+
 class CronController {
   // POST /api/people/cron/attendance-anomaly  — 9:30 AM daily
   static async attendanceAnomaly(req, res) {
-    const isCron = req.headers['x-zoho-catalyst-is-cron'] === 'true';
-    const isInternal = req.headers['x-delivery-sync-internal'] === process.env.INTERNAL_SECRET;
-    if (!isCron && !isInternal) return ResponseHelper.forbidden(res, 'Cron only');
+    if (!CRON_AUTH(req)) return ResponseHelper.forbidden(res, 'Cron only');
     if (!req.catalystApp) return ResponseHelper.serverError(res, 'catalystApp not initialized');
 
     const db    = new DataStoreService(req.catalystApp);
@@ -63,9 +67,7 @@ class CronController {
 
   // POST /api/people/cron/leave-approval-reminder — 9 AM daily
   static async leaveApprovalReminder(req, res) {
-    const isCron = req.headers['x-zoho-catalyst-is-cron'] === 'true';
-    const isInternal = req.headers['x-delivery-sync-internal'] === process.env.INTERNAL_SECRET;
-    if (!isCron && !isInternal) return ResponseHelper.forbidden(res, 'Cron only');
+    if (!CRON_AUTH(req)) return ResponseHelper.forbidden(res, 'Cron only');
     if (!req.catalystApp) return ResponseHelper.serverError(res, 'catalystApp not initialized');
 
     const db    = new DataStoreService(req.catalystApp);
@@ -86,6 +88,205 @@ class CronController {
     }
 
     return ResponseHelper.success(res, { reminders_sent: sent });
+  }
+
+  // POST /api/people/cron/monthly-accrual — runs 1st of each month
+  static async monthlyAccrual(req, res) {
+    if (!CRON_AUTH(req)) return ResponseHelper.forbidden(res, 'Cron only');
+    if (!req.catalystApp && !req.adminCatalystApp) return ResponseHelper.serverError(res, 'catalystApp not initialized');
+
+    const db  = new DataStoreService(req.adminCatalystApp || req.catalystApp);
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1; // 1–12
+    const currentYear  = now.getFullYear();
+    const yearStr      = String(currentYear);
+
+    let totalAccrued = 0;
+    let totalSkipped = 0;
+    const errors = [];
+
+    try {
+      // Fetch all tenants
+      const tenants = await db.query(`SELECT ROWID, settings FROM ${TABLES.TENANTS} LIMIT 200`);
+
+      for (const tenant of tenants) {
+        let policy = {};
+        try { policy = JSON.parse(tenant.settings || '{}').leavePolicy || {}; } catch (_) {}
+        if (!policy.accrualEnabled) continue;
+
+        const probationMonths  = Number(policy.probationMonths ?? 3);
+        const typesPolicies    = policy.leaveTypes || {};
+        const tenantId         = String(tenant.ROWID);
+
+        // Active users for this tenant
+        const users = [];
+        let uOffset = 0;
+        while (true) {
+          const page = await db.query(
+            `SELECT ROWID, CREATEDTIME FROM ${TABLES.USERS} WHERE tenant_id = '${tenantId}' AND status = 'ACTIVE' LIMIT 300 OFFSET ${uOffset}`
+          );
+          users.push(...page);
+          if (page.length < 300) break;
+          uOffset += 300;
+        }
+
+        for (const user of users) {
+          const userId = String(user.ROWID);
+
+          // Probation check — CREATEDTIME is epoch ms
+          const createdMs = Number(user.CREATEDTIME);
+          if (createdMs) {
+            const monthsSinceJoin = (now - new Date(createdMs)) / (1000 * 60 * 60 * 24 * 30.44);
+            if (monthsSinceJoin < probationMonths) { totalSkipped++; continue; }
+          }
+
+          for (const [leaveTypeId, ltPolicy] of Object.entries(typesPolicies)) {
+            if (!ltPolicy || ltPolicy.accrualMethod !== 'monthly') continue;
+
+            const skipMonths    = Array.isArray(ltPolicy.skipMonths) ? ltPolicy.skipMonths : [];
+            if (skipMonths.includes(currentMonth)) continue;
+
+            const monthlyAmount = parseFloat(ltPolicy.monthlyAmount ?? 0);
+            if (monthlyAmount <= 0) continue;
+
+            try {
+              const balQ = `user_id = '${userId}' AND leave_type_id = '${leaveTypeId}' AND year = '${yearStr}'`;
+              const bal  = await db.findWhere(TABLES.LEAVE_BALANCES, tenantId, balQ, { limit: 1 });
+
+              if (bal.length === 0) {
+                await db.insert(TABLES.LEAVE_BALANCES, {
+                  tenant_id:       tenantId,
+                  user_id:         userId,
+                  leave_type_id:   leaveTypeId,
+                  year:            yearStr,
+                  total_allocated: monthlyAmount,
+                  opening_balance: 0,
+                  remaining_days:  monthlyAmount,
+                  used_days:       0,
+                  pending_days:    0,
+                });
+              } else {
+                const b            = bal[0];
+                const newAllocated = parseFloat(b.total_allocated ?? b.allocated_days ?? 0) + monthlyAmount;
+                const newRemaining = parseFloat(b.remaining_days ?? 0) + monthlyAmount;
+                await db.update(TABLES.LEAVE_BALANCES, {
+                  ROWID:           b.ROWID,
+                  total_allocated: newAllocated,
+                  remaining_days:  newRemaining,
+                });
+              }
+              totalAccrued++;
+            } catch (e) {
+              errors.push(`user=${userId} lt=${leaveTypeId}: ${e.message}`);
+            }
+          }
+        }
+      }
+    } catch (outerErr) {
+      return ResponseHelper.serverError(res, outerErr.message);
+    }
+
+    return ResponseHelper.success(res, {
+      month: currentMonth, year: currentYear,
+      accrued: totalAccrued, skipped: totalSkipped,
+      errors: errors.slice(0, 20),
+    });
+  }
+
+  // POST /api/people/cron/year-end-carry-forward — runs 1 Jan each year
+  static async yearEndCarryForward(req, res) {
+    if (!CRON_AUTH(req)) return ResponseHelper.forbidden(res, 'Cron only');
+    if (!req.catalystApp && !req.adminCatalystApp) return ResponseHelper.serverError(res, 'catalystApp not initialized');
+
+    const db       = new DataStoreService(req.adminCatalystApp || req.catalystApp);
+    const now      = new Date();
+    const lastYear = now.getFullYear() - 1;
+    const thisYear = now.getFullYear();
+    const lastYearStr = String(lastYear);
+    const thisYearStr = String(thisYear);
+
+    let totalCarried = 0;
+    let totalSkipped = 0;
+    const errors = [];
+
+    try {
+      const tenants = await db.query(`SELECT ROWID, settings FROM ${TABLES.TENANTS} LIMIT 200`);
+
+      for (const tenant of tenants) {
+        let policy = {};
+        try { policy = JSON.parse(tenant.settings || '{}').leavePolicy || {}; } catch (_) {}
+        if (!policy.accrualEnabled) continue;
+
+        const typesPolicies = policy.leaveTypes || {};
+        const tenantId      = String(tenant.ROWID);
+
+        // Find all last-year balances for this tenant
+        const lastYearBals = [];
+        let bOffset = 0;
+        while (true) {
+          const page = await db.query(
+            `SELECT * FROM ${TABLES.LEAVE_BALANCES} WHERE tenant_id = '${tenantId}' AND year = '${lastYearStr}' LIMIT 200 OFFSET ${bOffset}`
+          );
+          lastYearBals.push(...page);
+          if (page.length < 200) break;
+          bOffset += 200;
+        }
+
+        for (const bal of lastYearBals) {
+          const ltId    = String(bal.leave_type_id);
+          const ltPol   = typesPolicies[ltId];
+          if (!ltPol || !ltPol.carryForwardEnabled) { totalSkipped++; continue; }
+
+          const maxCF         = parseFloat(ltPol.maxCarryForwardDays ?? 0);
+          const remaining     = parseFloat(bal.remaining_days ?? 0);
+          const carryAmount   = Math.min(remaining, maxCF);
+          if (carryAmount <= 0) { totalSkipped++; continue; }
+
+          const userId = String(bal.user_id);
+
+          try {
+            const thisYearBalQ = `user_id = '${userId}' AND leave_type_id = '${ltId}' AND year = '${thisYearStr}'`;
+            const thisYearBal  = await db.findWhere(TABLES.LEAVE_BALANCES, tenantId, thisYearBalQ, { limit: 1 });
+
+            if (thisYearBal.length === 0) {
+              await db.insert(TABLES.LEAVE_BALANCES, {
+                tenant_id:       tenantId,
+                user_id:         userId,
+                leave_type_id:   ltId,
+                year:            thisYearStr,
+                total_allocated: carryAmount,
+                opening_balance: carryAmount,
+                remaining_days:  carryAmount,
+                used_days:       0,
+                pending_days:    0,
+              });
+            } else {
+              const b             = thisYearBal[0];
+              const newOpening    = parseFloat(b.opening_balance ?? 0) + carryAmount;
+              const newAllocated  = parseFloat(b.total_allocated ?? b.allocated_days ?? 0) + carryAmount;
+              const newRemaining  = parseFloat(b.remaining_days ?? 0) + carryAmount;
+              await db.update(TABLES.LEAVE_BALANCES, {
+                ROWID:           b.ROWID,
+                opening_balance: newOpening,
+                total_allocated: newAllocated,
+                remaining_days:  newRemaining,
+              });
+            }
+            totalCarried++;
+          } catch (e) {
+            errors.push(`user=${userId} lt=${ltId}: ${e.message}`);
+          }
+        }
+      }
+    } catch (outerErr) {
+      return ResponseHelper.serverError(res, outerErr.message);
+    }
+
+    return ResponseHelper.success(res, {
+      from_year: lastYear, to_year: thisYear,
+      carried: totalCarried, skipped: totalSkipped,
+      errors: errors.slice(0, 20),
+    });
   }
 }
 
