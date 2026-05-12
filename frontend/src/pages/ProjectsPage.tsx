@@ -213,8 +213,9 @@ const ProjectsPage = () => {
         {!isSearchMode && <Pagination page={page} totalPages={totalPages} total={total} pageSize={PAGE_SIZE} onPageChange={setPage} />}
       </div>
 
-      {/* Create Project Modal */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); setCreateError(''); reset(); }} title="Create New Project" size="lg">
+      {/* Create Project Modal — DSV-010: disable backdrop dismiss so an
+          accidental click outside the popup doesn't wipe entered values. */}
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); setCreateError(''); reset(); }} title="Create New Project" size="lg" closeOnBackdropClick={false}>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {createError && <Alert type="error" message={createError} />}
           <div>

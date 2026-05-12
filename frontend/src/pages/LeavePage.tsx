@@ -327,17 +327,22 @@ const ApplyTab = () => {
               {errors.start_date && <p className="form-error">{errors.start_date.message}</p>}
             </div>
             <div>
-              <label className="form-label">End Date *</label>
+              {/* DSV-026: when Half Day is checked, the field is disabled and
+                  the value is auto-locked to start_date, so the `*` and
+                  required-error are meaningless to the user. Hide both. */}
+              <label className="form-label">
+                End Date {!isHalfDay && <span className="text-red-500">*</span>}
+              </label>
               <input
                 type="date"
                 className={`form-input ${isHalfDay ? 'bg-gray-50 cursor-not-allowed' : ''}`}
-                disabled={isHalfDay}   //  locked to start_date when half day
+                disabled={isHalfDay}
                 {...register('end_date', {
-                  required: 'Required',
-                  validate: (v) => !startDate || v >= startDate || 'End date must be on or after start date',
+                  required: isHalfDay ? false : 'Required',
+                  validate: (v) => isHalfDay || !startDate || v >= startDate || 'End date must be on or after start date',
                 })}
               />
-              {errors.end_date && <p className="form-error">{errors.end_date.message}</p>}
+              {!isHalfDay && errors.end_date && <p className="form-error">{errors.end_date.message}</p>}
             </div>
           </div>
 

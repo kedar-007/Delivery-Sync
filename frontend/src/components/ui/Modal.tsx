@@ -9,6 +9,13 @@ interface ModalProps {
   title?: string;
   children: React.ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl';
+  /**
+   * When false, the modal will NOT close from backdrop clicks or Esc — only
+   * the X button (or the consumer's own Cancel buttons) can dismiss it. Use
+   * this for forms with unsaved input where an accidental click outside
+   * would lose the user's work.
+   */
+  closeOnBackdropClick?: boolean;
 }
 
 const sizeMap = {
@@ -20,9 +27,9 @@ const sizeMap = {
   '3xl': 'max-w-5xl',
 };
 
-const Modal = ({ open, onClose, title, children, size = 'md' }: ModalProps) => (
+const Modal = ({ open, onClose, title, children, size = 'md', closeOnBackdropClick = true }: ModalProps) => (
   <Transition show={open}>
-    <Dialog onClose={onClose} className="relative z-50">
+    <Dialog onClose={closeOnBackdropClick ? onClose : () => { /* dismiss disabled — use X button or explicit Cancel */ }} className="relative z-50">
       {/* Backdrop */}
       <TransitionChild
         enter="ease-out duration-200" enterFrom="opacity-0" enterTo="opacity-100"

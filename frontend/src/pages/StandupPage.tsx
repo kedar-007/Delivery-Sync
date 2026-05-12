@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
@@ -232,13 +232,33 @@ const StandupPage = () => {
         await submitStandup.mutateAsync(data);
         setSuccess(`Standup submitted for ${format(new Date(data.date), 'd MMM yyyy')}`);
       }
-      reset({ project_id: data.project_id, date: today });
+      // Explicitly clear textareas to '' (not undefined) so the inputs render
+      // as empty after submit. Keep project_id + date so quick re-submits work.
+      reset({
+        project_id: data.project_id,
+        date: today,
+        yesterday: '',
+        today: '',
+        blockers: '',
+      });
       setAiResult(null);
       setAiFilledFields(new Set());
+      // Surface the success message and scroll up so the user sees it
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err: unknown) {
       setSubmitError((err as Error).message);
+      // DSV-005: scroll to top so the error banner is visible (the form is
+      // long; users were stuck looking at the bottom when submission failed).
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
+
+  // DSV-001: auto-hide the success banner so it doesn't linger forever.
+  useEffect(() => {
+    if (!success) return;
+    const t = setTimeout(() => setSuccess(''), 4000);
+    return () => clearTimeout(t);
+  }, [success]);
 
   if (projectsLoading) return <Layout><PageLoader /></Layout>;
 
@@ -564,13 +584,15 @@ const StandupPage = () => {
                     id: string; userName: string; yesterday: string; today: string; blockers?: string;
                   }>;
                 }) => (
-                  <div key={day.date} className="rounded-xl border border-gray-200 overflow-hidden">
-                    {/* Day header */}
-                    <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200">
-                      <h3 className="text-sm font-semibold text-gray-900">
+                  <div key={day.date} className="rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                    {/* Day header — DSV-008: deeper indigo background + white
+                        text so the date is clearly visible. The previous soft
+                        blue gradient was too light to read against. */}
+                    <div className="flex items-center justify-between px-4 py-3 bg-indigo-600 text-white">
+                      <h3 className="text-sm font-bold tracking-wide">
                         {format(new Date(day.date + 'T00:00:00'), 'EEEE, d MMMM yyyy')}
                       </h3>
-                      <span className="text-xs text-gray-500 bg-white px-2 py-0.5 rounded-full border border-gray-200">
+                      <span className="text-xs font-semibold text-indigo-700 bg-white/95 px-2.5 py-0.5 rounded-full">
                         {day.entryCount} update{day.entryCount !== 1 ? 's' : ''}
                       </span>
                     </div>
@@ -589,9 +611,17 @@ const StandupPage = () => {
                               <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-16 shrink-0">Today</span>
                               <p className="text-sm text-gray-700 leading-snug">{entry.today}</p>
                             </div>
+                            {/* DSV-009: blockers row now uses the same label
+                                column as Yesterday/Today so the layout is
+                                consistent. Icon was previously orphaned
+                                without a label, making the "None" value look
+                                misaligned. */}
                             {entry.blockers && (
                               <div className="flex gap-2">
-                                <AlertCircle size={12} className="text-red-400 mt-0.5 shrink-0" />
+                                <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-16 shrink-0 flex items-center gap-1">
+                                  <AlertCircle size={11} className="shrink-0" />
+                                  <span>Blockers</span>
+                                </span>
                                 <p className="text-sm text-red-700 leading-snug">{entry.blockers}</p>
                               </div>
                             )}

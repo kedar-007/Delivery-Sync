@@ -63,61 +63,48 @@ class BugReportController {
     }
 
     console.log(`[BugReportCtrl] submitReport Step 2 — inserting into ${TABLES.BUG_REPORTS}`);
-    const safeTitle       = esc(title.trim().slice(0, 500));
-    const safeDescription = esc(description.trim().slice(0, 4000));
-    const safeReportType  = esc(report_type);
-    const safeSeverity    = esc(severity);
-    const safePageUrl     = esc(String(page_url).slice(0, 2000));
-    const safeBrowserInfo = esc(String(browser_info).slice(0, 1000));
-    const safeTags        = esc(String(tags).slice(0, 500));
-    const safeEmail       = esc(email);
-    const safeName        = esc(name);
 
+    // Use the DataStore API (table.insertRow) so we get the new ROWID back
+    // directly from the INSERT response — this is atomic.
+    //
+    // The previous approach used a raw ZCQL INSERT followed by a separate
+    // `SELECT ORDER BY ROWID DESC LIMIT 1` to fetch back the new row. Catalyst's
+    // DataStore is eventually consistent, so under concurrent submissions (or
+    // rapid back-to-back submits) that follow-up SELECT could return an OLDER
+    // row that wasn't actually the one just inserted. The frontend would then
+    // upload attachments against that wrong ROWID, dumping screenshots from
+    // multiple bugs onto a single (older) report. Fixed by reading the ROWID
+    // straight from the INSERT response.
+    let report;
     try {
-      await req.catalystApp.zcql().executeZCQLQuery(
-        `INSERT INTO ${TABLES.BUG_REPORTS}
-           (tenant_id, reporter_id, reporter_email, reporter_name,
-            report_type, title, description, severity, status, bug_priority,
-            page_url, browser_info, human_verified, captcha_score,
-            attachment_count, notified, tags)
-         VALUES
-           ('${esc(tenantId)}', '${esc(userId)}', '${safeEmail}', '${safeName}',
-            '${safeReportType}', '${safeTitle}', '${safeDescription}',
-            '${safeSeverity}', 'OPEN', 'MEDIUM',
-            '${safePageUrl}', '${safeBrowserInfo}', 'true', 1.0,
-            '0', 'false', '${safeTags}')`
-      );
+      report = await req.catalystApp.datastore().table(TABLES.BUG_REPORTS).insertRow({
+        tenant_id:        String(tenantId),
+        reporter_id:      String(userId),
+        reporter_email:   email,
+        reporter_name:    name,
+        report_type:      report_type,
+        title:            title.trim().slice(0, 500),
+        description:      description.trim().slice(0, 4000),
+        severity:         severity,
+        status:           'OPEN',
+        bug_priority:     'MEDIUM',
+        page_url:         String(page_url).slice(0, 2000),
+        browser_info:     String(browser_info).slice(0, 1000),
+        human_verified:   'true',
+        captcha_score:    1.0,
+        attachment_count: '0',
+        notified:         'false',
+        tags:             String(tags).slice(0, 500),
+      });
     } catch (dbErr) {
       console.error('[BugReportCtrl] submitReport Step 2 ✗ — INSERT failed:', dbErr.message);
       return ResponseHelper.serverError(res, 'Failed to submit bug report');
     }
-    console.log('[BugReportCtrl] submitReport Step 2 ✓ — INSERT succeeded');
-
-    // Step 3: retrieve the inserted row (highest ROWID for this reporter+tenant).
-    // ROWID is monotonically increasing, so the just-inserted row always has the
-    // largest value — more reliable than CREATEDTIME, which ZCQL does not
-    // consistently sort by.
-    console.log('[BugReportCtrl] submitReport Step 3 — retrieving inserted row');
-    let report;
-    try {
-      const raw = await req.catalystApp.zcql().executeZCQLQuery(
-        `SELECT * FROM ${TABLES.BUG_REPORTS}
-         WHERE reporter_id = '${esc(userId)}'
-           AND tenant_id   = '${esc(tenantId)}'
-         ORDER BY ROWID DESC LIMIT 1`
-      );
-      const rows = flattenRows(raw);
-      if (rows.length === 0) {
-        console.warn('[BugReportCtrl] submitReport Step 3 — inserted row not found (non-fatal)');
-        report = { tenant_id: tenantId, reporter_id: userId, title, description, status: 'OPEN' };
-      } else {
-        report = rows[0];
-        console.log(`[BugReportCtrl] submitReport Step 3 ✓ — ROWID=${report.ROWID}`);
-      }
-    } catch (fetchErr) {
-      console.warn('[BugReportCtrl] submitReport Step 3 — fetch after insert failed (non-fatal):', fetchErr.message);
-      report = { tenant_id: tenantId, reporter_id: userId, title, description, status: 'OPEN' };
+    if (!report || !report.ROWID) {
+      console.error('[BugReportCtrl] submitReport Step 2 ✗ — insertRow returned no ROWID');
+      return ResponseHelper.serverError(res, 'Failed to submit bug report (no ROWID returned)');
     }
+    console.log(`[BugReportCtrl] submitReport Step 2 ✓ — INSERT succeeded, ROWID=${report.ROWID}`);
 
     console.log('[BugReportCtrl] submitReport ✓ — complete (notification deferred to /notify)');
     return ResponseHelper.created(res, { report }, 'Bug report submitted successfully');

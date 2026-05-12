@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Clock, Plus, Edit2, Trash2, Send, RotateCcw, CheckCircle2,
-  XCircle, DollarSign, CalendarDays, TrendingUp, Users, AlertCircle,
+  XCircle, DollarSign, CalendarDays, TrendingUp, Users, AlertCircle, Loader2,
 } from 'lucide-react';
 import { format, startOfWeek, addDays, startOfMonth, endOfMonth, eachDayOfInterval, parseISO, isValid } from 'date-fns';
 import { useForm, useWatch } from 'react-hook-form';
@@ -209,11 +209,14 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
   }, [watchedStart, watchedEnd, setValue]);
 
   // Load tasks only when a project is selected — avoid fetching all tasks otherwise
-  const { data: tasksRaw = [] } = useTasks(
+  const { data: tasksRaw = [], isFetching: tasksFetching } = useTasks(
     watchedProjectId ? { project_id: watchedProjectId } : undefined,
     !!watchedProjectId,
   );
   const tasks = (tasksRaw as Array<{ id: string; title: string; require_approval?: string | boolean }>).filter(Boolean);
+  // While the request is in flight we want a loading state in the dropdown —
+  // otherwise an empty `tasks` array briefly looks like "no tasks exist".
+  const tasksLoading = !!watchedProjectId && tasksFetching;
 
   React.useEffect(() => {
     if (open) {
@@ -279,18 +282,47 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
           {errors.project_id && <p className="text-xs text-red-600 mt-1">{errors.project_id.message}</p>}
         </div>
 
-        {/* Task selector — only shown once a project is chosen */}
+        {/* Task selector — only shown once a project is chosen.
+            Required: every time entry must be tied to a task so admins can
+            see where each hour actually went.
+            While the task list is being fetched we render a skeleton-style
+            placeholder that matches the select's footprint, so the user
+            doesn't see a misleading "no tasks" hint during the request. */}
         {watchedProjectId && (
           <div>
-            <label className="form-label">
-              Task <span className="text-gray-400 font-normal">(optional)</span>
-            </label>
-            <select className="form-select" {...register('task_id')}>
-              <option value="">No specific task</option>
-              {tasks.map((t) => (
-                <option key={t.id} value={t.id}>{t.title}</option>
-              ))}
-            </select>
+            <label className="form-label">Task *</label>
+            {tasksLoading ? (
+              // Skeleton: matches the select's footprint so layout doesn't
+              // shift when the real dropdown takes over. Soft indigo tint +
+              // pulsing skeleton bar makes it read as "loading", not "broken".
+              <div
+                className="form-select flex items-center gap-2.5 bg-indigo-50/60 border-indigo-100 text-indigo-700 cursor-wait select-none"
+                aria-busy="true"
+                aria-live="polite"
+              >
+                <Loader2 size={15} className="text-indigo-500 animate-spin shrink-0" />
+                <span className="text-sm font-medium">Loading tasks…</span>
+                <span className="ml-auto h-2.5 w-24 rounded-full bg-indigo-200/70 animate-pulse" />
+              </div>
+            ) : (
+              <select
+                className="form-select"
+                {...register('task_id', { required: 'Task is required' })}
+              >
+                <option value="">Select task…</option>
+                {tasks.map((t) => (
+                  <option key={t.id} value={t.id}>{t.title}</option>
+                ))}
+              </select>
+            )}
+            {errors.task_id && <p className="text-xs text-red-600 mt-1">{(errors.task_id as any).message}</p>}
+            {/* Only show the "no tasks" hint after the fetch settles —
+                otherwise it flashes during the initial load. */}
+            {!tasksLoading && tasks.length === 0 && (
+              <p className="text-xs text-amber-600 mt-1">
+                This project has no tasks yet. Ask your project lead to add tasks before logging time.
+              </p>
+            )}
           </div>
         )}
 
@@ -682,7 +714,11 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
             <table className="min-w-full divide-y divide-gray-100">
               <thead className="bg-gray-50">
                 <tr>
-                  {['Date', 'Project', 'Task Description', 'Time', 'Hours', 'Billable', 'Status', 'Actions'].map((h) => (
+                  {/* DSV-015: moved User out of the Task Description cell into
+                      its own column so the description shows only the task
+                      content (was visually mixing user identity with task
+                      details). */}
+                  {['Date', 'User', 'Project', 'Task Description', 'Time', 'Hours', 'Billable', 'Status', 'Actions'].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
                       {h}
                     </th>
@@ -695,17 +731,21 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
                     <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
                       {safeFormat(entry.date, 'MMM d, yyyy')}
                     </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {entry.userName ? (
+                        <div className="flex items-center gap-2">
+                          <UserAvatar name={entry.userName} avatarUrl={entry.userAvatarUrl} size="sm" />
+                          <span className="text-sm text-gray-700">{entry.userName}</span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-300">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
                       {entry.projectName || projectMap[entry.projectId] || entry.projectId}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate" title={entry.description}>
                       {entry.description}
-                      {entry.userName && (
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <UserAvatar name={entry.userName} avatarUrl={entry.userAvatarUrl} size="xs" />
-                          <span className="text-xs text-gray-400">{entry.userName}</span>
-                        </div>
-                      )}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
                       {entry.startTime && entry.endTime
@@ -1257,7 +1297,10 @@ const ApprovalsTab = () => {
             <table className="min-w-full divide-y divide-gray-100">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="pl-4 pr-2 py-3">
+                  {/* DSV-016: text-left aligns the Select-All checkbox with
+                      the row checkboxes — by default <th> centers content
+                      while <td> left-aligns, causing visible misalignment. */}
+                  <th className="pl-4 pr-2 py-3 text-left">
                     <input
                       type="checkbox"
                       className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"

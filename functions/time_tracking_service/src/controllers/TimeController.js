@@ -136,6 +136,12 @@ class TimeController {
 
     if (!entryDate || !effectiveHours) return ResponseHelper.validationError(res, 'entry_date and hours are required');
     if (effectiveHours <= 0 || effectiveHours > 24) return ResponseHelper.validationError(res, 'hours must be greater than 0 and at most 24');
+    // Task is mandatory — every time entry must be tied to a specific task so
+    // owners can see where the hours went. (The frontend also enforces this,
+    // but we validate here too in case other clients call the API directly.)
+    if (!task_id || String(task_id) === '0' || String(task_id).trim() === '') {
+      return ResponseHelper.validationError(res, 'task_id is required');
+    }
 
     // Resolve project_id: use provided value, or fall back to the task's project.
     // Never store 0 — the time_entries.project_id column has a FK constraint on projects.ROWID.

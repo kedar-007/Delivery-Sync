@@ -155,10 +155,21 @@ export default function ReportBugWidget({ open: openProp, onOpenChange }: Report
         captcha_score:  1.0,
       } as any);
 
-      const reportId = result?.report?.ROWID || result?.ROWID;
+      const reportId = String(result?.report?.ROWID ?? result?.ROWID ?? '');
 
-      // Upload attachments sequentially
-      if (reportId && attachments.length > 0) {
+      // Defensive: if the backend response didn't carry a ROWID for any
+      // reason, refuse to upload attachments rather than risk uploading them
+      // against a stale / wrong ID. (Used to be a bug where attachments from
+      // different submissions all landed on a single old report because the
+      // backend's post-INSERT fetch was returning a stale row.)
+      if (!reportId) {
+        setError('Report submitted but no ID returned. Please refresh and re-upload the attachments from the report detail page.');
+        setSubmitted(true);
+        return;
+      }
+
+      // Upload attachments sequentially — each upload tied to THIS submission's reportId
+      if (attachments.length > 0) {
         for (const att of attachments) {
           if (!att.base64) continue;
           setAttachments((prev) => prev.map((a) => a.id === att.id ? { ...a, uploading: true } : a));
@@ -178,9 +189,7 @@ export default function ReportBugWidget({ open: openProp, onOpenChange }: Report
       }
 
       // Fire notification email after all uploads complete (so images are included)
-      if (reportId) {
-        try { await bugApi.notify(reportId); } catch (_) {}
-      }
+      try { await bugApi.notify(reportId); } catch (_) {}
 
       setSubmitted(true);
     } catch (err: any) {

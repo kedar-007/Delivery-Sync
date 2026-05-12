@@ -244,25 +244,34 @@ class StandupController {
   }
 
   // GET /api/standups/search?q=<term>
-  // Requires Search Index enabled on 'yesterday', 'today', 'blockers' columns of 'standup_entries'.
+  //
+  // Originally used Catalyst's Search Index (executeSearchQuery), which
+  // requires the index to be explicitly enabled per-column in the Catalyst
+  // console. When that wasn't configured the endpoint always returned zero
+  // hits, surfacing as "No records found" in the UI for every search (DSV-011).
+  //
+  // Switched to a ZCQL LIKE-based fallback so the feature works regardless
+  // of search-index configuration. Trade-off: it's a table scan capped at
+  // 500 rows, which is fine for per-user standup search.
   async searchMyStandups(req, res) {
     try {
       const { tenantId, id: userId } = req.currentUser;
       const q = (req.query.q || '').trim();
       if (!q || q.length < 2) return ResponseHelper.validationError(res, 'Search term must be at least 2 characters');
 
-      const results = await this.catalystApp.search().executeSearchQuery({
-        search: q,
-        search_table_columns: { [TABLES.STANDUP_ENTRIES]: ['yesterday', 'today', 'blockers'] },
-        select_table_columns: {
-          [TABLES.STANDUP_ENTRIES]: ['ROWID', 'yesterday', 'today', 'blockers',
-            'entry_date', 'project_id', 'user_id', 'tenant_id', 'submitted_at'],
-        },
-      });
-
-      const hits = (results[TABLES.STANDUP_ENTRIES] ?? []).filter(
-        (s) => String(s.tenant_id) === String(tenantId) && String(s.user_id) === String(userId)
-      );
+      // Escape single quotes for the LIKE pattern
+      const safeQ = q.replace(/'/g, "''");
+      const sql = `SELECT * FROM ${TABLES.STANDUP_ENTRIES}
+                   WHERE tenant_id = '${tenantId}'
+                     AND user_id = '${userId}'
+                     AND (yesterday LIKE '%${safeQ}%'
+                          OR today LIKE '%${safeQ}%'
+                          OR blockers LIKE '%${safeQ}%')
+                   ORDER BY ROWID DESC
+                   LIMIT 100`;
+      const rawRows = await this.db.query(sql);
+      // Catalyst returns rows wrapped under the table name — flatten just in case
+      const hits = (rawRows || []).map((r) => r[TABLES.STANDUP_ENTRIES] || r);
 
       // Enrich with project name
       const projectIds = [...new Set(hits.map((s) => s.project_id).filter(Boolean))];
@@ -287,6 +296,7 @@ class StandupController {
         })),
       });
     } catch (err) {
+      console.error('[StandupController.searchMyStandups]', err.message);
       return ResponseHelper.serverError(res, err.message);
     }
   }

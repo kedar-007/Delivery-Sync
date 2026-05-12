@@ -195,7 +195,11 @@ class TaskController {
       return ResponseHelper.forbidden(res, 'Only the task creator or an admin can edit task details');
     }
 
-    const allowed = ['title', 'description', 'type', 'status',
+    // `status` is intentionally NOT in this list — status changes go through
+    // PATCH /tasks/:id/status (the updateStatus endpoint) so that assignees can
+    // change status without needing creator-level permission on the rest of
+    // the details. If a caller posts `status` here it's silently ignored.
+    const allowed = ['title', 'description', 'type',
       'sprint_id', 'story_points', 'estimated_hours', 'due_date', 'labels', 'task_priority', 'require_approval'];
     const updates = {};
     allowed.forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
@@ -235,6 +239,12 @@ class TaskController {
   }
 
   // PATCH /api/ts/tasks/:taskId/status
+  //
+  // Status changes are OPEN to anyone (assignees, creators, admins) by design:
+  // task details (title, due date, etc.) are creator-only, but moving a task
+  // along the workflow — including marking it DONE — should be allowed for
+  // whoever is doing the work. The owner is notified via both in-app and
+  // email so they hear about completions even when not actively in the app.
   async updateStatus(req, res) {
     const { taskId } = req.params;
     const { status } = req.body;
@@ -258,9 +268,60 @@ class TaskController {
 
     await this.audit.log({ tenantId: req.tenantId, entityType: 'TASK', entityId: taskId, action: AUDIT_ACTION.STATUS_CHANGE, oldValue: { status: task.status }, newValue: { status }, performedBy: req.currentUser.id });
 
-    // Notify task creator
+    // ── Notify task creator (in-app + email) ─────────────────────────────────
+    // Skip if the creator IS the one making the change (no self-notification).
     if (task.created_by && String(task.created_by) !== String(req.currentUser.id)) {
-      await this.notif.sendInApp({ tenantId: req.tenantId, userId: task.created_by, title: 'Task Status Updated', message: `"${task.title}" moved to ${status}`, type: NOTIFICATION_TYPE.TASK_STATUS_CHANGED, entityType: 'TASK', entityId: taskId });
+      const isDone     = status === TASK_STATUS.DONE;
+      const actorName  = req.currentUser.name || req.currentUser.email || 'A team member';
+
+      // 1. In-app notification (existing behaviour, kept intact)
+      await this.notif.sendInApp({
+        tenantId:    req.tenantId,
+        userId:      task.created_by,
+        title:       isDone ? 'Task completed' : 'Task status updated',
+        message:     isDone
+          ? `${actorName} marked "${task.title}" as DONE`
+          : `${actorName} moved "${task.title}" to ${String(status).replace(/_/g, ' ')}`,
+        type:        NOTIFICATION_TYPE.TASK_STATUS_CHANGED,
+        entityType:  'TASK',
+        entityId:    taskId,
+      });
+
+      // 2. Email notification (new) — fire-and-forget so a mail failure doesn't
+      //    block the status update itself.
+      try {
+        const ownerRows = await this.db.query(
+          `SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${task.created_by}' LIMIT 1`
+        );
+        const owner = ownerRows[0];
+        if (owner && owner.email) {
+          const subject = isDone
+            ? `[Delivery Sync] Task completed: ${task.title}`
+            : `[Delivery Sync] Task status changed: ${task.title}`;
+          const htmlBody = `
+            <p>Hi ${owner.name || 'there'},</p>
+            <p>
+              <strong>${actorName}</strong> ${isDone ? 'marked your task as <strong>DONE</strong>' : `moved your task to <strong>${String(status).replace(/_/g, ' ')}</strong>`}:
+            </p>
+            <blockquote style="margin:12px 0;padding:10px 14px;border-left:3px solid #4f46e5;background:#f5f3ff;color:#312e81;">
+              ${_escapeHtml(task.title || '(untitled)')}
+            </blockquote>
+            <p style="font-size:12px;color:#6b7280;">
+              Previous status: <strong>${String(task.status || '—').replace(/_/g, ' ')}</strong>
+              &nbsp;→&nbsp;
+              New status: <strong>${String(status).replace(/_/g, ' ')}</strong>
+            </p>
+            <p style="font-size:12px;color:#9ca3af;">You are receiving this because you created this task.</p>
+          `;
+          await this.notif.send({
+            toEmail:  owner.email,
+            subject,
+            htmlBody,
+          });
+        }
+      } catch (mailErr) {
+        console.warn('[TaskController.updateStatus] email notification failed (non-fatal):', mailErr.message);
+      }
     }
 
     return ResponseHelper.success(res, { message: 'Status updated', status });
@@ -377,6 +438,15 @@ class TaskController {
       return ResponseHelper.serverError(res, err.message);
     }
   }
+}
+
+function _escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 module.exports = TaskController;

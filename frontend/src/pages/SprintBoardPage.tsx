@@ -555,8 +555,11 @@ export default function SprintBoardPage() {
     return filtered;
   }, [boardData, filterPriority, filterType, searchQ]);
 
-  // Stats
-  const allTasks = Object.values(boardData).flat();
+  // Stats — DSV-027: only count tasks in the columns we actually render.
+  // `boardData` can include statuses we don't show (CANCELLED, BACKLOG, etc.)
+  // and flattening all keys was inflating the Total Tasks count past what
+  // was visible on the board.
+  const allTasks = COLUMNS.flatMap((col) => boardData[col.key] ?? []);
   const doneCount = (boardData['DONE'] ?? []).length;
   const totalCount = allTasks.length;
 

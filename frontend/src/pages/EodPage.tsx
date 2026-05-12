@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
@@ -174,10 +174,16 @@ const EodPage = () => {
   const [submitError, setSubmitError] = useState('');
   const [aiResult, setAiResult] = useState<EodVoiceResult | null>(null);
   const [aiFilledFields, setAiFilledFields] = useState<Set<string>>(new Set());
-  const [eodDateFilter, setEodDateFilter] = useState('');
-  const [editingEntry, setEditingEntry] = useState<EodEntry | null>(null);
 
+  // Compute "today" up front so state initializers below can reference it.
   const today = format(new Date(), 'yyyy-MM-dd');
+
+  // DSV-024: default the My Submissions date filter to today so the date
+  // picker matches what the list is showing (was '' which meant "all dates"
+  // but the picker stayed empty, confusing users into thinking the filter
+  // was broken).
+  const [eodDateFilter, setEodDateFilter] = useState(today);
+  const [editingEntry, setEditingEntry] = useState<EodEntry | null>(null);
   const { data: projects = [], isLoading: projectsLoading } = useProjects();
   const submitEod = useSubmitEod();
   const updateEod = useUpdateEod();
@@ -280,13 +286,33 @@ const EodPage = () => {
         await submitEod.mutateAsync({ ...data, progress_percentage: Number(data.progress_percentage) });
         setSuccess(`EOD submitted for ${format(new Date(data.date), 'd MMM yyyy')}`);
       }
-      reset({ project_id: data.project_id, date: today, progress_percentage: 0, mood: 'GREEN' });
+      // DSV-022: explicitly reset textareas to '' so they actually clear in
+      // the UI (passing undefined leaves stale text on some browsers).
+      reset({
+        project_id: data.project_id,
+        date: today,
+        progress_percentage: 0,
+        mood: 'GREEN',
+        accomplishments: '',
+        planned_tomorrow: '',
+        blockers: '',
+      });
       setAiResult(null);
       setAiFilledFields(new Set());
+      // DSV-021: scroll up so the success message at the top is visible.
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err: unknown) {
       setSubmitError((err as Error).message);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
+
+  // Auto-hide the success banner after 4s so it doesn't sit forever.
+  useEffect(() => {
+    if (!success) return;
+    const t = setTimeout(() => setSuccess(''), 4000);
+    return () => clearTimeout(t);
+  }, [success]);
 
   if (projectsLoading) return <Layout><PageLoader /></Layout>;
 

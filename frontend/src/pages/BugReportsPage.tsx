@@ -125,6 +125,48 @@ function detectType(file: File): 'IMAGE' | 'VIDEO' | 'FILE' {
   return 'FILE';
 }
 
+// ─── Inline image with skeleton + spinner while loading ──────────────────────
+// CRITICAL: the <img> is ALWAYS rendered (with opacity-0 while pending) so the
+// browser actually starts fetching it immediately. The previous version used
+// the `hidden` Tailwind class (display:none) which made browsers defer the
+// fetch indefinitely — that's why images looked stuck on the spinner. The
+// skeleton sits on top via absolute positioning so the wrapper keeps a
+// stable size during the load.
+const AttachmentImage: React.FC<{ src: string; alt: string; maxHeight?: string }> = ({ src, alt, maxHeight = 'h-32' }) => {
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError]   = useState(false);
+  return (
+    <div className={`relative ${maxHeight} min-w-[128px] inline-block`}>
+      {/* The image — kept in the DOM at all times so the browser fetch fires
+          right away. Eager + high priority since it's in an open modal. */}
+      <img
+        src={src}
+        alt={alt}
+        decoding="async"
+        loading="eager"
+        // @ts-ignore – fetchPriority is a valid attribute, React types lag
+        fetchpriority="high"
+        onLoad={() => setLoaded(true)}
+        onError={() => setError(true)}
+        className={`${maxHeight} w-auto object-cover bg-gray-50 transition-opacity duration-200 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+      />
+      {/* Skeleton overlay — hides the empty img while it loads. */}
+      {!loaded && !error && (
+        <div className={`absolute inset-0 ${maxHeight} w-32 bg-gradient-to-br from-gray-100 to-gray-200 animate-pulse flex items-center justify-center rounded-sm`}>
+          <Loader2 size={14} className="text-gray-400 animate-spin" />
+        </div>
+      )}
+      {/* Error state */}
+      {error && (
+        <div className={`absolute inset-0 ${maxHeight} w-32 bg-red-50 border border-red-100 flex flex-col items-center justify-center text-[10px] text-red-400 gap-1 rounded-sm`}>
+          <AlertCircle size={14} />
+          <span>Could not load</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Bug Report Attachments — gallery shown inside the detail modal ──────────
 // Fetches the full report via bugApi.get (which returns `attachments`) and
 // renders images inline, videos with a player, and other files as download
@@ -176,7 +218,7 @@ const BugReportAttachments: React.FC<{ reportId: string; replyAt?: string | null
         <a key={att.ROWID ?? url} href={url} target="_blank" rel="noopener noreferrer"
           className="block rounded-xl overflow-hidden border border-gray-200 hover:border-indigo-400 transition-colors shrink-0"
           title={`${name} — click to open full size`}>
-          <img src={url} alt={name} loading="lazy" className="h-32 w-auto object-cover bg-gray-50" />
+          <AttachmentImage src={url} alt={name} />
           <p className="px-2 py-1 text-[10px] text-gray-500 truncate max-w-[160px]">{name}</p>
         </a>
       );
@@ -184,8 +226,10 @@ const BugReportAttachments: React.FC<{ reportId: string; replyAt?: string | null
     if (isVideo) {
       return (
         <div key={att.ROWID ?? url} className="rounded-xl overflow-hidden border border-gray-200 shrink-0">
+          {/* preload="metadata" pulls the first frame so the player isn't
+              a flat black square while the video streams. */}
           {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-          <video src={url} controls className="h-32 max-w-[240px] object-contain bg-black" />
+          <video src={url} controls preload="metadata" className="h-32 max-w-[240px] object-contain bg-black" />
           <p className="px-2 py-1 text-[10px] text-gray-500 truncate max-w-[240px]">{name}</p>
         </div>
       );

@@ -15,6 +15,8 @@ import { PageLoader } from '../components/ui/Spinner';
 import { useProjects, useMilestones, useCreateMilestone, useUpdateMilestone } from '../hooks/useProjects';
 import { Milestone } from '../types';
 import { format } from 'date-fns';
+import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 
 interface MilestoneForm {
   title: string;
@@ -24,6 +26,11 @@ interface MilestoneForm {
 
 const MilestonesPage = () => {
   const { t } = useI18n();
+  const { user } = useAuth();
+  // DSV-028: hide the "Add Milestone" button for users without
+  // MILESTONE_WRITE — they were seeing the button, clicking it, and getting
+  // a raw permission-error message instead of a clean read-only view.
+  const canWrite = hasPermission(user, PERMISSIONS.MILESTONE_WRITE);
   const [searchParams] = useSearchParams();
   const preselectedProject = searchParams.get('projectId') || '';
   const [selectedProject, setSelectedProject] = useState(preselectedProject);
@@ -80,7 +87,7 @@ const MilestonesPage = () => {
   return (
     <Layout>
       <Header title={t('nav.milestones')} subtitle={selectedProject ? `${milestones.length} milestones · ${overdue.length} overdue` : 'Select a project'}
-        actions={selectedProject && <Button onClick={openCreate} icon={<Plus size={16} />}>Add Milestone</Button>}
+        actions={selectedProject && canWrite && <Button onClick={openCreate} icon={<Plus size={16} />}>Add Milestone</Button>}
       />
       <div className="p-6 space-y-5">
         <select className="form-select max-w-xs" value={selectedProject} onChange={(e) => setSelectedProject(e.target.value)}>
@@ -96,8 +103,11 @@ const MilestonesPage = () => {
         ) : milestonesLoading ? (
           <PageLoader />
         ) : milestones.length === 0 ? (
-          <EmptyState title="No milestones" description="Add milestones to track key project deliverables."
-            action={<Button onClick={openCreate} icon={<Plus size={16} />}>Add Milestone</Button>} />
+          <EmptyState
+            title="No milestones"
+            description={canWrite ? "Add milestones to track key project deliverables." : "No milestones have been added for this project yet."}
+            action={canWrite ? <Button onClick={openCreate} icon={<Plus size={16} />}>Add Milestone</Button> : undefined}
+          />
         ) : (
           <div className="space-y-6">
             {overdue.length > 0 && (
