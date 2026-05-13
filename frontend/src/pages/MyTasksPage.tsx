@@ -893,7 +893,8 @@ export default function MyTasksPage() {
 
   const { data: rawTasks, isLoading, error } = useMyTasks();
   const { data: rawProjects } = useProjects();
-  const updateTask = useUpdateTask();
+  const updateTask       = useUpdateTask();
+  const updateTaskStatus = useUpdateTaskStatus(); // status-only path — allowed for non-creators
   const deleteTask = useDeleteTask();
 
   const projects: Project[] = useMemo(() => {
@@ -1004,8 +1005,11 @@ export default function MyTasksPage() {
   const closeModal = () => { setTaskModal(false); setEditingTask(null); };
 
   // ── Quick status ──
+  // Use the dedicated status endpoint (PATCH /tasks/:id/status) so that
+  // assignees (non-creators) can mark a task as DONE / IN_PROGRESS without
+  // being blocked by the creator-only `update` permission check.
   const handleStatusChange = (t: Task, status: string) =>
-    updateTask.mutate({ id: t.id, data: { status } });
+    updateTaskStatus.mutate({ id: t.id, data: { status } });
 
   // ── Delete ──
   const handleDelete = async (t: Task) => {
@@ -1050,7 +1054,7 @@ export default function MyTasksPage() {
   const { data: fullTask }              = useTask(taskDetailId ?? '');
   const { data: taskComments = [] }     = useTaskComments(taskDetailId ?? '');
   const addComment                      = useAddTaskComment(taskDetailId ?? '');
-  const updateTaskStatus                = useUpdateTaskStatus();
+  // updateTaskStatus already declared above at the top of this component.
   const { data: detailUsers = [] }      = useUsers();
   const allDetailUsers                  = detailUsers as TenantUser[];
   const [taskAttachments, setTaskAttachments] = useState<any[]>([]);

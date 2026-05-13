@@ -592,9 +592,10 @@ class AssetRequestController {
         assigned_to: '0',
       });
       // Close the active assignment record
+      const rid = DataStoreService.escape(req.params.requestId);
       const assignments = await this.db.findWhere(
         TABLES.ASSET_ASSIGNMENTS, req.tenantId,
-        `request_id = '${req.params.requestId}' AND is_active = 'true'`,
+        `request_id = '${rid}' AND is_active = 'true'`,
         { limit: 1 },
       );
       if (assignments[0]) {

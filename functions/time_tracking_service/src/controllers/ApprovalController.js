@@ -96,8 +96,19 @@ class ApprovalController {
     const entry = await this.db.findById(TABLES.TIME_ENTRIES, approval.time_entry_id, req.tenantId);
     const userRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${approval.requested_by}' LIMIT 1`);
     if (userRows[0]) {
-      await this.notif.send({ toEmail: userRows[0].email, subject: '[Delivery Sync] Time entry approved', htmlBody: `<p>Hi ${userRows[0].name}, your time entry of ${entry?.hours}h on ${entry?.entry_date} has been approved.</p>` });
-      await this.notif.sendInApp({ tenantId: req.tenantId, userId: approval.requested_by, title: 'Time Entry Approved', message: `Your ${entry?.hours}h entry on ${entry?.entry_date} was approved`, type: NOTIFICATION_TYPE.TIME_ENTRY_APPROVED, entityType: 'TIME_ENTRY', entityId: approval.time_entry_id });
+      const hoursLabel = _formatHours(entry?.hours);
+      const dateLabel  = _formatDate(entry?.entry_date);
+      await this.notif.send({
+        toEmail:  userRows[0].email,
+        subject:  `[DSV OpsPulse] Your time entry was approved`,
+        htmlBody: _approvalEmailHtml({
+          recipientName: userRows[0].name,
+          hoursLabel,
+          dateLabel,
+          description:   entry?.description || '',
+        }),
+      });
+      await this.notif.sendInApp({ tenantId: req.tenantId, userId: approval.requested_by, title: 'Time Entry Approved', message: `Your ${hoursLabel} entry on ${dateLabel} was approved`, type: NOTIFICATION_TYPE.TIME_ENTRY_APPROVED, entityType: 'TIME_ENTRY', entityId: approval.time_entry_id });
     }
 
     await this.audit.log({ tenantId: req.tenantId, entityType: 'TIME_APPROVAL', entityId: req.params.requestId, action: AUDIT_ACTION.APPROVE, newValue: { status: 'APPROVED' }, performedBy: req.currentUser.id });
@@ -120,8 +131,20 @@ class ApprovalController {
     const entry = await this.db.findById(TABLES.TIME_ENTRIES, approval.time_entry_id, req.tenantId);
     const userRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${approval.requested_by}' LIMIT 1`);
     if (userRows[0]) {
-      await this.notif.send({ toEmail: userRows[0].email, subject: '[Delivery Sync] Time entry rejected', htmlBody: `<p>Hi ${userRows[0].name}, your time entry of ${entry?.hours}h on ${entry?.entry_date} was rejected. Reason: ${notes}</p>` });
-      await this.notif.sendInApp({ tenantId: req.tenantId, userId: approval.requested_by, title: 'Time Entry Rejected', message: `Your entry on ${entry?.entry_date} was rejected: ${notes}`, type: NOTIFICATION_TYPE.TIME_ENTRY_REJECTED, entityType: 'TIME_ENTRY', entityId: approval.time_entry_id });
+      const hoursLabel = _formatHours(entry?.hours);
+      const dateLabel  = _formatDate(entry?.entry_date);
+      await this.notif.send({
+        toEmail:  userRows[0].email,
+        subject:  `[DSV OpsPulse] Your time entry was rejected`,
+        htmlBody: _rejectionEmailHtml({
+          recipientName: userRows[0].name,
+          hoursLabel,
+          dateLabel,
+          description:   entry?.description || '',
+          reason:        notes,
+        }),
+      });
+      await this.notif.sendInApp({ tenantId: req.tenantId, userId: approval.requested_by, title: 'Time Entry Rejected', message: `Your entry on ${dateLabel} was rejected: ${notes}`, type: NOTIFICATION_TYPE.TIME_ENTRY_REJECTED, entityType: 'TIME_ENTRY', entityId: approval.time_entry_id });
     }
 
     await this.audit.log({ tenantId: req.tenantId, entityType: 'TIME_APPROVAL', entityId: req.params.requestId, action: AUDIT_ACTION.REJECT, newValue: { status: 'REJECTED', notes }, performedBy: req.currentUser.id });
@@ -140,6 +163,113 @@ class ApprovalController {
     await this.audit.log({ tenantId: req.tenantId, entityType: 'TIME_APPROVAL', entityId: req.params.requestId, action: AUDIT_ACTION.ESCALATE, newValue: { escalated_to }, performedBy: req.currentUser.id });
     return ResponseHelper.success(res, { message: 'Escalated' });
   }
+}
+
+// ─── Email helpers ───────────────────────────────────────────────────────────
+
+// Render decimal hours as a human-friendly label.
+//   0.1 → "6 min"  (was the source of "0.1h" confusion in DSV-018)
+//   1   → "1 hour"
+//   1.5 → "1 h 30 min"
+function _formatHours(raw) {
+  const n = parseFloat(raw);
+  if (!isFinite(n) || n <= 0) return '0 min';
+  const totalMin = Math.round(n * 60);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m} min`;
+  if (m === 0) return `${h} ${h === 1 ? 'hour' : 'hours'}`;
+  return `${h} h ${m} min`;
+}
+
+// Strip the time portion if a stored UTC datetime accidentally lands here
+// ("2026-05-11 00:00:00" → "11 May 2026"). Falls back to the raw value if it
+// can't be parsed.
+function _formatDate(raw) {
+  if (!raw) return '';
+  const datePart = String(raw).slice(0, 10);
+  const d = new Date(datePart + 'T00:00:00Z');
+  if (isNaN(d.getTime())) return String(raw);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${d.getUTCDate()} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
+function _escapeHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Polished approval email — proper greeting on its own line, clearly
+// formatted hours, date and description, plus a regards/signature block.
+function _approvalEmailHtml({ recipientName, hoursLabel, dateLabel, description }) {
+  return `
+  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1f2937;">
+    <p style="margin:0 0 16px;font-size:15px;">Hi ${_escapeHtml(recipientName || 'there')},</p>
+
+    <p style="margin:0 0 18px;font-size:14px;line-height:1.55;">
+      Good news — your time entry has been <strong style="color:#16a34a;">approved</strong>.
+    </p>
+
+    <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;width:100%;margin-bottom:20px;">
+      <tr>
+        <td style="padding:10px 14px;font-size:12px;color:#6b7280;width:90px;border-bottom:1px solid #e5e7eb;">Hours</td>
+        <td style="padding:10px 14px;font-size:13px;color:#111827;font-weight:600;border-bottom:1px solid #e5e7eb;">${_escapeHtml(hoursLabel)}</td>
+      </tr>
+      <tr>
+        <td style="padding:10px 14px;font-size:12px;color:#6b7280;${description ? 'border-bottom:1px solid #e5e7eb;' : ''}">Date</td>
+        <td style="padding:10px 14px;font-size:13px;color:#111827;font-weight:600;${description ? 'border-bottom:1px solid #e5e7eb;' : ''}">${_escapeHtml(dateLabel)}</td>
+      </tr>
+      ${description ? `
+      <tr>
+        <td style="padding:10px 14px;font-size:12px;color:#6b7280;vertical-align:top;">Description</td>
+        <td style="padding:10px 14px;font-size:13px;color:#374151;">${_escapeHtml(description)}</td>
+      </tr>` : ''}
+    </table>
+
+    <p style="margin:0 0 4px;font-size:13px;color:#374151;">Thanks for keeping your hours up to date.</p>
+
+    <p style="margin:24px 0 4px;font-size:13px;color:#374151;">Regards,</p>
+    <p style="margin:0;font-size:13px;color:#4f46e5;font-weight:600;">DSV OpsPulse team</p>
+  </div>`;
+}
+
+function _rejectionEmailHtml({ recipientName, hoursLabel, dateLabel, description, reason }) {
+  return `
+  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1f2937;">
+    <p style="margin:0 0 16px;font-size:15px;">Hi ${_escapeHtml(recipientName || 'there')},</p>
+
+    <p style="margin:0 0 18px;font-size:14px;line-height:1.55;">
+      Your time entry has been <strong style="color:#dc2626;">rejected</strong>. Please review the note from your approver below and resubmit with the corrections.
+    </p>
+
+    <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;width:100%;margin-bottom:16px;">
+      <tr>
+        <td style="padding:10px 14px;font-size:12px;color:#6b7280;width:90px;border-bottom:1px solid #e5e7eb;">Hours</td>
+        <td style="padding:10px 14px;font-size:13px;color:#111827;font-weight:600;border-bottom:1px solid #e5e7eb;">${_escapeHtml(hoursLabel)}</td>
+      </tr>
+      <tr>
+        <td style="padding:10px 14px;font-size:12px;color:#6b7280;${description ? 'border-bottom:1px solid #e5e7eb;' : ''}">Date</td>
+        <td style="padding:10px 14px;font-size:13px;color:#111827;font-weight:600;${description ? 'border-bottom:1px solid #e5e7eb;' : ''}">${_escapeHtml(dateLabel)}</td>
+      </tr>
+      ${description ? `
+      <tr>
+        <td style="padding:10px 14px;font-size:12px;color:#6b7280;vertical-align:top;">Description</td>
+        <td style="padding:10px 14px;font-size:13px;color:#374151;">${_escapeHtml(description)}</td>
+      </tr>` : ''}
+    </table>
+
+    <div style="background:#fef2f2;border-left:4px solid #dc2626;border-radius:0 8px 8px 0;padding:12px 14px;margin-bottom:20px;">
+      <p style="margin:0 0 4px;font-size:11px;font-weight:700;color:#991b1b;text-transform:uppercase;letter-spacing:0.5px;">Reason</p>
+      <p style="margin:0;font-size:13px;color:#7f1d1d;line-height:1.5;white-space:pre-wrap;">${_escapeHtml(reason)}</p>
+    </div>
+
+    <p style="margin:24px 0 4px;font-size:13px;color:#374151;">Regards,</p>
+    <p style="margin:0;font-size:13px;color:#4f46e5;font-weight:600;">DSV OpsPulse team</p>
+  </div>`;
 }
 
 module.exports = ApprovalController;

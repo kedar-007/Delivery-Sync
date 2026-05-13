@@ -628,6 +628,9 @@ timeClient.interceptors.response.use(
 );
 
 export const timeEntriesApi = {
+  // Returns either an array (legacy / non-paginated) or
+  // { entries, pagination } when `page` was passed in params. The hook
+  // (useTimeEntries) normalises both shapes into { data, pagination }.
   list:        (params?: Record<string, string>) => timeClient.get('/entries', { params }).then((r) => r.data.data),
   myWeek:      () => timeClient.get('/entries/my-week').then((r) => r.data.data),
   summary:     (params?: Record<string, string>) => timeClient.get('/entries/summary', { params }).then((r) => r.data.data),

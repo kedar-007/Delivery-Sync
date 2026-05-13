@@ -2,20 +2,22 @@
 
 const DataStoreService = require('../services/DataStoreService');
 const AuditService = require('../services/AuditService');
+const CacheService = require('../services/CacheService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const Validator = require('../utils/Validator');
 const { TABLES, USER_STATUS, AUDIT_ACTION, ROLES } = require('../utils/Constants');
 
 // Catalyst role IDs — each DS role maps to a distinct Catalyst app role.
-// Values come from env vars set in Catalyst Console → Function → Environment Variables.
-const CATALYST_ROLE_MAP = {
-  TENANT_ADMIN:  process.env.CATALYST_ROLE_TENANT_ADMIN  || '17682000000989450',
-  DELIVERY_LEAD: process.env.CATALYST_ROLE_DELIVERY_LEAD || '17682000000989455',
-  TEAM_MEMBER:   process.env.CATALYST_ROLE_TEAM_MEMBER   || '17682000000989460',
-  PMO:           process.env.CATALYST_ROLE_PMO           || '17682000000989465',
-  EXEC:          process.env.CATALYST_ROLE_EXEC          || '17682000000989470',
-  CLIENT:        process.env.CATALYST_ROLE_CLIENT        || '17682000000989475',
-  SUPER_ADMIN:   process.env.CATALYST_ROLE_SUPER_ADMIN   || '17682000001011209',
+// Env-var names use the ROLE_ID_* prefix because Catalyst reserves the
+// CATALYST_* namespace and rejects it in catalyst-config.json env_variables.
+const ROLE_ID_MAP = {
+  TENANT_ADMIN:  process.env.ROLE_ID_TENANT_ADMIN  || '17682000000989450',
+  DELIVERY_LEAD: process.env.ROLE_ID_DELIVERY_LEAD || '17682000000989455',
+  TEAM_MEMBER:   process.env.ROLE_ID_TEAM_MEMBER   || '17682000000989460',
+  PMO:           process.env.ROLE_ID_PMO           || '17682000000989465',
+  EXEC:          process.env.ROLE_ID_EXEC          || '17682000000989470',
+  CLIENT:        process.env.ROLE_ID_CLIENT        || '17682000000989475',
+  SUPER_ADMIN:   process.env.ROLE_ID_SUPER_ADMIN   || '17682000001011209',
 };
 
 /**
@@ -83,7 +85,7 @@ class AdminController {
         first_name: firstName,
         last_name:  lastName,
         email_id:   data.email.toLowerCase(),
-        role_id:    CATALYST_ROLE_MAP.TEAM_MEMBER,
+        role_id:    ROLE_ID_MAP.TEAM_MEMBER,
         org_id:     orgId,
       };
 
@@ -670,6 +672,14 @@ class AdminController {
         });
       }
 
+      // Invalidate this user's unified auth-context cache so the new
+      // grants/revokes take effect on their next request instead of waiting
+      // for TTL.
+      try {
+        const cache = new CacheService(req.catalystApp);
+        await cache.invalidate(`authCtx:v1:${String(userId)}`);
+      } catch (_) {}
+
       await this.audit.log({
         tenantId, entityType: 'user_permissions', entityId: userId,
         action: AUDIT_ACTION.UPDATE,
@@ -705,6 +715,14 @@ class AdminController {
         settings: JSON.stringify(current),
       });
 
+      // Invalidate cached module map + tenant settings so the change is visible
+      // on the next page load instead of waiting for TTL.
+      try {
+        const cache = new CacheService(req.catalystApp);
+        await cache.invalidate(CacheService.key('modules', String(tenantId)));
+        await cache.invalidate(CacheService.key('tenant',  String(tenantId)));
+      } catch (_) {}
+
       return ResponseHelper.success(res, { modules: current.modules });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
@@ -715,6 +733,14 @@ class AdminController {
   async getModulePermissions(req, res) {
     try {
       const { tenantId } = req;
+      // Cache the resolved module map per tenant — this endpoint is hit on
+      // every page load to drive the sidebar visibility (see useModulePermissions).
+      const cache    = new CacheService(req.catalystApp);
+      const cacheKey = CacheService.key('modules', String(tenantId));
+      const cached   = await cache.get(cacheKey);
+      if (cached && typeof cached === 'object') {
+        return ResponseHelper.success(res, { modules: cached });
+      }
       const ALL_MODULES = [
         { key: 'projects',    label: 'Projects & Sprints',  defaultEnabled: true },
         { key: 'daily-work',  label: 'Daily Work',          defaultEnabled: true },
@@ -750,7 +776,42 @@ class AdminController {
         ])
       );
 
+      // 5-minute TTL — matches AuthMiddleware permission cache, so changes
+      // propagate within a similar window even when invalidation is missed.
+      await cache.set(cacheKey, modules, 1 / 12);
+
       return ResponseHelper.success(res, { modules });
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  // ─── Cache observability ────────────────────────────────────────────────
+  //
+  // GET /api/admin/cache/health — runs a write/read round-trip against the
+  // Catalyst Cache segment and returns the result along with process-wide
+  // hit/miss counters. Use this after every deploy to verify that the cache
+  // is actually wired up. If `segmentInitialized` is false, look at the
+  // function logs for the `[CacheService] First init failure` line — it
+  // explains why the SDK could not initialise the cache segment.
+  async getCacheHealth(req, res) {
+    try {
+      const cache  = new CacheService(req.catalystApp);
+      const report = await cache.healthCheck();
+      return ResponseHelper.success(res, report);
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  // POST /api/admin/cache/stats/reset — clears the process-lifetime counters
+  // so you can measure hit-rate over a defined window without restarting the
+  // function. Counters are per-process; calling this only resets the
+  // instance handling the request.
+  async resetCacheStats(req, res) {
+    try {
+      CacheService.resetStats();
+      return ResponseHelper.success(res, { stats: CacheService.getStats() });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }

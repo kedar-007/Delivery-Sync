@@ -20,7 +20,7 @@ import { PageSkeleton } from '../components/ui/Skeleton';
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import {
-  useTasks, useSprints, useCreateTask, useUpdateTask, useDeleteTask,
+  useTasks, useSprints, useCreateTask, useUpdateTask, useUpdateTaskStatus, useDeleteTask,
 } from '../hooks/useTaskSprint';
 import { useUsers } from '../hooks/useUsers';
 import { timeEntriesApi } from '../lib/api';
@@ -147,9 +147,10 @@ export default function ProjectTasksPage() {
   }, [tasks, search, filterStatus, filterPriority, filterType, filterSprint, filterAssignee]);
 
   // ── Mutations ──
-  const createTask = useCreateTask();
-  const updateTask = useUpdateTask();
-  const deleteTask = useDeleteTask();
+  const createTask       = useCreateTask();
+  const updateTask       = useUpdateTask();
+  const updateTaskStatus = useUpdateTaskStatus(); // status-only path — allowed for assignees, not just creators
+  const deleteTask       = useDeleteTask();
 
   // ── Create / Edit Modal ──
   const [showCreate, setShowCreate] = useState(false);
@@ -249,8 +250,11 @@ export default function ProjectTasksPage() {
   };
 
   // ── Quick status update ──
+  // Route status changes through the dedicated /status endpoint so assignees
+  // (who aren't the task creator) can mark tasks DONE without being blocked
+  // by the creator-only details-update permission check.
   const handleStatusChange = (t: Task, status: string) => {
-    updateTask.mutate({ id: t.id, data: { status } });
+    updateTaskStatus.mutate({ id: t.id, data: { status } });
   };
 
   // ── Log Time ──

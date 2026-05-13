@@ -377,12 +377,15 @@ class LeaveController {
         const rmRows = await this.db.query(
           `SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${rmId}' LIMIT 1`);
         if (rmRows[0]) {
+          // Escape user-controlled fields to prevent HTML injection in the
+          // recipient's mail client (names, reason are free text submitted
+          // by users).
           await this.notif.send({
             toEmail: rmRows[0].email,
             subject: `[Delivery Sync] Leave request from ${req.currentUser.name}`,
-            htmlBody: `<p>Hi ${rmRows[0].name}, ${req.currentUser.name} has applied for ` +
-              `${days_count} day(s) leave from ${start_date} to ${end_date}. ` +
-              `Reason: ${reason}</p>`,
+            htmlBody: `<p>Hi ${_escapeHtml(rmRows[0].name)}, ${_escapeHtml(req.currentUser.name)} has applied for ` +
+              `${days_count} day(s) leave from ${_escapeHtml(start_date)} to ${_escapeHtml(end_date)}. ` +
+              `Reason: ${_escapeHtml(reason)}</p>`,
           });
           await this.notif.sendInApp({
             tenantId,
@@ -1067,6 +1070,15 @@ class LeaveController {
       return ResponseHelper.serverError(res, err.message);
     }
   }
+}
+
+function _escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 module.exports = LeaveController;

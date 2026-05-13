@@ -74,10 +74,12 @@ const PERM_GROUPS: PermGroup[] = [
     color: 'sky',
     icon: <ChevronRight size={12} />,
     perms: [
-      { key: 'STANDUP_SUBMIT', label: 'Submit Standup',   desc: 'Post daily standup updates' },
-      { key: 'STANDUP_READ',   label: 'View Standups',    desc: 'Read team standup history' },
-      { key: 'EOD_SUBMIT',     label: 'Submit EOD',       desc: 'Post end-of-day reports' },
-      { key: 'EOD_READ',       label: 'View EOD Reports', desc: 'Read team EOD history' },
+      { key: 'STANDUP_SUBMIT',    label: 'Submit Standup',      desc: 'Post daily standup updates' },
+      { key: 'STANDUP_READ',      label: 'View Standups',       desc: 'Read team standup history' },
+      { key: 'STANDUP_TEAM_VIEW', label: 'Team Standup View',   desc: "See standups submitted by team peers (scoped to teams the user is in/leads)" },
+      { key: 'EOD_SUBMIT',        label: 'Submit EOD',          desc: 'Post end-of-day reports' },
+      { key: 'EOD_READ',          label: 'View EOD Reports',    desc: 'Read team EOD history' },
+      { key: 'EOD_TEAM_VIEW',     label: 'Team EOD View',       desc: "See EODs submitted by team peers (scoped to teams the user is in/leads)" },
     ],
   },
   {
@@ -703,8 +705,10 @@ const CRUD_MODULES: CrudSection[] = [
   {
     section: 'Daily Work',
     rows: [
-      { name: 'Standups',    view: 'STANDUP_READ',  write: 'STANDUP_SUBMIT' },
-      { name: 'EOD Reports', view: 'EOD_READ',      write: 'EOD_SUBMIT' },
+      // `approve` slot used for the team-view permission (mirrors AdminPage
+      // and the Attendance row) so admins can toggle it from the matrix.
+      { name: 'Standups',    view: 'STANDUP_READ',  write: 'STANDUP_SUBMIT', approve: 'STANDUP_TEAM_VIEW' },
+      { name: 'EOD Reports', view: 'EOD_READ',      write: 'EOD_SUBMIT',     approve: 'EOD_TEAM_VIEW' },
     ],
   },
   {
@@ -785,8 +789,10 @@ const PERM_INFO: Record<string, { label: string; desc: string }> = {
   DECISION_WRITE:     { label: 'Log',               desc: 'Add entries to decision log' },
   STANDUP_SUBMIT:     { label: 'Submit',            desc: 'Post daily standup updates' },
   STANDUP_READ:       { label: 'View',              desc: 'Read team standup history' },
+  STANDUP_TEAM_VIEW:  { label: 'Team View',         desc: "See standups submitted by team peers (teams you're in or lead)" },
   EOD_SUBMIT:         { label: 'Submit',            desc: 'Post end-of-day reports' },
   EOD_READ:           { label: 'View',              desc: 'Read team EOD reports' },
+  EOD_TEAM_VIEW:      { label: 'Team View',         desc: "See EODs submitted by team peers (teams you're in or lead)" },
   TIME_READ:          { label: 'View',              desc: 'See time tracking entries' },
   TIME_WRITE:         { label: 'Log Time',          desc: 'Submit time entries' },
   TIME_APPROVE:       { label: 'Approve',           desc: 'Approve team time submissions' },

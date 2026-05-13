@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { LogIn, LogOut, Coffee, Clock, Home, UtensilsCrossed, AlertTriangle } from 'lucide-react';
+import Modal, { ModalActions } from './Modal';
+import Button from './Button';
 import {
   useMyAttendanceRecord,
   useCheckIn,
@@ -89,6 +91,16 @@ const AttendanceWidget: React.FC = () => {
   const handleWfhCheckIn = () => checkIn.mutate({ client_time: clientTime(), is_wfh: true, wfh_reason: todayApprovedWfh?.reason ?? '' });
   const handleBreakStart = (type: 'LUNCH' | 'SHORT') => breakStart.mutate({ client_time: clientTime(), break_type: type });
   const handleBreakEnd   = () => breakEnd.mutate({ client_time: clientTime() });
+
+  // ── Check-out confirmation modal ──
+  // Check-out is a one-way action — once stamped, the user can't check back in
+  // for the same day. People were doing this accidentally (mis-click on the
+  // small red button), so we now require an explicit confirm.
+  const [showCheckoutConfirm, setShowCheckoutConfirm] = useState(false);
+  const confirmCheckOut = () => {
+    setShowCheckoutConfirm(false);
+    checkOut.mutate({ client_time: clientTime() });
+  };
 
   const breakElapsedMins = Math.floor(breakSecs / 60);
   const activeAllowance  = activeBreak ? ALLOWANCES[activeBreak.break_type as keyof typeof ALLOWANCES] ?? 15 : 0;
@@ -208,10 +220,11 @@ const AttendanceWidget: React.FC = () => {
           </>
         )}
 
-        {/* Check Out */}
+        {/* Check Out — opens a confirmation modal so accidental clicks don't
+            lock the user out for the rest of the day. */}
         {isWorking && (
           <button
-            onClick={() => checkOut.mutate({ client_time: clientTime() })}
+            onClick={() => setShowCheckoutConfirm(true)}
             disabled={checkOut.isPending}
             className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium transition-colors disabled:opacity-60"
           >
@@ -247,6 +260,46 @@ const AttendanceWidget: React.FC = () => {
         )}
       </div>
 
+      {/* ── Check-out confirmation modal ───────────────────────────────────── */}
+      <Modal
+        open={showCheckoutConfirm}
+        onClose={() => setShowCheckoutConfirm(false)}
+        title="Check out for the day?"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+            <div className="text-sm text-amber-800">
+              <p className="font-semibold">You won't be able to check in again today.</p>
+              <p className="mt-1 text-amber-700">
+                Once you check out, the attendance for today is final.
+                {elapsed && <> Worked time so far: <span className="font-mono font-semibold">{elapsed}</span>.</>}
+              </p>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500">
+            Only proceed if you're done for the day. If you clicked by mistake, choose <strong>Cancel</strong>.
+          </p>
+          <ModalActions>
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() => setShowCheckoutConfirm(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              type="button"
+              loading={checkOut.isPending}
+              onClick={confirmCheckOut}
+            >
+              Yes, Check Me Out
+            </Button>
+          </ModalActions>
+        </div>
+      </Modal>
     </>
   );
 };

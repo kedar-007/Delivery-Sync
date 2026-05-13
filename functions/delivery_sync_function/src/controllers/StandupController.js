@@ -1,9 +1,10 @@
 'use strict';
 
 const DataStoreService = require('../services/DataStoreService');
+const TeamScopeService = require('../services/TeamScopeService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const Validator = require('../utils/Validator');
-const { TABLES } = require('../utils/Constants');
+const { TABLES, PERMISSIONS } = require('../utils/Constants');
 
 /**
  * StandupController – submit and retrieve daily standup entries.
@@ -22,6 +23,14 @@ class StandupController {
     try {
       const { tenantId, id: userId } = req.currentUser;
       const data = Validator.validateSubmitStandup(req.body);
+
+      // ── Date-window enforcement ─────────────────────────────────────────
+      // Standups can only be entered for today or up to 7 days back.
+      // Future dates are rejected. Defense in depth — the frontend already
+      // disables the date picker for out-of-range values, but a hand-crafted
+      // request would otherwise sneak through.
+      const _windowCheck = _validateDateWindow(data.date);
+      if (_windowCheck) return ResponseHelper.validationError(res, _windowCheck);
 
       // Enforce uniqueness: one standup per user per project per day
       const existing = await this.db.query(
@@ -73,16 +82,56 @@ class StandupController {
   async getStandups(req, res) {
     try {
       const { tenantId, id: currentUserId, role } = req.currentUser;
-      const { projectId, date, userId, startDate, endDate } = req.query;
+      const { projectId, date, userId, startDate, endDate, scope: queryScope } = req.query;
+      const userPerms = Array.isArray(req.currentUser.permissions) ? req.currentUser.permissions : [];
 
-      // TEAM_MEMBER can only see their own entries (unless their org role grants org-wide access)
-      const isLimitedToOwn = role === 'TEAM_MEMBER' && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
-      const effectiveUserId = isLimitedToOwn ? currentUserId : userId;
+      // Visibility ladder:
+      //   - Caller is org-wide / privileged → see all (with optional ?userId filter)
+      //   - Caller passes ?scope=team AND has STANDUP_TEAM_VIEW → team peers
+      //   - Otherwise → own entries only
+      //
+      // NOTE: team-peer scope is opt-in via `scope=team` so the legacy "My
+      // Submissions" view (which calls this endpoint with no params) keeps
+      // showing only the caller's own standups even after the permission is
+      // granted. A separate "Team Standups" tab passes scope=team explicitly.
+      const isLimitedToOwn = role === 'TEAM_MEMBER'
+        && req.currentUser.dataScope !== 'ORG_WIDE'
+        && req.currentUser.dataScope !== 'SUBORDINATES';
+      const hasTeamView    = userPerms.includes(PERMISSIONS.STANDUP_TEAM_VIEW);
+      const wantsTeamScope = String(queryScope || '').toLowerCase() === 'team';
 
       let whereExtra = ''; // default: fetch across all projects
       if (projectId) whereExtra = `project_id = '${DataStoreService.escape(projectId)}'`;
       if (date) whereExtra += (whereExtra ? ' AND ' : '') + `entry_date = '${DataStoreService.escape(date)}'`;
-      if (effectiveUserId) whereExtra += (whereExtra ? ' AND ' : '') + `user_id = '${DataStoreService.escape(effectiveUserId)}'`;
+
+      if (!isLimitedToOwn) {
+        // Org-wide / privileged caller — optional userId filter passes through.
+        if (userId) whereExtra += (whereExtra ? ' AND ' : '') + `user_id = '${DataStoreService.escape(userId)}'`;
+      } else if (wantsTeamScope && hasTeamView) {
+        // Team-peer scope. Intersect with explicit ?userId if provided.
+        const scope = new TeamScopeService(this.db);
+        const peerIds = await scope.getTeamPeerUserIds(tenantId, currentUserId);
+        const allowed = userId
+          ? peerIds.filter((id) => String(id) === String(userId))
+          : peerIds;
+        if (allowed.length === 0) {
+          return ResponseHelper.success(res, { standups: [] });
+        }
+        if (allowed.length === 1) {
+          whereExtra += (whereExtra ? ' AND ' : '') + `user_id = '${DataStoreService.escape(allowed[0])}'`;
+        } else {
+          const inList = allowed.map((id) => `'${DataStoreService.escape(id)}'`).join(',');
+          whereExtra += (whereExtra ? ' AND ' : '') + `user_id IN (${inList})`;
+        }
+      } else if (wantsTeamScope && !hasTeamView) {
+        // Asked for team scope but lacks the permission — refuse rather than
+        // silently fall back to own-only (which would mask the missing perm).
+        return ResponseHelper.forbidden(res, 'Missing permission: STANDUP_TEAM_VIEW');
+      } else {
+        // Own-only (legacy behaviour for the My Submissions tab).
+        whereExtra += (whereExtra ? ' AND ' : '') + `user_id = '${DataStoreService.escape(currentUserId)}'`;
+      }
+
       if (startDate && endDate) {
         whereExtra += (whereExtra ? ' AND ' : '') + `entry_date >= '${DataStoreService.escape(startDate)}' AND entry_date <= '${DataStoreService.escape(endDate)}'`;
       }
@@ -103,19 +152,39 @@ class StandupController {
         projects.forEach((p) => { projectMap[String(p.ROWID)] = p.name; });
       }
 
+      // Enrich with submitter names (needed by the Team Standups view) — only
+      // do the user lookup when the response actually mixes multiple users,
+      // since the My Submissions tab already knows it's looking at itself.
+      const userIds = [...new Set(standups.map((s) => s.user_id).filter(Boolean).map(String))];
+      let userMap = {};
+      if (userIds.length > 1) {
+        try {
+          const inList = userIds.map((id) => `'${id}'`).join(',');
+          const users  = await this.db.query(
+            `SELECT ROWID, name, avatar_url FROM ${TABLES.USERS} WHERE ROWID IN (${inList}) LIMIT 100`
+          );
+          users.forEach((u) => { userMap[String(u.ROWID)] = u; });
+        } catch (_) { /* enrichment is non-fatal — fall back to IDs */ }
+      }
+
       return ResponseHelper.success(res, {
-        standups: standups.map((s) => ({
-          id: String(s.ROWID),
-          projectId: s.project_id,
-          projectName: projectMap[String(s.project_id)] || null,
-          userId: s.user_id,
-          date: s.entry_date,
-          yesterday: s.yesterday,
-          today: s.today,
-          blockers: s.blockers,
-          status: s.status,
-          submittedAt: s.submitted_at,
-        })),
+        standups: standups.map((s) => {
+          const u = userMap[String(s.user_id)] || {};
+          return {
+            id: String(s.ROWID),
+            projectId: s.project_id,
+            projectName: projectMap[String(s.project_id)] || null,
+            userId: s.user_id,
+            userName:      u.name       || null,
+            userAvatarUrl: u.avatar_url || null,
+            date: s.entry_date,
+            yesterday: s.yesterday,
+            today: s.today,
+            blockers: s.blockers,
+            status: s.status,
+            submittedAt: s.submitted_at,
+          };
+        }),
       });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
@@ -137,9 +206,27 @@ class StandupController {
       const from = startDate || DataStoreService.daysAgo(7);
       const to = endDate || today;
 
-      // TEAM_MEMBER only sees their own entries in rollup (unless org role grants org-wide access)
+      // Same visibility ladder as getStandups: org-wide → all, STANDUP_TEAM_VIEW → peers, else own.
+      const userPerms      = Array.isArray(req.currentUser.permissions) ? req.currentUser.permissions : [];
       const isLimitedToOwn = role === 'TEAM_MEMBER' && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
-      const userFilter = isLimitedToOwn ? ` AND user_id = '${currentUserId}'` : '';
+      const hasTeamView    = userPerms.includes(PERMISSIONS.STANDUP_TEAM_VIEW);
+      let userFilter = '';
+      if (isLimitedToOwn) {
+        if (hasTeamView) {
+          const scope   = new TeamScopeService(this.db);
+          const peerIds = await scope.getTeamPeerUserIds(tenantId, currentUserId);
+          if (peerIds.length === 1) {
+            userFilter = ` AND user_id = '${DataStoreService.escape(peerIds[0])}'`;
+          } else if (peerIds.length > 1) {
+            const inList = peerIds.map((id) => `'${DataStoreService.escape(id)}'`).join(',');
+            userFilter = ` AND user_id IN (${inList})`;
+          } else {
+            userFilter = ` AND user_id = '${currentUserId}'`;
+          }
+        } else {
+          userFilter = ` AND user_id = '${currentUserId}'`;
+        }
+      }
 
       const standups = await this.db.findWhere(
         TABLES.STANDUP_ENTRIES, tenantId,
@@ -244,25 +331,34 @@ class StandupController {
   }
 
   // GET /api/standups/search?q=<term>
-  // Requires Search Index enabled on 'yesterday', 'today', 'blockers' columns of 'standup_entries'.
+  //
+  // Originally used Catalyst's Search Index (executeSearchQuery), which
+  // requires the index to be explicitly enabled per-column in the Catalyst
+  // console. When that wasn't configured the endpoint always returned zero
+  // hits, surfacing as "No records found" in the UI for every search (DSV-011).
+  //
+  // Switched to a ZCQL LIKE-based fallback so the feature works regardless
+  // of search-index configuration. Trade-off: it's a table scan capped at
+  // 500 rows, which is fine for per-user standup search.
   async searchMyStandups(req, res) {
     try {
       const { tenantId, id: userId } = req.currentUser;
       const q = (req.query.q || '').trim();
       if (!q || q.length < 2) return ResponseHelper.validationError(res, 'Search term must be at least 2 characters');
 
-      const results = await this.catalystApp.search().executeSearchQuery({
-        search: q,
-        search_table_columns: { [TABLES.STANDUP_ENTRIES]: ['yesterday', 'today', 'blockers'] },
-        select_table_columns: {
-          [TABLES.STANDUP_ENTRIES]: ['ROWID', 'yesterday', 'today', 'blockers',
-            'entry_date', 'project_id', 'user_id', 'tenant_id', 'submitted_at'],
-        },
-      });
-
-      const hits = (results[TABLES.STANDUP_ENTRIES] ?? []).filter(
-        (s) => String(s.tenant_id) === String(tenantId) && String(s.user_id) === String(userId)
-      );
+      // Escape single quotes for the LIKE pattern
+      const safeQ = q.replace(/'/g, "''");
+      const sql = `SELECT * FROM ${TABLES.STANDUP_ENTRIES}
+                   WHERE tenant_id = '${tenantId}'
+                     AND user_id = '${userId}'
+                     AND (yesterday LIKE '%${safeQ}%'
+                          OR today LIKE '%${safeQ}%'
+                          OR blockers LIKE '%${safeQ}%')
+                   ORDER BY ROWID DESC
+                   LIMIT 100`;
+      const rawRows = await this.db.query(sql);
+      // Catalyst returns rows wrapped under the table name — flatten just in case
+      const hits = (rawRows || []).map((r) => r[TABLES.STANDUP_ENTRIES] || r);
 
       // Enrich with project name
       const projectIds = [...new Set(hits.map((s) => s.project_id).filter(Boolean))];
@@ -287,9 +383,27 @@ class StandupController {
         })),
       });
     } catch (err) {
+      console.error('[StandupController.searchMyStandups]', err.message);
       return ResponseHelper.serverError(res, err.message);
     }
   }
+}
+
+// Returns an error string if the given YYYY-MM-DD date is outside the
+// allowed entry window (today through 7 days back), otherwise null.
+function _validateDateWindow(dateStr) {
+  if (!dateStr) return 'Date is required';
+  // Use today's date in the server's local TZ as a UTC midnight for comparison
+  const now = new Date();
+  const todayUtc = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  const sevenAgo = new Date(todayUtc.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const entry = new Date(dateStr + 'T00:00:00Z');
+  if (isNaN(entry.getTime())) return 'Invalid date format';
+  if (entry.getTime() > todayUtc.getTime())
+    return "You can't submit a standup for a future date.";
+  if (entry.getTime() < sevenAgo.getTime())
+    return 'Backdated entries are allowed only within the past 7 days.';
+  return null;
 }
 
 module.exports = StandupController;

@@ -2,9 +2,9 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Clock, Plus, Edit2, Trash2, Send, RotateCcw, CheckCircle2,
-  XCircle, DollarSign, CalendarDays, TrendingUp, Users, AlertCircle,
+  XCircle, DollarSign, CalendarDays, TrendingUp, Users, AlertCircle, Loader2, X,
 } from 'lucide-react';
-import { format, startOfWeek, addDays, startOfMonth, endOfMonth, eachDayOfInterval, parseISO, isValid } from 'date-fns';
+import { format, startOfWeek, endOfWeek, subDays, addDays, startOfMonth, endOfMonth, eachDayOfInterval, parseISO, isValid } from 'date-fns';
 import { useForm, useWatch } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
@@ -38,6 +38,7 @@ interface TimeEntry {
   projectId: string;
   projectName?: string;
   taskId?: string | null;
+  taskName?: string;
   description: string;
   date: string;
   hours: number;
@@ -209,11 +210,14 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
   }, [watchedStart, watchedEnd, setValue]);
 
   // Load tasks only when a project is selected — avoid fetching all tasks otherwise
-  const { data: tasksRaw = [] } = useTasks(
+  const { data: tasksRaw = [], isFetching: tasksFetching } = useTasks(
     watchedProjectId ? { project_id: watchedProjectId } : undefined,
     !!watchedProjectId,
   );
   const tasks = (tasksRaw as Array<{ id: string; title: string; require_approval?: string | boolean }>).filter(Boolean);
+  // While the request is in flight we want a loading state in the dropdown —
+  // otherwise an empty `tasks` array briefly looks like "no tasks exist".
+  const tasksLoading = !!watchedProjectId && tasksFetching;
 
   React.useEffect(() => {
     if (open) {
@@ -279,18 +283,47 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
           {errors.project_id && <p className="text-xs text-red-600 mt-1">{errors.project_id.message}</p>}
         </div>
 
-        {/* Task selector — only shown once a project is chosen */}
+        {/* Task selector — only shown once a project is chosen.
+            Required: every time entry must be tied to a task so admins can
+            see where each hour actually went.
+            While the task list is being fetched we render a skeleton-style
+            placeholder that matches the select's footprint, so the user
+            doesn't see a misleading "no tasks" hint during the request. */}
         {watchedProjectId && (
           <div>
-            <label className="form-label">
-              Task <span className="text-gray-400 font-normal">(optional)</span>
-            </label>
-            <select className="form-select" {...register('task_id')}>
-              <option value="">No specific task</option>
-              {tasks.map((t) => (
-                <option key={t.id} value={t.id}>{t.title}</option>
-              ))}
-            </select>
+            <label className="form-label">Task *</label>
+            {tasksLoading ? (
+              // Skeleton: matches the select's footprint so layout doesn't
+              // shift when the real dropdown takes over. Soft indigo tint +
+              // pulsing skeleton bar makes it read as "loading", not "broken".
+              <div
+                className="form-select flex items-center gap-2.5 bg-indigo-50/60 border-indigo-100 text-indigo-700 cursor-wait select-none"
+                aria-busy="true"
+                aria-live="polite"
+              >
+                <Loader2 size={15} className="text-indigo-500 animate-spin shrink-0" />
+                <span className="text-sm font-medium">Loading tasks…</span>
+                <span className="ml-auto h-2.5 w-24 rounded-full bg-indigo-200/70 animate-pulse" />
+              </div>
+            ) : (
+              <select
+                className="form-select"
+                {...register('task_id', { required: 'Task is required' })}
+              >
+                <option value="">Select task…</option>
+                {tasks.map((t) => (
+                  <option key={t.id} value={t.id}>{t.title}</option>
+                ))}
+              </select>
+            )}
+            {errors.task_id && <p className="text-xs text-red-600 mt-1">{(errors.task_id as any).message}</p>}
+            {/* Only show the "no tasks" hint after the fetch settles —
+                otherwise it flashes during the initial load. */}
+            {!tasksLoading && tasks.length === 0 && (
+              <p className="text-xs text-amber-600 mt-1">
+                This project has no tasks yet. Ask your project lead to add tasks before logging time.
+              </p>
+            )}
           </div>
         )}
 
@@ -471,7 +504,6 @@ interface MyTimeLogTabProps {
   projects: Array<{ id: string; name: string }>;
 }
 
-const PAGE_SIZE = 20;
 
 const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
   const { confirm: openConfirm } = useConfirm();
@@ -490,10 +522,27 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
   const [filterProject, setFilterProject] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(5);
 
-  // Secondary view filter (project + task, applied client-side after fetch)
+  // Secondary view filter — pushed down to backend as project_id / task_id
   const [viewProject, setViewProject] = useState('');
   const [viewTask, setViewTask] = useState('');
+
+  // Reset all filters (top-row + secondary). Resets to page 1 implicitly
+  // via the existing useEffect that watches every filter dependency.
+  const clearAllFilters = () => {
+    setFilterDateFrom('');
+    setFilterDateTo('');
+    setFilterProject('');
+    setFilterStatus('');
+    setViewProject('');
+    setViewTask('');
+  };
+
+  // True when any filter is non-default — used to show/hide the Clear button.
+  const hasAnyFilter = Boolean(
+    filterDateFrom || filterDateTo || filterProject || filterStatus || viewProject || viewTask
+  );
 
   // Load tasks for the currently selected view-filter project
   const { data: viewTasksRaw = [] } = useTasks(
@@ -501,36 +550,47 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
   );
   const viewTasks = (viewTasksRaw as Array<{ id: string; title: string }>).filter(Boolean);
 
-  // Reset to page 1 whenever any filter changes — must be useEffect, not inside useMemo
-  useEffect(() => { setPage(1); }, [filterDateFrom, filterDateTo, filterProject, filterStatus]);
+  // Reset to page 1 whenever any filter (top or secondary) or pageSize changes —
+  // must be useEffect, not inside useMemo
+  useEffect(() => {
+    setPage(1);
+  }, [filterDateFrom, filterDateTo, filterProject, filterStatus, viewProject, viewTask, pageSize]);
 
+  // Build query params for the backend. We now push viewProject / viewTask
+  // down to the server too (was previously client-side filtered after fetch).
+  // That makes the server-side pagination counts accurate.
   const filterParams = useMemo(() => {
     const p: Record<string, string> = {};
     // Always scope to the current user's own entries in this tab
     if (user?.id) p.user_id = String(user.id);
     if (filterDateFrom) p.date_from = filterDateFrom;
     if (filterDateTo) p.date_to = filterDateTo;
-    if (filterProject) p.project_id = filterProject;
-    if (filterStatus) p.status = filterStatus;
+    // Secondary "View by" project beats the top filter when both are set
+    // (the user just changed the more-specific dropdown).
+    const effectiveProject = viewProject || filterProject;
+    if (effectiveProject) p.project_id = effectiveProject;
+    if (viewTask)        p.task_id    = viewTask;
+    if (filterStatus)    p.status     = filterStatus;
+    p.page     = String(page);
+    p.pageSize = String(pageSize);
     return p;
-  }, [user?.id, filterDateFrom, filterDateTo, filterProject, filterStatus]);
+  }, [user?.id, filterDateFrom, filterDateTo, filterProject, filterStatus, viewProject, viewTask, page, pageSize]);
 
-  const { data: entriesRaw = [], isLoading, error } = useTimeEntries(filterParams);
+  const { data: result, isLoading, error } = useTimeEntries(filterParams);
+  const allEntries  = (result?.data ?? []) as TimeEntry[];
+  const pagination  = result?.pagination ?? null;
+  // When the backend is paginated (`pagination` returned), `allEntries` is
+  // already the current page — display it as-is. When the backend isn't yet
+  // rebuilt (legacy array shape, no `pagination`), we slice client-side so
+  // pagination still works visually. Either way the UI is consistent.
+  const entries     = pagination
+    ? allEntries
+    : allEntries.slice((page - 1) * pageSize, page * pageSize);
+  const totalCount  = pagination?.total ?? allEntries.length;
+  const totalPages  = Math.max(1, pagination?.totalPages ?? Math.ceil(allEntries.length / pageSize));
   const deleteEntry = useDeleteTimeEntry();
   const submitEntry = useSubmitTimeEntry();
   const retractEntry = useRetractTimeEntry();
-
-  // Client-side secondary filter
-  const filteredEntries = useMemo(() => {
-    let list = entriesRaw as TimeEntry[];
-    if (viewProject) list = list.filter((e) => e.projectId === viewProject);
-    // task_id may be present on the raw entry object from the backend
-    if (viewTask) list = list.filter((e) => (e as unknown as Record<string, unknown>).task_id === viewTask);
-    return list;
-  }, [entriesRaw, viewProject, viewTask]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredEntries.length / PAGE_SIZE));
-  const entries = filteredEntries.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handleDelete = async (id: string) => {
     const ok = await openConfirm({ title: 'Delete Time Entry', message: 'This time entry will be permanently deleted.', confirmText: 'Delete', variant: 'danger' });
@@ -558,10 +618,93 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
     setEditEntry(null);
   };
 
+  // Quick-pick date presets. The "active" chip is whichever preset matches
+  // the current from/to values exactly — null means "Custom" (no preset
+  // selected). Keeping it derived rather than stored avoids the from/to and
+  // preset getting out of sync when the user nudges a date manually.
+  const applyDatePreset = (preset: 'today' | 'yesterday' | 'week' | 'all') => {
+    const today = new Date();
+    if (preset === 'all') {
+      setFilterDateFrom('');
+      setFilterDateTo('');
+      return;
+    }
+    if (preset === 'today') {
+      const d = format(today, 'yyyy-MM-dd');
+      setFilterDateFrom(d); setFilterDateTo(d);
+      return;
+    }
+    if (preset === 'yesterday') {
+      const d = format(subDays(today, 1), 'yyyy-MM-dd');
+      setFilterDateFrom(d); setFilterDateTo(d);
+      return;
+    }
+    if (preset === 'week') {
+      // Monday-anchored — matches the rest of the app's week boundaries.
+      setFilterDateFrom(format(startOfWeek(today, { weekStartsOn: 1 }), 'yyyy-MM-dd'));
+      setFilterDateTo  (format(endOfWeek  (today, { weekStartsOn: 1 }), 'yyyy-MM-dd'));
+      return;
+    }
+  };
+  const activePreset = useMemo<'today' | 'yesterday' | 'week' | 'all' | 'custom'>(() => {
+    const today = new Date();
+    const t  = format(today, 'yyyy-MM-dd');
+    const y  = format(subDays(today, 1), 'yyyy-MM-dd');
+    const ws = format(startOfWeek(today, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+    const we = format(endOfWeek  (today, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+    if (!filterDateFrom && !filterDateTo)                                  return 'all';
+    if (filterDateFrom === t  && filterDateTo === t)                       return 'today';
+    if (filterDateFrom === y  && filterDateTo === y)                       return 'yesterday';
+    if (filterDateFrom === ws && filterDateTo === we)                      return 'week';
+    return 'custom';
+  }, [filterDateFrom, filterDateTo]);
+
+  const PRESETS: Array<{ key: 'today' | 'yesterday' | 'week' | 'all'; label: string }> = [
+    { key: 'today',     label: 'Today' },
+    { key: 'yesterday', label: 'Yesterday' },
+    { key: 'week',      label: 'This Week' },
+    { key: 'all',       label: 'All Time' },
+  ];
+
   return (
     <div className="space-y-4">
       {/* Date / Status Filters */}
       <Card>
+        {/* Quick date presets + Clear filters. Active preset is highlighted;
+            "Custom" appears automatically when the user edits From/To to a
+            non-preset range. The Clear button is rendered only when at least
+            one filter is set. */}
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          {PRESETS.map((p) => (
+            <button
+              key={p.key}
+              type="button"
+              onClick={() => applyDatePreset(p.key)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                activePreset === p.key
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+          {activePreset === 'custom' && (
+            <span className="px-3 py-1.5 text-xs font-medium rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+              Custom
+            </span>
+          )}
+          {hasAnyFilter && (
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="ml-auto px-3 py-1.5 text-xs font-medium rounded-full border border-red-200 text-red-600 bg-white hover:bg-red-50 transition-colors flex items-center gap-1"
+              title="Clear all filters"
+            >
+              <X size={12} /> Clear filters
+            </button>
+          )}
+        </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div>
             <label className="form-label">From</label>
@@ -682,7 +825,11 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
             <table className="min-w-full divide-y divide-gray-100">
               <thead className="bg-gray-50">
                 <tr>
-                  {['Date', 'Project', 'Task Description', 'Time', 'Hours', 'Billable', 'Status', 'Actions'].map((h) => (
+                  {/* DSV-015: moved User out of the Task Description cell into
+                      its own column so the description shows only the task
+                      content (was visually mixing user identity with task
+                      details). */}
+                  {['Date', 'User', 'Project', 'Task', 'Time', 'Hours', 'Billable', 'Status', 'Actions'].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
                       {h}
                     </th>
@@ -695,16 +842,35 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
                     <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
                       {safeFormat(entry.date, 'MMM d, yyyy')}
                     </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {entry.userName ? (
+                        <div className="flex items-center gap-2">
+                          <UserAvatar name={entry.userName} avatarUrl={entry.userAvatarUrl} size="sm" />
+                          <span className="text-sm text-gray-700">{entry.userName}</span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-300">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
                       {entry.projectName || projectMap[entry.projectId] || entry.projectId}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate" title={entry.description}>
-                      {entry.description}
-                      {entry.userName && (
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <UserAvatar name={entry.userName} avatarUrl={entry.userAvatarUrl} size="xs" />
-                          <span className="text-xs text-gray-400">{entry.userName}</span>
+                    <td className="px-4 py-3 text-sm max-w-xs">
+                      {entry.taskName ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="font-medium text-gray-900 truncate" title={entry.taskName}>
+                            {entry.taskName}
+                          </span>
+                          {entry.description && (
+                            <span className="text-xs text-gray-500 truncate" title={entry.description}>
+                              {entry.description}
+                            </span>
+                          )}
                         </div>
+                      ) : (
+                        <span className="text-gray-600 truncate block" title={entry.description}>
+                          {entry.description || <span className="text-gray-300">—</span>}
+                        </span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
@@ -772,56 +938,95 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
             </table>
           </div>
         )}
-      </Card>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between px-1">
-          <p className="text-xs text-gray-500">
-            Showing {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, filteredEntries.length)} of {filteredEntries.length} entries
-          </p>
-          <div className="flex items-center gap-1">
-            <button
-              disabled={page === 1}
-              onClick={() => setPage((p) => p - 1)}
-              className="px-2.5 py-1 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              ←
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1)
-              .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
-              .reduce<(number | '...')[]>((acc, p, i, arr) => {
-                if (i > 0 && (p as number) - (arr[i - 1] as number) > 1) acc.push('...');
-                acc.push(p);
-                return acc;
-              }, [])
-              .map((p, i) =>
-                p === '...' ? (
-                  <span key={`ellipsis-${i}`} className="px-1 text-gray-400 text-sm">…</span>
-                ) : (
-                  <button
-                    key={p}
-                    onClick={() => setPage(p as number)}
-                    className={`px-2.5 py-1 text-sm border rounded-lg ${
-                      page === p
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    {p}
-                  </button>
-                )
-              )}
-            <button
-              disabled={page === totalPages}
-              onClick={() => setPage((p) => p + 1)}
-              className="px-2.5 py-1 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              →
-            </button>
+        {/* Pagination footer — sits INSIDE the table Card so it's always
+            visible next to the rows (no chance of being below the fold).
+            Renders unconditionally when any entries exist; the prev/next
+            page buttons only appear when there's more than one page. */}
+        {entries.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-t border-gray-100 bg-gray-50">
+            <div className="flex items-center gap-4 text-xs text-gray-600">
+              <span>
+                Showing <strong>{((page - 1) * pageSize) + 1}–{Math.min(page * pageSize, totalCount)}</strong> of <strong>{totalCount}</strong> entries
+              </span>
+              <span className="flex items-center gap-1.5">
+                <label htmlFor="time-page-size" className="text-gray-500">Rows per page:</label>
+                <select
+                  id="time-page-size"
+                  value={pageSize}
+                  onChange={(e) => setPageSize(parseInt(e.target.value, 10) || 5)}
+                  className="text-xs border border-gray-300 rounded px-1.5 py-0.5 bg-white"
+                >
+                  <option value={3}>3</option>
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                disabled={page === 1}
+                onClick={() => setPage(1)}
+                className="px-2 py-1 text-xs border border-gray-200 rounded hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed"
+                title="First page"
+              >
+                «
+              </button>
+              <button
+                disabled={page === 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="px-2 py-1 text-xs border border-gray-200 rounded hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Previous page"
+              >
+                ←
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                .reduce<(number | '...')[]>((acc, p, i, arr) => {
+                  if (i > 0 && (p as number) - (arr[i - 1] as number) > 1) acc.push('...');
+                  acc.push(p);
+                  return acc;
+                }, [])
+                .map((p, i) =>
+                  p === '...' ? (
+                    <span key={`ellipsis-${i}`} className="px-1 text-gray-400 text-xs">…</span>
+                  ) : (
+                    <button
+                      key={p}
+                      onClick={() => setPage(p as number)}
+                      className={`min-w-[28px] px-2 py-1 text-xs border rounded ${
+                        page === p
+                          ? 'bg-indigo-600 text-white border-indigo-600 font-semibold'
+                          : 'border-gray-200 hover:bg-white'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  )
+                )}
+              <button
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                className="px-2 py-1 text-xs border border-gray-200 rounded hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Next page"
+              >
+                →
+              </button>
+              <button
+                disabled={page >= totalPages}
+                onClick={() => setPage(totalPages)}
+                className="px-2 py-1 text-xs border border-gray-200 rounded hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Last page"
+              >
+                »
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </Card>
 
       <LogTimeModal
         open={modalOpen}
@@ -864,7 +1069,10 @@ const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
   }, [period, weekStart, weekEnd, monthStart, monthEnd]);
 
   const { data: weekData, isLoading: weekLoading } = useMyWeek();
-  const { data: entriesRaw = [], isLoading: entriesLoading } = useTimeEntries(
+  // Analytics needs ALL entries for the period (totals would be wrong with
+  // pagination), so we do NOT pass `page` — the backend returns the legacy
+  // array shape and the hook wraps it as { data: [...], pagination: null }.
+  const { data: entriesResult, isLoading: entriesLoading } = useTimeEntries(
     period !== 'week' ? params : undefined,
   );
 
@@ -875,8 +1083,8 @@ const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
 
   const entries: TimeEntry[] = useMemo(() => {
     if (period === 'week') return (week?.entries ?? []) as TimeEntry[];
-    return (Array.isArray(entriesRaw) ? entriesRaw : []) as TimeEntry[];
-  }, [period, week, entriesRaw]);
+    return (entriesResult?.data ?? []) as TimeEntry[];
+  }, [period, week, entriesResult]);
 
   // Aggregate stats
   const totalHours       = useMemo(() => period === 'week' && week ? week.totalHours       : entries.reduce((s, e) => s + (parseFloat(String(e.hours)) || 0), 0), [period, week, entries]);
@@ -1257,7 +1465,10 @@ const ApprovalsTab = () => {
             <table className="min-w-full divide-y divide-gray-100">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="pl-4 pr-2 py-3">
+                  {/* DSV-016: text-left aligns the Select-All checkbox with
+                      the row checkboxes — by default <th> centers content
+                      while <td> left-aligns, causing visible misalignment. */}
+                  <th className="pl-4 pr-2 py-3 text-left">
                     <input
                       type="checkbox"
                       className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"

@@ -51,10 +51,10 @@ app.use((req, res) =>
 // ── Global error handler ───────────────────────────────────────────────────────
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
-  console.error('[reporting_service error]', err.message);
+  console.error('[reporting_service error]', err.message, err.stack);
   if (err.isValidation) return ResponseHelper.validationError(res, err.message, err.details);
   if (err.isRBAC)       return ResponseHelper.forbidden(res, err.message);
-  ResponseHelper.serverError(res, err.message);
+  ResponseHelper.serverError(res, 'Internal server error. Please try again.');
 });
 
 module.exports = app;

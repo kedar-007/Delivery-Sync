@@ -1,9 +1,10 @@
 'use strict';
 
 const DataStoreService = require('../services/DataStoreService');
+const TeamScopeService = require('../services/TeamScopeService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const Validator = require('../utils/Validator');
-const { TABLES } = require('../utils/Constants');
+const { TABLES, PERMISSIONS } = require('../utils/Constants');
 
 /**
  * EodController – end-of-day updates.
@@ -22,6 +23,14 @@ class EodController {
     try {
       const { tenantId, id: userId } = req.currentUser;
       const data = Validator.validateSubmitEod(req.body);
+
+      // ── Date-window enforcement ─────────────────────────────────────────
+      // EODs can only be entered for today or up to 7 days back. Future
+      // dates rejected. Defense in depth — the frontend already disables
+      // out-of-range values, but a hand-crafted request would otherwise
+      // slip through.
+      const _windowCheck = _validateEodDateWindow(data.date);
+      if (_windowCheck) return ResponseHelper.validationError(res, _windowCheck);
 
       // Uniqueness: one EOD per user per project per day
       const existing = await this.db.query(
@@ -76,14 +85,42 @@ class EodController {
       const { tenantId, id: currentUserId, role } = req.currentUser;
       const { projectId, date, userId, startDate, endDate } = req.query;
 
-      // TEAM_MEMBER can only see their own EODs (unless org role grants org-wide access)
+      // Visibility ladder (opt-in team scope via ?scope=team):
+      //   - org-wide / privileged → see all (with optional ?userId)
+      //   - ?scope=team + EOD_TEAM_VIEW perm → team peers
+      //   - otherwise → own only (My Submissions tab keeps working unchanged)
+      const userPerms      = Array.isArray(req.currentUser.permissions) ? req.currentUser.permissions : [];
       const isLimitedToOwn = role === 'TEAM_MEMBER' && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
-      const effectiveUserId = isLimitedToOwn ? currentUserId : userId;
+      const hasTeamView    = userPerms.includes(PERMISSIONS.EOD_TEAM_VIEW);
+      const wantsTeamScope = String(req.query.scope || '').toLowerCase() === 'team';
 
       let conditions = [];
       if (projectId) conditions.push(`project_id = '${DataStoreService.escape(projectId)}'`);
       if (date) conditions.push(`entry_date = '${DataStoreService.escape(date)}'`);
-      if (effectiveUserId) conditions.push(`user_id = '${DataStoreService.escape(effectiveUserId)}'`);
+
+      if (!isLimitedToOwn) {
+        if (userId) conditions.push(`user_id = '${DataStoreService.escape(userId)}'`);
+      } else if (wantsTeamScope && hasTeamView) {
+        const scope   = new TeamScopeService(this.db);
+        const peerIds = await scope.getTeamPeerUserIds(tenantId, currentUserId);
+        const allowed = userId
+          ? peerIds.filter((id) => String(id) === String(userId))
+          : peerIds;
+        if (allowed.length === 0) {
+          return ResponseHelper.success(res, { eods: [] });
+        }
+        if (allowed.length === 1) {
+          conditions.push(`user_id = '${DataStoreService.escape(allowed[0])}'`);
+        } else {
+          const inList = allowed.map((id) => `'${DataStoreService.escape(id)}'`).join(',');
+          conditions.push(`user_id IN (${inList})`);
+        }
+      } else if (wantsTeamScope && !hasTeamView) {
+        return ResponseHelper.forbidden(res, 'Missing permission: EOD_TEAM_VIEW');
+      } else {
+        conditions.push(`user_id = '${DataStoreService.escape(currentUserId)}'`);
+      }
+
       if (startDate && endDate) {
         conditions.push(`entry_date >= '${DataStoreService.escape(startDate)}'`);
         conditions.push(`entry_date <= '${DataStoreService.escape(endDate)}'`);
@@ -106,20 +143,38 @@ class EodController {
         projects.forEach((p) => { projectMap[String(p.ROWID)] = p.name; });
       }
 
+      // Enrich with submitter names (needed by Team EOD view)
+      const userIds = [...new Set(eods.map((e) => e.user_id).filter(Boolean).map(String))];
+      let userMap = {};
+      if (userIds.length > 1) {
+        try {
+          const inList = userIds.map((id) => `'${id}'`).join(',');
+          const users  = await this.db.query(
+            `SELECT ROWID, name, avatar_url FROM ${TABLES.USERS} WHERE ROWID IN (${inList}) LIMIT 100`
+          );
+          users.forEach((u) => { userMap[String(u.ROWID)] = u; });
+        } catch (_) { /* enrichment is non-fatal */ }
+      }
+
       return ResponseHelper.success(res, {
-        eods: eods.map((e) => ({
-          id: String(e.ROWID),
-          projectId: e.project_id,
-          projectName: projectMap[String(e.project_id)] || null,
-          userId: e.user_id,
-          date: e.entry_date,
-          accomplishments: e.accomplished,
-          plannedTomorrow: e.plan_for_tomorrow,
-          blockers: e.blockers,
-          progressPercentage: Number(e.progress_percentage || 0),
-          mood: e.mood,
-          submittedAt: e.submitted_at,
-        })),
+        eods: eods.map((e) => {
+          const u = userMap[String(e.user_id)] || {};
+          return {
+            id: String(e.ROWID),
+            projectId: e.project_id,
+            projectName: projectMap[String(e.project_id)] || null,
+            userId: e.user_id,
+            userName:      u.name       || null,
+            userAvatarUrl: u.avatar_url || null,
+            date: e.entry_date,
+            accomplishments: e.accomplished,
+            plannedTomorrow: e.plan_for_tomorrow,
+            blockers: e.blockers,
+            progressPercentage: Number(e.progress_percentage || 0),
+            mood: e.mood,
+            submittedAt: e.submitted_at,
+          };
+        }),
       });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
@@ -140,8 +195,26 @@ class EodController {
       const to = endDate || DataStoreService.today();
 
       // TEAM_MEMBER only sees their own entries in rollup (unless org role grants org-wide access)
+      const userPerms      = Array.isArray(req.currentUser.permissions) ? req.currentUser.permissions : [];
       const isLimitedToOwn = role === 'TEAM_MEMBER' && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
-      const userFilter = isLimitedToOwn ? ` AND user_id = '${currentUserId}'` : '';
+      const hasTeamView    = userPerms.includes(PERMISSIONS.EOD_TEAM_VIEW);
+      let userFilter = '';
+      if (isLimitedToOwn) {
+        if (hasTeamView) {
+          const scope   = new TeamScopeService(this.db);
+          const peerIds = await scope.getTeamPeerUserIds(tenantId, currentUserId);
+          if (peerIds.length === 1) {
+            userFilter = ` AND user_id = '${DataStoreService.escape(peerIds[0])}'`;
+          } else if (peerIds.length > 1) {
+            const inList = peerIds.map((id) => `'${DataStoreService.escape(id)}'`).join(',');
+            userFilter = ` AND user_id IN (${inList})`;
+          } else {
+            userFilter = ` AND user_id = '${currentUserId}'`;
+          }
+        } else {
+          userFilter = ` AND user_id = '${currentUserId}'`;
+        }
+      }
 
       const eods = await this.db.findWhere(
         TABLES.EOD_ENTRIES, tenantId,
@@ -299,6 +372,22 @@ class EodController {
       return ResponseHelper.serverError(res, err.message);
     }
   }
+}
+
+// Returns an error string if the given YYYY-MM-DD date is outside the
+// allowed entry window (today through 7 days back), otherwise null.
+function _validateEodDateWindow(dateStr) {
+  if (!dateStr) return 'Date is required';
+  const now = new Date();
+  const todayUtc = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  const sevenAgo = new Date(todayUtc.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const entry = new Date(dateStr + 'T00:00:00Z');
+  if (isNaN(entry.getTime())) return 'Invalid date format';
+  if (entry.getTime() > todayUtc.getTime())
+    return "You can't submit an EOD for a future date.";
+  if (entry.getTime() < sevenAgo.getTime())
+    return 'Backdated entries are allowed only within the past 7 days.';
+  return null;
 }
 
 module.exports = EodController;

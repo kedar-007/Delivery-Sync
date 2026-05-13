@@ -13,7 +13,12 @@ class TimeController {
     this.notif = new NotificationService(catalystApp, this.db);
   }
 
-  // GET /api/time/entries?project_id=&user_id=&date_from=&date_to=&status=&is_billable=
+  // GET /api/time/entries?project_id=&user_id=&date_from=&date_to=&status=&is_billable=&page=&pageSize=
+  //
+  // Pagination is OPT-IN: pass `page` in the query string to get back a
+  // wrapped envelope `{ entries, pagination }`. Without `page` the response
+  // stays a plain array (legacy callers — analytics tab, summary aggregation
+  // — keep working without changes).
   async list(req, res) {
     const { project_id, task_id, user_id, date_from, date_to, status, is_billable } = req.query;
     const tenantId = req.tenantId;
@@ -34,17 +39,66 @@ class TimeController {
     if (date_to)    where += `entry_date <= '${DataStoreService.escape(date_to)}' AND `;
     where = where.replace(/ AND $/, '');
 
-    const entries = await this.db.findWhere(TABLES.TIME_ENTRIES, tenantId, where, { orderBy: 'entry_date DESC', limit: 200 });
+    // Pagination params — only kick in when the caller passes `page`.
+    const paginated = req.query.page !== undefined;
+    const page      = Math.max(1,   parseInt(req.query.page,     10) || 1);
+    const pageSize  = Math.min(200, Math.max(1, parseInt(req.query.pageSize, 10) || 50));
+    const offset    = (page - 1) * pageSize;
 
-    // Enrich with user info + project name
-    const [users, projects] = await Promise.all([
-      this.db.findAll(TABLES.USERS, { tenant_id: tenantId }, { limit: 200 }),
-      this.db.findAll(TABLES.PROJECTS, { tenant_id: tenantId }, { limit: 200 }),
+    // Fetch the slice + (only when paginated) a parallel COUNT for totals.
+    // The COUNT query reuses the same WHERE clause so totals stay in sync.
+    const tenantClause = `tenant_id = '${DataStoreService.escape(String(tenantId))}'`;
+    const fullWhere    = where ? `${tenantClause} AND ${where}` : tenantClause;
+
+    const [entries, countRows] = await Promise.all([
+      this.db.findWhere(TABLES.TIME_ENTRIES, tenantId, where, {
+        // Primary sort: the date the work was done (descending).
+        // Tiebreaker: CREATEDTIME DESC so a freshly-logged entry on the same
+        // date jumps to the top of its day instead of appearing in arbitrary
+        // SDK order. ZCQL accepts comma-separated ORDER BY columns.
+        orderBy: 'entry_date DESC, CREATEDTIME DESC',
+        limit:   paginated ? pageSize : 200,
+        offset:  paginated ? offset   : undefined,
+      }),
+      paginated
+        ? this.db.query(`SELECT COUNT(ROWID) FROM ${TABLES.TIME_ENTRIES} WHERE ${fullWhere}`)
+        : Promise.resolve(null),
     ]);
+
+    // Enrich with user / project / task name. Fetch only the IDs referenced
+    // by THIS page of entries — same N+1-free pattern as before. Filter BEFORE
+    // String() so null doesn't become the literal string 'null' (would break
+    // the ROWID IN clause as BIGINT).
+    const _isValidId = (id) => id != null && id !== '' && id !== 'null' && id !== 'undefined';
+    const userIds = [...new Set(entries.map((e) => e.user_id).filter(_isValidId).map(String))];
+    const projIds = [...new Set(entries.map((e) => e.project_id).filter(_isValidId).map(String))];
+    const taskIds = [...new Set(entries.map((e) => e.task_id).filter(_isValidId).map(String))];
     const userMap = {};
-    users.forEach(u => { userMap[String(u.ROWID)] = u; });
     const projMap = {};
-    projects.forEach(p => { projMap[String(p.ROWID)] = p.name || ''; });
+    const taskMap = {};
+    const fetches = [];
+    if (userIds.length > 0) {
+      const inList = userIds.map((id) => `'${DataStoreService.escape(id)}'`).join(',');
+      fetches.push(
+        this.db.query(`SELECT ROWID, name, avatar_url FROM ${TABLES.USERS} WHERE ROWID IN (${inList})`)
+          .then((rows) => rows.forEach((u) => { userMap[String(u.ROWID)] = u; }))
+      );
+    }
+    if (projIds.length > 0) {
+      const inList = projIds.map((id) => `'${DataStoreService.escape(id)}'`).join(',');
+      fetches.push(
+        this.db.query(`SELECT ROWID, name FROM ${TABLES.PROJECTS} WHERE ROWID IN (${inList})`)
+          .then((rows) => rows.forEach((p) => { projMap[String(p.ROWID)] = p.name || ''; }))
+      );
+    }
+    if (taskIds.length > 0) {
+      const inList = taskIds.map((id) => `'${DataStoreService.escape(id)}'`).join(',');
+      fetches.push(
+        this.db.query(`SELECT ROWID, title FROM ${TABLES.TASKS} WHERE ROWID IN (${inList})`)
+          .then((rows) => rows.forEach((t) => { taskMap[String(t.ROWID)] = t.title || ''; }))
+      );
+    }
+    await Promise.all(fetches);
 
     const enriched = entries.map(e => {
       const u = userMap[String(e.user_id)] || {};
@@ -53,9 +107,31 @@ class TimeController {
         user_name:    u.name || '',
         user_avatar_url: u.avatar_url || '',
         project_name: projMap[String(e.project_id)] || '',
+        task_name:    taskMap[String(e.task_id)] || '',
       };
     });
 
+    if (paginated) {
+      // ZCQL returns COUNT under an unpredictable column name (the alias
+      // isn't always preserved). Grab the first value of the first row
+      // regardless of column name — same pattern delivery_sync_function uses.
+      let total = 0;
+      if (Array.isArray(countRows) && countRows.length > 0) {
+        const firstVal = Object.values(countRows[0])[0];
+        total = parseInt(String(firstVal), 10) || 0;
+      }
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      return ResponseHelper.success(res, {
+        entries: enriched,
+        pagination: {
+          page,
+          pageSize,
+          total,
+          totalPages,
+          hasMore: page < totalPages,
+        },
+      });
+    }
     return ResponseHelper.success(res, enriched);
   }
 
@@ -73,10 +149,18 @@ class TimeController {
       `user_id = '${req.currentUser.id}' AND entry_date >= '${from}' AND entry_date <= '${to}'`,
       { orderBy: 'entry_date ASC', limit: 100 });
 
-    // Enrich entries with project name
-    const projects = await this.db.findAll(TABLES.PROJECTS, { tenant_id: req.tenantId }, { limit: 200 });
+    // Enrich entries with project name — fetch only referenced projects.
+    // Filter BEFORE String() so null / undefined don't become 'null' / 'undefined'.
+    const _isValidId = (id) => id != null && id !== '' && id !== 'null' && id !== 'undefined';
+    const projIds = [...new Set(entries.map((e) => e.project_id).filter(_isValidId).map(String))];
     const projMap = {};
-    projects.forEach(p => { projMap[String(p.ROWID)] = p.name || ''; });
+    if (projIds.length > 0) {
+      const inList = projIds.map((id) => `'${DataStoreService.escape(id)}'`).join(',');
+      const projects = await this.db.query(
+        `SELECT ROWID, name FROM ${TABLES.PROJECTS} WHERE ROWID IN (${inList})`
+      );
+      projects.forEach(p => { projMap[String(p.ROWID)] = p.name || ''; });
+    }
     const enrichedEntries = entries.map(e => ({ ...e, project_name: projMap[String(e.project_id)] || '' }));
 
     const total   = entries.reduce((s, e) => s + (parseFloat(e.hours) || 0), 0);
@@ -136,6 +220,12 @@ class TimeController {
 
     if (!entryDate || !effectiveHours) return ResponseHelper.validationError(res, 'entry_date and hours are required');
     if (effectiveHours <= 0 || effectiveHours > 24) return ResponseHelper.validationError(res, 'hours must be greater than 0 and at most 24');
+    // Task is mandatory — every time entry must be tied to a specific task so
+    // owners can see where the hours went. (The frontend also enforces this,
+    // but we validate here too in case other clients call the API directly.)
+    if (!task_id || String(task_id) === '0' || String(task_id).trim() === '') {
+      return ResponseHelper.validationError(res, 'task_id is required');
+    }
 
     // Resolve project_id: use provided value, or fall back to the task's project.
     // Never store 0 — the time_entries.project_id column has a FK constraint on projects.ROWID.
@@ -202,9 +292,21 @@ class TimeController {
               });
               const approverRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = ${approverId} LIMIT 1`);
               if (approverRows[0]) {
-                const userName = req.currentUser.name || 'A team member';
-                await this.notif.send({ toEmail: approverRows[0].email, subject: `[Delivery Sync] Time entry awaiting your approval`, htmlBody: `<p>Hi ${approverRows[0].name}, ${userName} has submitted a time entry of ${effectiveHours} hours for approval.</p>` });
-                await this.notif.sendInApp({ tenantId, userId: approverId, title: 'Time Approval Needed', message: `${userName} submitted ${effectiveHours}h for approval`, type: NOTIFICATION_TYPE.TIME_APPROVAL_NEEDED, entityType: 'TIME_ENTRY', entityId: String(row.ROWID) });
+                const userName   = req.currentUser.name || 'A team member';
+                const hoursLabel = _formatHours(effectiveHours);
+                const dateLabel  = _formatDate(entryDate);
+                await this.notif.send({
+                  toEmail:  approverRows[0].email,
+                  subject:  `[DSV OpsPulse] Time entry awaiting your approval`,
+                  htmlBody: _pendingApprovalEmailHtml({
+                    approverName:  approverRows[0].name,
+                    submitterName: userName,
+                    hoursLabel,
+                    dateLabel,
+                    description:   description || '',
+                  }),
+                });
+                await this.notif.sendInApp({ tenantId, userId: approverId, title: 'Time Approval Needed', message: `${userName} submitted ${hoursLabel} on ${dateLabel} for approval`, type: NOTIFICATION_TYPE.TIME_APPROVAL_NEEDED, entityType: 'TIME_ENTRY', entityId: String(row.ROWID) });
               }
             } else {
               console.warn(`[TimeController.create] no approver found for task ${taskIdNum} / user ${userId} — entry submitted but no approval request created`);
@@ -230,9 +332,12 @@ class TimeController {
 
     // Auto-retract: cancel pending approval when editing a submitted entry
     if (entry.status === TIME_STATUS.SUBMITTED) {
+      // Quote AND escape the id so it can't break out of the literal (was
+      // unquoted before, which made this trivially injectable).
+      const eid = DataStoreService.escape(req.params.entryId);
       const approvalRows = await this.db.findWhere(
         TABLES.TIME_APPROVAL_REQUESTS, req.tenantId,
-        `time_entry_id = ${req.params.entryId} AND status = 'PENDING'`, { limit: 1 }
+        `time_entry_id = '${eid}' AND status = 'PENDING'`, { limit: 1 }
       );
       if (approvalRows[0]) {
         await this.db.update(TABLES.TIME_APPROVAL_REQUESTS, { ROWID: approvalRows[0].ROWID, status: 'CANCELLED' });
@@ -297,8 +402,20 @@ class TimeController {
 
         const approverRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = ${approverId} LIMIT 1`);
         if (approverRows[0]) {
-          await this.notif.send({ toEmail: approverRows[0].email, subject: `[Delivery Sync] Time entry awaiting your approval`, htmlBody: `<p>Hi ${approverRows[0].name}, ${req.currentUser.name} has submitted a time entry of ${entry.hours} hours for approval.</p>` });
-          await this.notif.sendInApp({ tenantId: req.tenantId, userId: approverId, title: 'Time Approval Needed', message: `${req.currentUser.name} submitted ${entry.hours}h for approval`, type: NOTIFICATION_TYPE.TIME_APPROVAL_NEEDED, entityType: 'TIME_ENTRY', entityId: req.params.entryId });
+          const hoursLabel = _formatHours(entry.hours);
+          const dateLabel  = _formatDate(entry.entry_date);
+          await this.notif.send({
+            toEmail:  approverRows[0].email,
+            subject:  `[DSV OpsPulse] Time entry awaiting your approval`,
+            htmlBody: _pendingApprovalEmailHtml({
+              approverName:  approverRows[0].name,
+              submitterName: req.currentUser.name,
+              hoursLabel,
+              dateLabel,
+              description:   entry.description || '',
+            }),
+          });
+          await this.notif.sendInApp({ tenantId: req.tenantId, userId: approverId, title: 'Time Approval Needed', message: `${req.currentUser.name} submitted ${hoursLabel} on ${dateLabel} for approval`, type: NOTIFICATION_TYPE.TIME_APPROVAL_NEEDED, entityType: 'TIME_ENTRY', entityId: req.params.entryId });
         }
       }
     }
@@ -316,8 +433,9 @@ class TimeController {
 
     await this.db.update(TABLES.TIME_ENTRIES, { ROWID: req.params.entryId, status: TIME_STATUS.DRAFT });
 
-    // Cancel pending approval request
-    const approvalRows = await this.db.findWhere(TABLES.TIME_APPROVAL_REQUESTS, req.tenantId, `time_entry_id = ${req.params.entryId} AND status = 'PENDING'`, { limit: 1 });
+    // Cancel pending approval request — quote & escape the id, was unquoted before.
+    const eid = DataStoreService.escape(req.params.entryId);
+    const approvalRows = await this.db.findWhere(TABLES.TIME_APPROVAL_REQUESTS, req.tenantId, `time_entry_id = '${eid}' AND status = 'PENDING'`, { limit: 1 });
     if (approvalRows[0]) await this.db.update(TABLES.TIME_APPROVAL_REQUESTS, { ROWID: approvalRows[0].ROWID, status: 'CANCELLED' });
 
     return ResponseHelper.success(res, { message: 'Entry retracted to DRAFT' });
@@ -546,6 +664,82 @@ class TimeController {
     }
     return ResponseHelper.success(res, results);
   }
+}
+
+// ─── Email helpers ───────────────────────────────────────────────────────────
+// Same formatting helpers used in ApprovalController; kept locally so this
+// controller has no cross-controller dependency.
+
+function _formatHours(raw) {
+  const n = parseFloat(raw);
+  if (!isFinite(n) || n <= 0) return '0 min';
+  const totalMin = Math.round(n * 60);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m} min`;
+  if (m === 0) return `${h} ${h === 1 ? 'hour' : 'hours'}`;
+  return `${h} h ${m} min`;
+}
+
+function _formatDate(raw) {
+  if (!raw) return '';
+  const datePart = String(raw).slice(0, 10);
+  const d = new Date(datePart + 'T00:00:00Z');
+  if (isNaN(d.getTime())) return String(raw);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${d.getUTCDate()} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
+function _escapeHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Polished email sent TO the approver when someone submits a time entry that
+// needs their review. Structured greeting, summary table, clear call to
+// action, and a brand signature — matches the rest of the OpsPulse mail look.
+function _pendingApprovalEmailHtml({ approverName, submitterName, hoursLabel, dateLabel, description }) {
+  return `
+  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1f2937;">
+    <p style="margin:0 0 16px;font-size:15px;">Hi ${_escapeHtml(approverName || 'there')},</p>
+
+    <p style="margin:0 0 18px;font-size:14px;line-height:1.55;">
+      <strong>${_escapeHtml(submitterName || 'A team member')}</strong> has submitted a time entry that needs your approval.
+    </p>
+
+    <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;width:100%;margin-bottom:20px;">
+      <tr>
+        <td style="padding:10px 14px;font-size:12px;color:#6b7280;width:90px;border-bottom:1px solid #e5e7eb;">Submitted by</td>
+        <td style="padding:10px 14px;font-size:13px;color:#111827;font-weight:600;border-bottom:1px solid #e5e7eb;">${_escapeHtml(submitterName || '—')}</td>
+      </tr>
+      <tr>
+        <td style="padding:10px 14px;font-size:12px;color:#6b7280;border-bottom:1px solid #e5e7eb;">Hours</td>
+        <td style="padding:10px 14px;font-size:13px;color:#111827;font-weight:600;border-bottom:1px solid #e5e7eb;">${_escapeHtml(hoursLabel)}</td>
+      </tr>
+      <tr>
+        <td style="padding:10px 14px;font-size:12px;color:#6b7280;${description ? 'border-bottom:1px solid #e5e7eb;' : ''}">Date</td>
+        <td style="padding:10px 14px;font-size:13px;color:#111827;font-weight:600;${description ? 'border-bottom:1px solid #e5e7eb;' : ''}">${_escapeHtml(dateLabel)}</td>
+      </tr>
+      ${description ? `
+      <tr>
+        <td style="padding:10px 14px;font-size:12px;color:#6b7280;vertical-align:top;">Description</td>
+        <td style="padding:10px 14px;font-size:13px;color:#374151;">${_escapeHtml(description)}</td>
+      </tr>` : ''}
+    </table>
+
+    <div style="background:#eef2ff;border-left:4px solid #4f46e5;border-radius:0 8px 8px 0;padding:12px 14px;margin-bottom:20px;">
+      <p style="margin:0;font-size:13px;color:#312e81;line-height:1.5;">
+        Open <strong>DSV OpsPulse → Time Tracking → Approvals</strong> to review and approve or reject this entry.
+      </p>
+    </div>
+
+    <p style="margin:24px 0 4px;font-size:13px;color:#374151;">Regards,</p>
+    <p style="margin:0;font-size:13px;color:#4f46e5;font-weight:600;">DSV OpsPulse team</p>
+  </div>`;
 }
 
 module.exports = TimeController;

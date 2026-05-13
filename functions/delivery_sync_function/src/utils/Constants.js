@@ -97,6 +97,9 @@ const PERMISSIONS = Object.freeze({
   TASK_ASSIGN: 'TASK_ASSIGN',
   // ── Attendance team view ──────────────────────────────────────────────────────
   ATTENDANCE_TEAM_VIEW: 'ATTENDANCE_TEAM_VIEW',
+  // ── Standup / EOD team view (see submissions from team peers) ───────────────
+  STANDUP_TEAM_VIEW: 'STANDUP_TEAM_VIEW',
+  EOD_TEAM_VIEW:     'EOD_TEAM_VIEW',
   // ── Executive dashboards ──────────────────────────────────────────────────────
   CEO_DASHBOARD: 'CEO_DASHBOARD',
   CTO_DASHBOARD: 'CTO_DASHBOARD',

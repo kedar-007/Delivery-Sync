@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
@@ -17,8 +17,12 @@ import {
   useStandupRollup, useMyTodayStandup,
   useStandups, useSearchStandups,
 } from '../hooks/useStandups';
+import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
+import UserAvatar from '../components/ui/UserAvatar';
+import { Users as UsersIcon } from 'lucide-react';
 import { useProcessVoice, type StandupVoiceResult } from '../hooks/useVoiceAI';
-import { format } from 'date-fns';
+import { format, subDays } from 'date-fns';
 import {
   CheckCircle, Clock, Sparkles, History, Search,
   Pencil, X, FolderOpen, ChevronDown, ChevronRight,
@@ -42,6 +46,8 @@ interface StandupEntry {
   today: string;
   blockers?: string;
   submittedAt?: string;
+  userId?: string;      // returned by team-view fetches
+  userName?: string;    // backend may attach this when scope=team
 }
 
 const AiBadge = () => (
@@ -145,7 +151,7 @@ const StandupPage = () => {
   const [searchParams] = useSearchParams();
   const preselectedProject = searchParams.get('projectId') || '';
 
-  const [tab, setTab] = useState<'submit' | 'rollup' | 'mine'>('submit');
+  const [tab, setTab] = useState<'submit' | 'rollup' | 'mine' | 'team'>('submit');
   const [rollupProjectId, setRollupProjectId] = useState(preselectedProject);
   const [success, setSuccess] = useState('');
   const [submitError, setSubmitError] = useState('');
@@ -156,9 +162,21 @@ const StandupPage = () => {
   const [editingEntry, setEditingEntry] = useState<StandupEntry | null>(null);
 
   const today = format(new Date(), 'yyyy-MM-dd');
+  // 7-day backdate window: standups can be entered for today or up to 7 days
+  // back. Future dates are never allowed.
+  const minDate = format(subDays(new Date(), 7), 'yyyy-MM-dd');
   const { data: projects = [], isLoading: projectsLoading } = useProjects();
   const { data: todayStandups = [] } = useMyTodayStandup();
   const { data: myStandups = [], isLoading: myLoading } = useStandups();
+  const { user: authUser } = useAuth();
+  const canSeeTeamStandups = hasPermission(authUser, PERMISSIONS.STANDUP_TEAM_VIEW);
+  // Team-view fetch — only triggers when the Team Standups tab is opened
+  // AND the user has STANDUP_TEAM_VIEW. Passes scope=team so the backend
+  // expands the query from "own only" to "all team peers".
+  const { data: teamStandups = [], isLoading: teamLoading } = useStandups(
+    { scope: 'team' },
+    { enabled: tab === 'team' && canSeeTeamStandups }
+  );
   const { data: searchStandups = [], isLoading: searchStandupLoading } = useSearchStandups(debouncedStandupSearch);
   const { data: rollupData, isLoading: rollupLoading } = useStandupRollup({ projectId: rollupProjectId });
   const submitStandup = useSubmitStandup();
@@ -232,13 +250,33 @@ const StandupPage = () => {
         await submitStandup.mutateAsync(data);
         setSuccess(`Standup submitted for ${format(new Date(data.date), 'd MMM yyyy')}`);
       }
-      reset({ project_id: data.project_id, date: today });
+      // Explicitly clear textareas to '' (not undefined) so the inputs render
+      // as empty after submit. Keep project_id + date so quick re-submits work.
+      reset({
+        project_id: data.project_id,
+        date: today,
+        yesterday: '',
+        today: '',
+        blockers: '',
+      });
       setAiResult(null);
       setAiFilledFields(new Set());
+      // Surface the success message and scroll up so the user sees it
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err: unknown) {
       setSubmitError((err as Error).message);
+      // DSV-005: scroll to top so the error banner is visible (the form is
+      // long; users were stuck looking at the bottom when submission failed).
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
+
+  // DSV-001: auto-hide the success banner so it doesn't linger forever.
+  useEffect(() => {
+    if (!success) return;
+    const t = setTimeout(() => setSuccess(''), 4000);
+    return () => clearTimeout(t);
+  }, [success]);
 
   if (projectsLoading) return <Layout><PageLoader /></Layout>;
 
@@ -267,9 +305,9 @@ const StandupPage = () => {
       <Header title={t('nav.standup')} subtitle="Daily standup updates" />
       <div className="p-6 space-y-5">
 
-        {/* Tabs */}
+        {/* Tabs — Team Standups only visible to users with STANDUP_TEAM_VIEW */}
         <div className="flex gap-2 border-b border-gray-200">
-          {(['submit', 'rollup', 'mine'] as const).map((t) => (
+          {(['submit', 'rollup', 'mine', ...(canSeeTeamStandups ? ['team'] as const : [])] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
                 tab === t ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -281,13 +319,23 @@ const StandupPage = () => {
                     </span>
                   ) : 'Submit Standup'
                 : t === 'rollup' ? 'Standup Rollup'
-                : (
+                : t === 'mine' ? (
                   <span className="flex items-center gap-1.5">
                     <History size={14} />
                     My Submissions
                     {myStandups.length > 0 && (
                       <span className="bg-blue-100 text-blue-700 text-xs font-bold px-1.5 py-0.5 rounded-full">
                         {myStandups.length}
+                      </span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5">
+                    <UsersIcon size={14} />
+                    Team Standups
+                    {teamStandups.length > 0 && (
+                      <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-1.5 py-0.5 rounded-full">
+                        {teamStandups.length}
                       </span>
                     )}
                   </span>
@@ -361,9 +409,28 @@ const StandupPage = () => {
                   </div>
                   <div>
                     <label className="form-label">Date *</label>
-                    <input type="date" className={`form-input ${editingEntry ? 'bg-gray-50 text-gray-600 cursor-not-allowed' : ''}`}
+                    <input
+                      type="date"
+                      className={`form-input ${editingEntry ? 'bg-gray-50 text-gray-600 cursor-not-allowed' : ''}`}
                       readOnly={!!editingEntry}
-                      {...register('date', { required: true })} />
+                      min={minDate}
+                      max={today}
+                      {...register('date', {
+                        required: 'Date is required',
+                        validate: (v) => {
+                          if (!v) return 'Date is required';
+                          if (v > today)    return "You can't submit a standup for a future date.";
+                          if (v < minDate)  return 'Backdated entries are allowed only within the past 7 days.';
+                          return true;
+                        },
+                      })}
+                    />
+                    {errors.date && <p className="form-error">{(errors.date as any).message || 'Invalid date'}</p>}
+                    {!editingEntry && (
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        You can enter standups for the past 7 days. Future dates are not allowed.
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -564,13 +631,15 @@ const StandupPage = () => {
                     id: string; userName: string; yesterday: string; today: string; blockers?: string;
                   }>;
                 }) => (
-                  <div key={day.date} className="rounded-xl border border-gray-200 overflow-hidden">
-                    {/* Day header */}
-                    <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200">
-                      <h3 className="text-sm font-semibold text-gray-900">
+                  <div key={day.date} className="rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                    {/* Day header — DSV-008: deeper indigo background + white
+                        text so the date is clearly visible. The previous soft
+                        blue gradient was too light to read against. */}
+                    <div className="flex items-center justify-between px-4 py-3 bg-indigo-600 text-white">
+                      <h3 className="text-sm font-bold tracking-wide">
                         {format(new Date(day.date + 'T00:00:00'), 'EEEE, d MMMM yyyy')}
                       </h3>
-                      <span className="text-xs text-gray-500 bg-white px-2 py-0.5 rounded-full border border-gray-200">
+                      <span className="text-xs font-semibold text-indigo-700 bg-white/95 px-2.5 py-0.5 rounded-full">
                         {day.entryCount} update{day.entryCount !== 1 ? 's' : ''}
                       </span>
                     </div>
@@ -589,15 +658,88 @@ const StandupPage = () => {
                               <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-16 shrink-0">Today</span>
                               <p className="text-sm text-gray-700 leading-snug">{entry.today}</p>
                             </div>
+                            {/* DSV-009: blockers row now uses the same label
+                                column as Yesterday/Today so the layout is
+                                consistent. Icon was previously orphaned
+                                without a label, making the "None" value look
+                                misaligned. */}
                             {entry.blockers && (
                               <div className="flex gap-2">
-                                <AlertCircle size={12} className="text-red-400 mt-0.5 shrink-0" />
+                                <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-16 shrink-0 flex items-center gap-1">
+                                  <AlertCircle size={11} className="shrink-0" />
+                                  <span>Blockers</span>
+                                </span>
                                 <p className="text-sm text-red-700 leading-snug">{entry.blockers}</p>
                               </div>
                             )}
                           </div>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Team Standups tab — visible only with STANDUP_TEAM_VIEW perm ── */}
+        {tab === 'team' && canSeeTeamStandups && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-2.5 p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-xs text-indigo-700">
+              <UsersIcon size={14} className="mt-0.5 flex-shrink-0" />
+              <span>
+                Showing standups from members of teams you're in or lead. Use this to keep tabs on what your team posted today.
+              </span>
+            </div>
+
+            {teamLoading ? (
+              <PageLoader />
+            ) : (teamStandups as StandupEntry[]).length === 0 ? (
+              <EmptyState
+                title="No team standups yet"
+                description="Your team peers haven't submitted standups in the visible window. They'll show up here as soon as they do."
+              />
+            ) : (
+              <div className="space-y-3">
+                {(teamStandups as StandupEntry[]).map((entry) => (
+                  <div key={entry.id} className="rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+                    {/* Header — user + date */}
+                    <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <UserAvatar name={entry.userName ?? entry.userId ?? '?'} size="xs" />
+                        <span className="text-sm font-semibold text-gray-800 truncate">
+                          {entry.userName ?? 'Team member'}
+                        </span>
+                        {entry.projectName && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100 truncate max-w-[160px]">
+                            {entry.projectName}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-400">
+                        {entry.date ? format(new Date(entry.date + 'T00:00:00'), 'd MMM yyyy') : ''}
+                      </span>
+                    </div>
+                    {/* Body — yesterday / today / blockers */}
+                    <div className="grid grid-cols-1 gap-1.5">
+                      <div className="flex gap-2">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-16 shrink-0">Yesterday</span>
+                        <p className="text-sm text-gray-700 leading-snug">{entry.yesterday}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-16 shrink-0">Today</span>
+                        <p className="text-sm text-gray-700 leading-snug">{entry.today}</p>
+                      </div>
+                      {entry.blockers && (
+                        <div className="flex gap-2">
+                          <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-16 shrink-0 flex items-center gap-1">
+                            <AlertCircle size={11} className="shrink-0" />
+                            <span>Blockers</span>
+                          </span>
+                          <p className="text-sm text-red-700 leading-snug">{entry.blockers}</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}

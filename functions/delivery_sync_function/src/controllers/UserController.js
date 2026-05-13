@@ -18,14 +18,16 @@ const BUCKET_BASE_URL = process.env.STRATUS_USER_AVATARS_URL || 'https://profile
  *
  * NOTE: Add an `avatar_url` TEXT column to the `users` table in Catalyst Console → DataStore.
  */
-const CATALYST_ROLE_MAP = {
-  TENANT_ADMIN:  process.env.CATALYST_ROLE_TENANT_ADMIN  || '17682000000989450',
-  DELIVERY_LEAD: process.env.CATALYST_ROLE_DELIVERY_LEAD || '17682000000989455',
-  TEAM_MEMBER:   process.env.CATALYST_ROLE_TEAM_MEMBER   || '17682000000989460',
-  PMO:           process.env.CATALYST_ROLE_PMO           || '17682000000989465',
-  EXEC:          process.env.CATALYST_ROLE_EXEC          || '17682000000989470',
-  CLIENT:        process.env.CATALYST_ROLE_CLIENT        || '17682000000989475',
-  SUPER_ADMIN:   process.env.CATALYST_ROLE_SUPER_ADMIN   || '17682000001011209',
+// Env-var names use the ROLE_ID_* prefix because Catalyst reserves the
+// CATALYST_* namespace and rejects it in catalyst-config.json env_variables.
+const ROLE_ID_MAP = {
+  TENANT_ADMIN:  process.env.ROLE_ID_TENANT_ADMIN  || '17682000000989450',
+  DELIVERY_LEAD: process.env.ROLE_ID_DELIVERY_LEAD || '17682000000989455',
+  TEAM_MEMBER:   process.env.ROLE_ID_TEAM_MEMBER   || '17682000000989460',
+  PMO:           process.env.ROLE_ID_PMO           || '17682000000989465',
+  EXEC:          process.env.ROLE_ID_EXEC          || '17682000000989470',
+  CLIENT:        process.env.ROLE_ID_CLIENT        || '17682000000989475',
+  SUPER_ADMIN:   process.env.ROLE_ID_SUPER_ADMIN   || '17682000001011209',
 };
 
 class UserController {
@@ -93,7 +95,7 @@ class UserController {
       }
 
       // ── 2. Duplicate-email guard within tenant ───────────────────────────────
-      console.log('[updateEmail] STEP 2 — Checking for duplicate email in tenant:', data.email);
+      console.log('[updateEmail] STEP 2 — Checking for duplicate email in tenant:', _maskEmail(data.email));
       const existing = await this.db.query(
         `SELECT ROWID FROM ${TABLES.USERS} ` +
         `WHERE tenant_id = '${DataStoreService.escape(tenantId)}' ` +
@@ -122,7 +124,7 @@ class UserController {
       const baseUserConfig = {
         first_name: firstName,
         last_name:  lastName,
-        role_id:    CATALYST_ROLE_MAP[role] || CATALYST_ROLE_MAP.TEAM_MEMBER,
+        role_id:    ROLE_ID_MAP[role] || ROLE_ID_MAP.TEAM_MEMBER,
         org_id:     catalyst_org_id,
       };
 
@@ -130,7 +132,7 @@ class UserController {
 
       // ── 4. Register new Catalyst user with new email ─────────────────────────
       // Old user is still active at this point — session remains valid.
-      console.log('[updateEmail] STEP 4 — Registering new Catalyst user | newEmail:', data.email);
+      console.log('[updateEmail] STEP 4 — Registering new Catalyst user | newEmail:', _maskEmail(data.email));
       let registeredUser;
       try {
         registeredUser = await this.auth.registerUser(
@@ -158,7 +160,7 @@ class UserController {
       console.log('[updateEmail] STEP 4 — newCatalystUserId:', newCatalystUserId, '| newCatalystOrgId:', newCatalystOrgId);
 
       // ── 5. Update DB (user session still valid — old user not yet deleted) ────
-      console.log('[updateEmail] STEP 5 — Updating DB row | ROWID:', userId, '| newEmail:', data.email, '| newCatalystUserId:', newCatalystUserId);
+      console.log('[updateEmail] STEP 5 — Updating DB row | ROWID:', userId, '| newEmail:', _maskEmail(data.email), '| newCatalystUserId:', newCatalystUserId);
       try {
         await this.db.update(TABLES.USERS, {
           ROWID:            userId,
@@ -215,7 +217,7 @@ class UserController {
         console.warn('[updateEmail] STEP 7 WARN — Audit log failed (non-fatal):', auditErr.message);
       }
 
-      console.log('[updateEmail] SUCCESS — Email updated from', oldEmail, '→', data.email);
+      console.log('[updateEmail] SUCCESS — Email updated from', _maskEmail(oldEmail), '→', _maskEmail(data.email));
       return ResponseHelper.success(
         res,
         { email: data.email, status: USER_STATUS.INVITED },
@@ -438,6 +440,23 @@ class UserController {
       return ResponseHelper.serverError(res, err.message);
     }
   }
+}
+
+// PII masking for log output. Audit logs (RBAC-gated) still get the full
+// email; this is only for plain `console.log` lines that end up in shared
+// service logs.
+//   "jane.doe@example.com" → "j***e@example.com"
+//   "ab@example.com"       → "a*@example.com"
+//   ""                     → "<no email>"
+function _maskEmail(email) {
+  const s = String(email || '');
+  if (!s) return '<no email>';
+  const at = s.indexOf('@');
+  if (at <= 0) return '<invalid>';
+  const local = s.slice(0, at);
+  const domain = s.slice(at);
+  if (local.length <= 2) return `${local[0]}*${domain}`;
+  return `${local[0]}***${local[local.length - 1]}${domain}`;
 }
 
 module.exports = UserController;

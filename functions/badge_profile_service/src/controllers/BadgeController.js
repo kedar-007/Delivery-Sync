@@ -124,7 +124,14 @@ class BadgeController {
     });
     const userRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${user_id}' LIMIT 1`);
     if (userRows[0]) {
-      await this.notif.send({ toEmail: userRows[0].email, subject: `[Delivery Sync] You earned a badge: ${badge.name}!`, htmlBody: `<p>Hi ${userRows[0].name}, congratulations! You have been awarded the <strong>${badge.name}</strong> (${badge.level}) badge. Reason: ${reason}</p>` });
+      // Escape user-controlled fields (name, badge name/level, reason) before
+      // they hit the HTML body — prevents an attacker from embedding markup
+      // or links into a recipient's inbox.
+      await this.notif.send({
+        toEmail: userRows[0].email,
+        subject: `[Delivery Sync] You earned a badge: ${badge.name}!`,
+        htmlBody: `<p>Hi ${_escapeHtml(userRows[0].name)}, congratulations! You have been awarded the <strong>${_escapeHtml(badge.name)}</strong> (${_escapeHtml(badge.level)}) badge. Reason: ${_escapeHtml(reason)}</p>`,
+      });
       await this.notif.sendInApp({ tenantId: req.tenantId, userId: user_id, title: 'Badge Awarded!', message: `You earned the "${badge.name}" badge`, type: NOTIFICATION_TYPE.BADGE_AWARDED, entityType: 'BADGE', entityId: req.params.badgeId });
     }
     await this.audit.log({ tenantId: req.tenantId, entityType: 'USER_BADGE', entityId: row.ROWID, action: AUDIT_ACTION.ASSIGN, newValue: { badge_id: req.params.badgeId, user_id, reason }, performedBy: req.currentUser.id });
@@ -195,6 +202,15 @@ class BadgeController {
       return ResponseHelper.serverError(res, err.message);
     }
   }
+}
+
+function _escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 module.exports = BadgeController;

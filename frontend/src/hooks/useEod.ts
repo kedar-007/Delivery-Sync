@@ -1,10 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { eodApi } from '../lib/api';
 
-export const useEod = (params?: Record<string, string>) =>
+export const useEod = (
+  params?: Record<string, string>,
+  options?: { enabled?: boolean }
+) =>
   useQuery({
     queryKey: ['eod', params],
     queryFn: () => eodApi.list(params).then((d) => d.eods),
+    enabled: options?.enabled !== false,
   });
 
 export const useEodRollup = (params: { projectId: string; startDate?: string; endDate?: string }) =>

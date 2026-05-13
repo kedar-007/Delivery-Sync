@@ -1,6 +1,11 @@
 'use strict';
 
 const DataStoreService = require('../services/DataStoreService');
+const CacheService = require('../services/CacheService');
+
+const AUTH_CTX_TTL_HOURS    = 1 / 12; // 5 minutes
+const AUTH_CTX_KEY_VERSION  = 'v1';
+const AUTH_CTX_SERVICE_NAME = 'badges';
 const ResponseHelper = require('../utils/ResponseHelper');
 const { TABLES, USER_STATUS } = require('../utils/Constants');
 
@@ -63,6 +68,18 @@ class AuthMiddleware {
         return ResponseHelper.forbidden(res, 'Your account has been deactivated.');
       }
 
+      // ── Service-scoped auth-context cache (skips the lookups below) ──
+      const cache       = new CacheService(req.catalystApp);
+      const authCtxKey  = `authCtx:${AUTH_CTX_SERVICE_NAME}:${AUTH_CTX_KEY_VERSION}:${String(user.ROWID)}`;
+      try {
+        const cachedCtx = await cache.get(authCtxKey);
+        if (cachedCtx && cachedCtx.currentUser && cachedCtx.tenantId !== undefined) {
+          req.currentUser = cachedCtx.currentUser;
+          req.tenantId    = cachedCtx.tenantId;
+          return next();
+        }
+      } catch (_) {}
+
       // 3. Attach to request context
       // Only use Catalyst role if it matches one of our known app roles.
       // "App Administrator" / "App User" are Catalyst system roles — fall back to DB role.
@@ -112,7 +129,17 @@ class AuthMiddleware {
             const permsRows = await db.query(
               `SELECT permissions FROM ${TABLES.ORG_ROLE_PERMISSIONS} WHERE tenant_id = '${tenantId}' AND org_role_id = '${orgRoleId}' LIMIT 1`
             );
-            if (permsRows.length > 0) orgRolePermissions = JSON.parse(permsRows[0].permissions || '[]');
+            if (permsRows.length > 0) {
+              // Permissions column supports both legacy array form and new
+              // { p: [...], m: [...] } object form. Without this, the new
+              // form returned a non-iterable object that crashed the spread
+              // below as a generic "Authentication error".
+              try {
+                const parsed = JSON.parse(permsRows[0].permissions || '[]');
+                if (Array.isArray(parsed)) orgRolePermissions = parsed;
+                else if (parsed && typeof parsed === 'object') orgRolePermissions = Array.isArray(parsed.p) ? parsed.p : [];
+              } catch (_) { orgRolePermissions = []; }
+            }
             const scopeRows = await db.query(
               `SELECT visibility_scope FROM ${TABLES.ORG_SHARING_RULES} WHERE tenant_id = '${tenantId}' AND role_id = '${orgRoleId}' AND visibility_scope != 'EXPLICIT' AND is_active = 'true' LIMIT 1`
             );
@@ -138,6 +165,14 @@ class AuthMiddleware {
       req.currentUser.permissions = Array.from(base);
       req.currentUser.orgRoleId = orgRoleId;
       req.currentUser.dataScope = dataScope;
+
+      // ── Write to cache so subsequent requests skip the lookups above ──
+      try {
+        await cache.set(authCtxKey, {
+          currentUser: req.currentUser,
+          tenantId:    req.tenantId,
+        }, AUTH_CTX_TTL_HOURS);
+      } catch (_) {}
 
       next();
     } catch (err) {

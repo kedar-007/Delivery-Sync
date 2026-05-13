@@ -64,7 +64,7 @@ class OrgController {
   // GET /api/people/org/manager/:userId
   async getManager(req, res) {
     try {
-      const profile = await this.db.findWhere(TABLES.USER_PROFILES, req.tenantId, `user_id = '${req.params.userId}'`, { limit: 1 });
+      const profile = await this.db.findWhere(TABLES.USER_PROFILES, req.tenantId, `user_id = '${DataStoreService.escape(req.params.userId)}'`, { limit: 1 });
       if (!profile[0] || !profile[0].reporting_manager_id) return ResponseHelper.success(res, null);
       const managerRows = await this.db.query(`SELECT ROWID, name, email FROM ${TABLES.USERS} WHERE ROWID = '${profile[0].reporting_manager_id}' LIMIT 1`);
       return ResponseHelper.success(res, managerRows[0] || null);

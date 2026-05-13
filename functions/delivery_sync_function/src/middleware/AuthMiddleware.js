@@ -1,8 +1,22 @@
 'use strict';
 
 const DataStoreService = require('../services/DataStoreService');
+const CacheService = require('../services/CacheService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const { TABLES, USER_STATUS } = require('../utils/Constants');
+
+// Single TTL for the unified auth-context cache. Kept short (5 min) so that
+// admin permission changes propagate quickly even when explicit invalidation
+// is missed.
+//
+// COST NOTE: Catalyst Cache pricing is per-call (₹2.4 / 2k gets, ₹3.6 / 6k
+// puts beyond the free tier). The original design did 6 cache calls per
+// authenticated request — that scaled to ~₹2,300/month at moderate load.
+// This unified key collapses to 1 cache call per request (+ 1 put per TTL
+// window per user), which is roughly 6× cheaper while keeping the same
+// DB-reduction benefit. The single get replaces 6 DataStore queries.
+const AUTH_CTX_TTL_HOURS = 1 / 12; // 5 minutes
+const AUTH_CTX_KEY_VERSION = 'v1'; // bump to bust the cache on schema changes
 
 /**
  * AuthMiddleware – resolves the Catalyst Auth session to a Delivery Sync user
@@ -21,10 +35,16 @@ class AuthMiddleware {
    * Attaches req.currentUser and req.tenantId on success.
    */
   static async authenticate(req, res, next) {
+    // Shared cache instance — used to short-circuit slow-changing lookups
+    // (tenant info, org role permissions, sharing rules, etc.). All ops
+    // degrade gracefully if cache is unavailable; the middleware still
+    // works exactly as before.
+    let cache = null;
     try {
       if (!req.catalystApp) {
         return ResponseHelper.unauthorized(res, 'Authentication required');
       }
+      cache = new CacheService(req.catalystApp);
 
       // 1. Get Catalyst Auth user from the session
       let catalystUser;
@@ -87,6 +107,26 @@ class AuthMiddleware {
         });
       }
 
+      // ── 2b. Try the unified auth-context cache (1 cache call, replaces 6) ──
+      //   Stores the fully-resolved req.currentUser + tenantId together. On a
+      //   hit we skip all the tenant/role/permission lookups below.
+      //   Invalidation:
+      //     - user role change      → AdminController/OrgRolesController clears this key
+      //     - user override change  → same
+      //     - role permission change→ relies on TTL (5 min) — iterating all
+      //       members of a role to invalidate is more expensive than the wait
+      const authCtxKey = `authCtx:${AUTH_CTX_KEY_VERSION}:${String(user.ROWID)}`;
+      try {
+        const cachedCtx = await cache.get(authCtxKey);
+        if (cachedCtx && cachedCtx.currentUser && cachedCtx.tenantId) {
+          req.currentUser = cachedCtx.currentUser;
+          req.tenantId    = cachedCtx.tenantId;
+          return next();
+        }
+      } catch (_) {
+        // Cache outage — fall through to the DB path.
+      }
+
       // 3. Attach to request context
       // SUPER_ADMIN always wins regardless of DB row value.
       // For other roles: only use Catalyst role if it matches a known app role.
@@ -99,6 +139,9 @@ class AuthMiddleware {
       let tenantSlug = '';
       let tenantStatus = 'ACTIVE';
       let botEnabled = true;
+      // Tenant info — direct DB call (the unified authCtx cache above already
+      // short-circuited if this was a warm session). Caching this separately
+      // would add a second cache call per request and double our cache cost.
       try {
         const tenantRows = await db.query(
           `SELECT name, slug, status, settings FROM ${TABLES.TENANTS} WHERE ROWID = '${user.tenant_id}' LIMIT 1`
@@ -110,7 +153,7 @@ class AuthMiddleware {
           tenantStatus = tenant.status || 'ACTIVE';
           try {
             const ts = JSON.parse(tenant.settings || '{}');
-            botEnabled = ts.botEnabled !== false; // default true unless explicitly disabled
+            botEnabled = ts.botEnabled !== false;
           } catch (_) {}
         }
       } catch (_) {}
@@ -177,21 +220,27 @@ class AuthMiddleware {
               `SELECT org_role_id FROM ${TABLES.USER_ORG_ROLES} WHERE user_id = '${userId}' AND is_active != 'false' LIMIT 1`
             );
           }
-          console.log(`[AuthMiddleware] org role lookup for user=${userId} tenant=${tenantId}: found=${assignment.length} rows`, assignment.length > 0 ? assignment[0] : 'none');
 
           if (assignment.length > 0) {
             orgRoleId = String(assignment[0].org_role_id);
 
-            const orgRoleRows = await db.query(
-              `SELECT name FROM ${TABLES.ORG_ROLES} WHERE ROWID = '${orgRoleId}' LIMIT 1`
-            );
-            console.log(`[AuthMiddleware] org_roles lookup for roleId=${orgRoleId}: found=${orgRoleRows.length}`, orgRoleRows.length > 0 ? { name: orgRoleRows[0].name } : 'none');
+            // These three queries are all keyed off the same `orgRoleId`
+            // and none depend on each other — run them in parallel instead
+            // of serially. Same DB cost, ~3× faster cold auth latency.
+            const [orgRoleRows, permsRows, scopeRows] = await Promise.all([
+              db.query(
+                `SELECT name FROM ${TABLES.ORG_ROLES} WHERE ROWID = '${orgRoleId}' LIMIT 1`
+              ),
+              db.query(
+                `SELECT permissions FROM ${TABLES.ORG_ROLE_PERMISSIONS} WHERE tenant_id = '${tenantId}' AND org_role_id = '${orgRoleId}' LIMIT 1`
+              ),
+              db.query(
+                `SELECT visibility_scope FROM ${TABLES.ORG_SHARING_RULES} WHERE tenant_id = '${tenantId}' AND role_id = '${orgRoleId}' AND visibility_scope != 'EXPLICIT' AND is_active = 'true' LIMIT 1`
+              ),
+            ]);
+
             if (orgRoleRows.length > 0) orgRoleName = orgRoleRows[0].name;
 
-            const permsRows = await db.query(
-              `SELECT permissions FROM ${TABLES.ORG_ROLE_PERMISSIONS} WHERE tenant_id = '${tenantId}' AND org_role_id = '${orgRoleId}' LIMIT 1`
-            );
-            console.log(`[AuthMiddleware] org_role_permissions lookup for roleId=${orgRoleId}: found=${permsRows.length}`, permsRows.length > 0 ? { raw: permsRows[0].permissions } : 'none');
             if (permsRows.length > 0) {
               // Supports both legacy array format and new object format { p: [...], m: [...] }
               try {
@@ -203,17 +252,9 @@ class AuthMiddleware {
                   orgModuleAccess    = Array.isArray(parsedPerms.m) ? parsedPerms.m : [];
                 }
               } catch (_) {}
-              console.log(`[AuthMiddleware] parsed orgRolePermissions (${orgRolePermissions.length}):`, orgRolePermissions);
             }
 
-            // Load default data visibility scope (ORG_WIDE / OWN_DATA / ROLE_PEERS / SUBORDINATES)
-            const scopeRows = await db.query(
-              `SELECT visibility_scope FROM ${TABLES.ORG_SHARING_RULES} WHERE tenant_id = '${tenantId}' AND role_id = '${orgRoleId}' AND visibility_scope != 'EXPLICIT' AND is_active = 'true' LIMIT 1`
-            );
-            if (scopeRows.length > 0) {
-              dataScope = scopeRows[0].visibility_scope;
-            }
-            console.log(`[AuthMiddleware] dataScope for roleId=${orgRoleId}: ${dataScope || 'none (defaults to OWN_DATA)'}`);
+            if (scopeRows.length > 0) dataScope = scopeRows[0].visibility_scope;
           }
         } catch (orgErr) {
           console.error('[AuthMiddleware] org role lookup failed:', orgErr.message);
@@ -229,7 +270,8 @@ class AuthMiddleware {
         const isFullAdmin = isSuperAdmin || resolvedRole === 'TENANT_ADMIN';
         const roleBase = isFullAdmin ? Object.values(PERMISSIONS) : (ROLE_PERMISSIONS[resolvedRole] || []);
         const base = new Set([...roleBase, ...(orgRoleId ? orgRolePermissions : [])]);
-        // Apply individual grants / revokes on top; also collect per-user moduleAccess
+        // Per-user permission overrides — direct DB call. The unified
+        // authCtx cache above short-circuits this whole path on a warm session.
         const overrideRows = await db.query(
           `SELECT permissions FROM ${TABLES.PERMISSION_OVERRIDES} WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = 'true' LIMIT 1`
         );
@@ -267,6 +309,20 @@ class AuthMiddleware {
       req.currentUser.moduleAccess = orgModuleAccess; // disabled sidebar module keys for this org role
       req.currentUser.permissions = effectivePermissions; // full effective permissions for this request
       req.currentUser.dataScope = dataScope; // ORG_WIDE | OWN_DATA | ROLE_PEERS | SUBORDINATES | null
+
+      // ── Write the unified auth-context cache ───────────────────────────
+      // ONE put per user per TTL window replaces the 6 DataStore queries
+      // above on every subsequent request. Cache misses (this branch) cost
+      // 1 put; cache hits (the get above) cost 1 get. Total: 6 DB → 1 cache.
+      try {
+        await cache.set(authCtxKey, {
+          currentUser: req.currentUser,
+          tenantId:    req.tenantId,
+        }, AUTH_CTX_TTL_HOURS);
+      } catch (_) {
+        // Cache write failure is non-fatal — the request completes normally,
+        // the next request will just have to re-do the DB work.
+      }
 
       next();
     } catch (err) {

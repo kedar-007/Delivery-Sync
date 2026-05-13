@@ -33,7 +33,7 @@ class AuthMiddleware {
       console.log(`[BugAuth] Step 2 ✓ — Catalyst user resolved: ${catalystUser.email_id}`);
 
       // Step 2b: check if this is a Catalyst platform super admin (not an org user)
-      const SUPER_ADMIN_ROLE_ID = process.env.CATALYST_ROLE_SUPER_ADMIN || '17682000001011209';
+      const SUPER_ADMIN_ROLE_ID = process.env.ROLE_ID_SUPER_ADMIN || '17682000001011209';
       const roleId = String(catalystUser?.role_details?.role_id ?? '');
       const isCatalystSuperAdmin = roleId === SUPER_ADMIN_ROLE_ID;
 
@@ -122,7 +122,7 @@ class AuthMiddleware {
       }
 
       // Bypass DataStore for Catalyst platform super admins
-      const SUPER_ADMIN_ROLE_ID_OPT = process.env.CATALYST_ROLE_SUPER_ADMIN || '17682000001011209';
+      const SUPER_ADMIN_ROLE_ID_OPT = process.env.ROLE_ID_SUPER_ADMIN || '17682000001011209';
       const roleIdOpt = String(catalystUser?.role_details?.role_id ?? '');
       if (roleIdOpt === SUPER_ADMIN_ROLE_ID_OPT) {
         req.currentUser = {

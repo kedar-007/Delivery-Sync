@@ -21,9 +21,10 @@ app.use('/api/assets', routes);
 app.use((req, res) => ResponseHelper.notFound(res, `Route ${req.method} ${req.url} not found`));
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
-  console.error('[AssetService Error]', err.message);
+  console.error('[AssetService Error]', err.message, err.stack);
   if (err.isValidation) return ResponseHelper.validationError(res, err.message, err.details);
   if (err.isRBAC) return ResponseHelper.forbidden(res, err.message);
-  ResponseHelper.serverError(res, err.message);
+  // Generic message to client — full err is in server logs.
+  ResponseHelper.serverError(res, 'Internal server error. Please try again.');
 });
 module.exports = app;

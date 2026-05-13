@@ -591,6 +591,43 @@ function SuperAdminSidebar({ active, onChange, alertCount }: {
   );
 }
 
+// ── Inline image with skeleton + spinner while the CDN load is in flight ─────
+// CRITICAL: the <img> is ALWAYS in the DOM with opacity-0 while pending — never
+// `hidden` (display:none). Browsers defer fetching images that aren't rendered,
+// so using `hidden` actually prevented the load from ever starting, which is
+// what made attachments look stuck on the spinner forever. The skeleton is
+// overlaid via absolute positioning so the wrapper keeps a stable size.
+const AttachmentImage: React.FC<{ src: string; alt: string }> = ({ src, alt }) => {
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError]   = useState(false);
+  return (
+    <div className="relative h-32 min-w-[128px] inline-block">
+      <img
+        src={src}
+        alt={alt}
+        decoding="async"
+        loading="eager"
+        // @ts-ignore – fetchPriority is a valid attribute, React types lag
+        fetchpriority="high"
+        onLoad={() => setLoaded(true)}
+        onError={() => setError(true)}
+        className={`h-32 w-auto object-cover bg-gray-50 transition-opacity duration-200 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+      />
+      {!loaded && !error && (
+        <div className="absolute inset-0 h-32 w-32 bg-gradient-to-br from-gray-100 to-gray-200 animate-pulse flex items-center justify-center rounded-sm">
+          <RefreshCw size={14} className="text-gray-400 animate-spin" />
+        </div>
+      )}
+      {error && (
+        <div className="absolute inset-0 h-32 w-32 bg-red-50 border border-red-100 flex flex-col items-center justify-center text-[10px] text-red-400 gap-1 rounded-sm">
+          <AlertTriangle size={14} />
+          <span>Could not load</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── Bug Report Attachment Panel ───────────────────────────────────────────────
 const BugDetailAttachments: React.FC<{ reportId: string }> = ({ reportId }) => {
   const { data, isLoading, isError } = useQuery({
@@ -625,7 +662,7 @@ const BugDetailAttachments: React.FC<{ reportId: string }> = ({ reportId }) => {
               <a key={att.ROWID ?? url} href={url} target="_blank" rel="noopener noreferrer"
                 className="block rounded-xl overflow-hidden border border-gray-200 hover:border-indigo-400 transition-colors shrink-0"
                 title={name}>
-                <img src={url} alt={name} className="h-32 w-auto object-cover" />
+                <AttachmentImage src={url} alt={name} />
                 <p className="px-2 py-1 text-[10px] text-gray-400 truncate max-w-[128px]">{name}</p>
               </a>
             );
@@ -634,8 +671,10 @@ const BugDetailAttachments: React.FC<{ reportId: string }> = ({ reportId }) => {
           if (isVideo) {
             return (
               <div key={att.ROWID ?? url} className="rounded-xl overflow-hidden border border-gray-200 shrink-0">
+                {/* preload="metadata" loads just enough for the first frame so
+                    the player isn't a black square while it streams. */}
                 {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                <video src={url} controls className="h-32 max-w-[220px] object-contain bg-black" />
+                <video src={url} controls preload="metadata" className="h-32 max-w-[220px] object-contain bg-black" />
                 <p className="px-2 py-1 text-[10px] text-gray-400 truncate max-w-[220px]">{name}</p>
               </div>
             );
@@ -1251,13 +1290,23 @@ const SuperAdminPage: React.FC = () => {
     (bugReports as any[]).filter((r: any) => !!r.reporter_reply && !seenReplies.has(r.ROWID ?? r.id)).length,
   [bugReports, seenReplies]);
 
-  // ROWID is monotonically increasing on the backend — newest insert always
-  // has the largest value. Use it as the source-of-truth for "newest first"
-  // since CREATEDTIME on incoming rows can be a number, string, or undefined.
+  // Robust "creation time" extractor. Catalyst returns CREATEDTIME as either a
+  // numeric epoch (ms) or a stringified date — handle both. Falls back to
+  // ROWID as a last-resort tiebreaker.
   const rowIdNum = (r: any): number => {
     const v = r?.ROWID ?? r?.id;
     const n = Number(v);
     return Number.isFinite(n) ? n : 0;
+  };
+  const createdTime = (r: any): number => {
+    const v = r?.CREATEDTIME;
+    if (v == null) return 0;
+    // Numeric (or numeric string) — interpret as epoch ms
+    const asNum = Number(v);
+    if (Number.isFinite(asNum) && asNum > 1_000_000_000_000) return asNum;
+    // ISO/date string fallback
+    const t = new Date(v).getTime();
+    return Number.isFinite(t) ? t : 0;
   };
   const replyTime = (r: any): number =>
     r?.reporter_reply_at ? new Date(r.reporter_reply_at).getTime() : 0;
@@ -1270,7 +1319,13 @@ const SuperAdminPage: React.FC = () => {
 
     // 2. Sort
     //    - 'replies' view: newest reply first (unseen still float higher within that)
-    //    - 'all' / 'reports': newest report first (by ROWID)
+    //    - 'all' / 'reports': newest report first by CREATEDTIME
+    //
+    //    NOTE: we used to sort by ROWID DESC assuming it was monotonic with
+    //    creation time. On this tenant ROWIDs are NOT strictly ordered with
+    //    inserts (probably because the project shares a ROWID pool across
+    //    tables and bug_reports inserts get non-sequential IDs). Sorting by
+    //    CREATEDTIME with ROWID as a tiebreaker reflects actual chronology.
     if (bugView === 'replies') {
       rows.sort((a: any, b: any) => {
         const aUnseen = !seenReplies.has(a.ROWID ?? a.id);
@@ -1279,7 +1334,11 @@ const SuperAdminPage: React.FC = () => {
         return replyTime(b) - replyTime(a);
       });
     } else {
-      rows.sort((a: any, b: any) => rowIdNum(b) - rowIdNum(a));
+      rows.sort((a: any, b: any) => {
+        const diff = createdTime(b) - createdTime(a);
+        if (diff !== 0) return diff;
+        return rowIdNum(b) - rowIdNum(a);
+      });
     }
 
     // 3. Search filter

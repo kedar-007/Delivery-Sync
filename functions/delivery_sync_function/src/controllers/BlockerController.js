@@ -261,7 +261,8 @@ class BlockerController {
       const users = await this.db.query(
         `SELECT * FROM ${TABLES.USERS} WHERE ROWID IN (${leadUserIds.join(',')}) LIMIT 20`
       );
-      console.log(`[BlockerNotify] users fetched: ${users.length}`, users.map((u) => ({ id: u.ROWID, name: u.name, email: u.email })));
+      // Don't log full user records (emails are PII). Just count + IDs.
+      console.log(`[BlockerNotify] users fetched: ${users.length}`, users.map((u) => ({ id: u.ROWID })));
       users.forEach((u) => { leadUserMap[String(u.ROWID)] = u; });
     }
 
@@ -269,7 +270,8 @@ class BlockerController {
       if (String(lead.user_id) === String(raisedByUserId)) continue;
 
       const leadUser = leadUserMap[String(lead.user_id)];
-      console.log(`[BlockerNotify] lead user_id=${lead.user_id} role=${lead.role} → name=${leadUser?.name} email=${leadUser?.email} hasEmail=${!!leadUser?.email}`);
+      // Avoid printing the email; the audit log captures it (gated to admins).
+      console.log(`[BlockerNotify] lead user_id=${lead.user_id} role=${lead.role} hasEmail=${!!leadUser?.email}`);
       await Promise.all([
         this.notifier.sendInApp({
           tenantId,
@@ -295,7 +297,7 @@ class BlockerController {
           : Promise.resolve(null),
       ]).then(async ([, emailResult]) => {
         const noEmail = !leadUser?.email;
-        console.log(`[BlockerNotify] lead ${lead.user_id} email=${leadUser?.email} result=${emailResult}`);
+        console.log(`[BlockerNotify] lead ${lead.user_id} hasEmail=${!!leadUser?.email} result=${emailResult}`);
         await this.audit.log({
           tenantId,
           entityType: 'notification',
@@ -328,7 +330,7 @@ class BlockerController {
       this.db.findById(TABLES.PROJECTS, projectId, tenantId),
     ]);
 
-    console.log(`[BlockerResolvedNotify] owner=${owner?.name} email=${owner?.email} | resolver=${resolver?.name}`);
+    console.log(`[BlockerResolvedNotify] ownerId=${owner?.ROWID} hasEmail=${!!owner?.email} resolverId=${resolver?.ROWID}`);
 
     if (!owner) return;
 

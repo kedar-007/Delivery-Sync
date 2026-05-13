@@ -96,6 +96,9 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onProcess, isProcessing =
   const [manualText, setManualText] = useState('');
   const [audioLevel, setAudioLevel] = useState(0);   // 0–100 RMS from analyser
   const [lowVolume, setLowVolume]   = useState(false);
+  // Sustained high audio with no transcript progress → likely noisy environment.
+  // Tracked as a running average so single loud syllables don't trigger it.
+  const [tooNoisy, setTooNoisy]     = useState(false);
 
   const recogRef    = useRef<ISpeechRecognition | null>(null);
   const accRef      = useRef('');
@@ -108,8 +111,14 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onProcess, isProcessing =
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const chunksRef   = useRef<Blob[]>([]);
   const rafRef      = useRef<number>(0);
+  // Exponential moving average of audioLevel — used to detect sustained noise
+  const noiseAvgRef = useRef<number>(0);
+  // Tracks current liveText so the polling loop can decide whether speech is
+  // actually being captured (no need for re-renders on every change).
+  const liveTextRef = useRef<string>('');
 
   useEffect(() => { langRef.current = lang; }, [lang]);
+  useEffect(() => { liveTextRef.current = liveText; }, [liveText]);
 
   // Cleanup on unmount
   useEffect(() => () => {
@@ -123,6 +132,8 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onProcess, isProcessing =
   // ── Audio level polling ──────────────────────────────────────────────────────
 
   const startLevelPoll = () => {
+    // Reset moving average each time we start a new recording session
+    noiseAvgRef.current = 0;
     const poll = () => {
       if (!analyserRef.current) return;
       const buf = new Uint8Array(analyserRef.current.frequencyBinCount);
@@ -136,6 +147,22 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onProcess, isProcessing =
       const level = Math.min(100, Math.round(rms * 500));
       setAudioLevel(level);
       setLowVolume(level < 6 && wantRef.current);
+
+      // Smoothed running average for noise detection (~2-second window at 60fps)
+      const ALPHA = 0.03;
+      noiseAvgRef.current = noiseAvgRef.current * (1 - ALPHA) + level * ALPHA;
+      // Mark as "too noisy" only when:
+      //   1. We're actively trying to record
+      //   2. Sustained average audio is high (> 35)
+      //   3. AND not much transcript captured yet (< 5 words) — if words are
+      //      flowing in, the speech recognition is succeeding so the audio is
+      //      clearly being heard, even if loud.
+      const wordsSoFar = liveTextRef.current.trim().split(/\s+/).filter(Boolean).length;
+      setTooNoisy(
+        wantRef.current &&
+        noiseAvgRef.current > 35 &&
+        wordsSoFar < 5
+      );
       rafRef.current = requestAnimationFrame(poll);
     };
     rafRef.current = requestAnimationFrame(poll);
@@ -217,6 +244,8 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onProcess, isProcessing =
     cancelAnimationFrame(rafRef.current);
     setAudioLevel(0);
     setLowVolume(false);
+    setTooNoisy(false);
+    noiseAvgRef.current = 0;
 
     if (mediaRecRef.current && mediaRecRef.current.state !== 'inactive') {
       try { mediaRecRef.current.stop(); } catch { /* ignore */ }
@@ -384,41 +413,52 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onProcess, isProcessing =
   return (
     <div className="rounded-xl border border-dashed border-blue-300 bg-blue-50/40 p-4 space-y-3">
 
-      {/* ── Header ── */}
+      {/* ── Header ──
+          DSV-002: the status indicator's slot has a min-width so badges of
+          different lengths ("Checking mic…", "Enhancing transcript…", etc.)
+          all occupy the same horizontal space — without this the surrounding
+          layout reflowed on every state change and the page appeared to
+          shake. */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-h-[20px]">
           <span className="text-sm font-semibold text-gray-700">Voice Input</span>
-          {mode === 'checking' && (
-            <span className="text-xs text-blue-600 font-medium flex items-center gap-1">
-              <Loader2 size={11} className="animate-spin" /> Checking mic…
-            </span>
-          )}
-          {mode === 'recording' && (
-            <span className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
-              Recording
-              {wordCount > 0 && (
-                <span className="ml-1 px-1.5 py-0.5 bg-red-100 text-red-600 rounded text-[10px] font-bold">
-                  {wordCount}w
-                </span>
-              )}
-            </span>
-          )}
-          {mode === 'transcribing' && (
-            <span className="text-xs text-violet-600 font-medium flex items-center gap-1">
-              <Loader2 size={11} className="animate-spin" /> Enhancing transcript…
-            </span>
-          )}
-          {mode === 'done' && (
-            <span className="text-xs text-green-600 font-medium">✓ {wordCount} words captured</span>
-          )}
+          <div className="min-w-[160px]">
+            {mode === 'checking' && (
+              <span className="text-xs text-blue-600 font-medium flex items-center gap-1">
+                <Loader2 size={11} className="animate-spin" /> Checking mic…
+              </span>
+            )}
+            {mode === 'recording' && (
+              <span className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+                Recording
+                {wordCount > 0 && (
+                  <span className="ml-1 px-1.5 py-0.5 bg-red-100 text-red-600 rounded text-[10px] font-bold">
+                    {wordCount}w
+                  </span>
+                )}
+              </span>
+            )}
+            {mode === 'transcribing' && (
+              <span className="text-xs text-violet-600 font-medium flex items-center gap-1">
+                <Loader2 size={11} className="animate-spin" /> Enhancing transcript…
+              </span>
+            )}
+            {mode === 'done' && (
+              <span className="text-xs text-green-600 font-medium">✓ {wordCount} words captured</span>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {/* Language dropdown */}
-          {!isActive && mode !== 'transcribing' && (
+          {/* Language dropdown — kept in the DOM but visually hidden when
+              recording so its slot remains and the header doesn't reflow. */}
+          {mode !== 'transcribing' && (
             <select value={lang} onChange={e => setLang(e.target.value)}
-              className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-300 max-w-[160px]">
+              disabled={isActive}
+              className={`text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-300 max-w-[160px] ${
+                isActive ? 'invisible' : ''
+              }`}>
               {LANGUAGES.map(l => (
                 <option key={l.code} value={l.code}>{l.label}</option>
               ))}
@@ -468,62 +508,87 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onProcess, isProcessing =
         </div>
       </div>
 
-      {/* ── Live recording panel with real volume visualization ── */}
-      {mode === 'recording' && (
-        <div className={`rounded-lg border-2 transition-all duration-100 min-h-[56px] px-3 py-2.5 ${
-          liveText
-            ? 'border-blue-400 bg-white'
-            : lowVolume
-              ? 'border-amber-300 bg-amber-50/60'
-              : 'border-dashed border-blue-200 bg-blue-50/60'
-        }`}>
-          {liveText ? (
-            <p className="text-sm text-blue-700 font-medium leading-snug whitespace-pre-wrap">
-              {liveText}
-              <span className="inline-block w-0.5 h-4 bg-blue-500 ml-0.5 animate-pulse align-middle" />
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              {/* Dynamic waveform bars driven by real audio level */}
-              <div className="flex items-end gap-0.5 h-6">
-                {BAR_SEEDS.map((seed, i) => {
-                  const h = audioLevel > 4
-                    ? Math.max(3, Math.min(24, audioLevel * 0.22 * seed))
-                    : [5, 9, 6, 12, 7, 10, 5, 8][i];
-                  return (
-                    <span key={i}
-                      className={`w-1.5 rounded-full transition-all duration-75 ${
-                        lowVolume
-                          ? 'bg-amber-400'
-                          : audioLevel > 4 ? 'bg-blue-500' : 'bg-blue-300 animate-bounce'
-                      }`}
-                      style={{
-                        height: `${h}px`,
-                        ...(audioLevel <= 4 ? { animationDelay: `${i * 0.08}s`, animationDuration: '0.7s' } : {}),
-                      }}
-                    />
-                  );
-                })}
+      {/* ── Recording status area with reserved space ──
+          DSV-002 / follow-up: this wrapper has a fixed `min-h-[110px]` so the
+          page below the recorder doesn't jolt down when the live panel
+          appears. The panel + tips render inside this stable area. */}
+      <div className="min-h-[110px]">
+        {mode === 'recording' && (
+          <div className={`rounded-lg border-2 transition-colors duration-150 min-h-[56px] px-3 py-2.5 ${
+            liveText
+              ? 'border-blue-400 bg-white'
+              : tooNoisy
+                ? 'border-rose-300 bg-rose-50/60'
+                : lowVolume
+                  ? 'border-amber-300 bg-amber-50/60'
+                  : 'border-dashed border-blue-200 bg-blue-50/60'
+          }`}>
+            {liveText ? (
+              <p className="text-sm text-blue-700 font-medium leading-snug whitespace-pre-wrap">
+                {liveText}
+                <span className="inline-block w-0.5 h-4 bg-blue-500 ml-0.5 animate-pulse align-middle" />
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                {/* Dynamic waveform bars driven by real audio level */}
+                <div className="flex items-end gap-0.5 h-6">
+                  {BAR_SEEDS.map((seed, i) => {
+                    const h = audioLevel > 4
+                      ? Math.max(3, Math.min(24, audioLevel * 0.22 * seed))
+                      : [5, 9, 6, 12, 7, 10, 5, 8][i];
+                    return (
+                      <span key={i}
+                        className={`w-1.5 rounded-full transition-all duration-75 ${
+                          tooNoisy
+                            ? 'bg-rose-400'
+                            : lowVolume
+                              ? 'bg-amber-400'
+                              : audioLevel > 4 ? 'bg-blue-500' : 'bg-blue-300 animate-bounce'
+                        }`}
+                        style={{
+                          height: `${h}px`,
+                          ...(audioLevel <= 4 ? { animationDelay: `${i * 0.08}s`, animationDuration: '0.7s' } : {}),
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+                <span className={`text-xs ${
+                  tooNoisy
+                    ? 'text-rose-600 font-medium'
+                    : lowVolume
+                      ? 'text-amber-600 font-medium'
+                      : 'text-blue-400'
+                }`}>
+                  {tooNoisy
+                    ? '🔊 Too much background noise — find a quieter spot or use a headset mic'
+                    : lowVolume
+                      ? '🔇 Speaking too softly — move closer to the mic or speak louder'
+                      : finalText ? 'Listening for more…' : 'Speak now — words will appear here as you talk'}
+                </span>
               </div>
-              <span className={`text-xs ${lowVolume ? 'text-amber-600 font-medium' : 'text-blue-400'}`}>
-                {lowVolume
-                  ? '🔇 Speaking too softly — move closer to the mic or speak louder'
-                  : finalText ? 'Listening for more…' : 'Speak now — words will appear here as you talk'}
-              </span>
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        )}
 
-      {/* ── Low volume tip badge ── */}
-      {mode === 'recording' && lowVolume && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
-          <Volume2 size={12} className="text-amber-500 shrink-0" />
-          <p className="text-xs text-amber-700">
-            <strong>Tip:</strong> Speak directly at the mic, avoid side angles. In a meeting room, move closer or use a headset.
-          </p>
-        </div>
-      )}
+        {/* Detailed tips — one slot, two possible tips depending on which
+            condition is active. Reserved space stays the same so the area
+            doesn't reflow when the tip swaps. */}
+        {mode === 'recording' && (tooNoisy || lowVolume) && (
+          <div className={`mt-2 flex items-start gap-1.5 px-2.5 py-1.5 border rounded-lg ${
+            tooNoisy ? 'bg-rose-50 border-rose-200' : 'bg-amber-50 border-amber-200'
+          }`}>
+            <Volume2 size={12} className={`shrink-0 mt-0.5 ${tooNoisy ? 'text-rose-500' : 'text-amber-500'}`} />
+            <p className={`text-xs ${tooNoisy ? 'text-rose-700' : 'text-amber-700'}`}>
+              {tooNoisy ? (
+                <><strong>Too noisy:</strong> Background sound is drowning out your voice. Try a quieter room, move away from fans/windows, or use a headset mic.</>
+              ) : (
+                <><strong>Too quiet:</strong> Speak directly at the mic, avoid side angles. In a meeting room, move closer or use a headset.</>
+              )}
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* ── Transcribing fallback indicator ── */}
       {mode === 'transcribing' && (

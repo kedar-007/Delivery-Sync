@@ -28,6 +28,7 @@ const normaliseEntry = (r: any) => ({
   userName:       r.user_name    ?? r.userName    ?? '',
   userAvatarUrl:  r.user_avatar_url ?? r.userAvatarUrl ?? '',
   projectName:    r.project_name ?? r.projectName ?? '',
+  taskName:       r.task_name    ?? r.taskName    ?? '',
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -64,10 +65,36 @@ const applyNorm = <T>(norm: (r: unknown) => T) =>
   };
 
 // ── Time Entries ──────────────────────────────────────────────────────────────
+// Always returns { data: TimeEntry[], pagination: PageInfo | null }.
+// When the caller passes `page` in params, the backend includes pagination
+// metadata; otherwise pagination is null and `data` holds all returned rows
+// (legacy / analytics callers).
+export interface TimeEntriesPagination {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  hasMore: boolean;
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export interface TimeEntriesResult { data: any[]; pagination: TimeEntriesPagination | null; }
+
 export const useTimeEntries = (params?: Record<string, string>) =>
-  useQuery({
+  useQuery<TimeEntriesResult>({
     queryKey: ['time', 'entries', params],
-    queryFn: () => timeEntriesApi.list(params).then(applyNorm(normaliseEntry)),
+    queryFn: async () => {
+      const res = await timeEntriesApi.list(params);
+      // Paginated shape: { entries, pagination }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (res && typeof res === 'object' && !Array.isArray(res) && Array.isArray((res as any).entries)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const r = res as any;
+        return { data: r.entries.map(normaliseEntry), pagination: r.pagination ?? null };
+      }
+      // Legacy array shape (no pagination)
+      const arr = Array.isArray(res) ? res : [];
+      return { data: arr.map(normaliseEntry), pagination: null };
+    },
   });
 
 export const useMyWeek = () =>
