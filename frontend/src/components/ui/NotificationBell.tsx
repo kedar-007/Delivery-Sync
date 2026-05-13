@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Bell, BellOff, CheckCheck, Trash2, X } from 'lucide-react';
 import { useNotifications, useMarkRead, useMarkAllRead, useDeleteNotification } from '../../hooks/useNotifications';
 import type { Notification } from '../../hooks/useNotifications';
@@ -75,39 +76,111 @@ function timeAgo(ts: string) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+// ─── Notification → destination URL ───────────────────────────────────────────
+//
+// Builds the tenant-scoped path the user should land on when they click a
+// notification. Backend uses an inconsistent mix of upper-case and lower-case
+// entityType values so we normalise before matching. When we don't know how
+// to handle a given type we fall back to the dashboard rather than blocking
+// the click — the user still ends up somewhere useful.
+function notificationLink(n: Notification, tenantSlug: string | undefined): string | null {
+  if (!tenantSlug) return null;
+  const base   = `/${tenantSlug}`;
+  const type   = String(n.entityType || '').toUpperCase();
+  const id     = String(n.entityId || '');
+  // Some notifications carry a projectId in metadata (e.g. action assignments)
+  // — useful for deep-linking into a sprint board or project view.
+  const projectId = typeof n.metadata?.projectId === 'string'
+    ? n.metadata.projectId
+    : (typeof (n.metadata as Record<string, unknown>)?.project_id === 'string'
+        ? (n.metadata as Record<string, string>).project_id
+        : '');
+
+  switch (type) {
+    case 'TASK':
+      // The task detail modal opens via the ?taskId= query on My Tasks; works
+      // whether the user owns the task or just got assigned to it.
+      return id ? `${base}/my-tasks?taskId=${id}` : `${base}/my-tasks`;
+    case 'SPRINT':
+      return projectId ? `${base}/projects/${projectId}/sprints` : `${base}/sprints`;
+    case 'PROJECT':
+      return id ? `${base}/projects/${id}` : `${base}/projects`;
+    case 'MILESTONE':
+      return `${base}/milestones`;
+    case 'ACTION':
+      return `${base}/actions`;
+    case 'BLOCKER':
+      return `${base}/blockers`;
+    case 'LEAVE':
+    case 'WFH_REQUEST':
+      return `${base}/leave`;
+    case 'ATTENDANCE':
+      return `${base}/attendance`;
+    case 'TIME_ENTRY':
+    case 'TIME_APPROVAL':
+      return `${base}/time-tracking`;
+    case 'ANNOUNCEMENT':
+      return `${base}/announcements`;
+    case 'BADGE':
+    case 'USER_BADGE':
+      return `${base}/profile`;
+    case 'ASSET':
+    case 'ASSET_REQUEST':
+    case 'ASSET_ASSIGNMENT':
+    case 'ASSET_MAINTENANCE':
+      return `${base}/assets`;
+    case 'TEAM':
+      return `${base}/teams`;
+    default:
+      // Unknown type — fall back to the dashboard so the click does something
+      // visible. Better than a dead button.
+      return `${base}/dashboard`;
+  }
+}
+
 // ─── Single notification row ──────────────────────────────────────────────────
-const NotifRow = ({ n, onRead, onDelete }: {
+const NotifRow = ({ n, onRead, onDelete, onOpen }: {
   n: Notification;
   onRead: (id: string) => void;
   onDelete: (id: string) => void;
-}) => (
-  <div className={`flex gap-3 px-4 py-3 border-b last:border-0 transition-colors ${n.isRead ? 'opacity-60' : 'bg-blue-50/40'}`}>
-    <div className="mt-1.5 shrink-0">
-      {!n.isRead && <span className="block w-2 h-2 rounded-full bg-blue-500" />}
-      {n.isRead  && <span className="block w-2 h-2 rounded-full bg-transparent" />}
-    </div>
-    <div className="flex-1 min-w-0">
-      <p className="text-sm font-medium text-ds-text leading-tight">{n.title}</p>
-      <p className="text-xs text-ds-text-muted mt-0.5 line-clamp-2">{n.message}</p>
-      <div className="flex items-center gap-2 mt-1">
-        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${typeColor[n.type] ?? typeColor.GENERAL}`}>
-          {typeLabel(n.type)}
-        </span>
-        <span className="text-[10px] text-ds-text-muted opacity-70">{timeAgo(n.createdAt)}</span>
+  onOpen: (n: Notification) => void;
+}) => {
+  // Click on the body navigates to the entity; clicks on the trash / check
+  // icons are kept separate via stopPropagation so users can still mark/delete
+  // without triggering the redirect.
+  return (
+    <div className={`flex gap-3 px-4 py-3 border-b last:border-0 transition-colors ${n.isRead ? 'opacity-60' : 'bg-blue-50/40'} hover:bg-ds-surface-hover/60 cursor-pointer`}
+         role="button"
+         tabIndex={0}
+         onClick={() => onOpen(n)}
+         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(n); } }}>
+      <div className="mt-1.5 shrink-0">
+        {!n.isRead && <span className="block w-2 h-2 rounded-full bg-blue-500" />}
+        {n.isRead  && <span className="block w-2 h-2 rounded-full bg-transparent" />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-ds-text leading-tight">{n.title}</p>
+        <p className="text-xs text-ds-text-muted mt-0.5 line-clamp-2">{n.message}</p>
+        <div className="flex items-center gap-2 mt-1">
+          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${typeColor[n.type] ?? typeColor.GENERAL}`}>
+            {typeLabel(n.type)}
+          </span>
+          <span className="text-[10px] text-ds-text-muted opacity-70">{timeAgo(n.createdAt)}</span>
+        </div>
+      </div>
+      <div className="flex flex-col gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+        {!n.isRead && (
+          <button onClick={() => onRead(n.id)} title="Mark as read" className="p-1 text-ds-text-muted hover:text-blue-600 transition-colors">
+            <CheckCheck size={13} />
+          </button>
+        )}
+        <button onClick={() => onDelete(n.id)} title="Delete" className="p-1 text-ds-text-muted hover:text-red-500 transition-colors">
+          <Trash2 size={13} />
+        </button>
       </div>
     </div>
-    <div className="flex flex-col gap-1 shrink-0">
-      {!n.isRead && (
-        <button onClick={() => onRead(n.id)} title="Mark as read" className="p-1 text-ds-text-muted hover:text-blue-600 transition-colors">
-          <CheckCheck size={13} />
-        </button>
-      )}
-      <button onClick={() => onDelete(n.id)} title="Delete" className="p-1 text-ds-text-muted hover:text-red-500 transition-colors">
-        <Trash2 size={13} />
-      </button>
-    </div>
-  </div>
-);
+  );
+};
 
 // ─── Catalyst push — module-level singleton so enableNotification() is called once ──
 let _catalystPushRegistered = false;
@@ -136,6 +209,8 @@ function initCatalystPush(onMessage: () => void) {
 const MUTE_KEY = 'ds_notif_muted';
 
 const NotificationBell = () => {
+  const navigate = useNavigate();
+  const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const [open, setOpen] = useState(false);
   const [muted, setMuted] = useState(() => {
     try { return localStorage.getItem(MUTE_KEY) === 'true'; } catch { return false; }
@@ -148,6 +223,16 @@ const NotificationBell = () => {
   const markRead = useMarkRead();
   const markAll  = useMarkAllRead();
   const del      = useDeleteNotification();
+
+  // Click handler: navigate to the entity AND mark read (if not already) AND
+  // close the panel. The mark-read fires unconditionally on unread items so
+  // the bell counter doesn't stay stale after the user has actioned the item.
+  const handleOpenNotification = useCallback((n: Notification) => {
+    if (!n.isRead) markRead.mutate(n.id);
+    const url = notificationLink(n, tenantSlug);
+    setOpen(false);
+    if (url) navigate(url);
+  }, [navigate, tenantSlug, markRead]);
 
   // Keep refetchRef current so effects with [] deps always call the latest refetch
   useEffect(() => { refetchRef.current = refetch; }, [refetch]);
@@ -245,7 +330,13 @@ const NotificationBell = () => {
               </div>
             ) : (
               notifications.map((n) => (
-                <NotifRow key={n.id} n={n} onRead={(id) => markRead.mutate(id)} onDelete={(id) => del.mutate(id)} />
+                <NotifRow
+                  key={n.id}
+                  n={n}
+                  onRead={(id) => markRead.mutate(id)}
+                  onDelete={(id) => del.mutate(id)}
+                  onOpen={handleOpenNotification}
+                />
               ))
             )}
           </div>

@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   CheckSquare, Clock, Filter, Search, ArrowUpRight, Circle, AlertCircle,
   CheckCircle2, Layers, Bug, Bookmark, Zap, Tag, Timer, Edit2, Plus,
@@ -1020,6 +1021,23 @@ export default function MyTasksPage() {
 
   // ── Task Detail ──
   const [taskDetailId, setTaskDetailId]           = useState<string | null>(null);
+
+  // Deep-link support: if the URL is /my-tasks?taskId=XYZ (e.g. user clicked
+  // a notification for an assigned task), auto-open that task's detail panel.
+  // The query param is cleared after opening so a refresh doesn't re-open it
+  // when the user has manually navigated away inside the page.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const t = searchParams.get('taskId');
+    if (t) {
+      setTaskDetailId(t);
+      // Strip ?taskId from the URL so back/refresh behaves naturally
+      const next = new URLSearchParams(searchParams);
+      next.delete('taskId');
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [detailTab, setDetailTab]                 = useState<'activity' | 'time' | 'ai' | 'attachments'>('activity');
   const [taskTimeEntries, setTaskTimeEntries]     = useState<any[]>([]);
   const [timeEntriesLoading, setTimeEntriesLoading] = useState(false);
