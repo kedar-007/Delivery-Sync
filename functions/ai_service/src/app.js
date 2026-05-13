@@ -51,7 +51,8 @@ app.use((err, req, res, _next) => {
     return ResponseHelper.validationError(res, 'Invalid JSON in request body');
   }
   console.error('[AI Service Error]', err.message, err.stack);
-  ResponseHelper.serverError(res, err.message);
+  // Don't echo the raw err.message to the client — can leak stack/DB info.
+  ResponseHelper.serverError(res, 'Internal server error. Please try again.');
 });
 
 module.exports = app;

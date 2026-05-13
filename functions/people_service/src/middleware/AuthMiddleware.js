@@ -1,8 +1,17 @@
 'use strict';
 
 const DataStoreService = require('../services/DataStoreService');
+const CacheService = require('../services/CacheService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const { TABLES, USER_STATUS } = require('../utils/Constants');
+
+// Service-scoped auth-context cache. Each microservice has its own copy so a
+// shape change in one service can't corrupt another. 5-min TTL bounds the
+// staleness window for role / permission changes — same convention as
+// delivery_sync_function. Bump the version to bust the cache on a shape change.
+const AUTH_CTX_TTL_HOURS    = 1 / 12; // 5 minutes
+const AUTH_CTX_KEY_VERSION  = 'v1';
+const AUTH_CTX_SERVICE_NAME = 'people';
 
 /**
  * AuthMiddleware – resolves the Catalyst Auth session to a Delivery Sync user
@@ -14,6 +23,14 @@ const { TABLES, USER_STATUS } = require('../utils/Constants');
  *    (role, tenant_id, status) keyed on the Catalyst user's email.
  *  - On every request the Catalyst SDK verifies the session cookie/header and
  *    returns the Catalyst user object. We then look up our users table.
+ *
+ * Performance:
+ *  - After the user row lookup we check a service-scoped cache key
+ *    (`authCtx:people:v1:{userId}`) that stores the fully-resolved
+ *    `req.currentUser`. On a hit, the org-role / permission / sharing-rule
+ *    queries below are skipped entirely — replacing 4 DataStore selects with
+ *    1 cache get. Cache misses fall through to the DB path; cache failures
+ *    are silent.
  */
 class AuthMiddleware {
   /**
@@ -63,6 +80,24 @@ class AuthMiddleware {
         return ResponseHelper.forbidden(res, 'Your account has been deactivated.');
       }
 
+      // ── Service-scoped auth-context cache — short-circuit the 4 lookups
+      //   that follow (tenant, user_org_roles, org_role_permissions,
+      //   org_sharing_rules, permission_overrides). Cache miss / failure
+      //   silently falls through to the DB path. Invalidation: 5-min TTL —
+      //   role-permission edits propagate within that window. ──
+      const cache       = new CacheService(req.catalystApp);
+      const authCtxKey  = `authCtx:${AUTH_CTX_SERVICE_NAME}:${AUTH_CTX_KEY_VERSION}:${String(user.ROWID)}`;
+      try {
+        const cachedCtx = await cache.get(authCtxKey);
+        if (cachedCtx && cachedCtx.currentUser && cachedCtx.tenantId !== undefined) {
+          req.currentUser = cachedCtx.currentUser;
+          req.tenantId    = cachedCtx.tenantId;
+          return next();
+        }
+      } catch (_) {
+        // Cache outage — fall through to the DB path.
+      }
+
       // 3. Attach to request context
       // Only use Catalyst role if it matches one of our known app roles.
       // "App Administrator" / "App User" are Catalyst system roles — fall back to DB role.
@@ -99,6 +134,11 @@ class AuthMiddleware {
       const isFullAdmin = isSuperAdmin || resolvedRole === 'TENANT_ADMIN';
       let orgRoleId = null;
       let orgRolePermissions = [];
+      // moduleAccess is also stored under the same JSON column when using the
+      // new object format. We don't use it in this service but we need to
+      // parse it correctly so it isn't treated as if it were the permissions
+      // array.
+      let orgModuleAccess = [];
       let dataScope = null;
       if (!isFullAdmin && user.tenant_id) {
         try {
@@ -109,19 +149,43 @@ class AuthMiddleware {
           );
           if (assignment.length > 0) {
             orgRoleId = String(assignment[0].org_role_id);
-            const permsRows = await db.query(
-              `SELECT permissions FROM ${TABLES.ORG_ROLE_PERMISSIONS} WHERE tenant_id = '${tenantId}' AND org_role_id = '${orgRoleId}' LIMIT 1`
-            );
-            if (permsRows.length > 0) orgRolePermissions = JSON.parse(permsRows[0].permissions || '[]');
-            const scopeRows = await db.query(
-              `SELECT visibility_scope FROM ${TABLES.ORG_SHARING_RULES} WHERE tenant_id = '${tenantId}' AND role_id = '${orgRoleId}' AND visibility_scope != 'EXPLICIT' AND is_active = 'true' LIMIT 1`
-            );
-            if (scopeRows.length > 0) dataScope = scopeRows[0].visibility_scope;
+            // Parallelize perms + sharing-rule queries — same orgRoleId, no deps.
+            const [permsRows, scopeRowsParallel] = await Promise.all([
+              db.query(
+                `SELECT permissions FROM ${TABLES.ORG_ROLE_PERMISSIONS} WHERE tenant_id = '${tenantId}' AND org_role_id = '${orgRoleId}' LIMIT 1`
+              ),
+              db.query(
+                `SELECT visibility_scope FROM ${TABLES.ORG_SHARING_RULES} WHERE tenant_id = '${tenantId}' AND role_id = '${orgRoleId}' AND visibility_scope != 'EXPLICIT' AND is_active = 'true' LIMIT 1`
+              ),
+            ]);
+            if (permsRows.length > 0) {
+              // Permissions column supports TWO formats:
+              //  - legacy: a raw JSON array of permission strings
+              //  - new:    { p: [permission strings], m: [disabled module keys] }
+              // Without this dual-format handling, parsing the new format
+              // returned an object that wasn't iterable, blowing up the spread
+              // on line 124 and surfacing as a generic "Authentication error".
+              try {
+                const parsed = JSON.parse(permsRows[0].permissions || '[]');
+                if (Array.isArray(parsed)) {
+                  orgRolePermissions = parsed;
+                } else if (parsed && typeof parsed === 'object') {
+                  orgRolePermissions = Array.isArray(parsed.p) ? parsed.p : [];
+                  orgModuleAccess    = Array.isArray(parsed.m) ? parsed.m : [];
+                }
+              } catch (_) { /* malformed JSON — fall back to empty array */ }
+            }
+            // scopeRowsParallel was already fetched above in Promise.all
+            if (scopeRowsParallel.length > 0) dataScope = scopeRowsParallel[0].visibility_scope;
           }
         } catch (_) {}
       }
       const roleBase = isFullAdmin ? Object.values(PERMISSIONS) : (ROLE_PERMISSIONS[resolvedRole] || []);
-      const base = new Set([...roleBase, ...(orgRoleId ? orgRolePermissions : [])]);
+      // Defensive: coerce to array if parsing yielded anything else, so a
+      // future schema change can't surface as "not iterable" here again.
+      const safeRoleBase = Array.isArray(roleBase) ? roleBase : [];
+      const safeOrgPerms = (orgRoleId && Array.isArray(orgRolePermissions)) ? orgRolePermissions : [];
+      const base = new Set([...safeRoleBase, ...safeOrgPerms]);
       try {
         const userId = String(user.ROWID);
         const tenantId = String(user.tenant_id);
@@ -141,6 +205,17 @@ class AuthMiddleware {
       req.currentUser.permissions = Array.from(base);
       req.currentUser.orgRoleId = orgRoleId;
       req.currentUser.dataScope = dataScope;
+      req.currentUser.moduleAccess = orgModuleAccess;
+
+      // ── Write to cache so subsequent requests skip the lookups above ──
+      try {
+        await cache.set(authCtxKey, {
+          currentUser: req.currentUser,
+          tenantId:    req.tenantId,
+        }, AUTH_CTX_TTL_HOURS);
+      } catch (_) {
+        // Cache write failure is non-fatal — request completes normally.
+      }
 
       next();
     } catch (err) {

@@ -224,7 +224,9 @@ export interface Decision {
   title: string;
   description?: string;
   decisionDate: string;
-  madeBy?: string;
+  madeBy?: string;          // user ROWID (kept for backwards compatibility)
+  madeByName?: string;      // resolved user name (added by the listDecisions enrichment)
+  madeByAvatarUrl?: string; // resolved user avatar URL
   impact?: string;
   rationale?: string;
   status: string;

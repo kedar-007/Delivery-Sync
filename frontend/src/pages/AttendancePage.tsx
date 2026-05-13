@@ -1088,8 +1088,14 @@ const WfhRequestsTab = () => {
 
   const {
     register: registerSubmit, handleSubmit: handleSubmitForm, reset: resetSubmit,
+    watch: watchSubmit,
     formState: { errors: submitErrors, isSubmitting: submitPending },
   } = useForm<WfhRequestForm>({ defaultValues: { date_from: format(new Date(), 'yyyy-MM-dd'), date_to: format(new Date(), 'yyyy-MM-dd') } });
+  // Watch the start date so the End-date validator can compare against it
+  const wfhDateFrom = watchSubmit('date_from');
+  // Today (local) — used as the floor so users can't request WFH for a date
+  // that has already passed.
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
 
   const {
     register: registerReject, handleSubmit: handleRejectForm, reset: resetReject,
@@ -1236,12 +1242,34 @@ const WfhRequestsTab = () => {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="form-label">From</label>
-              <input type="date" className="form-input" {...registerSubmit('date_from', { required: 'Start date is required' })} />
+              <input
+                type="date"
+                className="form-input"
+                min={todayStr}
+                {...registerSubmit('date_from', {
+                  required: 'Start date is required',
+                  validate: (v) => (v && v >= todayStr) || "Start date can't be in the past",
+                })}
+              />
               {submitErrors.date_from && <p className="form-error">{submitErrors.date_from.message}</p>}
             </div>
             <div>
               <label className="form-label">To</label>
-              <input type="date" className="form-input" {...registerSubmit('date_to', { required: 'End date is required' })} />
+              <input
+                type="date"
+                className="form-input"
+                // Lower bound = the currently-selected start date, so the
+                // browser's date picker won't even offer earlier days.
+                min={wfhDateFrom || todayStr}
+                {...registerSubmit('date_to', {
+                  required: 'End date is required',
+                  validate: (v) => {
+                    if (!v) return 'End date is required';
+                    if (wfhDateFrom && v < wfhDateFrom) return 'End date must be on or after the start date';
+                    return true;
+                  },
+                })}
+              />
               {submitErrors.date_to && <p className="form-error">{submitErrors.date_to.message}</p>}
             </div>
           </div>

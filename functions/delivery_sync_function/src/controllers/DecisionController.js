@@ -65,13 +65,33 @@ class DecisionController {
         conditions.length > 0 ? conditions.join(' AND ') : null,
         { orderBy: 'decision_date DESC', limit: 100 });
 
+      // Enrich with user name + avatar so the frontend can show a proper
+      // "made by" chip instead of a raw user ID.
+      const userIds = [...new Set(decisions.map((d) => d.made_by).filter(Boolean).map(String))];
+      const userMap = {};
+      if (userIds.length > 0) {
+        try {
+          const userRows = await this.db.query(
+            `SELECT ROWID, name, avatar_url FROM ${TABLES.USERS} ` +
+            `WHERE ROWID IN (${userIds.map((id) => `'${id}'`).join(',')}) LIMIT ${userIds.length}`
+          );
+          userRows.forEach((u) => { userMap[String(u.ROWID)] = u; });
+        } catch (_) { /* enrichment is non-fatal — fall back to IDs */ }
+      }
+
       return ResponseHelper.success(res, {
-        decisions: decisions.map((d) => ({
-          id: String(d.ROWID), projectId: d.project_id, title: d.title,
-          description: d.description, decisionDate: d.decision_date,
-          madeBy: d.made_by, impact: d.impact, rationale: d.rationale,
-          status: d.status,
-        })),
+        decisions: decisions.map((d) => {
+          const u = userMap[String(d.made_by)] || {};
+          return {
+            id: String(d.ROWID), projectId: d.project_id, title: d.title,
+            description: d.description, decisionDate: d.decision_date,
+            madeBy: d.made_by,
+            madeByName:      u.name       || null,
+            madeByAvatarUrl: u.avatar_url || null,
+            impact: d.impact, rationale: d.rationale,
+            status: d.status,
+          };
+        }),
       });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);

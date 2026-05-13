@@ -87,13 +87,15 @@ class DataStoreService {
 
   /**
    * Raw WHERE clause query with tenant isolation pre-baked in.
+   * @param {object} options  e.g. { orderBy, limit, offset }
    */
   async findWhere(tableName, tenantId, whereExtra, options = {}) {
     const tenantClause = `tenant_id = '${tenantId}'`;
     const fullWhere = whereExtra ? `${tenantClause} AND ${whereExtra}` : tenantClause;
     const orderStr = options.orderBy ? `ORDER BY ${options.orderBy}` : 'ORDER BY CREATEDTIME DESC';
     const limitStr = options.limit ? `LIMIT ${options.limit}` : 'LIMIT 200';
-    return this.query(`SELECT * FROM ${tableName} WHERE ${fullWhere} ${orderStr} ${limitStr}`);
+    const offsetStr = options.offset ? `OFFSET ${parseInt(options.offset, 10)}` : '';
+    return this.query(`SELECT * FROM ${tableName} WHERE ${fullWhere} ${orderStr} ${limitStr} ${offsetStr}`.trim());
   }
 
   /**

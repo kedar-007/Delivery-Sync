@@ -706,19 +706,43 @@ export default function SprintBoardPage() {
     }
   };
 
+  // Format a JS timestamp as a zero-padded HH:MM string for <input type="time">
+  const fmtHHMM = (ts: number) => {
+    const d = new Date(ts);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+
   const handleStartTimer = () => {
     if (!taskDetailId) return;
-    const now = Date.now();
-    localStorage.setItem(`ds_timer_${taskDetailId}`, String(now));
-    setTimerStart(now); setTimerRunning(true);
+    const ts = Date.now();
+    localStorage.setItem(`ds_timer_${taskDetailId}`, String(ts));
+    setTimerStart(ts);
+    setTimerRunning(true);
+    // Auto-fill the Start Time field with "now" so the user doesn't have to
+    // type it manually. End time will be filled when the timer stops, and
+    // Hours will auto-calculate from the pair (existing effect on the
+    // start/end fields handles that).
+    setLogTimeStartTime(fmtHHMM(ts));
+    setLogTimeEndTime('');
+    // Also pre-set today's date so the entry is dated to when the work happens.
+    setLogTimeDate(format(new Date(), 'yyyy-MM-dd'));
+    // Surface the form immediately so the user sees the captured start time.
+    setDetailTab('time');
   };
 
   const handleStopTimer = () => {
     if (!timerStart || !taskDetailId) return;
-    const elapsed = (Date.now() - timerStart) / 3600000;
+    const endTs = Date.now();
+    const elapsed = (endTs - timerStart) / 3600000;
     localStorage.removeItem(`ds_timer_${taskDetailId}`);
     setTimerRunning(false); setTimerStart(null); setTimerDisplay('00:00:00');
+    // Fill Hours with the precise elapsed value (2-decimal precision so even
+    // a 1-minute entry shows as 0.02h — was previously rounded to 0.25 which
+    // dropped sub-15-minute entries to zero).
     setLogTimeHours(Math.max(0.01, Math.round(elapsed * 100) / 100).toFixed(2));
+    // Auto-fill End Time so the start/end pair is complete and the
+    // "→ Hours auto-filled" indicator activates next to the Hours field.
+    setLogTimeEndTime(fmtHHMM(endTs));
     setDetailTab('time');
   };
 

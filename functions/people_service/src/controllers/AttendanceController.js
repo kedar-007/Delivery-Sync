@@ -3,8 +3,9 @@
 const DataStoreService = require('../services/DataStoreService');
 const AuditService = require('../services/AuditService');
 const NotificationService = require('../services/NotificationService');
+const TeamScopeService = require('../services/TeamScopeService');
 const ResponseHelper = require('../utils/ResponseHelper');
-const { TABLES, ATTENDANCE_STATUS, AUDIT_ACTION, NOTIFICATION_TYPE } = require('../utils/Constants');
+const { TABLES, PERMISSIONS, ATTENDANCE_STATUS, AUDIT_ACTION, NOTIFICATION_TYPE } = require('../utils/Constants');
 
 /**
  * Format current time as 'YYYY-MM-DD HH:MM:SS' in the given IANA timezone.
@@ -186,10 +187,11 @@ class AttendanceController {
         if (rmId) {
           const rmRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${rmId}' LIMIT 1`);
           if (rmRows[0]) {
+            // Escape free-text fields (names, reason) before injecting into HTML
             await this.notif.send({
               toEmail: rmRows[0].email,
               subject: `[Delivery Sync] ${req.currentUser.name} is working from home today`,
-              htmlBody: `<p>Hi ${rmRows[0].name}, ${req.currentUser.name} has checked in as WFH today (${today}).${wfh_reason ? ' Reason: ' + wfh_reason : ''}</p>`,
+              htmlBody: `<p>Hi ${_escapeHtml(rmRows[0].name)}, ${_escapeHtml(req.currentUser.name)} has checked in as WFH today (${_escapeHtml(today)}).${wfh_reason ? ' Reason: ' + _escapeHtml(wfh_reason) : ''}</p>`,
             });
             await this.notif.sendInApp({
               tenantId, userId: rmId,
@@ -335,22 +337,59 @@ class AttendanceController {
     let where = '';
     let uid = user_id || null;
 
-    // Restrict to own records unless user has ATTENDANCE_ADMIN permission
-    // RBAC already enforced ATTENDANCE_READ; check if they also have ATTENDANCE_ADMIN
+    // Visibility ladder (most permissive first):
+    //   1. ATTENDANCE_ADMIN or legacy manager role → see everyone
+    //   2. ATTENDANCE_TEAM_VIEW                    → see team peers only
+    //   3. (fallback)                              → own records only
     const MANAGER_ROLES = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
-    const isManager = MANAGER_ROLES.includes(req.currentUser.role);
-    const hasAdminPerm = await this._checkAttendanceAdmin(req);
+    const isManager     = MANAGER_ROLES.includes(req.currentUser.role);
+    const hasAdminPerm  = await this._checkAttendanceAdmin(req);
+    const userPerms     = Array.isArray(req.currentUser.permissions) ? req.currentUser.permissions : [];
+    const hasTeamView   = userPerms.includes(PERMISSIONS.ATTENDANCE_TEAM_VIEW);
 
-    if (!isManager && !hasAdminPerm) {
-      // Restrict to own records
+    // Resolve caller's own row id once — used for both own-only and team-view
+    // branches.
+    let callerUid = null;
+    {
       const users = await this.db.findWhere(TABLES.USERS, req.tenantId,
         `email = '${req.currentUser.email}'`, { limit: 1 });
-      uid = users && users.length > 0 ? String(users[0].ROWID) : req.currentUser.id;
+      callerUid = users && users.length > 0 ? String(users[0].ROWID) : req.currentUser.id;
     }
 
-    if (uid) where += `user_id = '${DataStoreService.escape(uid)}' AND `;
+    if (isManager || hasAdminPerm) {
+      // No additional restriction — optional user_id filter passes through.
+      if (uid) where += `user_id = '${DataStoreService.escape(uid)}' AND `;
+    } else if (hasTeamView) {
+      // Team peer scope. Build a list of allowed user IDs and intersect with
+      // any explicit user_id query param (so a manager can drill into one
+      // peer at a time without accidentally seeing someone outside their
+      // teams).
+      const scope = new TeamScopeService(this.db);
+      const peerIds = await scope.getTeamPeerUserIds(req.tenantId, callerUid);
+      let allowed = peerIds;
+      if (uid) {
+        allowed = peerIds.filter((id) => String(id) === String(uid));
+        if (allowed.length === 0) {
+          return ResponseHelper.success(res, []);  // requested user isn't a peer
+        }
+      }
+      if (allowed.length === 0) {
+        // Shouldn't happen (scope always includes self), but guard anyway.
+        where += `user_id = '${DataStoreService.escape(callerUid)}' AND `;
+      } else if (allowed.length === 1) {
+        where += `user_id = '${DataStoreService.escape(allowed[0])}' AND `;
+      } else {
+        const inList = allowed.map((id) => `'${DataStoreService.escape(id)}'`).join(',');
+        where += `user_id IN (${inList}) AND `;
+      }
+    } else {
+      // No elevated permission — restrict to own records (legacy behaviour).
+      uid = callerUid;
+      where += `user_id = '${DataStoreService.escape(uid)}' AND `;
+    }
+
     if (date_from) where += `attendance_date >= '${DataStoreService.escape(date_from)}' AND `;
-    if (date_to) where += `attendance_date <= '${DataStoreService.escape(date_to)}' AND `;
+    if (date_to)   where += `attendance_date <= '${DataStoreService.escape(date_to)}' AND `;
     where = where.replace(/ AND $/, '');
 
     const recs = await this.db.findWhere(TABLES.ATTENDANCE_RECORDS, req.tenantId, where, { orderBy: 'attendance_date DESC', limit: 200 });
@@ -1474,6 +1513,15 @@ class AttendanceController {
     await this.db.update(TABLES.WFH_REQUESTS, { ROWID: req.params.id, status: 'CANCELLED' });
     return ResponseHelper.success(res, { message: 'WFH request cancelled' });
   }
+}
+
+function _escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 module.exports = AttendanceController;

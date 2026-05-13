@@ -55,7 +55,9 @@ app.use((err, req, res, _next) => {
   if (err.isRBAC) {
     return ResponseHelper.forbidden(res, err.message);
   }
-  ResponseHelper.serverError(res, err.message);
+  // Never expose raw err.message to the client — it can leak DB schema,
+  // file paths, or third-party token details. Server log keeps the detail.
+  ResponseHelper.serverError(res, 'Internal server error. Please try again.');
 });
 
 module.exports = app;

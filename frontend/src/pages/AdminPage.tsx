@@ -411,8 +411,10 @@ const PERM_INFO: Record<string, { label: string; desc: string; risk: 'low' | 'me
   DECISION_WRITE:     { label: 'Log Decisions',      desc: 'Add entries to decision log',                    risk: 'low' },
   STANDUP_SUBMIT:     { label: 'Submit Standup',     desc: 'Post daily standup updates',                     risk: 'low' },
   STANDUP_READ:       { label: 'View Standups',      desc: 'Read team standup history',                      risk: 'low' },
+  STANDUP_TEAM_VIEW:  { label: 'Team Standup View',  desc: "See standups submitted by team peers (teams you're in or lead)", risk: 'medium' },
   EOD_SUBMIT:         { label: 'Submit EOD',         desc: 'Post end-of-day reports',                        risk: 'low' },
   EOD_READ:           { label: 'View EODs',          desc: 'Read team EOD reports',                          risk: 'low' },
+  EOD_TEAM_VIEW:      { label: 'Team EOD View',      desc: "See EODs submitted by team peers (teams you're in or lead)", risk: 'medium' },
   TIME_READ:          { label: 'View Time Logs',     desc: 'See time tracking entries',                      risk: 'low' },
   TIME_WRITE:         { label: 'Log Time',           desc: 'Submit time entries',                            risk: 'low' },
   TIME_APPROVE:       { label: 'Approve Time',       desc: 'Approve team time submissions',                  risk: 'medium' },
@@ -485,8 +487,11 @@ const CRUD_MODULES: CrudSection[] = [
   {
     section: 'Daily Work',
     rows: [
-      { name: 'Standups',    view: 'STANDUP_READ',  write: 'STANDUP_SUBMIT' },
-      { name: 'EOD Reports', view: 'EOD_READ',      write: 'EOD_SUBMIT' },
+      // `approve` slot is repurposed for the team-view permission (same
+      // pattern as Attendance / Time below), so admins can grant it directly
+      // from the CRUD matrix.
+      { name: 'Standups',    view: 'STANDUP_READ',  write: 'STANDUP_SUBMIT', approve: 'STANDUP_TEAM_VIEW' },
+      { name: 'EOD Reports', view: 'EOD_READ',      write: 'EOD_SUBMIT',     approve: 'EOD_TEAM_VIEW' },
     ],
   },
   {

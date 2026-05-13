@@ -85,19 +85,48 @@ const ThemeCard = ({ id, name, emoji, isDark, active, onSelect }: {
   <button
     onClick={onSelect}
     aria-pressed={active}
-    aria-label={`Select ${name} theme`}
-    className="relative flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all focus:outline-none focus-visible:ring-2"
+    aria-label={`Select ${name} theme (${isDark ? 'dark' : 'light'})`}
+    // `title` kept for accessibility / screen-reader fallback; the visible
+    // tooltip below renders the full name instantly on hover.
+    title={`${name} (${isDark ? 'dark' : 'light'})`}
+    className="group relative flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all focus:outline-none focus-visible:ring-2 hover:scale-[1.03] active:scale-100"
     style={{
       borderColor: active ? `rgb(var(--ds-primary))` : `rgb(var(--ds-border))`,
       backgroundColor: active ? `rgb(var(--ds-primary) / 0.08)` : `rgb(var(--ds-surface-hover))`,
     }}
   >
-    <span className="text-2xl" role="img" aria-hidden="true">{emoji}</span>
-    <div className="flex items-center gap-1">
-      {isDark ? <Moon size={9} style={{ color: `rgb(var(--ds-text-muted))` }} />
-        : <Sun size={9} style={{ color: `rgb(var(--ds-text-muted))` }} />}
-      <span className="text-xs font-medium" style={{ color: `rgb(var(--ds-text))` }}>{name}</span>
+    {/* Custom hover tooltip — appears instantly above the card with the full
+        theme name, no native-tooltip delay. */}
+    <div
+      className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-9 z-20 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+      role="tooltip"
+    >
+      <div className="bg-gray-900 dark:bg-gray-800 text-white text-[11px] font-semibold px-2.5 py-1 rounded-md shadow-lg flex items-center gap-1.5">
+        {isDark ? <Moon size={10} /> : <Sun size={10} />}
+        <span>{name}</span>
+      </div>
+      <div
+        className="w-0 h-0 mx-auto"
+        style={{
+          borderLeft: '4px solid transparent',
+          borderRight: '4px solid transparent',
+          borderTop: '4px solid rgb(17,24,39)', // matches gray-900
+        }}
+      />
     </div>
+
+    {/* Day/night indicator — top-left corner so it doesn't fight the label
+        row for horizontal space (longer names like "Midnight" / "Aurora"
+        previously caused the icon to overflow the card edge). */}
+    <div
+      className="absolute top-1.5 left-1.5 opacity-70"
+      style={{ color: `rgb(var(--ds-text-muted))` }}
+      title={isDark ? 'Dark theme' : 'Light theme'}
+    >
+      {isDark ? <Moon size={9} /> : <Sun size={9} />}
+    </div>
+    <span className="text-2xl" role="img" aria-hidden="true">{emoji}</span>
+    <span className="text-xs font-medium truncate max-w-full" style={{ color: `rgb(var(--ds-text))` }}>{name}</span>
     {active && (
       <div
         className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full flex items-center justify-center"

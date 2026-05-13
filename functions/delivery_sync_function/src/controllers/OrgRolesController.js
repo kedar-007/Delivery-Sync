@@ -2,6 +2,7 @@
 
 const DataStoreService = require('../services/DataStoreService');
 const AuditService = require('../services/AuditService');
+const CacheService = require('../services/CacheService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const { TABLES, AUDIT_ACTION, PERMISSIONS } = require('../utils/Constants');
 
@@ -229,6 +230,15 @@ class OrgRolesController {
       const cleanModuleAccess = Array.isArray(moduleAccess) ? moduleAccess.filter((m) => typeof m === 'string') : [];
       await this._upsertRolePermissions(tenantId, roleId, cleanPerms, cleanModuleAccess);
 
+      // Cache invalidation note:
+      // The auth-context cache is keyed per-user (`authCtx:v1:{userId}`), not
+      // per-role. Invalidating every member of this role would require an
+      // extra DB query just to list them — and at scale that's more cache
+      // calls than the 5-minute TTL saves. So role-permission changes
+      // propagate within the 5-minute TTL window. Acceptable lag for an
+      // admin action. (Individual user-level changes still invalidate
+      // immediately — see assignUserOrgRole and setUserPermissions.)
+
       await this.audit.log({
         tenantId, entityType: 'org_role_permissions', entityId: roleId,
         action: AUDIT_ACTION.UPDATE,
@@ -276,6 +286,14 @@ class OrgRolesController {
           is_active: 'true',
         });
       }
+
+      // Cache invalidation — AuthMiddleware caches the resolved auth context
+      // per-user. Clearing this one key drops the user's cached perms, role
+      // assignment, and overrides in one call (instead of 3 separate ones).
+      try {
+        const cache = new CacheService(req.catalystApp);
+        await cache.invalidate(`authCtx:v1:${String(userId)}`);
+      } catch (_) {}
 
       await this.audit.log({
         tenantId, entityType: 'user_org_role', entityId: userId,
@@ -482,7 +500,7 @@ class OrgRolesController {
     const groups = [
       { group: 'Projects & Sprints', keys: ['PROJECT_READ', 'PROJECT_WRITE', 'SPRINT_READ', 'SPRINT_WRITE', 'MILESTONE_READ', 'MILESTONE_WRITE'] },
       { group: 'Tasks', keys: ['TASK_READ', 'TASK_WRITE', 'TASK_ASSIGN', 'TASK_COMMENT_WRITE'] },
-      { group: 'Standups & EOD', keys: ['STANDUP_READ', 'STANDUP_SUBMIT', 'EOD_READ', 'EOD_SUBMIT'] },
+      { group: 'Standups & EOD', keys: ['STANDUP_READ', 'STANDUP_SUBMIT', 'STANDUP_TEAM_VIEW', 'EOD_READ', 'EOD_SUBMIT', 'EOD_TEAM_VIEW'] },
       { group: 'Actions & Blockers', keys: ['ACTION_READ', 'ACTION_WRITE', 'BLOCKER_READ', 'BLOCKER_WRITE'] },
       { group: 'RAID & Decisions', keys: ['RAID_READ', 'RAID_WRITE', 'DECISION_READ', 'DECISION_WRITE'] },
       { group: 'Time Tracking', keys: ['TIME_READ', 'TIME_WRITE', 'TIME_APPROVE', 'TIME_ANALYTICS'] },

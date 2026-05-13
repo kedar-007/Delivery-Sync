@@ -13,12 +13,16 @@ import VoiceAiInsights from '../components/voice/VoiceAiInsights';
 import { useProjects } from '../hooks/useProjects';
 import { useSubmitEod, useUpdateEod, useEodRollup, useEod } from '../hooks/useEod';
 import { useProcessVoice, type EodVoiceResult } from '../hooks/useVoiceAI';
-import { format } from 'date-fns';
+import { format, subDays } from 'date-fns';
 import {
   CheckCircle, Sparkles, History, Pencil, X,
   FolderOpen, ChevronDown, ChevronRight, TrendingUp,
+  Users as UsersIcon,
 } from 'lucide-react';
 import { useI18n } from '../contexts/I18nContext';
+import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
+import UserAvatar from '../components/ui/UserAvatar';
 
 interface EodForm {
   project_id: string;
@@ -168,7 +172,7 @@ const EodPage = () => {
   const [searchParams] = useSearchParams();
   const preselectedProject = searchParams.get('projectId') || '';
 
-  const [tab, setTab] = useState<'submit' | 'rollup' | 'mine'>('submit');
+  const [tab, setTab] = useState<'submit' | 'rollup' | 'mine' | 'team'>('submit');
   const [rollupProjectId, setRollupProjectId] = useState(preselectedProject);
   const [success, setSuccess] = useState('');
   const [submitError, setSubmitError] = useState('');
@@ -177,6 +181,9 @@ const EodPage = () => {
 
   // Compute "today" up front so state initializers below can reference it.
   const today = format(new Date(), 'yyyy-MM-dd');
+  // 7-day backdate window: EODs can be entered for today or up to 7 days
+  // back. Future dates are never allowed.
+  const minDate = format(subDays(new Date(), 7), 'yyyy-MM-dd');
 
   // DSV-024: default the My Submissions date filter to today so the date
   // picker matches what the list is showing (was '' which meant "all dates"
@@ -188,6 +195,15 @@ const EodPage = () => {
   const submitEod = useSubmitEod();
   const updateEod = useUpdateEod();
   const { data: myEods = [], isLoading: myLoading } = useEod();
+  const { user: authUser } = useAuth();
+  const canSeeTeamEods = hasPermission(authUser, PERMISSIONS.EOD_TEAM_VIEW);
+  // Team-view fetch — only fires when the Team EOD tab is opened AND the
+  // user has EOD_TEAM_VIEW. Passes scope=team so the backend expands the
+  // query from "own only" to "all team peers".
+  const { data: teamEods = [], isLoading: teamLoading } = useEod(
+    { scope: 'team' },
+    { enabled: tab === 'team' && canSeeTeamEods }
+  );
   const { data: rollupData, isLoading: rollupLoading } = useEodRollup({ projectId: rollupProjectId });
   const processVoice = useProcessVoice();
 
@@ -323,9 +339,9 @@ const EodPage = () => {
       <Header title={t('nav.eod')} subtitle="Daily EOD updates" />
       <div className="p-6 space-y-5">
 
-        {/* Tabs */}
+        {/* Tabs — Team EOD only visible to users with EOD_TEAM_VIEW */}
         <div className="flex gap-2 border-b border-gray-200">
-          {(['submit', 'rollup', 'mine'] as const).map((t) => (
+          {(['submit', 'rollup', 'mine', ...(canSeeTeamEods ? ['team'] as const : [])] as const).map((t) => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
                 tab === t ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -337,13 +353,23 @@ const EodPage = () => {
                     </span>
                   ) : 'Submit EOD'
                 : t === 'rollup' ? 'EOD Rollup'
-                : (
+                : t === 'mine' ? (
                   <span className="flex items-center gap-1.5">
                     <History size={14} />
                     My Submissions
                     {myEods.length > 0 && (
                       <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-1.5 py-0.5 rounded-full">
                         {myEods.length}
+                      </span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5">
+                    <UsersIcon size={14} />
+                    Team EOD
+                    {teamEods.length > 0 && (
+                      <span className="bg-violet-100 text-violet-700 text-xs font-bold px-1.5 py-0.5 rounded-full">
+                        {teamEods.length}
                       </span>
                     )}
                   </span>
@@ -402,10 +428,28 @@ const EodPage = () => {
                   </div>
                   <div>
                     <label className="form-label">Date *</label>
-                    <input type="date"
+                    <input
+                      type="date"
                       className={`form-input ${editingEntry ? 'bg-gray-50 text-gray-600 cursor-not-allowed' : ''}`}
                       readOnly={!!editingEntry}
-                      {...register('date', { required: true })} />
+                      min={minDate}
+                      max={today}
+                      {...register('date', {
+                        required: 'Date is required',
+                        validate: (v) => {
+                          if (!v) return 'Date is required';
+                          if (v > today)    return "You can't submit an EOD for a future date.";
+                          if (v < minDate)  return 'Backdated entries are allowed only within the past 7 days.';
+                          return true;
+                        },
+                      })}
+                    />
+                    {errors.date && <p className="form-error">{(errors.date as any).message || 'Invalid date'}</p>}
+                    {!editingEntry && (
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        You can enter EODs for the past 7 days. Future dates are not allowed.
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -649,6 +693,75 @@ const EodPage = () => {
                           </div>
                         );
                       })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Team EOD tab — visible only with EOD_TEAM_VIEW perm ── */}
+        {tab === 'team' && canSeeTeamEods && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-2.5 p-3 bg-violet-50 border border-violet-100 rounded-xl text-xs text-violet-700">
+              <UsersIcon size={14} className="mt-0.5 flex-shrink-0" />
+              <span>
+                Showing EOD submissions from members of teams you're in or lead. Use this to track end-of-day progress across your team.
+              </span>
+            </div>
+
+            {teamLoading ? (
+              <PageLoader />
+            ) : (teamEods as EodEntry[]).length === 0 ? (
+              <EmptyState
+                title="No team EODs yet"
+                description="Your team peers haven't submitted EODs in the visible window. They'll show up here as soon as they do."
+              />
+            ) : (
+              <div className="space-y-3">
+                {(teamEods as EodEntry[]).map((entry: any) => (
+                  <div key={entry.id} className="rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+                    <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <UserAvatar name={entry.userName ?? entry.userId ?? '?'} size="xs" />
+                        <span className="text-sm font-semibold text-gray-800 truncate">
+                          {entry.userName ?? 'Team member'}
+                        </span>
+                        {entry.projectName && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 border border-violet-100 truncate max-w-[160px]">
+                            {entry.projectName}
+                          </span>
+                        )}
+                        {typeof entry.progress_percentage === 'number' && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">
+                            {entry.progress_percentage}% done
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-400">
+                        {entry.date ? format(new Date(entry.date + 'T00:00:00'), 'd MMM yyyy') : ''}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {entry.accomplishments && (
+                        <div className="flex gap-2">
+                          <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider mt-0.5 w-24 shrink-0">Accomplished</span>
+                          <p className="text-sm text-gray-700 leading-snug">{entry.accomplishments}</p>
+                        </div>
+                      )}
+                      {entry.planned_tomorrow && (
+                        <div className="flex gap-2">
+                          <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Tomorrow</span>
+                          <p className="text-sm text-gray-700 leading-snug">{entry.planned_tomorrow}</p>
+                        </div>
+                      )}
+                      {entry.blockers && (
+                        <div className="flex gap-2">
+                          <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Blockers</span>
+                          <p className="text-sm text-red-700 leading-snug">{entry.blockers}</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}

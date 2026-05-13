@@ -96,6 +96,15 @@ class NotificationService {
     });
   }
 
+  // Task (Sprint Board / My Tasks) assignment — distinct from Action assignment above.
+  async sendTaskAssigned({ toEmail, toName, taskTitle, taskType, priority, dueDate, projectName, assignedBy }) {
+    return this.send({
+      toEmail,
+      subject: `[Delivery Sync] Task assigned – ${taskTitle}`,
+      htmlBody: this._taskAssignedTemplate(toName, taskTitle, taskType, priority, dueDate, projectName, assignedBy),
+    });
+  }
+
   async sendBlockerAdded({ toEmail, toName, blockerTitle, severity, projectName, raisedBy }) {
     return this.send({
       toEmail,
@@ -291,6 +300,53 @@ class NotificationService {
       body,
       ctaUrl: '/actions',
       ctaLabel: 'View My Actions',
+    });
+  }
+
+  // Task (sprint/board) assignment — visually consistent with the action template
+  // but tailored to the task fields. Priority is colour-coded so the recipient
+  // gets a visual sense of urgency without reading the value.
+  _taskAssignedTemplate(name, taskTitle, taskType, priority, dueDate, projectName, assignedBy) {
+    const priorityColors = {
+      URGENT:   '#dc2626',
+      HIGH:     '#ea580c',
+      MEDIUM:   '#d97706',
+      LOW:      '#65a30d',
+      CRITICAL: '#dc2626',
+    };
+    const priorityKey   = String(priority || '').toUpperCase();
+    const priorityColor = priorityColors[priorityKey] || '#6b7280';
+    const dueColor      = dueDate ? '#dc2626' : '#9ca3af';
+    const friendlyType  = (taskType || '').toString().replace(/_/g, ' ');
+
+    const infoRows = [
+      ['Task',        taskTitle],
+    ];
+    if (friendlyType)  infoRows.push(['Type',     friendlyType]);
+    if (projectName)   infoRows.push(['Project',  projectName]);
+    if (priorityKey)   infoRows.push(['Priority', priorityKey, priorityColor]);
+    infoRows.push(['Due Date',    dueDate || 'No due date set', dueColor]);
+    infoRows.push(['Assigned By', assignedBy || 'Team Lead']);
+
+    const body = `
+      <p style="font-size:15px;color:#374151;margin:0 0 20px;">Hi <strong>${name}</strong>,</p>
+      <p style="font-size:14px;color:#6b7280;margin:0 0 8px;">
+        <strong style="color:#374151;">${assignedBy || 'A team lead'}</strong> has assigned a new task to you.
+        Open it from your task list to start working.
+      </p>
+      ${this._infoCard(infoRows)}
+      <p style="font-size:13px;color:#9ca3af;margin:16px 0 0;">
+        Keep the status updated as you progress — the owner will be notified automatically.
+      </p>`;
+
+    return this._base({
+      accentColor: '#2563eb',
+      preheader:     `${assignedBy || 'A team lead'} assigned you: ${taskTitle}`,
+      headerTitle:   'New Task Assigned',
+      headerSubtitle: projectName ? `On project: ${projectName}` : 'Open in My Tasks to start',
+      body,
+      ctaUrl:   '/my-tasks',
+      ctaLabel: 'Open My Tasks',
     });
   }
 

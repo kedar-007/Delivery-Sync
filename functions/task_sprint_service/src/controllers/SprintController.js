@@ -175,7 +175,14 @@ class SprintController {
     for (const m of members) {
       const userRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${m.user_id}' LIMIT 1`);
       if (userRows[0]) {
-        await this.notif.send({ toEmail: userRows[0].email, subject: `[Delivery Sync] Sprint "${sprint.name}" has started`, htmlBody: `<p>Hi ${userRows[0].name}, the sprint <strong>${sprint.name}</strong> has started. Check your assigned tasks.</p>` });
+        // Escape user-controlled fields before injecting into HTML to prevent
+        // an attacker who can name a sprint (or rename a user) from sneaking
+        // markup into recipient inboxes.
+        await this.notif.send({
+          toEmail: userRows[0].email,
+          subject: `[Delivery Sync] Sprint "${sprint.name}" has started`,
+          htmlBody: `<p>Hi ${_escapeHtml(userRows[0].name)}, the sprint <strong>${_escapeHtml(sprint.name)}</strong> has started. Check your assigned tasks.</p>`,
+        });
         await this.notif.sendInApp({ tenantId, userId: m.user_id, title: 'Sprint Started', message: `Sprint "${sprint.name}" is now active`, type: NOTIFICATION_TYPE.SPRINT_STARTED, entityType: 'SPRINT', entityId: sprintId });
       }
     }
@@ -259,6 +266,15 @@ class SprintController {
     await this.db.delete(TABLES.SPRINT_MEMBERS, rows[0].ROWID);
     return ResponseHelper.success(res, { message: 'Member removed' });
   }
+}
+
+function _escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 module.exports = SprintController;

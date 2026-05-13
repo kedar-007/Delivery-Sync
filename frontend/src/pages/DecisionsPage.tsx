@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { Plus, Pencil, CalendarDays, User, Lightbulb, Zap } from 'lucide-react'; // Added icons
+import { Plus, Pencil, CalendarDays, Lightbulb, Zap } from 'lucide-react'; // Added icons
+import UserAvatar from '../components/ui/UserAvatar';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
@@ -140,20 +141,31 @@ const DecisionsPage = () => {
                     </div>
                   </div>
 
-                  {/* Meta row — date + made by */}
-                  <div className="flex items-center gap-3 text-xs text-gray-400">
+                  {/* Meta row — date + made by (with avatar + name, not raw ID) */}
+                  <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
                     {d.decisionDate && (
                       <span className="flex items-center gap-1">
                         <CalendarDays size={11} />
                         {d.decisionDate}
                       </span>
                     )}
-                    {d.madeBy && (
-                      <span className="flex items-center gap-1">
-                        <User size={11} />
-                        {d.madeBy}
+                    {d.madeByName ? (
+                      <span className="flex items-center gap-1.5">
+                        <UserAvatar
+                          name={d.madeByName}
+                          avatarUrl={d.madeByAvatarUrl}
+                          size="xs"
+                        />
+                        <span className="text-gray-600 font-medium">{d.madeByName}</span>
                       </span>
-                    )}
+                    ) : d.madeBy ? (
+                      // Fallback for older rows that haven't been enriched yet —
+                      // show the avatar's initials placeholder rather than the raw ID.
+                      <span className="flex items-center gap-1.5">
+                        <UserAvatar name="?" size="xs" />
+                        <span className="text-gray-400 italic">Unknown user</span>
+                      </span>
+                    ) : null}
                   </div>
 
                   {/* Description */}

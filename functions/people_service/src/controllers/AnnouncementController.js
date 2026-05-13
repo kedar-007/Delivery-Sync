@@ -145,8 +145,10 @@ class AnnouncementController {
   // PATCH /api/people/announcements/:id/read
   async markRead(req, res) {
     try {
+      const aid = DataStoreService.escape(req.params.id);
+      const uid = DataStoreService.escape(req.currentUser.id);
       const existing = await this.db.findWhere(TABLES.ANNOUNCEMENT_READS, req.tenantId,
-        `announcement_id = '${req.params.id}' AND user_id = '${req.currentUser.id}'`, { limit: 1 });
+        `announcement_id = '${aid}' AND user_id = '${uid}'`, { limit: 1 });
       if (existing.length === 0) {
         await this.db.insert(TABLES.ANNOUNCEMENT_READS, {
           tenant_id: req.tenantId, announcement_id: req.params.id, user_id: req.currentUser.id,
@@ -163,8 +165,9 @@ class AnnouncementController {
   // GET /api/people/announcements/:id/read-status
   async readStatus(req, res) {
     try {
+      const aid = DataStoreService.escape(req.params.id);
       const reads = await this.db.findWhere(TABLES.ANNOUNCEMENT_READS, req.tenantId,
-        `announcement_id = '${req.params.id}'`, { limit: 200 });
+        `announcement_id = '${aid}'`, { limit: 200 });
       return ResponseHelper.success(res, { read_count: reads.length, readers: reads });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);

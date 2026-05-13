@@ -165,15 +165,40 @@ class TaskController {
 
     await this.audit.log({ tenantId, entityType: 'TASK', entityId: row.ROWID, action: AUDIT_ACTION.CREATE, newValue: row, performedBy: userId });
 
-    // Notify all assignees (skip self)
-    const assigneesToNotify = assigneeIdsArr.filter((id) => id && id !== String(userId));
+    // Notify all assignees (skip self). Filter out null/'null' strings so
+    // they don't end up in the IN clause as 'null' (BIGINT parse error).
+    const _isValidId = (id) => id && id !== 'null' && id !== 'undefined' && id !== String(userId);
+    const assigneesToNotify = assigneeIdsArr.filter(_isValidId);
     if (assigneesToNotify.length > 0) {
-      const creatorRows = await this.db.query(`SELECT name FROM ${TABLES.USERS} WHERE ROWID = '${userId}' LIMIT 1`);
-      const creatorName = creatorRows[0]?.name || 'a lead';
+      // Batch-fetch creator + every assignee in a single query; resolve
+      // project name in parallel (only if a project was attached).
+      const idsToFetch = [String(userId), ...assigneesToNotify.map(String)];
+      const inList = idsToFetch.map((id) => `'${DataStoreService.escape(id)}'`).join(',');
+      const hasProject = project_id && String(project_id) !== '0' && String(project_id) !== 'null';
+      const [userRows, projectRows] = await Promise.all([
+        this.db.query(`SELECT ROWID, email, name FROM ${TABLES.USERS} WHERE ROWID IN (${inList})`),
+        hasProject
+          ? this.db.query(`SELECT ROWID, name FROM ${TABLES.PROJECTS} WHERE ROWID = '${DataStoreService.escape(String(project_id))}' LIMIT 1`)
+          : Promise.resolve([]),
+      ]);
+      const usersById   = new Map(userRows.map((u) => [String(u.ROWID), u]));
+      const creatorName = usersById.get(String(userId))?.name || 'a lead';
+      const projectName = projectRows[0]?.name || '';
+
       for (const assigneeId of assigneesToNotify) {
-        const userRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${assigneeId}' LIMIT 1`);
-        if (userRows[0]) {
-          await this.notif.send({ toEmail: userRows[0].email, subject: `[Delivery Sync] Task assigned: ${title}`, htmlBody: `<p>Hi ${userRows[0].name}, a task has been assigned to you: <strong>${title}</strong> by ${creatorName}.</p>` });
+        const u = usersById.get(String(assigneeId));
+        if (u) {
+          // Branded HTML email — template auto-escapes via the template helpers.
+          await this.notif.sendTaskAssigned({
+            toEmail:     u.email,
+            toName:      u.name,
+            taskTitle:   title,
+            taskType:    insertData.type,
+            priority:    insertData.task_priority,
+            dueDate:     due_date || '',
+            projectName,
+            assignedBy:  creatorName,
+          });
           await this.notif.sendInApp({ tenantId, userId: assigneeId, title: 'Task Assigned', message: `"${title}" has been assigned to you`, type: NOTIFICATION_TYPE.TASK_ASSIGNED, entityType: 'TASK', entityId: row.ROWID });
         }
       }
@@ -352,13 +377,15 @@ class TaskController {
 
   // GET /api/ts/tasks/:taskId/history
   async getHistory(req, res) {
-    const history = await this.db.findWhere(TABLES.TASK_STATUS_HISTORY, req.tenantId, `task_id = '${req.params.taskId}'`, { orderBy: 'CREATEDTIME ASC', limit: 100 });
+    const tid = DataStoreService.escape(req.params.taskId);
+    const history = await this.db.findWhere(TABLES.TASK_STATUS_HISTORY, req.tenantId, `task_id = '${tid}'`, { orderBy: 'CREATEDTIME ASC', limit: 100 });
     return ResponseHelper.success(res, history);
   }
 
   // GET /api/ts/tasks/:taskId/comments
   async getComments(req, res) {
-    const comments = await this.db.findWhere(TABLES.TASK_COMMENTS, req.tenantId, `task_id = '${req.params.taskId}'`, { orderBy: 'CREATEDTIME ASC', limit: 200 });
+    const tid = DataStoreService.escape(req.params.taskId);
+    const comments = await this.db.findWhere(TABLES.TASK_COMMENTS, req.tenantId, `task_id = '${tid}'`, { orderBy: 'CREATEDTIME ASC', limit: 200 });
     return ResponseHelper.success(res, comments);
   }
 

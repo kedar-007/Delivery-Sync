@@ -1,10 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { standupsApi } from '../lib/api';
 
-export const useStandups = (params?: Record<string, string>) =>
+export const useStandups = (
+  params?: Record<string, string>,
+  options?: { enabled?: boolean }
+) =>
   useQuery({
     queryKey: ['standups', params],
     queryFn: () => standupsApi.list(params).then((d) => d.standups),
+    enabled: options?.enabled !== false,
   });
 
 export const useStandupRollup = (params: { projectId: string; startDate?: string; endDate?: string }) =>

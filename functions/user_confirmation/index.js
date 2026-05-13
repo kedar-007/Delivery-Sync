@@ -87,7 +87,8 @@ module.exports = async (event, context) => {
       }
     }
 
-    console.log(`[user_confirmation] Processing confirmation for catalystUserId=${catalystUserId} email=${userEmail}`);
+    // Don't log raw email (PII) — just confirm we have one for routing.
+    console.log(`[user_confirmation] Processing confirmation for catalystUserId=${catalystUserId} hasEmail=${!!userEmail}`);
 
     // ── 5. Fetch matching row from users table ───────────────────────────────
     const zcql = app.zcql();

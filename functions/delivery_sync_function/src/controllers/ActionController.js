@@ -55,11 +55,18 @@ class ActionController {
         (async () => {
           try {
             console.log(`[ActionNotify] fetching creator=${userId} and assignee=${data.owner_user_id}`);
-            const [creator, assignee] = await Promise.all([
-              this.db.findById(TABLES.USERS, userId, tenantId),
-              this.db.findById(TABLES.USERS, data.owner_user_id, tenantId),
-            ]);
-            console.log(`[ActionNotify] creator found: ${!!creator} (${creator?.name}) | assignee found: ${!!assignee} (${assignee?.name}, email=${assignee?.email})`);
+            // Batch creator + assignee into a single IN query — same table,
+            // same tenant — instead of 2 round-trips.
+            const _userIds = [String(userId), String(data.owner_user_id)];
+            const _inList  = _userIds.map((id) => `'${DataStoreService.escape(id)}'`).join(',');
+            const _userRows = await this.db.query(
+              `SELECT * FROM ${TABLES.USERS} WHERE ROWID IN (${_inList}) AND tenant_id = '${DataStoreService.escape(String(tenantId))}'`
+            );
+            const _byId = new Map(_userRows.map((r) => [String(r.ROWID), r]));
+            const creator  = _byId.get(String(userId))             || null;
+            const assignee = _byId.get(String(data.owner_user_id)) || null;
+            // Don't log raw emails — PII. Audit log captures the full record.
+            console.log(`[ActionNotify] creator found: ${!!creator} | assignee found: ${!!assignee} | assigneeHasEmail=${!!assignee?.email}`);
 
             const projectName = project.name;
             const creatorName = creator?.name || 'A lead';
@@ -70,7 +77,7 @@ class ActionController {
             } else if (!assignee.email) {
               console.warn(`[ActionNotify] assignee ${assignee.name} has no email stored, skipping email`);
             } else {
-              console.log(`[ActionNotify] sending email to ${assignee.email}`);
+              console.log(`[ActionNotify] sending email to assignee id=${assignee.ROWID}`);
             }
 
             const [, emailResult] = await Promise.all([
@@ -235,11 +242,17 @@ class ActionController {
       ) {
         (async () => {
           try {
-            const [updater, assignee, project] = await Promise.all([
-              this.db.findById(TABLES.USERS, userId, tenantId),
-              this.db.findById(TABLES.USERS, data.owner_user_id, tenantId),
+            // Batch updater + assignee into one IN query; keep project as a
+            // separate parallel call (different table).
+            const _userIds = [String(userId), String(data.owner_user_id)];
+            const _inList  = _userIds.map((id) => `'${DataStoreService.escape(id)}'`).join(',');
+            const [_userRows, project] = await Promise.all([
+              this.db.query(`SELECT * FROM ${TABLES.USERS} WHERE ROWID IN (${_inList}) AND tenant_id = '${DataStoreService.escape(String(tenantId))}'`),
               this.db.findById(TABLES.PROJECTS, existing.project_id, tenantId),
             ]);
+            const _byId    = new Map(_userRows.map((r) => [String(r.ROWID), r]));
+            const updater  = _byId.get(String(userId))             || null;
+            const assignee = _byId.get(String(data.owner_user_id)) || null;
             const projectName = project?.name || '';
             const updaterName = updater?.name || 'A lead';
             const actionTitle = data.title || existing.title;
@@ -289,11 +302,16 @@ class ActionController {
         if (ownerId && String(ownerId) !== String(userId)) {
           (async () => {
             try {
-              const [owner, changer, project] = await Promise.all([
-                this.db.findById(TABLES.USERS, ownerId, tenantId),
-                this.db.findById(TABLES.USERS, userId, tenantId),
+              // Batch owner + changer into one IN query; project stays parallel.
+              const _userIds = [String(ownerId), String(userId)];
+              const _inList  = _userIds.map((id) => `'${DataStoreService.escape(id)}'`).join(',');
+              const [_userRows, project] = await Promise.all([
+                this.db.query(`SELECT * FROM ${TABLES.USERS} WHERE ROWID IN (${_inList}) AND tenant_id = '${DataStoreService.escape(String(tenantId))}'`),
                 this.db.findById(TABLES.PROJECTS, existing.project_id, tenantId),
               ]);
+              const _byId  = new Map(_userRows.map((r) => [String(r.ROWID), r]));
+              const owner   = _byId.get(String(ownerId)) || null;
+              const changer = _byId.get(String(userId))  || null;
               const changerName = changer?.name || 'A lead';
               const projectName = project?.name || '';
               const actionTitle = data.title || existing.title;

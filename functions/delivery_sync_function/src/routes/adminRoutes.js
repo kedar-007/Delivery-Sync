@@ -40,6 +40,11 @@ router.put('/users/:userId/location', auth, can(PERMISSIONS.LOCATION_ADMIN), asy
 // Office locations (read from tenant settings)
 router.get('/office-locations', auth, asyncHandler((req, res) => ctrl(req).getOfficeLocations(req, res)));
 
+// Cache observability — verifies the Catalyst Cache wiring works end-to-end
+// and exposes process-lifetime hit/miss counters. Admin-only.
+router.get('/cache/health', auth, admin(), asyncHandler((req, res) => ctrl(req).getCacheHealth(req, res)));
+router.post('/cache/stats/reset', auth, admin(), asyncHandler((req, res) => ctrl(req).resetCacheStats(req, res)));
+
 // ── Org Roles & Permissions ────────────────────────────────────────────────────
 // List all available app permissions (grouped) — any authenticated user
 router.get('/permissions/all', auth, asyncHandler((req, res) => orgCtrl(req).listAllPermissions(req, res)));

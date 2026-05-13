@@ -30,10 +30,13 @@ app.use((req, res) => ResponseHelper.notFound(res, `Route ${req.method} ${req.ur
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
-  console.error('[TaskSprintService Error]', err.message);
+  // Log the full error server-side (stack + message) but never echo it to
+  // the client — raw exception text can leak DB schema, file paths, or
+  // internal token details.
+  console.error('[TaskSprintService Error]', err.message, err.stack);
   if (err.isValidation) return ResponseHelper.validationError(res, err.message, err.details);
   if (err.isRBAC) return ResponseHelper.forbidden(res, err.message);
-  ResponseHelper.serverError(res, err.message);
+  ResponseHelper.serverError(res, 'Internal server error. Please try again.');
 });
 
 module.exports = app;
