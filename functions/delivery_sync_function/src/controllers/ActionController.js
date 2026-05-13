@@ -218,6 +218,14 @@ class ActionController {
       const existing = await this.db.findById(TABLES.ACTIONS, actionId, tenantId);
       if (!existing) return ResponseHelper.notFound(res, 'Action not found');
 
+      // Edits restricted to creator, assignee, or tenant/super admin.
+      // The route's ACTION_WRITE perm controls "can propose new actions";
+      // mutating an action that someone else owns is gated again here so a
+      // junior with ACTION_WRITE can't quietly rewrite senior leads' actions.
+      if (!_canEditAction(req.currentUser, existing)) {
+        return ResponseHelper.forbidden(res, 'Only the creator, assignee, or an admin can edit this action');
+      }
+
       const data = Validator.validateUpdateAction(req.body);
       const updatePayload = { ROWID: actionId };
       if (data.title !== undefined) updatePayload.title = data.title;
@@ -383,12 +391,35 @@ class ActionController {
       const existing = await this.db.findById(TABLES.ACTIONS, actionId, tenantId);
       if (!existing) return ResponseHelper.notFound(res, 'Action not found');
 
+      // Delete is creator-or-admin only — even the assignee shouldn't be
+      // able to make an action disappear out from under the person who
+      // raised it. Stricter than updateAction (which also allows assignee).
+      const isAdmin   = req.currentUser.role === 'TENANT_ADMIN' || req.currentUser.role === 'SUPER_ADMIN';
+      const isCreator = String(existing.created_by) === String(req.currentUser.id);
+      if (!isAdmin && !isCreator) {
+        return ResponseHelper.forbidden(res, 'Only the creator or an admin can delete this action');
+      }
+
       await this.db.delete(TABLES.ACTIONS, actionId);
       return ResponseHelper.success(res, null, 'Action deleted');
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }
   }
+}
+
+// Edit-permission gate for actions: creator can edit/update, the currently
+// assigned owner can update (so they can mark progress / status), and admins
+// can override. Status-only changes still flow through this — see policy
+// comment on updateAction.
+function _canEditAction(currentUser, action) {
+  if (!currentUser || !action) return false;
+  const role = currentUser.role;
+  if (role === 'TENANT_ADMIN' || role === 'SUPER_ADMIN') return true;
+  const userId = String(currentUser.id);
+  if (String(action.created_by) === userId) return true;
+  if (action.assigned_to && String(action.assigned_to) === userId) return true;
+  return false;
 }
 
 module.exports = ActionController;

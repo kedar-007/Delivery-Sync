@@ -258,6 +258,17 @@ class TaskController {
   async remove(req, res) {
     const task = await this.db.findById(TABLES.TASKS, req.params.taskId, req.tenantId);
     if (!task) return ResponseHelper.notFound(res, 'Task not found');
+
+    // Delete is restricted to the creator or a tenant/super admin — same
+    // policy as update(), since the route-level TASK_WRITE perm alone was
+    // letting any junior delete tasks created by senior leads.
+    const { role, id: userId } = req.currentUser;
+    const isAdmin   = role === 'TENANT_ADMIN' || role === 'SUPER_ADMIN';
+    const isCreator = task.created_by && String(task.created_by) === String(userId);
+    if (!isAdmin && !isCreator) {
+      return ResponseHelper.forbidden(res, 'Only the task creator or an admin can delete this task');
+    }
+
     await this.db.delete(TABLES.TASKS, req.params.taskId);
     await this.audit.log({ tenantId: req.tenantId, entityType: 'TASK', entityId: req.params.taskId, action: AUDIT_ACTION.DELETE, oldValue: task, performedBy: req.currentUser.id });
     return ResponseHelper.success(res, { message: 'Task deleted' });

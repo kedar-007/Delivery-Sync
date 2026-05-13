@@ -46,8 +46,9 @@ interface StandupEntry {
   today: string;
   blockers?: string;
   submittedAt?: string;
-  userId?: string;      // returned by team-view fetches
-  userName?: string;    // backend may attach this when scope=team
+  userId?: string;          // returned by team-view fetches
+  userName?: string;        // backend attaches this on team / privileged views
+  userAvatarUrl?: string;   // backend attaches this on team / privileged views
 }
 
 const AiBadge = () => (
@@ -103,18 +104,18 @@ const ProjectSection = ({
                   </div>
 
                   <div className="grid grid-cols-1 gap-1.5">
-                    <div className="flex gap-2">
-                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-16 shrink-0">Yesterday</span>
-                      <p className="text-sm text-gray-700 leading-snug">{entry.yesterday}</p>
+                    <div className="flex gap-3">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Yesterday</span>
+                      <p className="text-sm text-gray-700 leading-snug min-w-0 break-words">{entry.yesterday}</p>
                     </div>
-                    <div className="flex gap-2">
-                      <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-16 shrink-0">Today</span>
-                      <p className="text-sm text-gray-700 leading-snug">{entry.today}</p>
+                    <div className="flex gap-3">
+                      <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Today</span>
+                      <p className="text-sm text-gray-700 leading-snug min-w-0 break-words">{entry.today}</p>
                     </div>
                     {entry.blockers && (
-                      <div className="flex gap-2">
-                        <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-16 shrink-0">Blockers</span>
-                        <p className="text-sm text-red-700 leading-snug">{entry.blockers}</p>
+                      <div className="flex gap-3">
+                        <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Blockers</span>
+                        <p className="text-sm text-red-700 leading-snug min-w-0 break-words">{entry.blockers}</p>
                       </div>
                     )}
                   </div>
@@ -560,18 +561,18 @@ const StandupPage = () => {
                           )}
                         </div>
                         <div className="grid grid-cols-1 gap-1.5">
-                          <div className="flex gap-2">
-                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-16 shrink-0">Yesterday</span>
-                            <p className="text-sm text-gray-700 leading-snug">{entry.yesterday}</p>
+                          <div className="flex gap-3">
+                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Yesterday</span>
+                            <p className="text-sm text-gray-700 leading-snug min-w-0 break-words">{entry.yesterday}</p>
                           </div>
-                          <div className="flex gap-2">
-                            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-16 shrink-0">Today</span>
-                            <p className="text-sm text-gray-700 leading-snug">{entry.today}</p>
+                          <div className="flex gap-3">
+                            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Today</span>
+                            <p className="text-sm text-gray-700 leading-snug min-w-0 break-words">{entry.today}</p>
                           </div>
                           {entry.blockers && (
-                            <div className="flex gap-2">
-                              <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-16 shrink-0">Blockers</span>
-                              <p className="text-sm text-red-700 leading-snug">{entry.blockers}</p>
+                            <div className="flex gap-3">
+                              <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Blockers</span>
+                              <p className="text-sm text-red-700 leading-snug min-w-0 break-words">{entry.blockers}</p>
                             </div>
                           )}
                         </div>
@@ -650,26 +651,25 @@ const StandupPage = () => {
                         <div key={entry.id} className="px-4 py-3">
                           <p className="text-xs font-bold text-blue-600 mb-2">{entry.userName}</p>
                           <div className="grid grid-cols-1 gap-1.5">
-                            <div className="flex gap-2">
-                              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-16 shrink-0">Yesterday</span>
-                              <p className="text-sm text-gray-700 leading-snug">{entry.yesterday}</p>
+                            <div className="flex gap-3">
+                              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Yesterday</span>
+                              <p className="text-sm text-gray-700 leading-snug min-w-0 break-words">{entry.yesterday}</p>
                             </div>
-                            <div className="flex gap-2">
-                              <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-16 shrink-0">Today</span>
-                              <p className="text-sm text-gray-700 leading-snug">{entry.today}</p>
+                            <div className="flex gap-3">
+                              <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Today</span>
+                              <p className="text-sm text-gray-700 leading-snug min-w-0 break-words">{entry.today}</p>
                             </div>
-                            {/* DSV-009: blockers row now uses the same label
-                                column as Yesterday/Today so the layout is
-                                consistent. Icon was previously orphaned
-                                without a label, making the "None" value look
-                                misaligned. */}
+                            {/* DSV-009: blockers row uses the same w-24 label
+                                column as Yesterday/Today so the layout stays
+                                consistent and the icon + uppercase label fits
+                                without overflowing into the description. */}
                             {entry.blockers && (
-                              <div className="flex gap-2">
-                                <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-16 shrink-0 flex items-center gap-1">
+                              <div className="flex gap-3">
+                                <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-24 shrink-0 inline-flex items-center gap-1 whitespace-nowrap">
                                   <AlertCircle size={11} className="shrink-0" />
                                   <span>Blockers</span>
                                 </span>
-                                <p className="text-sm text-red-700 leading-snug">{entry.blockers}</p>
+                                <p className="text-sm text-red-700 leading-snug min-w-0 break-words">{entry.blockers}</p>
                               </div>
                             )}
                           </div>
@@ -703,41 +703,50 @@ const StandupPage = () => {
             ) : (
               <div className="space-y-3">
                 {(teamStandups as StandupEntry[]).map((entry) => (
-                  <div key={entry.id} className="rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
-                    {/* Header — user + date */}
-                    <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <UserAvatar name={entry.userName ?? entry.userId ?? '?'} size="xs" />
-                        <span className="text-sm font-semibold text-gray-800 truncate">
-                          {entry.userName ?? 'Team member'}
-                        </span>
-                        {entry.projectName && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100 truncate max-w-[160px]">
-                            {entry.projectName}
-                          </span>
-                        )}
+                  <div key={entry.id} className="rounded-xl border border-gray-200 bg-white px-4 py-4 shadow-sm hover:shadow-md transition-shadow">
+                    {/* Header — avatar + name + project + date */}
+                    <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <UserAvatar
+                          name={entry.userName || 'Team member'}
+                          avatarUrl={entry.userAvatarUrl}
+                          size="md"
+                        />
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 truncate">
+                            {entry.userName || 'Team member'}
+                          </p>
+                          {entry.projectName && (
+                            <span className="inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100 truncate max-w-[200px]">
+                              {entry.projectName}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <span className="text-xs text-gray-400">
+                      <span className="text-xs text-gray-400 whitespace-nowrap pt-1">
                         {entry.date ? format(new Date(entry.date + 'T00:00:00'), 'd MMM yyyy') : ''}
                       </span>
                     </div>
-                    {/* Body — yesterday / today / blockers */}
+                    {/* Body — yesterday / today / blockers. All three labels
+                        share w-24 so the bodies line up vertically and the
+                        Blockers label (icon + uppercase tracking) fits without
+                        overlapping its description. */}
                     <div className="grid grid-cols-1 gap-1.5">
-                      <div className="flex gap-2">
-                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-16 shrink-0">Yesterday</span>
-                        <p className="text-sm text-gray-700 leading-snug">{entry.yesterday}</p>
+                      <div className="flex gap-3">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Yesterday</span>
+                        <p className="text-sm text-gray-700 leading-snug min-w-0 break-words">{entry.yesterday}</p>
                       </div>
-                      <div className="flex gap-2">
-                        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-16 shrink-0">Today</span>
-                        <p className="text-sm text-gray-700 leading-snug">{entry.today}</p>
+                      <div className="flex gap-3">
+                        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Today</span>
+                        <p className="text-sm text-gray-700 leading-snug min-w-0 break-words">{entry.today}</p>
                       </div>
                       {entry.blockers && (
-                        <div className="flex gap-2">
-                          <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-16 shrink-0 flex items-center gap-1">
+                        <div className="flex gap-3">
+                          <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-24 shrink-0 inline-flex items-center gap-1 whitespace-nowrap">
                             <AlertCircle size={11} className="shrink-0" />
                             <span>Blockers</span>
                           </span>
-                          <p className="text-sm text-red-700 leading-snug">{entry.blockers}</p>
+                          <p className="text-sm text-red-700 leading-snug min-w-0 break-words">{entry.blockers}</p>
                         </div>
                       )}
                     </div>

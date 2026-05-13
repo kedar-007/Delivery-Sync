@@ -103,11 +103,21 @@ class DecisionController {
    */
   async updateDecision(req, res) {
     try {
-      const { tenantId } = req.currentUser;
+      const { tenantId, id: userId, role } = req.currentUser;
       const { decisionId } = req.params;
 
       const existing = await this.db.findById(TABLES.DECISIONS, decisionId, tenantId);
       if (!existing) return ResponseHelper.notFound(res, 'Decision not found');
+
+      // Edits are restricted to the original creator or a tenant/super admin.
+      // The route already requires DECISION_WRITE, but that permission alone
+      // was letting any junior with the perm rewrite decisions made by senior
+      // leads. Admin override stays so an admin can correct/clean up entries.
+      const isAdmin   = role === 'TENANT_ADMIN' || role === 'SUPER_ADMIN';
+      const isCreator = String(existing.made_by) === String(userId);
+      if (!isAdmin && !isCreator) {
+        return ResponseHelper.forbidden(res, 'Only the decision owner or an admin can edit this decision');
+      }
 
       const data = Validator.validateUpdateDecision(req.body);
       const updatePayload = { ROWID: decisionId };
@@ -131,11 +141,18 @@ class DecisionController {
    */
   async deleteDecision(req, res) {
     try {
-      const { tenantId } = req.currentUser;
+      const { tenantId, id: userId, role } = req.currentUser;
       const { decisionId } = req.params;
 
       const existing = await this.db.findById(TABLES.DECISIONS, decisionId, tenantId);
       if (!existing) return ResponseHelper.notFound(res, 'Decision not found');
+
+      // Same creator-or-admin guard as updateDecision.
+      const isAdmin   = role === 'TENANT_ADMIN' || role === 'SUPER_ADMIN';
+      const isCreator = String(existing.made_by) === String(userId);
+      if (!isAdmin && !isCreator) {
+        return ResponseHelper.forbidden(res, 'Only the decision owner or an admin can delete this decision');
+      }
 
       await this.db.delete(TABLES.DECISIONS, decisionId);
       return ResponseHelper.success(res, null, 'Decision deleted');

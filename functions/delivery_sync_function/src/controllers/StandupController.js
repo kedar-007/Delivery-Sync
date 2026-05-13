@@ -29,6 +29,10 @@ class StandupController {
       // Future dates are rejected. Defense in depth — the frontend already
       // disables the date picker for out-of-range values, but a hand-crafted
       // request would otherwise sneak through.
+      // Normalise to bare YYYY-MM-DD before window-check + persistence so a
+      // full-ISO value from the client (e.g. Date.toISOString()) doesn't leak
+      // a timestamp into the DB's DATE column.
+      data.date = String(data.date).split('T')[0].split(' ')[0].trim();
       const _windowCheck = _validateDateWindow(data.date);
       if (_windowCheck) return ResponseHelper.validationError(res, _windowCheck);
 
@@ -152,12 +156,15 @@ class StandupController {
         projects.forEach((p) => { projectMap[String(p.ROWID)] = p.name; });
       }
 
-      // Enrich with submitter names (needed by the Team Standups view) — only
-      // do the user lookup when the response actually mixes multiple users,
-      // since the My Submissions tab already knows it's looking at itself.
+      // Enrich with submitter names. We need this whenever the response can
+      // contain entries from people other than the caller — i.e. team scope
+      // or any privileged (non-own-only) view. The previous `userIds.length > 1`
+      // gate skipped enrichment when only one peer had posted, leaving the
+      // UI to fall back to "Team member" without a name or avatar.
+      const needsUserEnrichment = wantsTeamScope || !isLimitedToOwn;
       const userIds = [...new Set(standups.map((s) => s.user_id).filter(Boolean).map(String))];
       let userMap = {};
-      if (userIds.length > 1) {
+      if (needsUserEnrichment && userIds.length > 0) {
         try {
           const inList = userIds.map((id) => `'${id}'`).join(',');
           const users  = await this.db.query(
@@ -389,15 +396,24 @@ class StandupController {
   }
 }
 
-// Returns an error string if the given YYYY-MM-DD date is outside the
-// allowed entry window (today through 7 days back), otherwise null.
+// Returns an error string if the given date is outside the allowed entry
+// window (today through 7 days back), otherwise null.
+//
+// Accepts both bare-date and full-ISO inputs:
+//   "2026-05-13"
+//   "2026-05-13T10:30:00.000Z"
+//   "2026-05-13T00:00:00"
+// Anything with a time component is normalised to the date prefix first so
+// the subsequent UTC concatenation can't produce a malformed string. This
+// fixes the "Invalid date format" 400 when a client sends a Date.toISOString().
 function _validateDateWindow(dateStr) {
   if (!dateStr) return 'Date is required';
-  // Use today's date in the server's local TZ as a UTC midnight for comparison
+  const dateOnly = String(dateStr).split('T')[0].split(' ')[0].trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return 'Invalid date format';
   const now = new Date();
   const todayUtc = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
   const sevenAgo = new Date(todayUtc.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const entry = new Date(dateStr + 'T00:00:00Z');
+  const entry = new Date(dateOnly + 'T00:00:00Z');
   if (isNaN(entry.getTime())) return 'Invalid date format';
   if (entry.getTime() > todayUtc.getTime())
     return "You can't submit a standup for a future date.";

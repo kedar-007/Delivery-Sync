@@ -384,12 +384,23 @@ class ProjectController {
    */
   async updateMilestone(req, res) {
     try {
-      const { tenantId, id: userId } = req.currentUser;
+      const { tenantId, id: userId, role } = req.currentUser;
       const { projectId, milestoneId } = req.params;
 
       const existing = await this.db.findById(TABLES.MILESTONES, milestoneId, tenantId);
       if (!existing || String(existing.project_id) !== projectId) {
         return ResponseHelper.notFound(res, 'Milestone not found');
+      }
+
+      // Edits restricted to the milestone creator, the assigned owner, or
+      // a tenant/super admin. The route's MILESTONE_WRITE perm alone was
+      // letting any junior project member rewrite milestones created by
+      // senior leads — which is the specific case raised in the audit.
+      const isAdmin   = role === 'TENANT_ADMIN' || role === 'SUPER_ADMIN';
+      const isCreator = existing.created_by && String(existing.created_by) === String(userId);
+      const isOwner   = existing.owner_user_id && String(existing.owner_user_id) === String(userId);
+      if (!isAdmin && !isCreator && !isOwner) {
+        return ResponseHelper.forbidden(res, 'Only the milestone creator, assigned owner, or an admin can edit this milestone');
       }
 
       const data = Validator.validateUpdateMilestone(req.body);

@@ -29,6 +29,9 @@ class EodController {
       // dates rejected. Defense in depth — the frontend already disables
       // out-of-range values, but a hand-crafted request would otherwise
       // slip through.
+      // Normalise to bare YYYY-MM-DD before window-check + persistence so a
+      // full-ISO value from the client doesn't leak a timestamp into the DB.
+      data.date = String(data.date).split('T')[0].split(' ')[0].trim();
       const _windowCheck = _validateEodDateWindow(data.date);
       if (_windowCheck) return ResponseHelper.validationError(res, _windowCheck);
 
@@ -143,10 +146,15 @@ class EodController {
         projects.forEach((p) => { projectMap[String(p.ROWID)] = p.name; });
       }
 
-      // Enrich with submitter names (needed by Team EOD view)
+      // Enrich with submitter names. Required for any view that may include
+      // entries from people other than the caller (team scope or privileged
+      // org-wide view). The previous `userIds.length > 1` gate skipped
+      // enrichment when only one peer had posted, leaving the UI without a
+      // name or avatar.
+      const needsUserEnrichment = wantsTeamScope || !isLimitedToOwn;
       const userIds = [...new Set(eods.map((e) => e.user_id).filter(Boolean).map(String))];
       let userMap = {};
-      if (userIds.length > 1) {
+      if (needsUserEnrichment && userIds.length > 0) {
         try {
           const inList = userIds.map((id) => `'${id}'`).join(',');
           const users  = await this.db.query(
@@ -376,12 +384,16 @@ class EodController {
 
 // Returns an error string if the given YYYY-MM-DD date is outside the
 // allowed entry window (today through 7 days back), otherwise null.
+// Accepts bare YYYY-MM-DD or full ISO strings — the time portion is stripped
+// before normalisation so a Date.toISOString() input doesn't fail validation.
 function _validateEodDateWindow(dateStr) {
   if (!dateStr) return 'Date is required';
+  const dateOnly = String(dateStr).split('T')[0].split(' ')[0].trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return 'Invalid date format';
   const now = new Date();
   const todayUtc = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
   const sevenAgo = new Date(todayUtc.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const entry = new Date(dateStr + 'T00:00:00Z');
+  const entry = new Date(dateOnly + 'T00:00:00Z');
   if (isNaN(entry.getTime())) return 'Invalid date format';
   if (entry.getTime() > todayUtc.getTime())
     return "You can't submit an EOD for a future date.";

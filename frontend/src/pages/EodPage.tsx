@@ -721,25 +721,33 @@ const EodPage = () => {
             ) : (
               <div className="space-y-3">
                 {(teamEods as EodEntry[]).map((entry: any) => (
-                  <div key={entry.id} className="rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
-                    <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <UserAvatar name={entry.userName ?? entry.userId ?? '?'} size="xs" />
-                        <span className="text-sm font-semibold text-gray-800 truncate">
-                          {entry.userName ?? 'Team member'}
-                        </span>
-                        {entry.projectName && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 border border-violet-100 truncate max-w-[160px]">
-                            {entry.projectName}
-                          </span>
-                        )}
-                        {typeof entry.progress_percentage === 'number' && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">
-                            {entry.progress_percentage}% done
-                          </span>
-                        )}
+                  <div key={entry.id} className="rounded-xl border border-gray-200 bg-white px-4 py-4 shadow-sm hover:shadow-md transition-shadow">
+                    <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <UserAvatar
+                          name={entry.userName || 'Team member'}
+                          avatarUrl={entry.userAvatarUrl}
+                          size="md"
+                        />
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 truncate">
+                            {entry.userName || 'Team member'}
+                          </p>
+                          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                            {entry.projectName && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 border border-violet-100 truncate max-w-[200px]">
+                                {entry.projectName}
+                              </span>
+                            )}
+                            {typeof entry.progress_percentage === 'number' && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                {entry.progress_percentage}% done
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <span className="text-xs text-gray-400">
+                      <span className="text-xs text-gray-400 whitespace-nowrap pt-1">
                         {entry.date ? format(new Date(entry.date + 'T00:00:00'), 'd MMM yyyy') : ''}
                       </span>
                     </div>

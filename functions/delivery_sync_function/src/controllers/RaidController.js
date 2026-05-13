@@ -46,11 +46,18 @@ class RaidController {
 
   async updateRisk(req, res) {
     try {
-      const { tenantId } = req.currentUser;
+      const { tenantId, id: userId, role } = req.currentUser;
       const { riskId } = req.params;
 
       const existing = await this.db.findById(TABLES.RISKS, riskId, tenantId);
       if (!existing) return ResponseHelper.notFound(res, 'Risk not found');
+
+      // Only the creator, the assigned owner, or an admin can edit a risk.
+      // The route already requires RAID_WRITE, but that permission alone was
+      // letting any junior with the perm rewrite items created by senior leads.
+      if (!_canEditRaidItem(req.currentUser, existing)) {
+        return ResponseHelper.forbidden(res, 'Only the creator, assigned owner, or an admin can edit this risk');
+      }
 
       const { title, description, probability, impact, mitigation, status, owner_user_id } = req.body;
       const updatePayload = { ROWID: riskId };
@@ -127,6 +134,10 @@ class RaidController {
 
       const existing = await this.db.findById(TABLES.ISSUES, issueId, tenantId);
       if (!existing) return ResponseHelper.notFound(res, 'Issue not found');
+
+      if (!_canEditRaidItem(req.currentUser, existing)) {
+        return ResponseHelper.forbidden(res, 'Only the creator, assigned owner, or an admin can edit this issue');
+      }
 
       const { title, description, severity, status, owner_user_id } = req.body;
       const updatePayload = { ROWID: issueId };
@@ -231,6 +242,10 @@ class RaidController {
       const existing = await this.db.findById(TABLES.DEPENDENCIES, dependencyId, tenantId);
       if (!existing) return ResponseHelper.notFound(res, 'Dependency not found');
 
+      if (!_canEditRaidItem(req.currentUser, existing)) {
+        return ResponseHelper.forbidden(res, 'Only the creator, assigned owner, or an admin can edit this dependency');
+      }
+
       const { status, title, description, due_date } = req.body;
       const updatePayload = { ROWID: dependencyId };
       if (title) updatePayload.title = title;
@@ -306,6 +321,10 @@ class RaidController {
       const existing = await this.db.findById(TABLES.ASSUMPTIONS, assumptionId, tenantId);
       if (!existing) return ResponseHelper.notFound(res, 'Assumption not found');
 
+      if (!_canEditRaidItem(req.currentUser, existing)) {
+        return ResponseHelper.forbidden(res, 'Only the creator, assigned owner, or an admin can edit this assumption');
+      }
+
       const { title, description, status, impact_if_wrong } = req.body;
       const updatePayload = { ROWID: assumptionId };
       if (title) updatePayload.title = title;
@@ -319,6 +338,22 @@ class RaidController {
       return ResponseHelper.serverError(res, err.message);
     }
   }
+}
+
+// Shared edit-permission gate for every RAID resource (risk, issue, dependency,
+// assumption). The route's RAID_WRITE perm grants the ability to PROPOSE new
+// items; once persisted, edits are restricted to the original creator, the
+// currently-assigned owner, or a tenant/super admin. Without this check, any
+// junior who happens to have RAID_WRITE could rewrite items raised by senior
+// leads — which broke the audit trail the RAID register is meant to preserve.
+function _canEditRaidItem(currentUser, item) {
+  if (!currentUser || !item) return false;
+  const role = currentUser.role;
+  if (role === 'TENANT_ADMIN' || role === 'SUPER_ADMIN') return true;
+  const userId = String(currentUser.id);
+  if (String(item.created_by) === userId) return true;
+  if (item.owner_user_id && String(item.owner_user_id) === userId) return true;
+  return false;
 }
 
 module.exports = RaidController;
