@@ -11,12 +11,15 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   icon?: React.ReactNode;
 }
 
+// Secondary / ghost / outline variants now resolve through the theme tokens
+// so the buttons stay visible on dark surfaces (Midnight / Aurora) — the
+// previous bg-gray-100 / text-gray-700 combo was invisible there.
 const variantClasses: Record<Variant, string> = {
-  primary: 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm',
-  secondary: 'bg-gray-100 hover:bg-gray-200 text-gray-700',
-  danger: 'bg-red-600 hover:bg-red-700 text-white',
-  ghost: 'hover:bg-gray-100 text-gray-600',
-  outline: 'border border-gray-300 hover:bg-gray-50 text-gray-700',
+  primary:   'bg-blue-600 hover:bg-blue-700 text-white shadow-sm',
+  secondary: 'bg-ds-surface-hover hover:bg-ds-surface-hover/80 text-ds-text border border-ds-border',
+  danger:    'bg-red-600 hover:bg-red-700 text-white',
+  ghost:     'hover:bg-ds-surface-hover text-ds-text-muted',
+  outline:   'border border-ds-border hover:bg-ds-surface-hover text-ds-text',
 };
 
 const sizeClasses: Record<Size, string> = {

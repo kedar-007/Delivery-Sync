@@ -66,9 +66,9 @@ const UserPicker = ({
         {selected ? (
           <>
             <UserAvatar name={selected.name} avatarUrl={selected.avatarUrl} size="xs" />
-            <span className="flex-1 text-sm text-gray-900 truncate">{selected.name}</span>
+            <span className="flex-1 text-sm text-ds-text truncate">{selected.name}</span>
             {selected.role && (
-              <span className="text-xs text-gray-400 shrink-0 hidden sm:block">
+              <span className="text-xs text-ds-text-muted shrink-0 hidden sm:block">
                 {selected.role.replace(/_/g, ' ')}
               </span>
             )}
@@ -78,32 +78,32 @@ const UserPicker = ({
                 tabIndex={0}
                 onClick={(e) => { e.stopPropagation(); onChange(''); }}
                 onKeyDown={(e) => { if (e.key === 'Enter') onChange(''); }}
-                className="ml-1 text-gray-400 hover:text-gray-600"
+                className="ml-1 text-ds-text-muted hover:text-ds-text"
               >
                 <X size={12} />
               </span>
             )}
           </>
         ) : (
-          <span className="flex-1 text-sm text-gray-400">{placeholder}</span>
+          <span className="flex-1 text-sm text-ds-text-muted">{placeholder}</span>
         )}
         <ChevronDown
           size={14}
-          className={`text-gray-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+          className={`text-ds-text-muted shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
         />
       </button>
 
       {open && (
-        <div className="absolute z-50 w-full mt-1 bg-white rounded-xl border border-gray-200 shadow-xl overflow-hidden">
-          <div className="p-2 border-b border-gray-100">
+        <div className="absolute z-50 w-full mt-1 bg-ds-surface rounded-xl border border-ds-border shadow-xl overflow-hidden">
+          <div className="p-2 border-b border-ds-border">
             <div className="relative">
               <Search
                 size={12}
-                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ds-text-muted pointer-events-none"
               />
               <input
                 autoFocus
-                className="w-full pl-7 pr-3 py-1.5 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full pl-7 pr-3 py-1.5 text-sm rounded-lg border border-ds-border bg-ds-surface text-ds-text placeholder:text-ds-text-muted focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Search users..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -116,12 +116,12 @@ const UserPicker = ({
               <button
                 type="button"
                 onClick={() => select('')}
-                className={`w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-gray-50 transition-colors ${!value ? 'bg-blue-50' : ''}`}
+                className={`w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-ds-surface-hover transition-colors ${!value ? 'bg-blue-50 dark:bg-blue-500/10' : ''}`}
               >
-                <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
-                  <span className="text-gray-400 text-xs">-</span>
+                <div className="w-5 h-5 rounded-full bg-ds-surface-hover flex items-center justify-center shrink-0">
+                  <span className="text-ds-text-muted text-xs">-</span>
                 </div>
-                <span className="text-sm text-gray-400">Unassigned</span>
+                <span className="text-sm text-ds-text-muted">Unassigned</span>
               </button>
             )}
             {filtered.map((u) => (
@@ -129,19 +129,19 @@ const UserPicker = ({
                 key={u.id}
                 type="button"
                 onClick={() => select(u.id)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-gray-50 transition-colors ${value === u.id ? 'bg-blue-50' : ''}`}
+                className={`w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-ds-surface-hover transition-colors ${value === u.id ? 'bg-blue-50 dark:bg-blue-500/10' : ''}`}
               >
                 <UserAvatar name={u.name} avatarUrl={u.avatarUrl} size="xs" />
-                <span className="flex-1 text-sm text-gray-900 text-left truncate">{u.name}</span>
+                <span className="flex-1 text-sm text-ds-text text-left truncate">{u.name}</span>
                 {u.role && (
-                  <span className="text-xs text-gray-400 shrink-0 bg-gray-100 px-1.5 py-0.5 rounded">
+                  <span className="text-xs text-ds-text-muted shrink-0 bg-ds-surface-hover px-1.5 py-0.5 rounded">
                     {u.role.replace(/_/g, ' ')}
                   </span>
                 )}
               </button>
             ))}
             {filtered.length === 0 && (
-              <p className="text-xs text-gray-400 text-center py-5">No users found</p>
+              <p className="text-xs text-ds-text-muted text-center py-5">No users found</p>
             )}
           </div>
         </div>

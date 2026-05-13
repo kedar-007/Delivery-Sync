@@ -47,14 +47,14 @@ const Modal = ({ open, onClose, title, children, size = 'md', closeOnBackdropCli
           >
             <DialogPanel
               className={clsx(
-                'w-full bg-white rounded-xl shadow-xl p-6',
+                'w-full bg-ds-surface text-ds-text rounded-xl shadow-xl p-6',
                 sizeMap[size]
               )}
             >
               {title && (
                 <div className="flex items-center justify-between mb-5">
-                  <DialogTitle className="text-base font-semibold text-gray-900">{title}</DialogTitle>
-                  <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100">
+                  <DialogTitle className="text-base font-semibold text-ds-text">{title}</DialogTitle>
+                  <button onClick={onClose} className="text-ds-text-muted hover:text-ds-text p-1 rounded-lg hover:bg-ds-surface-hover">
                     <X size={18} />
                   </button>
                 </div>
@@ -69,7 +69,7 @@ const Modal = ({ open, onClose, title, children, size = 'md', closeOnBackdropCli
 );
 
 export const ModalActions = ({ children }: { children: React.ReactNode }) => (
-  <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-gray-100">{children}</div>
+  <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-ds-border">{children}</div>
 );
 
 export default Modal;

@@ -15,14 +15,14 @@ import { useProjects } from '../hooks/useProjects';
 import {
   useSubmitStandup, useUpdateStandup,
   useStandupRollup, useMyTodayStandup,
-  useStandups, useSearchStandups,
+  useStandups, useStandupsPaged, useSearchStandups,
 } from '../hooks/useStandups';
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import UserAvatar from '../components/ui/UserAvatar';
 import { Users as UsersIcon } from 'lucide-react';
 import { useProcessVoice, type StandupVoiceResult } from '../hooks/useVoiceAI';
-import { format, subDays } from 'date-fns';
+import { format, subDays, startOfWeek, endOfWeek } from 'date-fns';
 import {
   CheckCircle, Clock, Sparkles, History, Search,
   Pencil, X, FolderOpen, ChevronDown, ChevronRight,
@@ -171,13 +171,97 @@ const StandupPage = () => {
   const { data: myStandups = [], isLoading: myLoading } = useStandups();
   const { user: authUser } = useAuth();
   const canSeeTeamStandups = hasPermission(authUser, PERMISSIONS.STANDUP_TEAM_VIEW);
-  // Team-view fetch — only triggers when the Team Standups tab is opened
-  // AND the user has STANDUP_TEAM_VIEW. Passes scope=team so the backend
-  // expands the query from "own only" to "all team peers".
-  const { data: teamStandups = [], isLoading: teamLoading } = useStandups(
-    { scope: 'team' },
+  // Team Standups filter + pagination state. Date defaults to "Today" so the
+  // tab loads useful data immediately — users can widen the range as needed.
+  const [teamDateFrom, setTeamDateFrom] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  const [teamDateTo,   setTeamDateTo]   = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  const [teamUserId,   setTeamUserId]   = useState<string>('');
+  const [teamProjectId, setTeamProjectId] = useState<string>('');
+  const [teamPage,     setTeamPage]     = useState(1);
+  const [teamPageSize, setTeamPageSize] = useState(5);
+
+  // Reset to page 1 whenever any team-tab filter changes
+  useEffect(() => { setTeamPage(1); },
+    [teamDateFrom, teamDateTo, teamUserId, teamProjectId, teamPageSize]);
+
+  // Build team-fetch params. Date range is sent via startDate/endDate; the
+  // backend already supports those for STANDUP_ENTRIES.
+  const teamParams = React.useMemo<Record<string, string>>(() => {
+    const p: Record<string, string> = { scope: 'team' };
+    if (teamDateFrom) p.startDate = teamDateFrom;
+    if (teamDateTo)   p.endDate   = teamDateTo;
+    if (teamUserId)   p.userId    = teamUserId;
+    if (teamProjectId) p.projectId = teamProjectId;
+    p.page     = String(teamPage);
+    p.pageSize = String(teamPageSize);
+    return p;
+  }, [teamDateFrom, teamDateTo, teamUserId, teamProjectId, teamPage, teamPageSize]);
+
+  // Team-view fetch — only triggers when the Team Standups tab is opened AND
+  // the user has STANDUP_TEAM_VIEW. Uses the paginated hook so the response
+  // includes { data, pagination } and we can render proper page controls.
+  const { data: teamResult, isLoading: teamLoading } = useStandupsPaged(
+    teamParams,
     { enabled: tab === 'team' && canSeeTeamStandups }
   );
+  const teamStandups   = teamResult?.data ?? [];
+  const teamPagination = teamResult?.pagination ?? null;
+  const teamTotal      = teamPagination?.total ?? teamStandups.length;
+  const teamTotalPages = Math.max(1, teamPagination?.totalPages ?? Math.ceil(teamStandups.length / teamPageSize));
+
+  // Build a list of distinct users that have appeared in the current result
+  // window so the User filter dropdown has values to show. Showing every
+  // tenant user would be confusing; we only surface people who actually have
+  // standups in the visible range.
+  const teamUserOptions = React.useMemo(() => {
+    const seen = new Map<string, { id: string; name: string }>();
+    (teamStandups as Array<{ userId?: string; userName?: string }>).forEach((s) => {
+      const id = String(s.userId || '');
+      if (id && !seen.has(id)) seen.set(id, { id, name: s.userName || 'Team member' });
+    });
+    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [teamStandups]);
+
+  // Date preset helpers — same shape as the Time Tracking tab so the UI feels
+  // consistent across the app.
+  const applyTeamDatePreset = (preset: 'today' | 'yesterday' | 'week' | 'all') => {
+    const today = new Date();
+    if (preset === 'all') {
+      setTeamDateFrom(''); setTeamDateTo(''); return;
+    }
+    if (preset === 'today') {
+      const d = format(today, 'yyyy-MM-dd');
+      setTeamDateFrom(d); setTeamDateTo(d); return;
+    }
+    if (preset === 'yesterday') {
+      const d = format(subDays(today, 1), 'yyyy-MM-dd');
+      setTeamDateFrom(d); setTeamDateTo(d); return;
+    }
+    if (preset === 'week') {
+      setTeamDateFrom(format(startOfWeek(today, { weekStartsOn: 1 }), 'yyyy-MM-dd'));
+      setTeamDateTo  (format(endOfWeek  (today, { weekStartsOn: 1 }), 'yyyy-MM-dd'));
+      return;
+    }
+  };
+  const teamActivePreset = React.useMemo<'today' | 'yesterday' | 'week' | 'all' | 'custom'>(() => {
+    const today = new Date();
+    const t  = format(today, 'yyyy-MM-dd');
+    const y  = format(subDays(today, 1), 'yyyy-MM-dd');
+    const ws = format(startOfWeek(today, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+    const we = format(endOfWeek  (today, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+    if (!teamDateFrom && !teamDateTo)                                 return 'all';
+    if (teamDateFrom === t  && teamDateTo === t)                      return 'today';
+    if (teamDateFrom === y  && teamDateTo === y)                      return 'yesterday';
+    if (teamDateFrom === ws && teamDateTo === we)                     return 'week';
+    return 'custom';
+  }, [teamDateFrom, teamDateTo]);
+
+  const teamHasFilter = Boolean(teamDateFrom || teamDateTo || teamUserId || teamProjectId);
+  const clearTeamFilters = () => {
+    setTeamDateFrom(format(new Date(), 'yyyy-MM-dd'));
+    setTeamDateTo  (format(new Date(), 'yyyy-MM-dd'));
+    setTeamUserId(''); setTeamProjectId('');
+  };
   const { data: searchStandups = [], isLoading: searchStandupLoading } = useSearchStandups(debouncedStandupSearch);
   const { data: rollupData, isLoading: rollupLoading } = useStandupRollup({ projectId: rollupProjectId });
   const submitStandup = useSubmitStandup();
@@ -693,12 +777,101 @@ const StandupPage = () => {
               </span>
             </div>
 
+            {/* Filter card — date presets + custom range + user + project +
+                Clear button. Mirrors the Time Tracking filter pattern so the
+                UX is consistent across the app. */}
+            <Card>
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                {[
+                  { key: 'today',     label: 'Today' },
+                  { key: 'yesterday', label: 'Yesterday' },
+                  { key: 'week',      label: 'This Week' },
+                  { key: 'all',       label: 'All Time' },
+                ].map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    onClick={() => applyTeamDatePreset(p.key as 'today' | 'yesterday' | 'week' | 'all')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                      teamActivePreset === p.key
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-ds-surface text-ds-text border-ds-border hover:bg-ds-surface-hover'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+                {teamActivePreset === 'custom' && (
+                  <span className="px-3 py-1.5 text-xs font-medium rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                    Custom
+                  </span>
+                )}
+                {teamHasFilter && (
+                  <button
+                    type="button"
+                    onClick={clearTeamFilters}
+                    className="ml-auto px-3 py-1.5 text-xs font-medium rounded-full border border-red-200 text-red-600 bg-ds-surface hover:bg-red-50 transition-colors"
+                    title="Reset filters back to today"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <label className="form-label">From</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={teamDateFrom}
+                    onChange={(e) => setTeamDateFrom(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="form-label">To</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={teamDateTo}
+                    onChange={(e) => setTeamDateTo(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Project</label>
+                  <select
+                    className="form-select"
+                    value={teamProjectId}
+                    onChange={(e) => setTeamProjectId(e.target.value)}
+                  >
+                    <option value="">All projects</option>
+                    {(projects as Array<{ id: string; name: string }>).map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label">User</label>
+                  <select
+                    className="form-select"
+                    value={teamUserId}
+                    onChange={(e) => setTeamUserId(e.target.value)}
+                  >
+                    <option value="">All users</option>
+                    {teamUserOptions.map((u) => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </Card>
+
             {teamLoading ? (
               <PageLoader />
             ) : (teamStandups as StandupEntry[]).length === 0 ? (
               <EmptyState
-                title="No team standups yet"
-                description="Your team peers haven't submitted standups in the visible window. They'll show up here as soon as they do."
+                title="No team standups in this range"
+                description="Try widening the date range or clearing the user / project filter."
               />
             ) : (
               <div className="space-y-3">
@@ -752,6 +925,82 @@ const StandupPage = () => {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Pagination footer — server-driven. Always rendered when there's
+                at least one entry so users see the count and rows selector;
+                page-nav buttons only appear when there's more than one page. */}
+            {(teamStandups as StandupEntry[]).length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border border-ds-border rounded-xl bg-ds-surface-hover">
+                <div className="flex items-center gap-4 text-xs text-ds-text-muted">
+                  <span>
+                    Showing <strong className="text-ds-text">{((teamPage - 1) * teamPageSize) + 1}–{Math.min(teamPage * teamPageSize, teamTotal)}</strong> of <strong className="text-ds-text">{teamTotal}</strong> standups
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <label htmlFor="team-page-size" className="text-ds-text-muted">Rows per page:</label>
+                    <select
+                      id="team-page-size"
+                      value={teamPageSize}
+                      onChange={(e) => setTeamPageSize(parseInt(e.target.value, 10) || 5)}
+                      className="text-xs border border-ds-border rounded px-1.5 py-0.5 bg-ds-surface text-ds-text"
+                    >
+                      <option value={3}>3</option>
+                      <option value={5}>5</option>
+                      <option value={10}>10</option>
+                      <option value={20}>20</option>
+                      <option value={50}>50</option>
+                    </select>
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    disabled={teamPage === 1}
+                    onClick={() => setTeamPage(1)}
+                    className="px-2 py-1 text-xs border border-ds-border rounded hover:bg-ds-surface disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="First page"
+                  >«</button>
+                  <button
+                    disabled={teamPage === 1}
+                    onClick={() => setTeamPage((p) => Math.max(1, p - 1))}
+                    className="px-2 py-1 text-xs border border-ds-border rounded hover:bg-ds-surface disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Previous page"
+                  >←</button>
+                  {Array.from({ length: teamTotalPages }, (_, i) => i + 1)
+                    .filter((p) => p === 1 || p === teamTotalPages || Math.abs(p - teamPage) <= 1)
+                    .reduce<(number | '...')[]>((acc, p, i, arr) => {
+                      if (i > 0 && (p as number) - (arr[i - 1] as number) > 1) acc.push('...');
+                      acc.push(p);
+                      return acc;
+                    }, [])
+                    .map((p, i) =>
+                      p === '...' ? (
+                        <span key={`team-ellipsis-${i}`} className="px-1 text-ds-text-muted text-xs">…</span>
+                      ) : (
+                        <button
+                          key={p}
+                          onClick={() => setTeamPage(p as number)}
+                          className={`min-w-[28px] px-2 py-1 text-xs border rounded ${
+                            teamPage === p
+                              ? 'bg-indigo-600 text-white border-indigo-600 font-semibold'
+                              : 'border-ds-border hover:bg-ds-surface'
+                          }`}
+                        >{p}</button>
+                      )
+                    )}
+                  <button
+                    disabled={teamPage >= teamTotalPages}
+                    onClick={() => setTeamPage((p) => Math.min(teamTotalPages, p + 1))}
+                    className="px-2 py-1 text-xs border border-ds-border rounded hover:bg-ds-surface disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Next page"
+                  >→</button>
+                  <button
+                    disabled={teamPage >= teamTotalPages}
+                    onClick={() => setTeamPage(teamTotalPages)}
+                    className="px-2 py-1 text-xs border border-ds-border rounded hover:bg-ds-surface disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Last page"
+                  >»</button>
+                </div>
               </div>
             )}
           </div>

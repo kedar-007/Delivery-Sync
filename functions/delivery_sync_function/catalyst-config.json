@@ -3,7 +3,8 @@
 		"name": "delivery_sync_function",
 		"stack": "node20",
 		"type": "advancedio",
-		"env_variables": {}
+		"env_variables": {
+		}
 	},
 	"execution": {
 		"main": "index.js"

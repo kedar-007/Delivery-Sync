@@ -9,13 +9,16 @@ interface BadgeProps {
   className?: string;
 }
 
+// Colour-coded variants keep their semantic hues across themes (they're a
+// signal, not chrome). Only the neutral "gray" variant resolves through the
+// theme tokens so it stays readable on dark surfaces.
 const variantClasses: Record<BadgeVariant, string> = {
-  default: 'bg-blue-100 text-blue-700',
-  success: 'bg-green-100 text-green-700',
-  warning: 'bg-yellow-100 text-yellow-800',
-  danger: 'bg-red-100 text-red-700',
-  info: 'bg-purple-100 text-purple-700',
-  gray: 'bg-gray-100 text-gray-600',
+  default: 'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300',
+  success: 'bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300',
+  warning: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-500/15 dark:text-yellow-300',
+  danger:  'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300',
+  info:    'bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300',
+  gray:    'bg-ds-surface-hover text-ds-text-muted',
 };
 
 const Badge = ({ children, variant = 'default', className }: BadgeProps) => (
@@ -40,7 +43,7 @@ export const RAGBadge = ({ status }: { status: 'RED' | 'AMBER' | 'GREEN' | strin
     AMBER: { label: 'Amber', classes: 'bg-yellow-100 text-yellow-800 border border-yellow-300' },
     GREEN: { label: 'Green', classes: 'bg-green-100 text-green-700 border border-green-300' },
   };
-  const cfg = map[status] || { label: status, classes: 'bg-gray-100 text-gray-600' };
+  const cfg = map[status] || { label: status, classes: 'bg-ds-surface-hover text-ds-text-muted' };
   return (
     <span className={clsx('inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold', cfg.classes)}>
       <span className={clsx('w-1.5 h-1.5 rounded-full', {

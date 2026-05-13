@@ -128,7 +128,7 @@ const UserHoverCard = ({
       )}
 
       {/* Card */}
-      <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden"
+      <div className="bg-ds-surface rounded-2xl shadow-2xl border border-ds-border overflow-hidden"
         style={{ boxShadow: '0 20px 60px rgba(0,0,0,0.15), 0 4px 16px rgba(0,0,0,0.08)' }}>
 
         {/* Gradient header */}
@@ -139,16 +139,16 @@ const UserHoverCard = ({
 
         {/* Avatar — overlaps header */}
         <div className="flex justify-center -mt-9 mb-2 relative">
-          <div className="ring-4 ring-white rounded-full shadow-lg">
+          <div className="ring-4 ring-ds-surface rounded-full shadow-lg">
             <UserAvatar name={name} avatarUrl={avatarUrl} size="xl" />
           </div>
         </div>
 
         {/* Body */}
         <div className="px-5 pb-5 text-center">
-          <p className="text-sm font-bold text-gray-900 leading-tight">{name || '—'}</p>
+          <p className="text-sm font-bold text-ds-text leading-tight">{name || '—'}</p>
           {email && (
-            <p className="text-xs text-gray-400 mt-0.5 flex items-center justify-center gap-1 truncate">
+            <p className="text-xs text-ds-text-muted mt-0.5 flex items-center justify-center gap-1 truncate">
               <Mail size={9} />{email}
             </p>
           )}
@@ -156,17 +156,17 @@ const UserHoverCard = ({
           {/* Role badges */}
           <div className="flex flex-wrap justify-center gap-1.5 mt-3">
             {displayRole && (
-              <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full flex items-center gap-1 ${ROLE_COLORS[displayRole] ?? 'bg-gray-100 text-gray-600'}`}>
+              <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full flex items-center gap-1 ${ROLE_COLORS[displayRole] ?? 'bg-ds-surface-hover text-ds-text-muted'}`}>
                 <Briefcase size={9} />{formatRole(displayRole)}
               </span>
             )}
             {projectRole && role && projectRole !== role && (
-              <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${ROLE_COLORS[role] ?? 'bg-gray-100 text-gray-600'}`}>
+              <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${ROLE_COLORS[role] ?? 'bg-ds-surface-hover text-ds-text-muted'}`}>
                 {formatRole(role)}
               </span>
             )}
             {team && (
-              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 flex items-center gap-1">
+              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-ds-surface-hover text-ds-text-muted flex items-center gap-1">
                 <Users size={9} />{team}
               </span>
             )}

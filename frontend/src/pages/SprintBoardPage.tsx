@@ -237,12 +237,13 @@ function TaskCard({ task, users, onOpen, isDragOverlay = false }: {
 
 // ── Droppable Column ──────────────────────────────────────────────────────────
 
-function KanbanColumn({ col, tasks, users, onAddTask, onOpenTask }: {
+function KanbanColumn({ col, tasks, users, onAddTask, onOpenTask, canAddTask = true }: {
   col: typeof COLUMNS[number];
   tasks: Task[];
   users: unknown[];
   onAddTask: (status: TaskStatus) => void;
   onOpenTask: (t: Task) => void;
+  canAddTask?: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: col.key });
 
@@ -254,13 +255,15 @@ function KanbanColumn({ col, tasks, users, onAddTask, onOpenTask }: {
           <span className={`text-sm font-semibold ${col.color}`}>{col.label}</span>
           <span className={`text-xs font-bold px-2 py-0.5 rounded-full bg-white ${col.color}`}>{tasks.length}</span>
         </div>
-        <button
-          onClick={() => onAddTask(col.key)}
-          className={`p-1 rounded hover:bg-white/70 transition-colors ${col.color}`}
-          title={`Add task to ${col.label}`}
-        >
-          <Plus size={14} />
-        </button>
+        {canAddTask && (
+          <button
+            onClick={() => onAddTask(col.key)}
+            className={`p-1 rounded hover:bg-white/70 transition-colors ${col.color}`}
+            title={`Add task to ${col.label}`}
+          >
+            <Plus size={14} />
+          </button>
+        )}
       </div>
 
       {/* Task list */}
@@ -411,8 +414,18 @@ interface TaskForm {
 export default function SprintBoardPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const { user } = useAuth();
-  const isAdmin           = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.SPRINT_WRITE);
-  const canAssignToOthers = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TASK_ASSIGN);
+  // Split per-capability flags so the right permission gates the right control.
+  // The old single `isAdmin` (gated everything on SPRINT_WRITE) was over-broad —
+  // it was hiding the task-create flow from users who only had TASK_WRITE, and
+  // exposing the time-approval toggle to people who didn't have TIME_APPROVE.
+  const isTenantAdmin     = user?.role === 'TENANT_ADMIN';
+  const canManageSprint   = isTenantAdmin || hasPermission(user, PERMISSIONS.SPRINT_WRITE);    // new / start / complete sprint
+  const canCreateTask     = isTenantAdmin || hasPermission(user, PERMISSIONS.TASK_WRITE);      // + Add Task buttons + delete
+  const canConfigureApproval = isTenantAdmin || hasPermission(user, PERMISSIONS.TIME_APPROVE); // require-time-entry-approval toggle
+  const canAssignToOthers = isTenantAdmin || hasPermission(user, PERMISSIONS.TASK_ASSIGN);
+  // Kept for backwards compat with any remaining `isAdmin` reference; aliased
+  // to canManageSprint since those are the truly sprint-gated controls.
+  const isAdmin           = canManageSprint;
 
   const [activeSprint, setActiveSprint] = useState<Sprint | null>(null);
   const [activeTask, setActiveTask] = useState<Task | null>(null);       // dragging
@@ -973,9 +986,15 @@ export default function SprintBoardPage() {
               </select>
             </div>
             <div className="ml-auto flex items-center gap-2">
-              <Button size="sm" icon={<Plus size={14} />} onClick={() => { setCreateTaskStatus('TODO'); setShowCreateTask(true); }}>
-                Add Task
-              </Button>
+              {/* Add Task is gated by TASK_WRITE (not SPRINT_WRITE) so anyone
+                  who can create tasks in the project can add them to a sprint
+                  even if they don't have permission to manage the sprint
+                  itself. The backend route only requires TASK_WRITE. */}
+              {canCreateTask && (
+                <Button size="sm" icon={<Plus size={14} />} onClick={() => { setCreateTaskStatus('TODO'); setShowCreateTask(true); }}>
+                  Add Task
+                </Button>
+              )}
             </div>
           </div>
 
@@ -996,6 +1015,7 @@ export default function SprintBoardPage() {
                       users={users}
                       onAddTask={(status) => { setCreateTaskStatus(status); setShowCreateTask(true); }}
                       onOpenTask={(t) => setTaskDetailId(t.id)}
+                      canAddTask={canCreateTask}
                     />
                   ))}
                 </div>
@@ -1144,7 +1164,7 @@ export default function SprintBoardPage() {
               {COLUMNS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
             </select>
           </div>
-          {isAdmin && (
+          {canConfigureApproval && (
             <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
               <div>
                 <p className="text-sm font-medium text-amber-900">Require time entry approval</p>
@@ -1206,7 +1226,10 @@ export default function SprintBoardPage() {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <Button size="sm" variant="secondary" icon={<Edit2 size={12} />} onClick={() => { openEdit(detailTask); setTaskDetailId(null); }}>Edit</Button>
-                {isAdmin && (
+                {/* Delete needs TASK_WRITE (route guard) + creator-or-admin (backend
+                    enforces). Frontend just gates by TASK_WRITE so the button
+                    shows for everyone who could possibly succeed. */}
+                {canCreateTask && (
                   <Button size="sm" variant="danger" icon={<Trash2 size={12} />} loading={deleteTask.isPending}
                     onClick={() => { deleteTask.mutate(detailTask.id); setTaskDetailId(null); }}>Delete</Button>
                 )}
@@ -1744,7 +1767,7 @@ export default function SprintBoardPage() {
               <label className="form-label">Labels <span className="text-gray-400 font-normal">(comma separated)</span></label>
               <input className="form-input" placeholder="frontend, urgent" {...editForm.register('labels')} />
             </div>
-            {isAdmin && (
+            {canConfigureApproval && (
               <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
                 <div>
                   <p className="text-sm font-medium text-amber-900">Require time entry approval</p>

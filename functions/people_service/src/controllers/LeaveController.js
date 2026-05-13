@@ -377,15 +377,17 @@ class LeaveController {
         const rmRows = await this.db.query(
           `SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${rmId}' LIMIT 1`);
         if (rmRows[0]) {
-          // Escape user-controlled fields to prevent HTML injection in the
-          // recipient's mail client (names, reason are free text submitted
-          // by users).
-          await this.notif.send({
-            toEmail: rmRows[0].email,
-            subject: `[Delivery Sync] Leave request from ${req.currentUser.name}`,
-            htmlBody: `<p>Hi ${_escapeHtml(rmRows[0].name)}, ${_escapeHtml(req.currentUser.name)} has applied for ` +
-              `${days_count} day(s) leave from ${_escapeHtml(start_date)} to ${_escapeHtml(end_date)}. ` +
-              `Reason: ${_escapeHtml(reason)}</p>`,
+          // Branded HTML template — the wrapper auto-escapes free-text fields
+          // (applicant name, reason) so they can't break the email markup.
+          await this.notif.sendLeaveRequested({
+            toEmail:        rmRows[0].email,
+            toName:         rmRows[0].name,
+            applicantName:  req.currentUser.name,
+            leaveTypeName,
+            startDate:      start_date,
+            endDate:        end_date,
+            daysCount:      days_count,
+            reason,
           });
           await this.notif.sendInApp({
             tenantId,
@@ -493,10 +495,28 @@ class LeaveController {
       console.warn('[approveRequest] WARNING: balance row still missing after auto-create for user_id:', leave.user_id, 'leave_type_id:', leave.leave_type_id, 'year:', year);
     }
 
-    // Notify applicant
+    // Notify applicant — branded approval email + in-app notification.
+    // Fetch leave type label so the email can show "Annual leave" rather
+    // than a numeric ID; non-fatal if the lookup fails.
     const userRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${leave.user_id}' LIMIT 1`);
     if (userRows[0]) {
-      await this.notif.send({ toEmail: userRows[0].email, subject: '[Delivery Sync] Leave request approved', htmlBody: `<p>Hi ${userRows[0].name}, your leave from ${leave.start_date} to ${leave.end_date} has been approved.</p>` });
+      let leaveTypeName = '';
+      try {
+        const typeRows = await this.db.findWhere(TABLES.LEAVE_TYPES, req.tenantId,
+          `ROWID = ${leave.leave_type_id}`, { limit: 1 });
+        leaveTypeName = typeRows[0]?.name || '';
+      } catch (_) { /* leave type lookup is non-fatal */ }
+
+      await this.notif.sendLeaveApproved({
+        toEmail:       userRows[0].email,
+        toName:        userRows[0].name,
+        leaveTypeName,
+        startDate:     leave.start_date,
+        endDate:       leave.end_date,
+        daysCount:     parseFloat(leave.days_count) || 0,
+        approverName:  req.currentUser.name,
+        approverNotes: req.body.notes || '',
+      });
       await this.notif.sendInApp({ tenantId: req.tenantId, userId: leave.user_id, title: 'Leave Approved', message: `Your leave from ${leave.start_date} to ${leave.end_date} was approved`, type: NOTIFICATION_TYPE.LEAVE_APPROVED, entityType: 'LEAVE', entityId: req.params.requestId });
     }
 
@@ -531,7 +551,23 @@ class LeaveController {
 
     const userRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${leave.user_id}' LIMIT 1`);
     if (userRows[0]) {
-      await this.notif.send({ toEmail: userRows[0].email, subject: '[Delivery Sync] Leave request rejected', htmlBody: `<p>Hi ${userRows[0].name}, your leave request was rejected. Reason: ${notes}</p>` });
+      let leaveTypeName = '';
+      try {
+        const typeRows = await this.db.findWhere(TABLES.LEAVE_TYPES, req.tenantId,
+          `ROWID = ${leave.leave_type_id}`, { limit: 1 });
+        leaveTypeName = typeRows[0]?.name || '';
+      } catch (_) { /* leave type lookup is non-fatal */ }
+
+      await this.notif.sendLeaveRejected({
+        toEmail:      userRows[0].email,
+        toName:       userRows[0].name,
+        leaveTypeName,
+        startDate:    leave.start_date,
+        endDate:      leave.end_date,
+        daysCount:    parseFloat(leave.days_count) || 0,
+        approverName: req.currentUser.name,
+        reason:       notes,
+      });
       await this.notif.sendInApp({ tenantId: req.tenantId, userId: leave.user_id, title: 'Leave Rejected', message: `Your leave was rejected: ${notes}`, type: NOTIFICATION_TYPE.LEAVE_REJECTED, entityType: 'LEAVE', entityId: req.params.requestId });
     }
 

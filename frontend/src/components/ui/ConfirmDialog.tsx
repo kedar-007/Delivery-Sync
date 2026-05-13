@@ -86,14 +86,14 @@ const Dialog = ({ state, onClose }: { state: DialogState; onClose: (v: boolean) 
       />
 
       {/* Card */}
-      <div role="dialog" aria-modal="true" aria-labelledby="confirm-title" className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-2 duration-200">
+      <div role="dialog" aria-modal="true" aria-labelledby="confirm-title" className="relative w-full max-w-sm bg-ds-surface rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-2 duration-200">
         {/* Coloured top bar */}
         <div className={`h-1 w-full bg-gradient-to-r ${cfg.bar}`} />
 
         {/* Close button */}
         <button
           onClick={() => onClose(false)}
-          className="absolute top-3 right-3 w-7 h-7 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+          className="absolute top-3 right-3 w-7 h-7 rounded-full flex items-center justify-center text-ds-text-muted hover:text-ds-text hover:bg-ds-surface-hover transition-colors"
         >
           <X size={14} />
         </button>
@@ -105,15 +105,15 @@ const Dialog = ({ state, onClose }: { state: DialogState; onClose: (v: boolean) 
           </div>
 
           {/* Text */}
-          <h2 id="confirm-title" className="text-base font-bold text-gray-900 text-center mb-2">{state.title}</h2>
-          <p className="text-sm text-gray-500 text-center leading-relaxed">{state.message}</p>
+          <h2 id="confirm-title" className="text-base font-bold text-ds-text text-center mb-2">{state.title}</h2>
+          <p className="text-sm text-ds-text-muted text-center leading-relaxed">{state.message}</p>
         </div>
 
         {/* Actions */}
         <div className="flex gap-3 px-6 pb-6">
           <button
             onClick={() => onClose(false)}
-            className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-300"
+            className="flex-1 px-4 py-2.5 rounded-xl border border-ds-border bg-ds-surface text-sm font-semibold text-ds-text hover:bg-ds-surface-hover transition-colors focus:outline-none focus:ring-2 focus:ring-ds-border"
           >
             {state.cancelText ?? 'Cancel'}
           </button>

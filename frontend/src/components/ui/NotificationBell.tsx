@@ -58,7 +58,7 @@ const typeColor: Record<string, string> = {
   ACTION_OVERDUE:     'bg-red-100 text-red-700',
   TEAM_UPDATED:       'bg-indigo-100 text-indigo-700',
   DAILY_SUMMARY:      'bg-cyan-100 text-cyan-700',
-  GENERAL:            'bg-gray-100 text-gray-700',
+  GENERAL:            'bg-ds-surface-hover text-ds-text-muted',
 };
 
 function typeLabel(type: string) {
@@ -87,22 +87,22 @@ const NotifRow = ({ n, onRead, onDelete }: {
       {n.isRead  && <span className="block w-2 h-2 rounded-full bg-transparent" />}
     </div>
     <div className="flex-1 min-w-0">
-      <p className="text-sm font-medium text-gray-900 leading-tight">{n.title}</p>
-      <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{n.message}</p>
+      <p className="text-sm font-medium text-ds-text leading-tight">{n.title}</p>
+      <p className="text-xs text-ds-text-muted mt-0.5 line-clamp-2">{n.message}</p>
       <div className="flex items-center gap-2 mt-1">
         <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${typeColor[n.type] ?? typeColor.GENERAL}`}>
           {typeLabel(n.type)}
         </span>
-        <span className="text-[10px] text-gray-400">{timeAgo(n.createdAt)}</span>
+        <span className="text-[10px] text-ds-text-muted opacity-70">{timeAgo(n.createdAt)}</span>
       </div>
     </div>
     <div className="flex flex-col gap-1 shrink-0">
       {!n.isRead && (
-        <button onClick={() => onRead(n.id)} title="Mark as read" className="p-1 text-gray-400 hover:text-blue-600 transition-colors">
+        <button onClick={() => onRead(n.id)} title="Mark as read" className="p-1 text-ds-text-muted hover:text-blue-600 transition-colors">
           <CheckCheck size={13} />
         </button>
       )}
-      <button onClick={() => onDelete(n.id)} title="Delete" className="p-1 text-gray-400 hover:text-red-500 transition-colors">
+      <button onClick={() => onDelete(n.id)} title="Delete" className="p-1 text-ds-text-muted hover:text-red-500 transition-colors">
         <Trash2 size={13} />
       </button>
     </div>
@@ -217,9 +217,9 @@ const NotificationBell = () => {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-xl border border-gray-200 z-50 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b">
-            <span className="text-sm font-semibold text-gray-900">
+        <div className="absolute right-0 top-full mt-2 w-80 bg-ds-surface rounded-xl shadow-xl border border-ds-border z-50 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-ds-border">
+            <span className="text-sm font-semibold text-ds-text">
               Notifications {unread > 0 && <span className="text-blue-600">({unread} new)</span>}
             </span>
             <div className="flex items-center gap-2">
@@ -228,10 +228,10 @@ const NotificationBell = () => {
                   Mark all read
                 </button>
               )}
-              <button onClick={toggleMute} title={muted ? 'Unmute' : 'Mute'} className="p-1 rounded text-gray-400 hover:text-gray-700 transition-colors">
+              <button onClick={toggleMute} title={muted ? 'Unmute' : 'Mute'} className="p-1 rounded text-ds-text-muted hover:text-ds-text transition-colors">
                 {muted ? <BellOff size={13} /> : <Bell size={13} />}
               </button>
-              <button onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setOpen(false)} className="text-ds-text-muted hover:text-ds-text">
                 <X size={14} />
               </button>
             </div>
@@ -239,7 +239,7 @@ const NotificationBell = () => {
 
           <div className="max-h-96 overflow-y-auto">
             {notifications.length === 0 ? (
-              <div className="py-10 text-center text-sm text-gray-400">
+              <div className="py-10 text-center text-sm text-ds-text-muted opacity-70">
                 <Bell size={24} className="mx-auto mb-2 opacity-30" />
                 No notifications yet
               </div>

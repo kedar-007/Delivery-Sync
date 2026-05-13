@@ -140,11 +140,30 @@ class StandupController {
         whereExtra += (whereExtra ? ' AND ' : '') + `entry_date >= '${DataStoreService.escape(startDate)}' AND entry_date <= '${DataStoreService.escape(endDate)}'`;
       }
 
-      const standups = await this.db.findWhere(
-        TABLES.STANDUP_ENTRIES, tenantId,
-        whereExtra,
-        { orderBy: 'entry_date DESC, CREATEDTIME DESC', limit: 100 }
-      );
+      // Opt-in pagination: present only when `page` is in the query string.
+      // Backwards compatible — Submit/My Submissions tabs don't pass it and
+      // keep getting the legacy `{ standups: [...] }` array shape.
+      const paginated  = req.query.page !== undefined;
+      const page       = Math.max(1,   parseInt(req.query.page,     10) || 1);
+      const pageSize   = Math.min(200, Math.max(1, parseInt(req.query.pageSize, 10) || 20));
+      const offset     = (page - 1) * pageSize;
+
+      const tenantClause = `tenant_id = '${DataStoreService.escape(String(tenantId))}'`;
+      const fullWhere    = whereExtra ? `${tenantClause} AND ${whereExtra}` : tenantClause;
+
+      const [standups, countRows] = await Promise.all([
+        this.db.findWhere(
+          TABLES.STANDUP_ENTRIES, tenantId, whereExtra,
+          {
+            orderBy: 'entry_date DESC, CREATEDTIME DESC',
+            limit:   paginated ? pageSize : 100,
+            offset:  paginated ? offset   : undefined,
+          }
+        ),
+        paginated
+          ? this.db.query(`SELECT COUNT(ROWID) FROM ${TABLES.STANDUP_ENTRIES} WHERE ${fullWhere}`)
+          : Promise.resolve(null),
+      ]);
 
       // Enrich with project names
       const projectIds = [...new Set(standups.map((s) => s.project_id).filter(Boolean))];
@@ -174,25 +193,39 @@ class StandupController {
         } catch (_) { /* enrichment is non-fatal — fall back to IDs */ }
       }
 
-      return ResponseHelper.success(res, {
-        standups: standups.map((s) => {
-          const u = userMap[String(s.user_id)] || {};
-          return {
-            id: String(s.ROWID),
-            projectId: s.project_id,
-            projectName: projectMap[String(s.project_id)] || null,
-            userId: s.user_id,
-            userName:      u.name       || null,
-            userAvatarUrl: u.avatar_url || null,
-            date: s.entry_date,
-            yesterday: s.yesterday,
-            today: s.today,
-            blockers: s.blockers,
-            status: s.status,
-            submittedAt: s.submitted_at,
-          };
-        }),
+      const items = standups.map((s) => {
+        const u = userMap[String(s.user_id)] || {};
+        return {
+          id: String(s.ROWID),
+          projectId: s.project_id,
+          projectName: projectMap[String(s.project_id)] || null,
+          userId: s.user_id,
+          userName:      u.name       || null,
+          userAvatarUrl: u.avatar_url || null,
+          date: s.entry_date,
+          yesterday: s.yesterday,
+          today: s.today,
+          blockers: s.blockers,
+          status: s.status,
+          submittedAt: s.submitted_at,
+        };
       });
+
+      if (paginated) {
+        // ZCQL returns the COUNT under an unpredictable column name (alias
+        // isn't always preserved). Grab the first value of the first row.
+        let total = 0;
+        if (Array.isArray(countRows) && countRows.length > 0) {
+          const firstVal = Object.values(countRows[0])[0];
+          total = parseInt(String(firstVal), 10) || 0;
+        }
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        return ResponseHelper.success(res, {
+          standups: items,
+          pagination: { page, pageSize, total, totalPages, hasMore: page < totalPages },
+        });
+      }
+      return ResponseHelper.success(res, { standups: items });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }

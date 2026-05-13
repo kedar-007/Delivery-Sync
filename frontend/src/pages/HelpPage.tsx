@@ -4,10 +4,10 @@ import Header from '../components/layout/Header';
 import { useI18n } from '../contexts/I18nContext';
 import {
   BookOpen, ChevronDown, ChevronRight, LayoutDashboard, FolderKanban,
-  CheckSquare, GitBranch, ClipboardList, Clock, Users, Package,
-  BarChart3, Sparkles, Shield, AlertTriangle, CalendarDays, Megaphone,
-  Timer, Milestone, Settings, Search, Info,
-  Bell, Bot, Trophy, TrendingUp, Globe, Bug, Wifi,
+  CheckSquare, GitBranch, ClipboardList, Users, Package,
+  BarChart3, CalendarDays,
+  Timer, Settings, Search, Info,
+  Bell, Bot, Trophy, TrendingUp, Bug, Wifi, Lightbulb,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -29,16 +29,16 @@ interface Section {
 const AccordionItem = ({ label, content }: { label: string; content: React.ReactNode }) => {
   const [open, setOpen] = useState(false);
   return (
-    <div className="border border-gray-100 rounded-xl overflow-hidden">
+    <div className="border border-ds-border rounded-xl overflow-hidden">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-4 py-3 bg-white hover:bg-gray-50 text-left transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3 bg-ds-surface hover:bg-ds-surface-hover text-left transition-colors"
       >
-        <span className="text-sm font-medium text-gray-800">{label}</span>
-        {open ? <ChevronDown size={15} className="text-gray-400 shrink-0" /> : <ChevronRight size={15} className="text-gray-400 shrink-0" />}
+        <span className="text-sm font-medium text-ds-text">{label}</span>
+        {open ? <ChevronDown size={15} className="text-ds-text-muted shrink-0" /> : <ChevronRight size={15} className="text-ds-text-muted shrink-0" />}
       </button>
       {open && (
-        <div className="px-4 pb-4 pt-1 bg-white border-t border-gray-100 text-sm text-gray-600 leading-relaxed space-y-2">
+        <div className="px-4 pb-4 pt-1 bg-ds-surface border-t border-ds-border text-sm text-ds-text-muted leading-relaxed space-y-2">
           {content}
         </div>
       )}
@@ -46,10 +46,10 @@ const AccordionItem = ({ label, content }: { label: string; content: React.React
   );
 };
 
-// ─── Tip box ──────────────────────────────────────────────────────────────────
+// ─── Reusable little widgets ──────────────────────────────────────────────────
 
 const Tip = ({ children }: { children: React.ReactNode }) => (
-  <div className="flex gap-2 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2 text-indigo-700 text-xs">
+  <div className="flex gap-2 bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 rounded-lg px-3 py-2 text-indigo-700 dark:text-indigo-300 text-xs">
     <Info size={13} className="shrink-0 mt-0.5" />
     <span>{children}</span>
   </div>
@@ -62,281 +62,414 @@ const Step = ({ n, children }: { n: number; children: React.ReactNode }) => (
   </div>
 );
 
-// ─── Documentation data ────────────────────────────────────────────────────────
+// `Example` block — used heavily across the doc to ground each concept in a
+// concrete real-world scenario. Visually distinct from Tip so users learn the
+// idea before reading the how-to steps.
+const Example = ({ children }: { children: React.ReactNode }) => (
+  <div className="flex gap-2 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 rounded-lg px-3 py-2 text-emerald-800 dark:text-emerald-300 text-xs">
+    <Lightbulb size={13} className="shrink-0 mt-0.5" />
+    <div><strong className="font-semibold">Example:</strong> {children}</div>
+  </div>
+);
+
+// ─── Documentation data ───────────────────────────────────────────────────────
+//
+// Permission-driven model: the app uses only two real roles (TEAM_MEMBER and
+// TENANT_ADMIN) and gates every capability through permissions assigned via
+// org roles. The help text below describes WHAT each feature is and how to
+// use it without naming any specific role — if you can see the menu item,
+// you have permission to use it; if a button is hidden, your org role
+// doesn't grant that capability and you should ask an admin.
 
 const SECTIONS: Section[] = [
+  // ─── Dashboard ────────────────────────────────────────────────────────────
   {
     id: 'dashboard',
     icon: <LayoutDashboard size={18} />,
     title: 'Dashboard',
-    color: 'bg-blue-50 text-blue-600',
-    intro: 'The Dashboard is your home screen — a real-time overview of project health, tasks, and key metrics for your organisation.',
+    color: 'bg-blue-50 dark:bg-blue-500/15 text-blue-600 dark:text-blue-300',
+    intro: 'Your home screen — a live overview of project health, work-in-flight, and what needs attention today.',
     items: [
       {
         label: 'What you see on the Dashboard',
         content: (
           <>
-            <p>The dashboard shows:</p>
+            <p>The dashboard pulls from every project you can see and shows:</p>
             <ul className="list-disc pl-4 space-y-1 mt-1">
-              <li><strong>RAG Summary</strong> – count of projects by Red / Amber / Green status</li>
-              <li><strong>Open Blockers & Actions</strong> – items needing attention</li>
-              <li><strong>Recent Standup submissions</strong></li>
+              <li><strong>RAG summary</strong> — count of projects by Red / Amber / Green health</li>
+              <li><strong>Open blockers and actions</strong> assigned to you or your team</li>
+              <li><strong>Recent standup and EOD submissions</strong></li>
               <li><strong>Upcoming milestones</strong> in the next 30 days</li>
-              <li><strong>Sprint velocity</strong> and task completion trends</li>
+              <li><strong>Sprint velocity</strong> and task-completion trends</li>
+              <li><strong>Attendance widget</strong> with check-in / check-out and break tracking</li>
             </ul>
+            <Example>
+              You open the app at 9 AM. The dashboard tells you: <em>2 tasks due today</em>, <em>1 blocker raised overnight</em>, and <em>your sprint is 60% complete</em> — so you know exactly where to start.
+            </Example>
           </>
         ),
       },
       {
-        label: 'Role differences',
+        label: 'What each card means',
         content: (
           <>
-            <p><strong>TENANT_ADMIN / PMO / EXEC:</strong> See all projects and team-wide metrics.</p>
-            <p><strong>DELIVERY_LEAD:</strong> See projects they are members of.</p>
-            <p><strong>TEAM_MEMBER:</strong> See only tasks assigned to them and their project.</p>
+            <ul className="list-disc pl-4 space-y-1">
+              <li><strong>RAG cards</strong> — clicking <em>Red projects (3)</em> filters the Projects page to show only those three.</li>
+              <li><strong>My Tasks</strong> — clicking a task opens the detail panel directly.</li>
+              <li><strong>Standups missed</strong> — shows team members who haven't posted today; click a name to jump to their profile.</li>
+            </ul>
+            <Tip>Cards you don't have permission to view are hidden — your dashboard adapts to your access.</Tip>
           </>
         ),
       },
     ],
   },
+
+  // ─── Projects ─────────────────────────────────────────────────────────────
   {
     id: 'projects',
     icon: <FolderKanban size={18} />,
     title: 'Projects',
-    color: 'bg-purple-50 text-purple-600',
-    intro: 'Projects are the top-level container for all work. Each project has sprints, tasks, milestones, and a team.',
+    color: 'bg-purple-50 dark:bg-purple-500/15 text-purple-600 dark:text-purple-300',
+    intro: 'The top-level container for any body of work. Everything else — sprints, tasks, milestones, blockers, decisions — lives inside a project.',
     items: [
+      {
+        label: 'What a Project is',
+        content: (
+          <>
+            <p>A <strong>Project</strong> is a long-running effort with a team, a goal, and a start/end date. Use one project per deliverable or per client engagement, not per task.</p>
+            <Example>
+              "OpsPulse v2.0" is a project. It contains 6 sprints, 120 tasks, 4 milestones (Alpha, Beta, RC, GA), a dozen blockers raised and resolved, and a team of 8.
+            </Example>
+            <p>Each project tracks its own:</p>
+            <ul className="list-disc pl-4 space-y-1">
+              <li>Team membership (who can see and work on it)</li>
+              <li>RAG health (overall risk indicator)</li>
+              <li>Sprints, tasks, milestones</li>
+              <li>RAID register (Risks, Assumptions, Issues, Dependencies)</li>
+              <li>Decisions log</li>
+              <li>Standup and EOD submissions filtered to this project</li>
+            </ul>
+          </>
+        ),
+      },
       {
         label: 'Creating a project',
         content: (
           <div className="space-y-2">
             <Step n={1}>Go to <strong>Projects → All Projects</strong> and click <strong>New Project</strong>.</Step>
-            <Step n={2}>Fill in: <strong>Name</strong> (required), <strong>Description</strong>, <strong>Start Date</strong>, <strong>End Date</strong>, and <strong>RAG Status</strong> (Green / Amber / Red).</Step>
-            <Step n={3}>Click <strong>Create</strong>. You are automatically added as <strong>Delivery Lead</strong>.</Step>
-            <Tip>RAG Status reflects the overall health: Green = on track, Amber = at risk, Red = critical issue.</Tip>
+            <Step n={2}>Fill in: <strong>Name</strong>, <strong>Description</strong>, <strong>Start Date</strong>, <strong>End Date</strong>, and initial <strong>RAG Status</strong>.</Step>
+            <Step n={3}>Click <strong>Create</strong>. You're automatically added as the project owner and can invite team members next.</Step>
+            <Tip>RAG: Green = on track, Amber = at risk but recoverable, Red = critical attention needed.</Tip>
           </div>
         ),
       },
       {
-        label: 'Project team / members',
+        label: 'Adding people to a project',
         content: (
           <div className="space-y-2">
-            <p>Open a project → <strong>Team</strong> tab to add members. Assign a role:</p>
-            <ul className="list-disc pl-4 space-y-1">
-              <li><strong>DELIVERY_LEAD</strong> – manages the project day-to-day</li>
-              <li><strong>TEAM_MEMBER</strong> – works on tasks in the project</li>
-              <li><strong>CLIENT</strong> – read-only visibility</li>
+            <p>Open the project and go to the <strong>Team</strong> tab.</p>
+            <Step n={1}>Click <strong>Add Member</strong>.</Step>
+            <Step n={2}>Search and pick someone from the platform's user list.</Step>
+            <Step n={3}>Pick the project role — what they can do <em>inside this project</em>:</Step>
+            <ul className="list-disc pl-4 space-y-1 text-xs">
+              <li><strong>Lead</strong> — manages the project day-to-day, can edit settings, add members, change RAG.</li>
+              <li><strong>Member</strong> — works on tasks, submits standups, raises blockers.</li>
+              <li><strong>Observer</strong> — read-only access to dashboards and reports.</li>
             </ul>
-            <Tip>Only users who have been invited to the platform (via Admin → Invite) can be added to projects.</Tip>
+            <Tip>Only users already invited to the platform appear in the search. To invite a brand-new user, an admin must add them first via Administration → User Management.</Tip>
           </div>
         ),
       },
       {
-        label: 'Updating RAG status',
+        label: 'Updating the RAG status',
         content: (
           <div className="space-y-2">
             <Step n={1}>Open the project detail page.</Step>
-            <Step n={2}>Click the coloured RAG badge at the top.</Step>
-            <Step n={3}>Select the new status and provide a <strong>reason</strong> (mandatory for audit trail).</Step>
+            <Step n={2}>Click the coloured RAG chip next to the project name.</Step>
+            <Step n={3}>Pick the new status and write a <strong>reason</strong> — this is logged for audit so leadership can see why health changed.</Step>
+            <Example>
+              You move from Green → Amber and write <em>"Key backend engineer on 2-week leave; sprint capacity reduced 30%"</em>. Six weeks later you can answer the question "why was June Amber?" without guessing.
+            </Example>
           </div>
         ),
       },
       {
-        label: 'Milestones',
+        label: 'Milestones inside a project',
         content: (
           <div className="space-y-2">
-            <p>Milestones track major deliverables with a due date.</p>
-            <Step n={1}>Inside a project go to the <strong>Milestones</strong> tab and click <strong>Add Milestone</strong>.</Step>
-            <Step n={2}>Enter a <strong>Title</strong>, optional <strong>Description</strong>, and a <strong>Due Date</strong>.</Step>
-            <Step n={3}>Mark milestones as <strong>COMPLETED</strong> when done.</Step>
-            <Tip>Overdue milestones appear in red on the dashboard to flag risk.</Tip>
+            <p>A <strong>Milestone</strong> is a major project checkpoint with a fixed target date — typically a release, demo, or external deadline.</p>
+            <Example>
+              "Beta release to pilot customers — June 15" is a milestone. It groups all the work that has to be done before that date. If June 1 arrives and 40% of the tasks tagged to this milestone are still TODO, your dashboard flags it red.
+            </Example>
+            <p>Add one via the project's <strong>Milestones</strong> tab → <strong>Add Milestone</strong>. Enter title, optional description, and due date. Mark <strong>COMPLETED</strong> when delivered.</p>
+            <Tip>Only the milestone's creator, the assigned owner, or an admin can edit or change a milestone's status — this prevents team-mates from accidentally rewriting commitments made by leadership.</Tip>
           </div>
         ),
       },
     ],
   },
+
+  // ─── Sprints & Sprint Board ───────────────────────────────────────────────
   {
     id: 'sprints',
     icon: <GitBranch size={18} />,
     title: 'Sprints & Sprint Board',
-    color: 'bg-green-50 text-green-600',
-    intro: 'Sprints are time-boxed iterations (e.g. 2 weeks). The Sprint Board is a Kanban view of all tasks in a sprint.',
+    color: 'bg-green-50 dark:bg-green-500/15 text-green-600 dark:text-green-300',
+    intro: 'A Sprint is a short, time-boxed delivery cycle. The Sprint Board is the Kanban view that visualises a sprint\'s tasks in TODO → IN_PROGRESS → IN_REVIEW → DONE columns.',
     items: [
+      {
+        label: 'What a Sprint is',
+        content: (
+          <>
+            <p>A <strong>Sprint</strong> is a fixed-length iteration (usually 1–2 weeks) where the team commits to completing a specific set of tasks. Sprints belong to a project and contain tasks.</p>
+            <Example>
+              "Sprint 12: Mobile checkout polish" runs from Mar 1 → Mar 14, contains 18 tasks totalling 34 story points, and has the goal: <em>"Ship one-tap reorder and Apple Pay improvements."</em>
+            </Example>
+          </>
+        ),
+      },
       {
         label: 'Creating a sprint',
         content: (
           <div className="space-y-2">
-            <Step n={1}>Go to <strong>Projects → [Your Project] → Sprints</strong> or click <strong>Sprint Boards</strong> in the sidebar.</Step>
+            <Step n={1}>From the project go to the <strong>Sprints</strong> tab (or click <strong>Sprint Boards</strong> in the sidebar).</Step>
             <Step n={2}>Click <strong>New Sprint</strong>.</Step>
-            <Step n={3}>Enter: <strong>Sprint Name</strong> (e.g. "Sprint 1"), <strong>Goal</strong>, <strong>Start Date</strong>, <strong>End Date</strong>, and optional <strong>Capacity Points</strong>.</Step>
-            <Step n={4}>Click <strong>Create Sprint</strong>. Status starts as <strong>PLANNING</strong>.</Step>
-            <Tip>Only one sprint can be ACTIVE at a time per project. Start it when you are ready to begin work.</Tip>
+            <Step n={3}>Enter sprint name (e.g. "Sprint 7"), goal, start/end dates, and optionally a capacity (story points the team can absorb).</Step>
+            <Step n={4}>Click <strong>Create</strong>. The sprint starts in <strong>PLANNING</strong> status.</Step>
+            <Tip>Only one sprint can be ACTIVE per project at a time. Click <strong>Start Sprint</strong> when you're ready to begin — team members are notified.</Tip>
           </div>
         ),
       },
       {
-        label: 'Starting and completing a sprint',
+        label: 'Working on the Sprint Board',
         content: (
           <div className="space-y-2">
-            <p>In PLANNING status, click <strong>Start Sprint</strong> to make it ACTIVE. All team members are notified.</p>
-            <p>When all work is done, click <strong>Complete Sprint</strong>. Velocity is calculated from story points of DONE tasks.</p>
+            <p>The board has four columns: <strong>TODO</strong>, <strong>IN_PROGRESS</strong>, <strong>IN_REVIEW</strong>, <strong>DONE</strong>.</p>
+            <ul className="list-disc pl-4 space-y-1">
+              <li><strong>Drag a card</strong> from one column to another to change its status.</li>
+              <li><strong>+ Add Task</strong> at the top of any column to create a task directly there.</li>
+              <li>Click a card to open the task detail panel (full description, time log, comments, AI insights).</li>
+              <li>Use the timer button on the task detail to track time as you work.</li>
+            </ul>
+            <Example>
+              You finish coding "Apple Pay integration", drag the card from IN_PROGRESS to IN_REVIEW. The task owner (a senior who created it) gets an email and a notification so they can review the PR.
+            </Example>
           </div>
         ),
       },
       {
-        label: 'Creating tasks on the Sprint Board',
+        label: 'Completing a sprint',
         content: (
           <div className="space-y-2">
-            <Step n={1}>Click the <strong>+ Add Task</strong> button in any column (TODO, IN_PROGRESS, IN_REVIEW, DONE).</Step>
-            <Step n={2}>Fill in: <strong>Title</strong> (required), <strong>Description</strong>, <strong>Type</strong> (Task / Story / Bug / Epic), <strong>Priority</strong>, <strong>Assignees</strong> (multi-select), <strong>Story Points</strong>, <strong>Due Date</strong>.</Step>
-            <Step n={3}>Click <strong>Create Task</strong>.</Step>
-            <Tip>Assignees must be users invited to the platform. Select them from the dropdown. Multiple assignees are supported.</Tip>
+            <p>When the sprint end date arrives and all work is finished, click <strong>Complete Sprint</strong>.</p>
+            <ul className="list-disc pl-4 space-y-1">
+              <li>The sprint moves to <strong>COMPLETED</strong> status.</li>
+              <li>Velocity is computed as the sum of story points of all DONE tasks.</li>
+              <li>Unfinished tasks (still TODO / IN_PROGRESS / IN_REVIEW) are <strong>not</strong> auto-moved — drag them to the next sprint manually or back to the backlog.</li>
+            </ul>
           </div>
         ),
       },
+    ],
+  },
+
+  // ─── My Tasks ─────────────────────────────────────────────────────────────
+  {
+    id: 'mytasks',
+    icon: <CheckSquare size={18} />,
+    title: 'My Tasks',
+    color: 'bg-indigo-50 dark:bg-indigo-500/15 text-indigo-600 dark:text-indigo-300',
+    intro: 'Your personal task inbox — every task assigned to you or created by you, across every project. The fastest way to see "what should I be working on?"',
+    items: [
       {
-        label: 'Moving tasks between columns',
+        label: 'What a Task is',
         content: (
-          <p>Drag a task card from one column to another, or open the task and change the <strong>Status</strong> field in the edit form. Both update the database immediately.</p>
+          <>
+            <p>A <strong>Task</strong> is a single unit of work — a feature to build, a bug to fix, a chore to handle. It belongs to a project, optionally to a sprint, has assignees, status, priority, and a due date.</p>
+            <Example>
+              "Implement password-reset flow" is a Task. It sits in the <em>OpsPulse</em> project under <em>Sprint 7</em>, assigned to Priya, priority HIGH, due Friday, status IN_PROGRESS.
+            </Example>
+          </>
+        ),
+      },
+      {
+        label: 'How tasks appear here',
+        content: (
+          <>
+            <p>A task shows up in <strong>My Tasks</strong> when either:</p>
+            <ul className="list-disc pl-4 space-y-1">
+              <li>Your user ID is in the task's <strong>Assignees</strong> list, OR</li>
+              <li>You <strong>created</strong> the task</li>
+            </ul>
+            <Tip>Tasks with status CANCELLED are hidden. Everything else (TODO / IN_PROGRESS / IN_REVIEW / DONE) is shown.</Tip>
+          </>
+        ),
+      },
+      {
+        label: 'Creating a task',
+        content: (
+          <div className="space-y-2">
+            <Step n={1}>Click <strong>New Task</strong> at the top right.</Step>
+            <Step n={2}>Pick the <strong>Project</strong>.</Step>
+            <Step n={3}>Fill in: <strong>Title</strong> (required), description, type (Task / Story / Bug / Epic / Subtask), priority, assignees, story points, due date.</Step>
+            <Step n={4}>Click <strong>Create</strong>. Each assignee gets an email + in-app notification.</Step>
+            <Tip>Multiple assignees are supported. The first assignee is treated as the primary owner for notifications and reminders.</Tip>
+          </div>
         ),
       },
       {
         label: 'Editing a task',
         content: (
-          <div className="space-y-2">
-            <Step n={1}>Click the <strong>Edit</strong> (pencil) icon on a task card or open the task detail and click Edit.</Step>
-            <Step n={2}>Update any fields including reassigning to different team members.</Step>
-            <Step n={3}>Click <strong>Save Changes</strong>.</Step>
-            <Tip>If you clear the Assignees list and save, the task becomes unassigned. Make sure you keep assignees selected if you want them to see the task in their My Tasks.</Tip>
-          </div>
+          <>
+            <p>Open a task → click <strong>Edit</strong>. You can edit a task's details (title, description, due date, priority, assignees) only if you're the <strong>creator</strong> of the task or an admin.</p>
+            <p>If you're just an assignee, you can still:</p>
+            <ul className="list-disc pl-4 space-y-1">
+              <li>Change the <strong>status</strong> (move it through TODO → IN_PROGRESS → DONE)</li>
+              <li>Log time against the task</li>
+              <li>Post comments</li>
+            </ul>
+            <Tip>This rule prevents juniors from accidentally rewriting tasks that seniors raised — the original definition stays intact.</Tip>
+          </>
         ),
       },
       {
-        label: 'Task types explained',
+        label: 'Task types — when to use which',
         content: (
           <ul className="list-disc pl-4 space-y-1">
-            <li><strong>TASK</strong> – Standard work item</li>
-            <li><strong>STORY</strong> – User-facing feature (Agile user story)</li>
-            <li><strong>BUG</strong> – A defect to be fixed</li>
-            <li><strong>EPIC</strong> – Large body of work broken into smaller tasks</li>
-            <li><strong>SUBTASK</strong> – Child of another task</li>
+            <li><strong>TASK</strong> — standard work item, default choice.</li>
+            <li><strong>STORY</strong> — user-facing feature framed from the user's perspective ("As a customer I want to…").</li>
+            <li><strong>BUG</strong> — a defect to fix. Filter the board by BUG to triage backlog quality.</li>
+            <li><strong>EPIC</strong> — a large body of work that spans multiple sprints, broken into smaller tasks.</li>
+            <li><strong>SUBTASK</strong> — a child of another task, used for splitting work without a full new task card.</li>
           </ul>
-        ),
-      },
-    ],
-  },
-  {
-    id: 'mytasks',
-    icon: <CheckSquare size={18} />,
-    title: 'My Tasks',
-    color: 'bg-indigo-50 text-indigo-600',
-    intro: 'My Tasks is your personal task inbox — shows every task assigned to you or created by you across all projects.',
-    items: [
-      {
-        label: 'How tasks appear here',
-        content: (
-          <div className="space-y-2">
-            <p>A task appears in My Tasks if:</p>
-            <ul className="list-disc pl-4 space-y-1">
-              <li>Your user ID is in the task's <strong>Assignees</strong> list, OR</li>
-              <li>You <strong>created</strong> the task</li>
-            </ul>
-            <Tip>Tasks with status CANCELLED are hidden. All other statuses (TODO, IN_PROGRESS, IN_REVIEW, DONE) are shown.</Tip>
-          </div>
-        ),
-      },
-      {
-        label: 'Creating a task from My Tasks',
-        content: (
-          <div className="space-y-2">
-            <Step n={1}>Click <strong>New Task</strong> (top right).</Step>
-            <Step n={2}>Select the <strong>Project</strong> (required).</Step>
-            <Step n={3}>Fill in Title, Description, Priority, Assignees, Due Date, Story Points.</Step>
-            <Step n={4}>Click <strong>Create Task</strong>.</Step>
-            <Tip>Admins and Delivery Leads can assign tasks to any team member. The assigned users will see the task in their My Tasks view.</Tip>
-          </div>
         ),
       },
       {
         label: 'Task detail panel',
         content: (
-          <div className="space-y-2">
-            <p>Click any task to open the detail panel on the right. Tabs available:</p>
+          <>
+            <p>Open any task to see tabs on the right:</p>
             <ul className="list-disc pl-4 space-y-1">
-              <li><strong>Activity</strong> – comments thread; add a comment and press Post (or Ctrl+Enter)</li>
-              <li><strong>Time Log</strong> – log hours worked on this specific task</li>
-              <li><strong>AI Insights</strong> – AI-generated summary and suggestions for the task</li>
+              <li><strong>Activity</strong> — comments thread; post updates so everyone stays in the loop.</li>
+              <li><strong>Time Log</strong> — log hours worked on this specific task, or use the Start Timer button to track live.</li>
+              <li><strong>AI Insights</strong> — an AI-generated summary, blockers detection, and suggestions.</li>
             </ul>
-          </div>
-        ),
-      },
-      {
-        label: 'Filtering tasks',
-        content: (
-          <p>Use the <strong>Status</strong>, <strong>Priority</strong>, and <strong>Project</strong> filter pills at the top of the page to narrow down your task list. The search box filters by task title.</p>
+          </>
         ),
       },
     ],
   },
+
+  // ─── Backlog ──────────────────────────────────────────────────────────────
   {
     id: 'backlog',
     icon: <ClipboardList size={18} />,
     title: 'Backlog',
-    color: 'bg-orange-50 text-orange-600',
-    intro: 'The Backlog holds all tasks not yet assigned to a sprint. Use it to plan future work.',
+    color: 'bg-orange-50 dark:bg-orange-500/15 text-orange-600 dark:text-orange-300',
+    intro: 'The queue of tasks that aren\'t in a sprint yet. Use it to capture upcoming work and prioritise what gets pulled into the next sprint.',
     items: [
+      {
+        label: 'What the Backlog is',
+        content: (
+          <>
+            <p>The <strong>Backlog</strong> is everything you want to do <em>eventually</em> but haven't committed to a sprint yet. Tasks here have no sprint assigned.</p>
+            <Example>
+              "Add SSO support" sits in the backlog for 3 sprints while higher-priority work ships first. When capacity opens up, you drag it into Sprint 14.
+            </Example>
+          </>
+        ),
+      },
       {
         label: 'Managing the backlog',
         content: (
-          <div className="space-y-2">
-            <p>Tasks in the backlog have <strong>sprint_id = 0</strong> (no sprint). From here you can:</p>
+          <>
             <ul className="list-disc pl-4 space-y-1">
-              <li>Create new tasks without a sprint assignment</li>
-              <li>Drag tasks into a sprint to move them</li>
-              <li>Prioritise by dragging items up/down</li>
+              <li>Create tasks directly in the backlog when you don't know which sprint they'll land in.</li>
+              <li>Drag a task from the backlog into a sprint to commit to it.</li>
+              <li>Drag tasks up or down to re-order by priority.</li>
             </ul>
-            <Tip>When creating a sprint, move relevant backlog tasks into it before starting the sprint.</Tip>
-          </div>
+            <Tip>Run a short backlog-grooming session each week so the top of the list is always ready-to-pull. Tasks should have a clear title and a rough estimate before they leave the backlog.</Tip>
+          </>
         ),
       },
     ],
   },
+
+  // ─── Standup & EOD ────────────────────────────────────────────────────────
   {
     id: 'standup',
     icon: <ClipboardList size={18} />,
     title: 'Standup & EOD',
-    color: 'bg-teal-50 text-teal-600',
-    intro: 'Daily standup and end-of-day (EOD) reports keep the team aligned on what\'s happening each day.',
+    color: 'bg-teal-50 dark:bg-teal-500/15 text-teal-600 dark:text-teal-300',
+    intro: 'Daily standup at the start of the day, end-of-day report at the end. Keeps the team aligned without forcing a sync meeting.',
     items: [
+      {
+        label: 'What a Standup is',
+        content: (
+          <>
+            <p>A <strong>Standup</strong> is a short daily check-in answering three questions:</p>
+            <ul className="list-disc pl-4 space-y-1">
+              <li>What did you do <strong>yesterday</strong>?</li>
+              <li>What will you do <strong>today</strong>?</li>
+              <li>Any <strong>blockers</strong>?</li>
+            </ul>
+            <Example>
+              At 9:30 AM Priya posts: <em>Yesterday — Finished password reset API. Today — Wire it to the email service. Blockers — Need SMTP credentials for the test environment.</em> Her lead sees the blocker before lunch and unblocks her.
+            </Example>
+          </>
+        ),
+      },
       {
         label: 'Submitting a standup',
         content: (
           <div className="space-y-2">
             <Step n={1}>Go to <strong>Daily Work → Standup</strong>.</Step>
-            <Step n={2}>Answer the three questions: <strong>What did you do yesterday?</strong> / <strong>What will you do today?</strong> / <strong>Any blockers?</strong></Step>
+            <Step n={2}>Pick the project, fill in yesterday / today / blockers.</Step>
             <Step n={3}>Click <strong>Submit Standup</strong>.</Step>
-            <Tip>You can submit once per day. The team lead can see all submissions on the same page.</Tip>
+            <Tip>You can backdate up to 7 days if you forgot to submit. Future-dated entries are blocked. You can also dictate via the voice input button instead of typing.</Tip>
           </div>
         ),
       },
       {
-        label: 'Submitting an EOD report',
+        label: 'EOD reports',
         content: (
           <div className="space-y-2">
+            <p>An <strong>EOD</strong> is your evening summary — what you finished, what's still in flight, blockers, and any notes for tomorrow.</p>
             <Step n={1}>Go to <strong>Daily Work → EOD</strong>.</Step>
-            <Step n={2}>Summarise what you completed, what is pending, and any notes for tomorrow.</Step>
-            <Step n={3}>Click <strong>Submit EOD</strong>.</Step>
+            <Step n={2}>Fill in the form. The AI auto-fill button can pre-populate today's accomplishments from your task activity.</Step>
+            <Step n={3}>Click <strong>Submit</strong>.</Step>
+            <Example>
+              You log 8 hours of work, mark 2 tasks DONE, and note <em>"PR up for review, needs approval from architecture for the schema change"</em>. Your manager reads it overnight and approves first thing the next morning.
+            </Example>
           </div>
+        ),
+      },
+      {
+        label: 'Team Standups view',
+        content: (
+          <>
+            <p>If you have the <strong>view team standups</strong> capability, the <strong>Team Standups</strong> tab shows submissions from peers in teams you're in or lead.</p>
+            <p>Use the filter bar at the top to narrow by:</p>
+            <ul className="list-disc pl-4 space-y-1">
+              <li>Date — Today / Yesterday / This Week / custom range</li>
+              <li>Project</li>
+              <li>Team member</li>
+            </ul>
+            <Tip>Long histories paginate automatically. Use the rows-per-page selector to control how many entries you see at once.</Tip>
+          </>
         ),
       },
     ],
   },
+
+  // ─── Time Tracking ────────────────────────────────────────────────────────
   {
     id: 'timetracking',
     icon: <Timer size={18} />,
     title: 'Time Tracking',
-    color: 'bg-yellow-50 text-yellow-600',
-    intro: 'Log hours worked on projects and tasks. View timesheets by week or month.',
+    color: 'bg-yellow-50 dark:bg-yellow-500/15 text-yellow-600 dark:text-yellow-300',
+    intro: 'Log hours worked against projects and tasks. Supports manual entry, live timers, and approval workflow for billable hours.',
     items: [
       {
         label: 'Logging a time entry',
@@ -344,448 +477,470 @@ const SECTIONS: Section[] = [
           <div className="space-y-2">
             <Step n={1}>Go to <strong>Daily Work → Time Tracking</strong>.</Step>
             <Step n={2}>Click <strong>Log Time</strong>.</Step>
-            <Step n={3}>Select <strong>Project</strong> (required), optional <strong>Task</strong>, enter <strong>Date</strong>, <strong>Hours</strong> (min 0.25), and a <strong>Description</strong>.</Step>
-            <Step n={4}>Toggle <strong>Billable</strong> if this time is billable to the client.</Step>
-            <Step n={5}>Click <strong>Submit</strong>.</Step>
-            <Tip>One entry per day per project is allowed. If you need to add more hours to the same project on the same day, edit the existing entry.</Tip>
+            <Step n={3}>Pick a <strong>Project</strong>, then the specific <strong>Task</strong> (mandatory).</Step>
+            <Step n={4}>Enter the <strong>date</strong>, <strong>hours</strong> (minimum 0.25), and a <strong>description</strong> of what you did.</Step>
+            <Step n={5}>Toggle <strong>Billable</strong> if these hours bill back to a client.</Step>
+            <Step n={6}>Click <strong>Submit</strong>.</Step>
+            <Example>
+              Tuesday afternoon you spent 3.5 hours pairing on the checkout bug. You log: project = <em>OpsPulse Web</em>, task = <em>Fix Stripe 3DS retry</em>, hours = 3.5, description = <em>Reproduced + fixed retry loop, pair with Aman</em>, billable = on.
+            </Example>
           </div>
         ),
       },
       {
-        label: 'Timer (start/stop)',
+        label: 'Using the live timer',
         content: (
-          <p>In the <strong>My Tasks</strong> task detail panel, click <strong>Start Timer</strong> to begin a running timer. Click <strong>Stop Timer</strong> to save the time as a log entry automatically.</p>
+          <>
+            <p>In any task's detail panel click <strong>Start Timer</strong> to begin a running clock. The timer keeps going across page navigation. Click <strong>Stop Timer</strong> when you're done — a time entry is created with the elapsed duration automatically pre-filled. You can edit before saving.</p>
+            <Tip>The timer survives accidental browser refresh — it picks up the previous start time. Don't worry if you forget to stop it overnight; you'll be prompted to adjust the duration.</Tip>
+          </>
         ),
       },
       {
-        label: 'Approving time entries (managers)',
+        label: 'Approving time entries',
         content: (
-          <div className="space-y-2">
-            <p>Admins and PMOs can see all time entries in the <strong>Time Tracking</strong> page under the <strong>Team</strong> tab.</p>
-            <p>Select entries and click <strong>Approve</strong> to change their status from DRAFT to APPROVED.</p>
-          </div>
+          <p>If you have the time approval capability, the <strong>Approvals</strong> tab shows entries submitted by your team. Review the description, hours, and billable status, then approve or reject. Approved entries lock so the submitter can't edit them retroactively.</p>
+        ),
+      },
+      {
+        label: 'Filtering & pagination',
+        content: (
+          <p>The My Time Log tab supports date presets (Today / Yesterday / This Week / All Time), custom ranges, project filter, status filter, and pagination with a rows-per-page selector. Use the <strong>Clear filters</strong> button to reset everything in one click.</p>
         ),
       },
     ],
   },
+
+  // ─── Actions, Blockers, RAID, Decisions ───────────────────────────────────
   {
     id: 'actions',
     icon: <CheckSquare size={18} />,
-    title: 'Actions, Blockers & RAID',
-    color: 'bg-red-50 text-red-600',
-    intro: 'Track action items, blockers, risks, assumptions, issues, and decisions across all projects.',
+    title: 'Actions, Blockers, RAID & Decisions',
+    color: 'bg-red-50 dark:bg-red-500/15 text-red-600 dark:text-red-300',
+    intro: 'Four artefact types that record different aspects of project life — follow-ups, impediments, risk register, and key choices. Together they give leadership the audit trail they need.',
     items: [
       {
-        label: 'Actions',
+        label: 'Actions — follow-ups from meetings or reviews',
         content: (
-          <div className="space-y-2">
-            <p>Actions are follow-up items from meetings or reviews. Each action has:</p>
-            <ul className="list-disc pl-4 space-y-1">
-              <li><strong>Title</strong> and description of what needs to be done</li>
-              <li><strong>Owner</strong> – person responsible</li>
-              <li><strong>Due Date</strong></li>
-              <li><strong>Priority</strong> (Critical / High / Medium / Low)</li>
-              <li><strong>Status</strong> (Open / In Progress / Done / Cancelled)</li>
-            </ul>
-          </div>
+          <>
+            <p>An <strong>Action</strong> is a commitment captured from a discussion: a meeting, a review, a retro. Different from a Task in that it's about a <em>specific commitment</em> rather than build work — though it can lead to a task.</p>
+            <Example>
+              Sprint retro on Friday: the team agrees <em>"DevOps must run a load test on the checkout endpoint before next deploy."</em> You log an Action: owner = DevOps lead, due = next Wednesday, priority = HIGH. The owner gets emailed, the action shows on their dashboard, and on Wednesday you can see if it was done.
+            </Example>
+            <p>Action fields: title, description, owner, due date, priority (Critical / High / Medium / Low), status (Open / In Progress / Done / Cancelled).</p>
+            <Tip>Only the action's creator, the assignee, or an admin can edit an action. Delete is restricted to the creator or admin — even the assignee can't make an action disappear out from under the person who raised it.</Tip>
+          </>
         ),
       },
       {
-        label: 'Blockers',
+        label: 'Blockers — impediments to flag urgently',
         content: (
-          <div className="space-y-2">
-            <p>Blockers are impediments stopping progress. Log them here so leads can help resolve them.</p>
-            <ul className="list-disc pl-4 space-y-1">
-              <li>Link to a <strong>Project</strong></li>
-              <li>Set <strong>Impact</strong> (HIGH / MEDIUM / LOW)</li>
-              <li>Assign a <strong>Resolution Owner</strong></li>
-            </ul>
-            <Tip>Open blockers are shown on the Dashboard to flag them to leadership immediately.</Tip>
-          </div>
+          <>
+            <p>A <strong>Blocker</strong> is anything stopping work from progressing. Log them as soon as they appear so leads can help unblock fast.</p>
+            <Example>
+              Wednesday morning: <em>"Waiting on legal review of T&Cs draft — blocks launch of new pricing page."</em> You raise a Blocker with Impact = HIGH, owner = Legal, related project = <em>Pricing Refresh</em>. It pops on the lead's dashboard immediately.
+            </Example>
+            <p>Each blocker has: title, description, impact (HIGH / MEDIUM / LOW), resolution owner, status.</p>
+            <Tip>Open blockers surface on the main dashboard with a red counter so leadership notices them within minutes, not days.</Tip>
+          </>
         ),
       },
       {
-        label: 'RAID Register',
+        label: 'RAID Register — formal risk tracking',
         content: (
-          <div className="space-y-2">
-            <p>RAID = Risks, Assumptions, Issues, Dependencies. Use the RAID Register to document project risks formally.</p>
+          <>
+            <p><strong>RAID</strong> = Risks, Assumptions, Issues, Dependencies. Use the register on bigger / regulated projects where you need a documented risk trail.</p>
             <ul className="list-disc pl-4 space-y-1">
-              <li><strong>Risk</strong> – Something that might go wrong</li>
-              <li><strong>Assumption</strong> – A belief being treated as fact</li>
-              <li><strong>Issue</strong> – A problem that has already happened</li>
-              <li><strong>Dependency</strong> – External dependency the project relies on</li>
+              <li><strong>Risk</strong> — something that <em>might</em> go wrong. <Example>"Key dev planning to leave in 4 weeks — sprint 14 may slip if knowledge transfer doesn't happen."</Example></li>
+              <li><strong>Assumption</strong> — a belief being treated as fact, not yet validated. <Example>"Assuming users will tolerate a 2-second page load — we have no UX research to confirm this yet."</Example></li>
+              <li><strong>Issue</strong> — something that <em>has</em> already gone wrong. <Example>"Payment provider had a 4-hour outage on Apr 12, blocked all checkouts."</Example></li>
+              <li><strong>Dependency</strong> — reliance on someone else delivering first. <Example>"Need DevOps to provision the new database cluster by sprint end before we can run migrations."</Example></li>
             </ul>
-            <p>Each entry has an <strong>Impact</strong>, <strong>Probability</strong>, <strong>Mitigation</strong> plan, and <strong>Owner</strong>.</p>
-          </div>
+            <p>Each entry has probability, impact, mitigation plan, owner, and status. Only the creator, the assigned owner, or an admin can edit a RAID entry — protects the audit trail from accidental rewrites.</p>
+          </>
         ),
       },
       {
-        label: 'Decisions Log',
+        label: 'Decisions Log — record the why',
         content: (
-          <p>Record key decisions made during the project with rationale, date, and who made the decision. This creates an audit trail for future reference.</p>
+          <>
+            <p>The <strong>Decisions Log</strong> records significant choices made during the project along with the rationale. Future-you and new joiners thank present-you.</p>
+            <Example>
+              <em>"Apr 12 — Decided to use Postgres instead of MongoDB. Reason: relational data with strong tenant isolation; ops team already operates Postgres. Decided by: Tech Lead. Alternatives considered: MongoDB, DynamoDB."</em>
+            </Example>
+            <p>Fields: title, description, decision date, rationale, impact, status. Only the decision owner or an admin can amend a decision after it's logged.</p>
+          </>
         ),
       },
     ],
   },
+
+  // ─── People ───────────────────────────────────────────────────────────────
   {
     id: 'people',
     icon: <Users size={18} />,
     title: 'People — Attendance, Leave & Directory',
-    color: 'bg-pink-50 text-pink-600',
-    intro: 'Manage your team\'s presence, time off, and people information.',
+    color: 'bg-pink-50 dark:bg-pink-500/15 text-pink-600 dark:text-pink-300',
+    intro: 'Manage attendance, time off, work-from-home requests, the employee directory, and the org chart.',
     items: [
       {
-        label: 'Marking attendance',
+        label: 'Attendance — check-in / check-out / breaks',
         content: (
           <div className="space-y-2">
-            <Step n={1}>Go to <strong>People → Attendance</strong>.</Step>
-            <Step n={2}>Click <strong>Mark Attendance</strong> for today.</Step>
-            <Step n={3}>Select status: <strong>PRESENT</strong>, <strong>WFH</strong>, <strong>HALF_DAY</strong>, or <strong>ABSENT</strong>.</Step>
-            <Tip>Attendance can be marked once per day. Admins can mark attendance on behalf of users.</Tip>
+            <p>The attendance widget tracks your working day: clock-in, clock-out, lunch break, short breaks.</p>
+            <Step n={1}>Click <strong>Check In</strong> when you start the day.</Step>
+            <Step n={2}>Click <strong>Lunch</strong> or <strong>Short Break</strong> to pause; click again to resume.</Step>
+            <Step n={3}>Click <strong>Check Out</strong> when you're done.</Step>
+            <Tip>The header shows a live timer of total worked time so you always know your hours. A warning appears if you try to check out — once you do, you can't check in again the same day, so use breaks for short pauses instead.</Tip>
           </div>
         ),
       },
       {
-        label: 'Applying for leave',
+        label: 'Leave requests',
         content: (
           <div className="space-y-2">
             <Step n={1}>Go to <strong>People → Leave</strong>.</Step>
             <Step n={2}>Click <strong>Apply Leave</strong>.</Step>
-            <Step n={3}>Select <strong>Leave Type</strong> (Annual / Sick / Personal / Unpaid), <strong>From Date</strong>, <strong>To Date</strong>, and a <strong>Reason</strong>.</Step>
-            <Step n={4}>Submit. Your manager will see it as PENDING and can Approve or Reject.</Step>
+            <Step n={3}>Pick leave type (Annual / Sick / Personal / Unpaid), from-date, to-date, and a reason.</Step>
+            <Step n={4}>Submit. Your manager sees it in their Approvals queue.</Step>
+            <Example>
+              You apply for 3 days annual leave: Aug 10–12, reason = <em>"Family wedding."</em> Manager approves the same day. Your balance auto-decreases by 3 days.
+            </Example>
+            <p>While the request is PENDING you can cancel it yourself. Once APPROVED, only an admin can revoke it.</p>
           </div>
+        ),
+      },
+      {
+        label: 'WFH requests',
+        content: (
+          <p>Different from leave — you're still working, just from home. Same flow: pick the date, write a reason, submit. Lead approves or rejects.</p>
         ),
       },
       {
         label: 'Employee Directory',
         content: (
-          <p>The <strong>Directory</strong> tab in People shows all active users with their role, department, skills, and contact info. Use the search bar to find colleagues. Badges and leaderboard scores are also displayed here.</p>
+          <p>The Directory tab lists every active user with their role, department, skills, contact info, badges, and leaderboard position. Use the search bar to find a colleague — handy when you need to know who owns what skill or who to ping about an area.</p>
         ),
       },
       {
         label: 'Org Chart',
         content: (
-          <p>The <strong>Org Chart</strong> shows the reporting hierarchy. Admins can set a user's manager via the <strong>Set Manager</strong> button on any user's card in the org chart view.</p>
+          <p>Shows the reporting hierarchy as a tree. Admins can set a user's manager via the <strong>Set Manager</strong> button on any user's card. This drives the Subordinates data scope — managers can see their direct reports' standups, time logs, and tasks.</p>
         ),
       },
       {
         label: 'Announcements',
         content: (
-          <div className="space-y-2">
-            <p>Admins can publish announcements to:</p>
+          <>
+            <p>Admins can publish announcements visible across the platform:</p>
             <ul className="list-disc pl-4 space-y-1">
-              <li><strong>GLOBAL</strong> – everyone in the organisation</li>
-              <li><strong>ROLE_TARGETED</strong> – specific roles only</li>
-              <li><strong>USER_TARGETED</strong> – specific users only</li>
+              <li><strong>Global</strong> — everyone in the org</li>
+              <li><strong>Role-targeted</strong> — only users with specific roles see it</li>
+              <li><strong>User-targeted</strong> — specific users only</li>
             </ul>
-            <p>Announcements can be <strong>pinned</strong> (appear at the top) and have an optional <strong>expiry date</strong>.</p>
-          </div>
+            <p>Announcements can be pinned (always at the top) and given an expiry date so they auto-disappear.</p>
+            <Example>
+              Pin a global announcement: <em>"Office closed Friday Jul 4 for the public holiday."</em> Expires Saturday so it doesn't clutter the bell afterward.
+            </Example>
+          </>
         ),
       },
     ],
   },
+
+  // ─── Assets ───────────────────────────────────────────────────────────────
   {
     id: 'assets',
     icon: <Package size={18} />,
     title: 'Asset Management',
-    color: 'bg-amber-50 text-amber-600',
-    intro: 'Track company hardware, software licences, and other assets. Manage assignments, maintenance, and requests.',
+    color: 'bg-amber-50 dark:bg-amber-500/15 text-amber-600 dark:text-amber-300',
+    intro: 'Track company hardware, software licences, and other assets. Handle assignments, requests, returns, and maintenance.',
     items: [
+      {
+        label: 'What an Asset is',
+        content: (
+          <>
+            <p>An <strong>Asset</strong> is any company-owned item that needs to be tracked — laptops, monitors, phones, headsets, software licences, vehicles, access cards.</p>
+            <Example>
+              A 14-inch MacBook Pro, asset tag <em>FT-LAP-0142</em>, serial <em>C02XK1ABCDEF</em>, bought Jun 2023 for ₹2,10,000, currently assigned to Priya, returnable on her last working day.
+            </Example>
+          </>
+        ),
+      },
       {
         label: 'Adding an asset',
         content: (
           <div className="space-y-2">
-            <Step n={1}>Go to <strong>Assets</strong> and click <strong>Add Asset</strong>.</Step>
-            <Step n={2}>Enter: <strong>Name</strong>, <strong>Asset Tag</strong> (unique ID), <strong>Category</strong> (Hardware / Software / Vehicle / Other), <strong>Serial Number</strong>, <strong>Purchase Date</strong>, <strong>Purchase Cost</strong>.</Step>
-            <Step n={3}>Set <strong>Status</strong>: AVAILABLE, ASSIGNED, IN_MAINTENANCE, RETIRED.</Step>
+            <Step n={1}>Go to <strong>Assets</strong> → <strong>Add Asset</strong>.</Step>
+            <Step n={2}>Fill in name, asset tag (must be unique), category (Hardware / Software / Vehicle / Other), serial number, purchase date, purchase cost.</Step>
+            <Step n={3}>Set initial status: AVAILABLE / ASSIGNED / IN_MAINTENANCE / RETIRED.</Step>
           </div>
         ),
       },
       {
-        label: 'Assigning an asset to a user',
+        label: 'Assigning to a user',
         content: (
           <div className="space-y-2">
             <Step n={1}>Open the asset and click <strong>Assign</strong>.</Step>
-            <Step n={2}>Select the <strong>User</strong> and an optional <strong>Return Date</strong>.</Step>
-            <Step n={3}>Click <strong>Assign</strong>. The asset status changes to ASSIGNED.</Step>
+            <Step n={2}>Pick the user and optionally a return date.</Step>
+            <Step n={3}>Click <strong>Assign</strong>. Status changes to ASSIGNED, and the user sees the asset on their profile.</Step>
           </div>
         ),
       },
       {
         label: 'Asset requests',
         content: (
-          <p>Team members can request assets via <strong>Request Asset</strong>. Admins see pending requests in the <strong>Requests</strong> tab and can approve or reject them.</p>
+          <p>Anyone can request an asset via <strong>Request Asset</strong> — say which item or category and why. Admins see pending requests in the Requests tab and approve or reject. The user is notified either way.</p>
         ),
       },
       {
-        label: 'Maintenance scheduling',
+        label: 'Maintenance log',
         content: (
-          <p>Log maintenance records for assets (date, description, cost, technician). Assets in maintenance are flagged as IN_MAINTENANCE and unavailable for assignment.</p>
+          <p>Log maintenance records on any asset (date, description, cost, technician). While in maintenance, the asset shows as IN_MAINTENANCE and can't be assigned out.</p>
         ),
       },
     ],
   },
+
+  // ─── Reports & AI ─────────────────────────────────────────────────────────
   {
     id: 'reports',
     icon: <BarChart3 size={18} />,
     title: 'Reports & AI Insights',
-    color: 'bg-cyan-50 text-cyan-600',
-    intro: 'Generate project reports, track KPIs, and use AI to get instant insights on project health and risks.',
+    color: 'bg-cyan-50 dark:bg-cyan-500/15 text-cyan-600 dark:text-cyan-300',
+    intro: 'Generate project reports, view AI-driven insights, and share executive-friendly summaries.',
     items: [
       {
         label: 'Generating a report',
         content: (
           <div className="space-y-2">
             <Step n={1}>Go to <strong>Reports & AI → Reports</strong>.</Step>
-            <Step n={2}>Click <strong>New Report</strong>, select a <strong>Project</strong> and <strong>Report Type</strong> (Status / Sprint / Team Performance / Executive).</Step>
-            <Step n={3}>Click <strong>Generate</strong>. The AI compiles the report from live project data.</Step>
-            <Step n={4}>Share the report via the <strong>Share</strong> link — it's publicly accessible without login.</Step>
+            <Step n={2}>Click <strong>New Report</strong>, pick a project and report type (Status / Sprint / Team Performance / Executive).</Step>
+            <Step n={3}>Click <strong>Generate</strong>. The AI compiles the report from live project data — sprint velocity, RAID items, blockers, milestones, team workload.</Step>
+            <Step n={4}>Share the report via the public share link (no login needed) or export to PDF.</Step>
+            <Example>
+              Friday afternoon you generate a <em>"Sprint Status Report"</em> for Sprint 12. The AI summarises completion %, key risks, top blockers, and notable wins. You paste the share link in the stakeholder email — they open it on a phone, no login.
+            </Example>
           </div>
         ),
       },
       {
         label: 'AI Insights',
         content: (
-          <div className="space-y-2">
-            <p>Go to <strong>Reports & AI → AI Insights</strong> to get AI-generated analysis:</p>
+          <>
+            <p>Reports & AI → <strong>AI Insights</strong> gives you on-demand analysis powered by the LLM:</p>
             <ul className="list-disc pl-4 space-y-1">
-              <li>Project health summaries</li>
-              <li>Risk identification from RAID items and overdue tasks</li>
-              <li>Sprint velocity trends</li>
-              <li>Team workload analysis</li>
+              <li>Project health summaries written in plain English</li>
+              <li>Risk identification from overdue tasks, open blockers, and RAID items</li>
+              <li>Sprint velocity trends with anomaly callouts</li>
+              <li>Team workload distribution and burnout warnings</li>
             </ul>
-            <Tip>AI Insights also appear on individual tasks (in the task detail panel) and the CEO / CTO dashboards.</Tip>
-          </div>
+            <Tip>AI insights also appear inline on individual task cards (under the AI Insights tab) and on the executive dashboards.</Tip>
+          </>
         ),
       },
       {
-        label: 'CEO & CTO Dashboards',
+        label: 'Executive Dashboards',
         content: (
-          <div className="space-y-2">
-            <p><strong>CEO Dashboard</strong> – Executive portfolio view: project RAG overview, financial metrics, resource utilisation, strategic KPIs.</p>
-            <p><strong>CTO Dashboard</strong> – Technical health view: sprint velocity, code quality metrics, technical debt items, deployment frequency.</p>
-            <Tip>These dashboards are visible to TENANT_ADMIN, PMO, EXEC, and DELIVERY_LEAD roles only.</Tip>
-          </div>
+          <>
+            <p>Two flavours, visible to users with the executive view capability:</p>
+            <ul className="list-disc pl-4 space-y-1">
+              <li><strong>CEO Dashboard</strong> — portfolio-wide RAG, financial summary, resource utilisation, KPIs.</li>
+              <li><strong>CTO Dashboard</strong> — sprint velocity across all teams, code quality signals, tech debt, deployment cadence.</li>
+            </ul>
+          </>
         ),
       },
       {
         label: 'Enterprise Reports',
         content: (
-          <p>Enterprise Reports provide cross-project analytics: utilisation heatmaps, budget vs actuals, team performance trends, and portfolio-level risk summaries. Export to PDF or share a link.</p>
+          <p>Cross-project analytics for portfolio-level reviews: utilisation heatmaps, budget vs actuals, team performance trends, portfolio-level risk summary. Exportable to PDF.</p>
         ),
       },
     ],
   },
+
+  // ─── Team Analytics ───────────────────────────────────────────────────────
   {
     id: 'team-analytics',
     icon: <TrendingUp size={18} />,
     title: 'Team Analytics',
-    color: 'bg-violet-50 text-violet-600',
-    intro: 'Deep-dive analytics on your team\'s performance — sprint velocity, workload distribution, productivity trends, and more.',
+    color: 'bg-violet-50 dark:bg-violet-500/15 text-violet-600 dark:text-violet-300',
+    intro: 'Detailed analytics about your team\'s velocity, workload, attendance, and delivery cadence.',
     items: [
       {
-        label: 'Accessing Team Analytics',
-        content: (
-          <div className="space-y-2">
-            <Step n={1}>Go to <strong>Reports & AI → Team Analytics</strong>.</Step>
-            <Step n={2}>Select a <strong>Project</strong> and a <strong>Time Range</strong> (last 30 / 60 / 90 days).</Step>
-            <Step n={3}>Browse the charts and metrics below.</Step>
-            <Tip>TENANT_ADMIN and PMO roles see data across all projects. DELIVERY_LEAD sees only their assigned projects.</Tip>
-          </div>
-        ),
-      },
-      {
-        label: 'Metrics available',
+        label: 'What you can analyse',
         content: (
           <ul className="list-disc pl-4 space-y-1">
-            <li><strong>Sprint Velocity</strong> – story points completed per sprint over time</li>
-            <li><strong>Task Completion Rate</strong> – percentage of tasks finished within their due dates</li>
-            <li><strong>Workload Distribution</strong> – tasks and story points per team member</li>
-            <li><strong>Standup Submission Rate</strong> – how consistently the team submits daily standups</li>
-            <li><strong>Blocker Trends</strong> – count of blockers raised and resolved per week</li>
-            <li><strong>Time Logged vs Estimated</strong> – billed hours vs story point estimates</li>
+            <li><strong>Sprint velocity</strong> — story points completed per sprint, with trend line.</li>
+            <li><strong>Task completion rate</strong> — % of tasks shipped within their due date.</li>
+            <li><strong>Workload distribution</strong> — tasks and points per person, useful for spotting overload.</li>
+            <li><strong>Standup / EOD submission rate</strong> — discipline indicator.</li>
+            <li><strong>Blocker trends</strong> — count raised vs resolved per week.</li>
+            <li><strong>Time logged vs estimated</strong> — actuals against the story-point estimates.</li>
           </ul>
         ),
       },
       {
-        label: 'Individual performance breakdown',
+        label: 'Individual breakdown',
         content: (
-          <div className="space-y-2">
-            <p>Click a team member's name in the Workload chart to see their personal breakdown:</p>
-            <ul className="list-disc pl-4 space-y-1">
-              <li>Tasks assigned vs completed</li>
-              <li>Average task cycle time</li>
-              <li>Attendance and leave summary</li>
-              <li>Standup and EOD submission consistency</li>
-            </ul>
-            <Tip>This view is only visible to admins and leads — team members see only their own data.</Tip>
-          </div>
+          <p>Click any team member's name in the workload chart to drill into their numbers: tasks assigned vs completed, average cycle time, attendance + leave summary, standup consistency. Useful for one-on-ones.</p>
         ),
       },
     ],
   },
+
+  // ─── Notifications ────────────────────────────────────────────────────────
   {
     id: 'notifications',
     icon: <Bell size={18} />,
     title: 'Notifications',
-    color: 'bg-blue-50 text-blue-600',
-    intro: 'Real-time in-app notifications keep you informed when tasks are assigned, blockers are raised, sprints start, and more.',
+    color: 'bg-blue-50 dark:bg-blue-500/15 text-blue-600 dark:text-blue-300',
+    intro: 'Real-time in-app alerts plus emails for task assignments, blockers, sprint events, reminders, and more.',
     items: [
       {
         label: 'The notification bell',
         content: (
-          <div className="space-y-2">
-            <p>The <strong>bell icon</strong> in the top-right header shows your unread notification count (red badge). Click it to open the notification panel.</p>
+          <>
+            <p>The <strong>bell icon</strong> in the top-right shows your unread count. Click to open the panel.</p>
             <ul className="list-disc pl-4 space-y-1">
-              <li>Unread notifications are highlighted in blue and have a blue dot</li>
-              <li>Click the <strong>checkmark</strong> icon on a notification to mark it as read</li>
-              <li>Click the <strong>trash</strong> icon to delete a notification</li>
-              <li>Click <strong>Mark all read</strong> to clear all unread at once</li>
+              <li>Unread notifications have a blue dot and are highlighted.</li>
+              <li>Click the <strong>✓</strong> icon on a notification to mark it read.</li>
+              <li>Click the <strong>trash</strong> icon to delete one.</li>
+              <li>Click <strong>Mark all read</strong> to clear all unread at once.</li>
             </ul>
-          </div>
+          </>
         ),
       },
       {
-        label: 'Notification types',
+        label: 'Types of notifications',
         content: (
           <ul className="list-disc pl-4 space-y-1">
-            <li><strong>Task Assignment</strong> – you have been assigned to a task</li>
-            <li><strong>Blocker Added</strong> – a new blocker is raised on your project</li>
-            <li><strong>Blocker Escalation</strong> – a blocker has been escalated</li>
-            <li><strong>Member Added</strong> – you have been added to a project or team</li>
-            <li><strong>Standup Reminder</strong> – daily reminder to submit your standup</li>
-            <li><strong>EOD Reminder</strong> – daily reminder to submit your EOD report</li>
-            <li><strong>Action Overdue</strong> – an action item you own has passed its due date</li>
-            <li><strong>Daily Summary</strong> – morning digest of the day's work and events</li>
+            <li><strong>Task Assignment</strong> — you've been assigned a new task.</li>
+            <li><strong>Task Status Change</strong> — a task you created moved to a new status.</li>
+            <li><strong>Blocker Added / Escalated</strong> — a blocker affecting your project.</li>
+            <li><strong>Member Added</strong> — added to a new project or team.</li>
+            <li><strong>Standup / EOD Reminder</strong> — daily nudge if you haven't submitted yet.</li>
+            <li><strong>Action Overdue</strong> — an action item you own is past its due date.</li>
+            <li><strong>Daily Summary</strong> — morning digest of pending items.</li>
           </ul>
         ),
       },
       {
-        label: 'Muting sounds',
+        label: 'Mute the chime',
         content: (
-          <div className="space-y-2">
-            <p>Click the small <strong>bell</strong> icon inside the notification panel header to <strong>mute</strong> the chime sound. The panel still shows new notifications — only the audio is silenced.</p>
-            <p>Click the <strong>bell-off</strong> icon again to unmute. Your mute preference is saved in the browser.</p>
-          </div>
+          <p>Click the small bell icon inside the notification panel header to mute the audio. New notifications still arrive — only the chime is silenced. Your mute preference is saved per browser.</p>
         ),
       },
       {
-        label: 'Real-time push notifications',
+        label: 'Real-time push',
         content: (
-          <div className="space-y-2">
-            <p>When you are active in the browser, new notifications arrive <strong>instantly</strong> via Catalyst web push — no page refresh needed.</p>
-            <p>A chime sound plays when a new notification arrives (unless muted). The badge count on the bell updates automatically.</p>
-            <Tip>Push notifications require your browser to allow notifications from this site. If you denied the permission, reset it in your browser settings → Site Settings → Notifications.</Tip>
-          </div>
+          <>
+            <p>While you're active in the browser, new notifications stream in instantly — no refresh. A chime plays (unless muted), the badge updates automatically.</p>
+            <Tip>Push needs browser permission. If you blocked it earlier, reset via Site Settings → Notifications in your browser.</Tip>
+          </>
         ),
       },
     ],
   },
+
+  // ─── AI Bot ───────────────────────────────────────────────────────────────
   {
     id: 'bot',
     icon: <Bot size={18} />,
     title: 'AI Bot / Assistant',
-    color: 'bg-emerald-50 text-emerald-600',
-    intro: 'The built-in AI assistant helps you create tasks, get project summaries, and answer questions about your work — using natural language.',
+    color: 'bg-emerald-50 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-300',
+    intro: 'Chat with your project data in natural language. Ask questions, create tasks, get summaries — without clicking through menus.',
     items: [
       {
-        label: 'Opening the AI bot',
+        label: 'Opening the bot',
         content: (
-          <div className="space-y-2">
-            <p>Click the <strong>Bot icon</strong> (sparkle/robot) in the top-right header to open the chat panel.</p>
-            <Tip>The bot is context-aware — it knows which tenant and user you are, so you can ask "what are my open tasks?" without specifying your name.</Tip>
-          </div>
+          <p>Click the <strong>robot icon</strong> in the top-right header. The bot already knows who you are, what tenant you're in, and what you can see — no setup needed.</p>
         ),
       },
       {
         label: 'What you can ask',
         content: (
           <ul className="list-disc pl-4 space-y-1">
-            <li>"What tasks are assigned to me?" — lists your open tasks</li>
-            <li>"Create a task: Fix login bug for [project]" — creates a task via natural language</li>
-            <li>"Summarise [project name]" — project health, open blockers, sprint status</li>
-            <li>"Who submitted standup today?" — attendance and standup status</li>
-            <li>"What's overdue in [project]?" — overdue tasks and actions</li>
-            <li>"How many hours did I log this week?" — your time tracking summary</li>
+            <li><em>"What tasks are assigned to me?"</em> — lists your open tasks.</li>
+            <li><em>"Summarise OpsPulse v2.0"</em> — health, blockers, sprint status.</li>
+            <li><em>"Who hasn't submitted standup today?"</em> — attendance + standup status.</li>
+            <li><em>"What's overdue on the Mobile project?"</em> — overdue tasks and actions.</li>
+            <li><em>"How many hours did I log this week?"</em> — personal time summary.</li>
+            <li><em>"Create a bug task in Sprint 3 of Mobile: Login crash on iOS 17, assigned to Aman, high priority, due Friday"</em> — bot drafts the task, you confirm.</li>
           </ul>
-        ),
-      },
-      {
-        label: 'AI task creation',
-        content: (
-          <div className="space-y-2">
-            <p>The bot can create tasks for you. Just describe what needs to be done:</p>
-            <p className="italic text-gray-500 text-xs">"Add a bug task to Sprint 3 of Project Alpha: API timeout on login endpoint, assigned to Rahul, high priority, due Friday."</p>
-            <p>The bot confirms the details before saving. You can correct any field by replying.</p>
-          </div>
         ),
       },
       {
         label: 'Limitations',
         content: (
           <ul className="list-disc pl-4 space-y-1">
-            <li>The bot cannot delete data — it can only read and create</li>
-            <li>Responses are based on your live data at the time of asking</li>
-            <li>Complex multi-step actions (e.g., "move all tasks to sprint 4") may need to be done manually</li>
+            <li>The bot is read + create only — it can't delete or destructively change data.</li>
+            <li>Answers are based on your live data at the moment you ask.</li>
+            <li>Multi-step bulk actions (e.g. "move every TODO task to next sprint") need to be done manually.</li>
           </ul>
         ),
       },
     ],
   },
+
+  // ─── Badges & Leaderboard ─────────────────────────────────────────────────
   {
     id: 'badges',
     icon: <Trophy size={18} />,
     title: 'Badges & Leaderboard',
-    color: 'bg-yellow-50 text-yellow-600',
-    intro: 'Earn badges for completing tasks, maintaining streaks, and contributing to the team. Compete on the leaderboard.',
+    color: 'bg-yellow-50 dark:bg-yellow-500/15 text-yellow-600 dark:text-yellow-300',
+    intro: 'Earn badges for consistency and good engineering habits. Compete on the leaderboard.',
     items: [
       {
         label: 'How badges are earned',
         content: (
           <ul className="list-disc pl-4 space-y-1">
-            <li><strong>Task Finisher</strong> – complete 10 / 50 / 100 tasks</li>
-            <li><strong>Standup Streak</strong> – submit standup 5 / 10 / 30 days in a row</li>
-            <li><strong>EOD Streak</strong> – submit EOD reports consistently</li>
-            <li><strong>Sprint MVP</strong> – highest story points completed in a sprint</li>
-            <li><strong>Zero Blocker</strong> – sprint completed with no blockers raised</li>
-            <li><strong>Early Bird</strong> – submit standup before 9 AM for 7 consecutive days</li>
-            <li><strong>Time Tracker</strong> – log time every day for a week</li>
+            <li><strong>Task Finisher</strong> — 10 / 50 / 100 tasks completed.</li>
+            <li><strong>Standup Streak</strong> — 5 / 10 / 30 days of consecutive standup submissions.</li>
+            <li><strong>EOD Streak</strong> — consistent EOD reporting.</li>
+            <li><strong>Sprint MVP</strong> — most story points in a sprint.</li>
+            <li><strong>Zero Blocker</strong> — completed a sprint without raising blockers.</li>
+            <li><strong>Early Bird</strong> — 7 consecutive standups before 9 AM.</li>
+            <li><strong>Time Tracker</strong> — time logged every working day for a week.</li>
           </ul>
         ),
       },
       {
-        label: 'Viewing the leaderboard',
+        label: 'Leaderboard',
         content: (
           <div className="space-y-2">
-            <Step n={1}>Go to <strong>People → Directory</strong>.</Step>
-            <Step n={2}>Click the <strong>Leaderboard</strong> tab.</Step>
-            <p>Users are ranked by total <strong>badge points</strong>. Points are weighted by badge tier (Bronze → Silver → Gold).</p>
-            <Tip>The leaderboard resets monthly. An all-time leaderboard is also available.</Tip>
+            <p>Go to <strong>People → Directory → Leaderboard</strong>. Users are ranked by total badge points (badges have Bronze / Silver / Gold tiers with increasing weight).</p>
+            <Tip>The leaderboard resets monthly. An all-time view is also available for long-term recognition.</Tip>
           </div>
         ),
       },
       {
         label: 'Your badge profile',
         content: (
-          <p>Click your avatar → <strong>Profile</strong> to see all your earned badges, current streaks, and leaderboard position. Badges are also shown on your Directory card so colleagues can see your achievements.</p>
+          <p>Click your avatar → <strong>Profile</strong> to see your earned badges, current streaks, and rank. Badges are also displayed on your Directory card so colleagues can see your wins.</p>
         ),
       },
     ],
   },
+
+  // ─── IP whitelisting ──────────────────────────────────────────────────────
   {
     id: 'ip-config',
     icon: <Wifi size={18} />,
-    title: 'IP Whitelisting & Access Control',
-    color: 'bg-slate-50 text-slate-600',
-    intro: 'Restrict platform access to approved IP addresses or networks. Only TENANT_ADMIN can configure IP rules.',
+    title: 'IP Whitelisting',
+    color: 'bg-slate-50 dark:bg-slate-500/15 text-slate-600 dark:text-slate-300',
+    intro: 'Restrict platform access to approved IP addresses or networks. Only admins can configure this.',
     items: [
       {
-        label: 'What IP whitelisting does',
+        label: 'What it does',
         content: (
-          <div className="space-y-2">
-            <p>When enabled, only users connecting from <strong>whitelisted IPs or CIDR ranges</strong> can access the platform. All other connections are blocked at the API level.</p>
-            <Tip>This is useful for organisations that want to enforce office-network-only access or restrict logins to a known VPN range.</Tip>
-          </div>
+          <>
+            <p>When enabled, only users connecting from <strong>whitelisted IPs or CIDR ranges</strong> can access the API. Everyone else is blocked at the gateway.</p>
+            <Example>
+              You whitelist <em>10.0.0.0/24</em> (office LAN) and <em>52.6.128.0/24</em> (VPN). A team member connecting from a café WiFi is blocked at the login step.
+            </Example>
+          </>
         ),
       },
       {
@@ -795,107 +950,157 @@ const SECTIONS: Section[] = [
             <Step n={1}>Go to <strong>Administration → IP Configuration</strong>.</Step>
             <Step n={2}>Click <strong>Add IP Rule</strong>.</Step>
             <Step n={3}>Enter a single IP (e.g. <code>203.0.113.42</code>) or a CIDR range (e.g. <code>10.0.0.0/24</code>).</Step>
-            <Step n={4}>Add an optional <strong>Label</strong> (e.g. "Office VPN") and click <strong>Save</strong>.</Step>
+            <Step n={4}>Add a label (e.g. <em>"Office VPN"</em>) and save.</Step>
           </div>
         ),
       },
       {
-        label: 'Enabling / disabling whitelisting',
+        label: 'Enabling whitelisting',
         content: (
-          <div className="space-y-2">
-            <p>Use the <strong>Enable IP Restrictions</strong> toggle at the top of the IP Configuration page to turn the feature on or off without deleting your rules.</p>
-            <p><strong>Warning:</strong> Before enabling, make sure your own current IP is in the whitelist — otherwise you will lock yourself out.</p>
-          </div>
-        ),
-      },
-      {
-        label: 'Removing an IP rule',
-        content: (
-          <p>Click the <strong>delete</strong> icon next to any IP rule to remove it. Changes take effect immediately.</p>
+          <>
+            <p>Use the <strong>Enable IP Restrictions</strong> toggle at the top of the page. <strong>Before enabling</strong>, confirm your own current IP is already in the list — otherwise you'll lock yourself out.</p>
+          </>
         ),
       },
     ],
   },
+
+  // ─── Bug Reporting ────────────────────────────────────────────────────────
   {
     id: 'bug-reporting',
     icon: <Bug size={18} />,
     title: 'Bug Reporting',
-    color: 'bg-rose-50 text-rose-600',
-    intro: 'Found a platform issue? Use the built-in bug reporter to send a report to the DSV OpsPulse team directly from the app.',
+    color: 'bg-rose-50 dark:bg-rose-500/15 text-rose-600 dark:text-rose-300',
+    intro: 'Found a platform issue? Send a structured bug report to the platform team directly from the app.',
     items: [
       {
         label: 'How to report a bug',
         content: (
           <div className="space-y-2">
             <Step n={1}>Click the <strong>bug icon</strong> in the top-right header.</Step>
-            <Step n={2}>Describe the issue: what happened, what you expected, and what page/feature is affected.</Step>
-            <Step n={3}>Attach a screenshot if available.</Step>
+            <Step n={2}>Describe what happened, what you expected, and which page is affected.</Step>
+            <Step n={3}>Attach a screenshot if you have one.</Step>
             <Step n={4}>Click <strong>Submit Report</strong>.</Step>
-            <Tip>Your browser, OS, and current page URL are automatically included in the report to help with diagnosis.</Tip>
+            <Tip>Your browser, OS, and the current page URL are bundled automatically so the platform team can reproduce the issue.</Tip>
           </div>
         ),
       },
       {
-        label: 'What happens after you submit',
+        label: 'After you submit',
         content: (
-          <p>The report is sent to the DSV OpsPulse support team. You will receive a confirmation email. For urgent issues, contact your system administrator directly.</p>
+          <p>The report goes to the platform support team. You'll get a confirmation email and can track the status from your Bug Reports tab. The support team can reply directly on the report — those replies arrive as in-app notifications.</p>
         ),
       },
     ],
   },
+
+  // ─── Administration ───────────────────────────────────────────────────────
   {
     id: 'admin',
     icon: <Settings size={18} />,
     title: 'Administration',
-    color: 'bg-gray-100 text-gray-600',
-    intro: 'Manage users, roles, and platform configuration. Only TENANT_ADMIN can access this section.',
+    color: 'bg-ds-surface-hover text-ds-text-muted',
+    intro: 'User management, org roles, permissions, workflows, and platform settings. Visible only to administrators.',
     items: [
+      {
+        label: 'How access control works',
+        content: (
+          <>
+            <p>The platform uses a permission-based access model rather than rigid roles:</p>
+            <ul className="list-disc pl-4 space-y-1">
+              <li><strong>Org roles</strong> are defined per tenant (e.g. "Delivery Lead", "QA Engineer", "Finance Reviewer") — you choose the names.</li>
+              <li>Each org role is granted a set of <strong>permissions</strong> (e.g. "create project", "approve leave", "view team standups").</li>
+              <li>Users are assigned an org role, which gives them all that role's permissions. Individual overrides can grant or revoke specific permissions per user.</li>
+            </ul>
+            <Tip>If a button or menu item is hidden for you, it means your org role doesn't grant that permission. Ask an admin to either add the permission to your role or apply an individual override.</Tip>
+          </>
+        ),
+      },
       {
         label: 'Inviting a new user',
         content: (
           <div className="space-y-2">
             <Step n={1}>Go to <strong>Administration → User Management</strong>.</Step>
             <Step n={2}>Click <strong>Invite User</strong>.</Step>
-            <Step n={3}>Enter their <strong>Email</strong> and select a <strong>Role</strong>:</Step>
-            <ul className="list-disc pl-4 space-y-1 text-xs">
-              <li><strong>TENANT_ADMIN</strong> – Full access, can manage everything</li>
-              <li><strong>PMO</strong> – Programme Manager: sees all projects, generates reports</li>
-              <li><strong>EXEC</strong> – Executive: read-only dashboards and reports</li>
-              <li><strong>DELIVERY_LEAD</strong> – Project lead: manages their projects and team</li>
-              <li><strong>TEAM_MEMBER</strong> – Developer/designer: works on assigned tasks</li>
-              <li><strong>CLIENT</strong> – External: read-only view of selected projects</li>
-            </ul>
-            <Step n={4}>The user receives an email. When they first log in, they accept the invite and their account activates.</Step>
+            <Step n={3}>Enter the email and select an <strong>org role</strong> from your tenant's list (or leave as default).</Step>
+            <Step n={4}>Send. The user receives an email and activates their account on first login.</Step>
+            <Example>
+              You invite <em>finance@yourorg.com</em> with org role <em>"Finance Reviewer"</em>. That role only has the time-approval and reports-view permissions — so the user can review timesheets and read reports but can't create projects or edit tasks.
+            </Example>
           </div>
         ),
       },
       {
-        label: 'Config & Workflows',
+        label: 'Org roles & permissions',
         content: (
-          <div className="space-y-2">
-            <p>Go to <strong>Administration → Config & Workflows</strong> to configure:</p>
+          <>
+            <p>Go to <strong>Administration → Org Roles</strong>:</p>
             <ul className="list-disc pl-4 space-y-1">
-              <li><strong>Feature Flags</strong> – Enable or disable platform features per tenant</li>
-              <li><strong>Custom Workflows</strong> – Define approval flows for leaves, assets, or reports</li>
-              <li><strong>Custom Forms</strong> – Create additional data-capture forms for your organisation</li>
-              <li><strong>Notification Settings</strong> – Control which events send email or in-app notifications</li>
-              <li><strong>IP Whitelisting</strong> – Restrict access to approved networks (see the <em>IP Whitelisting</em> section for details)</li>
+              <li><strong>Create / edit roles</strong> — name them after your org's reality (Project Manager, Tech Lead, Junior Engineer, etc.)</li>
+              <li><strong>Permissions</strong> — check the boxes for each capability the role should have, grouped by module (Projects, Tasks, Time, People, Admin…).</li>
+              <li><strong>Data scope</strong> — for each role choose what data they see: their own only, their direct subordinates, their team peers, or the whole organisation.</li>
+              <li><strong>Assign users</strong> — pick which users have this role.</li>
             </ul>
-          </div>
+          </>
         ),
       },
       {
-        label: 'Profile & theme settings',
+        label: 'Individual permission overrides',
         content: (
-          <div className="space-y-2">
-            <p>Each user can update their own profile via the avatar menu → <strong>Profile</strong> or <strong>Settings</strong>:</p>
+          <p>To grant or revoke a single permission for one user without changing their org role, open the user's profile in Administration and toggle the override. Useful for one-off cases like granting "approve leave" to a senior IC for the duration of a holiday cover.</p>
+        ),
+      },
+      {
+        label: 'Workflows & feature flags',
+        content: (
+          <>
+            <p>Administration → <strong>Config & Workflows</strong>:</p>
             <ul className="list-disc pl-4 space-y-1">
-              <li>Update <strong>Name</strong>, <strong>Department</strong>, <strong>Job Title</strong>, <strong>Phone</strong></li>
-              <li>Add <strong>Skills</strong> (shown on the Directory and Leaderboard)</li>
-              <li>Upload a <strong>Profile Photo</strong> (avatar URL)</li>
-              <li>Change <strong>Theme</strong> (light / dark / system) — also accessible via the sun/moon icon in the header</li>
+              <li><strong>Feature Flags</strong> — turn whole modules on/off per tenant.</li>
+              <li><strong>Approval Workflows</strong> — configure who approves what (leave, asset requests, time entries).</li>
+              <li><strong>Notification Settings</strong> — which events email vs in-app only.</li>
+              <li><strong>IP Whitelisting</strong> — see its own section above.</li>
             </ul>
-          </div>
+          </>
+        ),
+      },
+    ],
+  },
+
+  // ─── Settings ─────────────────────────────────────────────────────────────
+  {
+    id: 'settings',
+    icon: <CalendarDays size={18} />,
+    title: 'Profile & Settings',
+    color: 'bg-fuchsia-50 dark:bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-300',
+    intro: 'Personalise your profile, theme, language, and notification preferences.',
+    items: [
+      {
+        label: 'Editing your profile',
+        content: (
+          <>
+            <p>Click your avatar in the bottom-left, then <strong>Profile</strong>:</p>
+            <ul className="list-disc pl-4 space-y-1">
+              <li>Update name, department, job title, phone, manager.</li>
+              <li>Add skills — these show on your Directory card and help colleagues find you for the right work.</li>
+              <li>Upload a profile photo (used everywhere your name appears).</li>
+            </ul>
+          </>
+        ),
+      },
+      {
+        label: 'Themes',
+        content: (
+          <>
+            <p>Click the sun/moon icon in the header to toggle between light and dark mode. For more options go to <strong>Settings → Themes</strong> — pick from Light, Dark, Midnight, Ocean, Sunset, Forest, Slate, Rose, Aurora, Violet, and a custom accent.</p>
+            <Tip>Your theme choice is saved per device, so your phone and laptop can use different themes.</Tip>
+          </>
+        ),
+      },
+      {
+        label: 'Language',
+        content: (
+          <p>Click the flag icon in the header to switch UI language. Available languages depend on your tenant's configuration.</p>
         ),
       },
     ],
@@ -907,7 +1112,7 @@ const SECTIONS: Section[] = [
 export default function HelpPage() {
   const { t } = useI18n();
   const [search, setSearch] = useState('');
-  const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [, setActiveSection] = useState<string | null>(null);
 
   const filtered = SECTIONS.filter((s) => {
     if (!search) return true;
@@ -926,13 +1131,13 @@ export default function HelpPage() {
 
         {/* Search */}
         <div className="relative">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ds-text-muted" />
           <input
             type="text"
             placeholder="Search documentation…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-200 bg-white"
+            className="w-full pl-9 pr-4 py-2.5 text-sm border border-ds-border rounded-xl outline-none focus:ring-2 focus:ring-indigo-200 bg-ds-surface text-ds-text"
           />
         </div>
 
@@ -946,10 +1151,10 @@ export default function HelpPage() {
                   setActiveSection(s.id);
                   document.getElementById(`section-${s.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }}
-                className="flex flex-col items-center gap-1.5 p-3 rounded-xl border border-gray-100 bg-white hover:border-indigo-200 hover:bg-indigo-50 transition-colors text-center"
+                className="flex flex-col items-center gap-1.5 p-3 rounded-xl border border-ds-border bg-ds-surface hover:border-indigo-200 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors text-center"
               >
                 <span className={`p-2 rounded-lg ${s.color}`}>{s.icon}</span>
-                <span className="text-[10px] font-medium text-gray-600 leading-tight">{s.title.split(' ')[0]}</span>
+                <span className="text-[10px] font-medium text-ds-text-muted leading-tight">{s.title.split(' ')[0]}</span>
               </button>
             ))}
           </div>
@@ -957,16 +1162,14 @@ export default function HelpPage() {
 
         {/* Sections */}
         {filtered.map((section) => (
-          <div key={section.id} id={`section-${section.id}`} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
-            {/* Section header */}
-            <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
+          <div key={section.id} id={`section-${section.id}`} className="bg-ds-surface border border-ds-border rounded-2xl overflow-hidden shadow-sm">
+            <div className="flex items-center gap-3 px-5 py-4 border-b border-ds-border">
               <span className={`p-2 rounded-xl ${section.color}`}>{section.icon}</span>
               <div>
-                <h2 className="text-base font-semibold text-gray-800">{section.title}</h2>
-                <p className="text-xs text-gray-500 mt-0.5">{section.intro}</p>
+                <h2 className="text-base font-semibold text-ds-text">{section.title}</h2>
+                <p className="text-xs text-ds-text-muted mt-0.5">{section.intro}</p>
               </div>
             </div>
-            {/* Items */}
             <div className="p-4 space-y-2">
               {section.items.map((item) => (
                 <AccordionItem key={item.label} label={item.label} content={item.content} />
@@ -976,7 +1179,7 @@ export default function HelpPage() {
         ))}
 
         {filtered.length === 0 && (
-          <div className="text-center py-16 text-gray-400">
+          <div className="text-center py-16 text-ds-text-muted">
             <BookOpen size={32} className="mx-auto mb-3 opacity-30" />
             <p className="text-sm">No results for "{search}"</p>
           </div>

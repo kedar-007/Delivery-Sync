@@ -167,6 +167,34 @@ class NotificationService {
     });
   }
 
+  // ─── Leave lifecycle emails ────────────────────────────────────────────────
+  // Three states each get their own template + accent colour so the email
+  // reads as the right kind of message at a glance (request, approval, rejection).
+
+  async sendLeaveRequested({ toEmail, toName, applicantName, leaveTypeName, startDate, endDate, daysCount, reason }) {
+    return this.send({
+      toEmail,
+      subject: `[Delivery Sync] Leave request — ${applicantName} (${daysCount} day${daysCount > 1 ? 's' : ''})`,
+      htmlBody: this._leaveRequestedTemplate(toName, applicantName, leaveTypeName, startDate, endDate, daysCount, reason),
+    });
+  }
+
+  async sendLeaveApproved({ toEmail, toName, leaveTypeName, startDate, endDate, daysCount, approverName, approverNotes }) {
+    return this.send({
+      toEmail,
+      subject: `[Delivery Sync] Leave approved — ${startDate} to ${endDate}`,
+      htmlBody: this._leaveApprovedTemplate(toName, leaveTypeName, startDate, endDate, daysCount, approverName, approverNotes),
+    });
+  }
+
+  async sendLeaveRejected({ toEmail, toName, leaveTypeName, startDate, endDate, daysCount, approverName, reason }) {
+    return this.send({
+      toEmail,
+      subject: `[Delivery Sync] Leave request not approved — ${startDate} to ${endDate}`,
+      htmlBody: this._leaveRejectedTemplate(toName, leaveTypeName, startDate, endDate, daysCount, approverName, reason),
+    });
+  }
+
   async sendDailySummary({ toEmail, toName, date, submitted, missed, projectName }) {
     return this.send({
       toEmail,
@@ -630,6 +658,135 @@ class NotificationService {
       footerNote: 'This summary is sent to project leads each evening.',
     });
   }
+
+  // ─── Leave lifecycle templates ─────────────────────────────────────────────
+  //
+  // Three distinct templates with their own accent colours so the email reads
+  // as the right kind of message at a glance:
+  //   • requested → amber (action needed by the reviewer)
+  //   • approved  → green (good news, here are your dates)
+  //   • rejected  → red   (not approved, includes the reason)
+
+  // Sent to the reporting manager when a team member applies for leave.
+  _leaveRequestedTemplate(reviewerName, applicantName, leaveTypeName, startDate, endDate, daysCount, reason) {
+    const safeReason = _safe(reason) || '—';
+    const body = `
+      <p style="font-size:15px;color:#374151;margin:0 0 20px;">Hi <strong>${_safe(reviewerName)}</strong>,</p>
+      <p style="font-size:14px;color:#6b7280;margin:0 0 8px;">
+        <strong style="color:#374151;">${_safe(applicantName)}</strong> has applied for leave and is waiting for your review.
+      </p>
+      ${this._infoCard([
+        ['Applicant',  _safe(applicantName)],
+        ['Leave Type', _safe(leaveTypeName) || 'Leave'],
+        ['From',       _safe(startDate)],
+        ['To',         _safe(endDate)],
+        ['Duration',   `${daysCount} day${daysCount > 1 ? 's' : ''}`],
+      ])}
+      <div style="background:#fffbeb;border-left:4px solid #d97706;border-radius:0 6px 6px 0;padding:14px 16px;margin:16px 0;">
+        <p style="margin:0 0 4px;font-size:11px;color:#92400e;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Reason</p>
+        <p style="margin:0;font-size:13px;color:#78350f;line-height:1.5;">${safeReason}</p>
+      </div>
+      <p style="font-size:13px;color:#9ca3af;margin:16px 0 0;">
+        Open the request in DSV OpsPulse to approve or decline.
+      </p>`;
+
+    return this._base({
+      accentColor: '#d97706',
+      preheader: `${_safe(applicantName)} requested ${daysCount} day${daysCount > 1 ? 's' : ''} of ${_safe(leaveTypeName) || 'leave'}`,
+      headerTitle: 'New Leave Request',
+      headerSubtitle: `${_safe(applicantName)} · ${daysCount} day${daysCount > 1 ? 's' : ''}`,
+      body,
+      ctaUrl: '/leave',
+      ctaLabel: 'Review Request',
+      footerNote: 'You received this because you are the reporting manager.',
+    });
+  }
+
+  // Sent to the applicant when the manager approves the request.
+  _leaveApprovedTemplate(applicantName, leaveTypeName, startDate, endDate, daysCount, approverName, approverNotes) {
+    const noteBlock = approverNotes ? `
+      <div style="background:#ecfdf5;border-left:4px solid #059669;border-radius:0 6px 6px 0;padding:14px 16px;margin:16px 0;">
+        <p style="margin:0 0 4px;font-size:11px;color:#065f46;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Note from approver</p>
+        <p style="margin:0;font-size:13px;color:#065f46;line-height:1.5;">${_safe(approverNotes)}</p>
+      </div>` : '';
+
+    const body = `
+      <p style="font-size:15px;color:#374151;margin:0 0 20px;">Hi <strong>${_safe(applicantName)}</strong>,</p>
+      <p style="font-size:14px;color:#6b7280;margin:0 0 8px;">
+        Good news — your leave request has been <strong style="color:#059669;">approved</strong>${approverName ? ` by <strong style="color:#374151;">${_safe(approverName)}</strong>` : ''}. Enjoy the time off.
+      </p>
+      ${this._infoCard([
+        ['Leave Type', _safe(leaveTypeName) || 'Leave'],
+        ['From',       _safe(startDate)],
+        ['To',         _safe(endDate)],
+        ['Duration',   `${daysCount} day${daysCount > 1 ? 's' : ''}`],
+        ['Status',     'APPROVED', '#059669'],
+      ])}
+      ${noteBlock}
+      <p style="font-size:13px;color:#9ca3af;margin:16px 0 0;">
+        Your remaining leave balance has been updated. Check it any time on the Leave page.
+      </p>`;
+
+    return this._base({
+      accentColor: '#059669',
+      preheader: `Your leave from ${_safe(startDate)} to ${_safe(endDate)} is approved`,
+      headerTitle: 'Leave Approved',
+      headerSubtitle: `${_safe(startDate)} → ${_safe(endDate)}`,
+      body,
+      ctaUrl: '/leave',
+      ctaLabel: 'View My Leave',
+      footerNote: 'Your colleagues see your leave on the team calendar from now on.',
+    });
+  }
+
+  // Sent to the applicant when the manager rejects the request.
+  // Reason field is mandatory upstream so it's always populated.
+  _leaveRejectedTemplate(applicantName, leaveTypeName, startDate, endDate, daysCount, approverName, reason) {
+    const body = `
+      <p style="font-size:15px;color:#374151;margin:0 0 20px;">Hi <strong>${_safe(applicantName)}</strong>,</p>
+      <p style="font-size:14px;color:#6b7280;margin:0 0 8px;">
+        Your recent leave request was <strong style="color:#dc2626;">not approved</strong>${approverName ? ` by <strong style="color:#374151;">${_safe(approverName)}</strong>` : ''}.
+        Have a chat with them if you need to revise dates or details and resubmit.
+      </p>
+      ${this._infoCard([
+        ['Leave Type', _safe(leaveTypeName) || 'Leave'],
+        ['From',       _safe(startDate)],
+        ['To',         _safe(endDate)],
+        ['Duration',   `${daysCount} day${daysCount > 1 ? 's' : ''}`],
+        ['Status',     'NOT APPROVED', '#dc2626'],
+      ])}
+      <div style="background:#fef2f2;border-left:4px solid #dc2626;border-radius:0 6px 6px 0;padding:14px 16px;margin:16px 0;">
+        <p style="margin:0 0 4px;font-size:11px;color:#991b1b;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Reason</p>
+        <p style="margin:0;font-size:13px;color:#7f1d1d;line-height:1.5;">${_safe(reason) || '—'}</p>
+      </div>
+      <p style="font-size:13px;color:#9ca3af;margin:16px 0 0;">
+        Your leave balance is unchanged — the requested days have been released back into your remaining quota.
+      </p>`;
+
+    return this._base({
+      accentColor: '#dc2626',
+      preheader: `Your leave request from ${_safe(startDate)} to ${_safe(endDate)} was not approved`,
+      headerTitle: 'Leave Not Approved',
+      headerSubtitle: `${_safe(startDate)} → ${_safe(endDate)}`,
+      body,
+      ctaUrl: '/leave',
+      ctaLabel: 'Open My Leave',
+      footerNote: 'Need to discuss? Reach out to your manager or HR directly.',
+    });
+  }
+}
+
+// HTML-escape helper for free-text fields (names, reasons, leave-type names).
+// The templates above embed values directly into HTML strings — this prevents
+// a user typing < or > or & into their reason from breaking the email markup
+// or being interpreted as HTML by the recipient's mail client.
+function _safe(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 module.exports = NotificationService;

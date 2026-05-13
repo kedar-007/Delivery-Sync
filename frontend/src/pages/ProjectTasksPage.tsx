@@ -109,7 +109,11 @@ export default function ProjectTasksPage() {
   const { user } = useAuth();
   const { confirm } = useConfirm();
 
-  const isAdmin = ['TENANT_ADMIN', 'DELIVERY_LEAD', 'PMO'].includes(user?.role ?? '');
+  // Use permission-based gates instead of role string checks — the codebase
+  // only has TEAM_MEMBER + TENANT_ADMIN as real roles, everything else flows
+  // through permissions assigned via org roles. Hardcoding role names breaks
+  // for custom org roles like "Project Lead" or "Senior QA".
+  const isAdmin = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TASK_WRITE);
 
   // ── Data ──
   const { data: rawTasks, isLoading, error } = useTasks({ project_id: projectId! });
