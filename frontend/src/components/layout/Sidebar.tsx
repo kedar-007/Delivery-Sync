@@ -125,10 +125,15 @@ const NAV_ITEMS: NavItem[] = [
 // ─── Single nav item ──────────────────────────────────────────────────────────
 
 const SidebarNavItem = ({
-  item, collapsed, onClose, user, modules, navLabel,
+  item, collapsed, onClose, user, modules, navLabel, onExpandSidebar,
 }: {
   item: NavItem; collapsed: boolean; onClose?: () => void; user?: CurrentUser | null;
   modules: Record<string, boolean>; navLabel: (label: string) => string;
+  // When the sidebar is collapsed, parent items can't reveal their children
+  // inline — they'd be hidden by the !collapsed gate below. Calling this
+  // expands the sidebar so the children actually become visible after the
+  // click. Leaf items don't need it (they navigate directly).
+  onExpandSidebar?: () => void;
 }) => {
   const location = useLocation();
   const displayLabel = navLabel(item.label);
@@ -145,10 +150,22 @@ const SidebarNavItem = ({
     });
     if (visibleChildren.length === 0) return null;
 
+    const handleParentClick = () => {
+      if (collapsed) {
+        // Open the sidebar first, then make sure this group is expanded so
+        // the children actually appear instead of staying hidden behind the
+        // !collapsed gate below.
+        onExpandSidebar?.();
+        setExpanded(true);
+      } else {
+        setExpanded(!expanded);
+      }
+    };
+
     return (
       <div className="mb-0.5">
         <button
-          onClick={() => setExpanded(!expanded)}
+          onClick={handleParentClick}
           title={collapsed ? displayLabel : undefined}
           aria-expanded={expanded}
           className={clsx(
@@ -167,7 +184,7 @@ const SidebarNavItem = ({
           <div className="ms-3 mt-0.5 space-y-0.5 border-s ps-2"
             style={{ borderColor: 'rgba(var(--ds-sidebar-text), 0.1)' }}>
             {visibleChildren.map((child) => (
-              <SidebarNavItem key={child.to || child.label} item={child} collapsed={false} onClose={onClose} user={user} modules={modules} navLabel={navLabel} />
+              <SidebarNavItem key={child.to || child.label} item={child} collapsed={false} onClose={onClose} user={user} modules={modules} navLabel={navLabel} onExpandSidebar={onExpandSidebar} />
             ))}
           </div>
         )}
@@ -201,7 +218,7 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
   const { user, logout } = useAuth();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const { data: profile } = useMyProfile();
-  const { collapsed, toggleCollapsed, items } = useSidebar();
+  const { collapsed, toggleCollapsed, setCollapsed, items } = useSidebar();
   const { festival } = useFestival();
   const modules = useModulePermissions();
   const { t } = useI18n();
@@ -397,6 +414,7 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
             user={user}
             modules={modules as Record<string, boolean>}
             navLabel={navLabel}
+            onExpandSidebar={() => setCollapsed(false)}
           />
         ))}
       </nav>

@@ -914,8 +914,14 @@ function TaskFormFields({
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="form-label">Due Date</label>
-          <input type="date" className="form-input" {...register('due_date')} />
+          <label className="form-label">Due Date *</label>
+          <input
+            type="date"
+            className="form-input"
+            min={new Date().toISOString().split('T')[0]}
+            {...register('due_date', { required: 'Due date is required' })}
+          />
+          {errors.due_date && <p className="form-error">{errors.due_date.message as string}</p>}
         </div>
         <div>
           <label className="form-label">Sprint</label>

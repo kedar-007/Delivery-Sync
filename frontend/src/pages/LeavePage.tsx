@@ -1,5 +1,5 @@
 import React, { useState ,useEffect} from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { Plus, Calendar, CheckCircle, XCircle, Clock, BarChart2, Building2, Trash2, Upload, LayoutGrid, LayoutList, MapPin, Pencil, Users, Save, ChevronDown, ChevronUp, Settings2, AlertTriangle, Info } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { format, parseISO, differenceInCalendarDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
@@ -120,7 +120,7 @@ type Tab = 'my' | 'apply' | 'team' | 'who-is-off' | 'calendar' | 'balance' | 'co
 
 // ── My Leaves Tab ─────────────────────────────────────────────────────────────
 
-const MyLeavesTab = () => {
+const MyLeavesTab = ({ highlightId = '' }: { highlightId?: string }) => {
   const [cancelTarget, setCancelTarget] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState('');
 
@@ -129,6 +129,17 @@ const MyLeavesTab = () => {
   const cancelLeave = useCancelLeave();
 
   const requests: LeaveRequest[] = (data as LeaveRequest[]) ?? [];
+
+  // Scroll the row matching ?requestId= into view when arriving from a
+  // notification click. Same UX pattern as the WFH tab.
+  const highlightRef = React.useRef<HTMLTableRowElement | null>(null);
+  useEffect(() => {
+    if (!highlightId || isLoading) return;
+    const t = setTimeout(() => {
+      highlightRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+    return () => clearTimeout(t);
+  }, [highlightId, isLoading]);
 
   const handleCancel = async () => {
     if (!cancelTarget) return;
@@ -164,8 +175,18 @@ const MyLeavesTab = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {requests.map((req) => (
-                  <tr key={req.id} className="hover:bg-gray-50">
+                {requests.map((req) => {
+                  const isHighlight = highlightId && String(req.id) === String(highlightId);
+                  return (
+                  <tr
+                    key={req.id}
+                    ref={isHighlight ? highlightRef : undefined}
+                    className={`transition-all ${
+                      isHighlight
+                        ? 'bg-blue-50 ring-2 ring-blue-300 ring-inset animate-pulse'
+                        : 'hover:bg-gray-50'
+                    }`}
+                  >
                     <td className="px-4 py-3 font-medium text-gray-900">{req.leaveTypeName ?? 'Leave'}</td>
                     <td className="px-4 py-3 text-gray-600">
                       <div className="flex items-center gap-1 text-xs">
@@ -200,7 +221,8 @@ const MyLeavesTab = () => {
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -404,7 +426,7 @@ const ApplyTab = () => {
 
 // ── Team Requests Tab ─────────────────────────────────────────────────────────
 
-const TeamRequestsTab = () => {
+const TeamRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
   const [rejectTarget, setRejectTarget] = useState<string | null>(null);
   const [rejectError, setRejectError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -413,6 +435,26 @@ const TeamRequestsTab = () => {
   const params: Record<string, string> = { team: 'true', ...(statusFilter ? { status: statusFilter } : {}) };
   const { data, isLoading, error } = useLeaveRequests(params);
   const requests: LeaveRequest[] = (data as LeaveRequest[]) ?? [];
+
+  // If the manager arrived from a notification but the matching request
+  // isn't in the current filter (e.g. an approved leave while filter is
+  // PENDING), broaden the filter to "all" so the row becomes visible.
+  useEffect(() => {
+    if (!highlightId || isLoading) return;
+    const found = requests.some((r) => String(r.id) === String(highlightId));
+    if (!found && statusFilter !== '') setStatusFilter('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightId, isLoading, requests.length]);
+
+  // Scroll the highlighted row into view once it's present.
+  const highlightRef = React.useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!highlightId || isLoading) return;
+    const t = setTimeout(() => {
+      highlightRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+    return () => clearTimeout(t);
+  }, [highlightId, isLoading, requests.length]);
 
   const approveLeave = useApproveLeave();
   const rejectLeave = useRejectLeave();
@@ -468,8 +510,18 @@ const TeamRequestsTab = () => {
           <EmptyState title="No requests" description="No leave requests match this filter." />
         ) : (
           <div className="divide-y divide-gray-50">
-            {requests.map((req) => (
-              <div key={req.id} className="flex items-start gap-4 px-4 py-4 hover:bg-gray-50">
+            {requests.map((req) => {
+              const isHighlight = highlightId && String(req.id) === String(highlightId);
+              return (
+              <div
+                key={req.id}
+                ref={isHighlight ? highlightRef : undefined}
+                className={`flex items-start gap-4 px-4 py-4 transition-all ${
+                  isHighlight
+                    ? 'bg-blue-50 ring-2 ring-blue-300 ring-inset animate-pulse'
+                    : 'hover:bg-gray-50'
+                }`}
+              >
                 <UserAvatar name={req.userName ?? ''} avatarUrl={req.userAvatarUrl} size="md" />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
@@ -511,7 +563,8 @@ const TeamRequestsTab = () => {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Card>
@@ -2072,7 +2125,29 @@ const LeavePage = () => {
   const { user } = useAuth();
   const isManager = hasPermission(user, PERMISSIONS.LEAVE_APPROVE);
   const isAdmin   = hasPermission(user, PERMISSIONS.LEAVE_ADMIN);
-  const [tab, setTab] = useState<Tab>('my');
+
+  // Deep-link support: ?requestId=X (e.g. clicked a leave notification in the
+  // bell). Default to the My Leaves tab; if the manager has both manager
+  // rights AND the request is pending, jumping to Team Requests would make
+  // more sense — but we can't know server-side which list owns the request
+  // without an extra fetch, so we land on My Leaves and let the highlight
+  // pulse on whichever tab actually contains it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialFocusId = searchParams.get('requestId') || '';
+  const [tab, setTab] = useState<Tab>(
+    (searchParams.get('tab') as Tab) || 'my'
+  );
+  const [highlightLeaveId, setHighlightLeaveId] = useState<string>(initialFocusId);
+
+  useEffect(() => {
+    if (searchParams.get('tab') || searchParams.get('requestId')) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('tab');
+      next.delete('requestId');
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode; managerOnly?: boolean; adminOnly?: boolean }[] = [
     { id: 'my',             label: 'My Leaves',       icon: <Clock size={15} /> },
@@ -2124,9 +2199,9 @@ const LeavePage = () => {
         </div>
 
         {/* Tab Content */}
-        {tab === 'my' && <MyLeavesTab />}
+        {tab === 'my' && <MyLeavesTab highlightId={highlightLeaveId} />}
         {tab === 'apply' && <ApplyTab />}
-        {tab === 'team' && isManager && <TeamRequestsTab />}
+        {tab === 'team' && isManager && <TeamRequestsTab highlightId={highlightLeaveId} />}
         {tab === 'who-is-off' && <TeamOnLeaveTab />}
         {tab === 'calendar' && <CalendarTab />}
         {tab === 'balance' && <BalanceTab />}

@@ -516,8 +516,16 @@ const BacklogPage = () => {
               />
             </div>
             <div>
-              <label className="form-label">Due Date</label>
-              <input type="date" className="form-input" {...createForm.register('due_date')} />
+              <label className="form-label">Due Date *</label>
+              <input
+                type="date"
+                className="form-input"
+                min={new Date().toISOString().split('T')[0]}
+                {...createForm.register('due_date', { required: 'Due date is required' })}
+              />
+              {createForm.formState.errors.due_date && (
+                <p className="form-error">{createForm.formState.errors.due_date.message as string}</p>
+              )}
             </div>
           </div>
           {canManageApproval && (

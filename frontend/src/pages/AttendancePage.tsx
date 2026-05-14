@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { Clock, LogIn, LogOut, Home, Users, BarChart2, AlertTriangle, UtensilsCrossed, Coffee, Bot } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { format, parseISO, startOfWeek, endOfWeek, addDays } from 'date-fns';
@@ -1073,13 +1073,27 @@ const wfhStatusVariant = (status: string): 'success' | 'danger' | 'warning' | 'g
   return map[status] ?? 'gray';
 };
 
-const WfhRequestsTab = () => {
+const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [rejectTarget, setRejectTarget] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
 
   const { data: myRequests = [], isLoading: myLoading } = useWfhRequests({ mine: 'true' });
   const { data: teamRequests = [], isLoading: teamLoading } = useWfhRequests({ team: 'true' });
+
+  // When the page was opened from a WFH notification, scroll the matching
+  // row into view and pulse a ring around it briefly so the user sees which
+  // request triggered the notification.
+  const highlightRef = React.useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!highlightId) return;
+    if (myLoading || teamLoading) return; // wait for rows to render
+    // Scroll on next frame so the DOM has the highlighted row mounted
+    const t = setTimeout(() => {
+      highlightRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+    return () => clearTimeout(t);
+  }, [highlightId, myLoading, teamLoading]);
 
   const submitWfh  = useSubmitWfhRequest();
   const approveWfh = useApproveWfhRequest();
@@ -1153,8 +1167,18 @@ const WfhRequestsTab = () => {
           <EmptyState title="No WFH requests yet" description="You haven't submitted any WFH requests. Use the button above to request a WFH day." />
         ) : (
           <div className="space-y-2">
-            {(myRequests as any[]).map((req: any) => (
-              <div key={req.id} className="flex items-center justify-between px-3 py-3 bg-gray-50 rounded-xl border border-gray-100">
+            {(myRequests as any[]).map((req: any) => {
+              const isHighlight = highlightId && String(req.id) === String(highlightId);
+              return (
+              <div
+                key={req.id}
+                ref={isHighlight ? highlightRef : undefined}
+                className={`flex items-center justify-between px-3 py-3 rounded-xl border transition-all ${
+                  isHighlight
+                    ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-300 ring-offset-1 animate-pulse'
+                    : 'bg-gray-50 border-gray-100'
+                }`}
+              >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <p className="text-sm font-medium text-gray-800">
@@ -1180,7 +1204,8 @@ const WfhRequestsTab = () => {
                   </button>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Card>
@@ -1196,8 +1221,18 @@ const WfhRequestsTab = () => {
             </Badge>
           </div>
           <div className="space-y-2">
-            {(teamRequests as any[]).map((req: any) => (
-              <div key={req.id} className="flex items-center justify-between px-3 py-3 bg-gray-50 rounded-xl border border-gray-100">
+            {(teamRequests as any[]).map((req: any) => {
+              const isHighlight = highlightId && String(req.id) === String(highlightId);
+              return (
+              <div
+                key={req.id}
+                ref={isHighlight ? highlightRef : undefined}
+                className={`flex items-center justify-between px-3 py-3 rounded-xl border transition-all ${
+                  isHighlight
+                    ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-300 ring-offset-1 animate-pulse'
+                    : 'bg-gray-50 border-gray-100'
+                }`}
+              >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <p className="text-sm font-medium text-gray-800">{req.userName ?? req.user_name ?? '—'}</p>
@@ -1231,7 +1266,8 @@ const WfhRequestsTab = () => {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         </Card>
       )}
@@ -1325,7 +1361,27 @@ const AttendancePage = () => {
     hasPermission(user, PERMISSIONS.ATTENDANCE_TEAM_VIEW) ||
     ATTENDANCE_MANAGER_PERMS.some((p) => effectivePerms.includes(p));
   const canManageIp = hasPermission(user, PERMISSIONS.IP_CONFIG_WRITE);
-  const [tab, setTab] = useState<Tab>('my');
+
+  // Deep-link support: ?tab=wfh&requestId=X (e.g. user clicked a WFH
+  // notification in the bell). We read the URL once on mount, switch to the
+  // requested tab, and pass the requestId down so the matching row can
+  // highlight + scroll into view. Params are then stripped so refresh/back
+  // doesn't re-apply them.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab     = (searchParams.get('tab') as Tab) || 'my';
+  const initialFocusId = searchParams.get('requestId') || '';
+  const [tab, setTab] = useState<Tab>(initialTab);
+  const [highlightWfhId, setHighlightWfhId] = useState<string>(initialFocusId);
+
+  useEffect(() => {
+    if (searchParams.get('tab') || searchParams.get('requestId')) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('tab');
+      next.delete('requestId');
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode; managerOnly?: boolean; ipOnly?: boolean }[] = [
     { id: 'my',        label: 'My Attendance',  icon: <Clock size={15} /> },
@@ -1368,7 +1424,7 @@ const AttendancePage = () => {
 
         {/* Tab Content */}
         {tab === 'my' && <MyAttendanceTab onRequestWfh={() => setTab('wfh')} />}
-        {tab === 'wfh' && <WfhRequestsTab />}
+        {tab === 'wfh' && <WfhRequestsTab highlightId={highlightWfhId} />}
         {tab === 'live' && isManager && <TeamLiveTab />}
         {tab === 'records' && <RecordsTab isManager={isManager} />}
         {tab === 'summary' && <SummaryTab />}

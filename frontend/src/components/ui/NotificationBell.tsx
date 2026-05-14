@@ -112,8 +112,14 @@ function notificationLink(n: Notification, tenantSlug: string | undefined): stri
     case 'BLOCKER':
       return `${base}/blockers`;
     case 'LEAVE':
+      // Land on the My Leaves tab (default) and let the page scroll to /
+      // highlight the specific request via the requestId param.
+      return id ? `${base}/leave?requestId=${id}` : `${base}/leave`;
     case 'WFH_REQUEST':
-      return `${base}/leave`;
+      // WFH lives under Attendance → WFH Requests tab, not Leave.
+      return id
+        ? `${base}/attendance?tab=wfh&requestId=${id}`
+        : `${base}/attendance?tab=wfh`;
     case 'ATTENDANCE':
       return `${base}/attendance`;
     case 'TIME_ENTRY':

@@ -123,6 +123,15 @@ class TaskController {
     const userId = req.currentUser.id;
 
     if (!title) return ResponseHelper.validationError(res, 'title is required');
+    // Defence in depth — the frontend already marks Due Date as mandatory, but
+    // a hand-crafted POST without it would otherwise leak through. We also
+    // accept full ISO strings here (e.g. "2026-05-14T00:00:00Z") by trimming
+    // anything after the date portion before validating the YYYY-MM-DD shape.
+    if (!due_date) return ResponseHelper.validationError(res, 'due_date is required');
+    const _dueDateOnly = String(due_date).split('T')[0].split(' ')[0].trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(_dueDateOnly)) {
+      return ResponseHelper.validationError(res, 'due_date must be in YYYY-MM-DD format');
+    }
 
     // Normalise labels — frontend may send JSON string or array
     let labelsStr = '[]';
@@ -159,7 +168,9 @@ class TaskController {
       created_by: String(userId),
       require_approval: req.body.require_approval === true || req.body.require_approval === 'true' ? 'true' : 'false',
     };
-    if (due_date) insertData.due_date = due_date;
+    // Store the normalised YYYY-MM-DD (already validated above) so a stray
+    // time component from the client doesn't leak into the DATE column.
+    insertData.due_date = _dueDateOnly;
 
     const row = await this.db.insert(TABLES.TASKS, insertData);
 

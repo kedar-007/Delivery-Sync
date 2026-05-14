@@ -1126,8 +1126,16 @@ export default function SprintBoardPage() {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="form-label">Due Date</label>
-              <input type="date" className="form-input" {...taskForm.register('due_date')} />
+              <label className="form-label">Due Date *</label>
+              <input
+                type="date"
+                className="form-input"
+                min={new Date().toISOString().split('T')[0]}
+                {...taskForm.register('due_date', { required: 'Due date is required' })}
+              />
+              {taskForm.formState.errors.due_date && (
+                <p className="form-error">{taskForm.formState.errors.due_date.message as string}</p>
+              )}
             </div>
             <div>
               <label className="form-label">Est. Hours</label>
@@ -1744,8 +1752,15 @@ export default function SprintBoardPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="form-label">Due Date</label>
-                <input type="date" className="form-input" {...editForm.register('due_date')} />
+                <label className="form-label">Due Date *</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  {...editForm.register('due_date', { required: 'Due date is required' })}
+                />
+                {editForm.formState.errors.due_date && (
+                  <p className="form-error">{editForm.formState.errors.due_date.message as string}</p>
+                )}
               </div>
               <div>
                 <label className="form-label">Est. Hours</label>
