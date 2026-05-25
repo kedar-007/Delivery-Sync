@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -8,6 +9,41 @@ import '../../../../core/services/api_client.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../auth/providers/auth_provider.dart';
 import '../../../projects/providers/projects_provider.dart';
+
+// Shared markdown stylesheet used wherever an LLM-generated string is shown.
+// The new model emits standard markdown (headings, bold, lists, inline code);
+// rendering it via flutter_markdown keeps the visual hierarchy intact instead
+// of dumping a wall of asterisks and `#` characters.
+MarkdownStyleSheet _llmMarkdownSheet(BuildContext ctx,
+    {required double fontSize, Color? color}) {
+  final ds = ctx.ds;
+  final base = TextStyle(
+    fontSize: fontSize,
+    height: 1.45,
+    color: color ?? ds.textPrimary,
+  );
+  return MarkdownStyleSheet(
+    p:           base,
+    listBullet:  base,
+    strong:      base.copyWith(fontWeight: FontWeight.w700),
+    em:          base.copyWith(fontStyle: FontStyle.italic),
+    h1:          base.copyWith(fontSize: fontSize + 4, fontWeight: FontWeight.w800),
+    h2:          base.copyWith(fontSize: fontSize + 3, fontWeight: FontWeight.w800),
+    h3:          base.copyWith(fontSize: fontSize + 2, fontWeight: FontWeight.w700),
+    h4:          base.copyWith(fontSize: fontSize + 1, fontWeight: FontWeight.w700),
+    code:        base.copyWith(
+      fontFamily: 'monospace',
+      backgroundColor: ds.bgElevated,
+    ),
+    blockquoteDecoration: BoxDecoration(
+      color: ds.bgElevated,
+      border: Border(left: BorderSide(color: AppColors.primaryLight, width: 3)),
+    ),
+    blockquotePadding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+    blockSpacing: 6,
+    listIndent: 18,
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  State
@@ -614,7 +650,13 @@ class _HealthBody extends StatelessWidget {
         const SizedBox(height: 14),
       ],
       if (analysis != null) ...[
-        Text(analysis, style: TextStyle(fontSize: 13, color: ds.textPrimary, height: 1.5)),
+        // LLM output — render as markdown so headings / bullets / bold
+        // produce real visual structure instead of bare `**asterisks**`.
+        MarkdownBody(
+          data: analysis,
+          selectable: true,
+          styleSheet: _llmMarkdownSheet(context, fontSize: 13),
+        ),
         const SizedBox(height: 10),
       ],
       if (risks.isNotEmpty) ...[
@@ -676,8 +718,11 @@ class _HolisticPerfBody extends StatelessWidget {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       // Team summary
       if (teamSummary != null) ...[
-        Text(teamSummary,
-            style: TextStyle(fontSize: 13, color: ds.textPrimary, height: 1.5)),
+        MarkdownBody(
+          data: teamSummary,
+          selectable: true,
+          styleSheet: _llmMarkdownSheet(context, fontSize: 13),
+        ),
         const SizedBox(height: 12),
       ],
 
@@ -849,7 +894,12 @@ class _MemberPerfTileState extends State<_MemberPerfTile> {
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               if (summary != null) ...[
-                Text(summary, style: TextStyle(fontSize: 12, color: ds.textSecondary, height: 1.4)),
+                MarkdownBody(
+                  data: summary,
+                  selectable: true,
+                  styleSheet:
+                      _llmMarkdownSheet(context, fontSize: 12, color: ds.textSecondary),
+                ),
                 const SizedBox(height: 10),
               ],
 

@@ -50,8 +50,9 @@ class AssignmentController {
     if (!assignment) return ResponseHelper.notFound(res, 'Assignment not found');
     if (assignment.is_active !== 'true') return ResponseHelper.validationError(res, 'Assignment already returned');
     await this.db.update(TABLES.ASSET_ASSIGNMENTS, { ROWID: req.params.assignmentId, returned_date: DataStoreService.fmtDT(new Date()) });
-    // Clear asset assignment — use empty string for assigned_at (Date column)
-    await this.db.update(TABLES.ASSETS, { ROWID: assignment.asset_id, status: ASSET_STATUS.AVAILABLE, assigned_to: '0' });
+    // Clear asset assignment — assigned_to has a FK to users.ROWID, so '0'
+    // is rejected. null is the canonical "no assignee" value.
+    await this.db.update(TABLES.ASSETS, { ROWID: assignment.asset_id, status: ASSET_STATUS.AVAILABLE, assigned_to: null });
     await this.audit.log({ tenantId: req.tenantId, entityType: 'ASSET_ASSIGNMENT', entityId: req.params.assignmentId, action: AUDIT_ACTION.RETURN, newValue: { returned: true }, performedBy: req.currentUser.id });
     return ResponseHelper.success(res, { message: 'Asset returned' });
   }

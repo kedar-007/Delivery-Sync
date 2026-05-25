@@ -11,6 +11,39 @@ export const useEod = (
     enabled: options?.enabled !== false,
   });
 
+// Pagination shape mirrors `useStandupsPaged`. The backend serves the legacy
+// `{ eods: [...] }` shape when `page` is omitted, and `{ eods, pagination }`
+// when it's present. The hook normalises both so callers can render
+// pagination controls uniformly.
+export interface EodPagination {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  hasMore: boolean;
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export interface EodResult { data: any[]; pagination: EodPagination | null; }
+
+export const useEodPaged = (
+  params?: Record<string, string>,
+  options?: { enabled?: boolean }
+) =>
+  useQuery<EodResult>({
+    queryKey: ['eod', 'paged', params],
+    queryFn: async () => {
+      const res = await eodApi.list(params);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = res as any;
+      if (r && Array.isArray(r.eods) && r.pagination) {
+        return { data: r.eods, pagination: r.pagination as EodPagination };
+      }
+      const arr = (r && Array.isArray(r.eods)) ? r.eods : [];
+      return { data: arr, pagination: null };
+    },
+    enabled: options?.enabled !== false,
+  });
+
 export const useEodRollup = (params: { projectId: string; startDate?: string; endDate?: string }) =>
   useQuery({
     queryKey: ['eod-rollup', params],

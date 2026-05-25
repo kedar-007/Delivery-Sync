@@ -52,6 +52,17 @@ dependencies:
   package_info_plus: ^8.0.0
   flutter_local_notifications: ^21.0.0
 
+  # Markdown rendering for LLM-generated text (AI Insights, summaries, etc.)
+  flutter_markdown: ^0.7.4
+
+  # ── Asset QR ──────────────────────────────────────────────────────────────
+  # qr_flutter renders the per-assignment QR sticker for the owner; mobile_scanner
+  # is the native camera path. image_picker feeds the Zia fallback endpoint when
+  # the camera can't acquire the code.
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^5.2.0
+  image_picker: ^1.1.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

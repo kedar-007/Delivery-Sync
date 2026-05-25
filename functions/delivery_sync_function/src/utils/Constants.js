@@ -72,6 +72,9 @@ const PERMISSIONS = Object.freeze({
   ASSET_ASSIGN: 'ASSET_ASSIGN',
   ASSET_APPROVE: 'ASSET_APPROVE',
   ASSET_ADMIN: 'ASSET_ADMIN',
+  // QR scan tiers — granted via Org Roles UI; never tied to a static role.
+  ASSET_SCAN_FULL: 'ASSET_SCAN_FULL',
+  ASSET_SCAN_BASIC: 'ASSET_SCAN_BASIC',
   // ── Badge & Profile permissions ──────────────────────────────────────────────
   BADGE_READ: 'BADGE_READ',
   BADGE_WRITE: 'BADGE_WRITE',
@@ -104,12 +107,16 @@ const PERMISSIONS = Object.freeze({
   CEO_DASHBOARD: 'CEO_DASHBOARD',
   CTO_DASHBOARD: 'CTO_DASHBOARD',
   // ── AI Insights ───────────────────────────────────────────────────────────────
-  // AI_INSIGHTS      – basic AI page: daily summary, suggestions, NLQ, blocker detection
-  // AI_PERFORMANCE   – individual & team performance analysis cards
-  // AI_TEAM_ANALYSIS – org-wide analysis: holistic, health, trends, retrospective
-  AI_INSIGHTS:      'AI_INSIGHTS',
-  AI_PERFORMANCE:   'AI_PERFORMANCE',
-  AI_TEAM_ANALYSIS: 'AI_TEAM_ANALYSIS',
+  // Four-tier AI access. Each tier is granted independently via the permissions
+  // modal — there are no automatic role defaults for AI_PERFORMANCE_SELF.
+  //   AI_INSIGHTS         – basic AI page: daily summary, suggestions, NLQ
+  //   AI_PERFORMANCE_SELF – analyse OWN data only (no team picker, no other users)
+  //   AI_PERFORMANCE      – analyse own team(s) (teams the user is a member/lead of)
+  //   AI_TEAM_ANALYSIS    – analyse ANY team + the org-wide "All Teams" view
+  AI_INSIGHTS:         'AI_INSIGHTS',
+  AI_PERFORMANCE_SELF: 'AI_PERFORMANCE_SELF',
+  AI_PERFORMANCE:      'AI_PERFORMANCE',
+  AI_TEAM_ANALYSIS:    'AI_TEAM_ANALYSIS',
 });
 
 // ─── Role → Permission Matrix ─────────────────────────────────────────────────
@@ -143,7 +150,9 @@ const ROLE_PERMISSIONS = Object.freeze({
     PERMISSIONS.CONFIG_READ,
     PERMISSIONS.ORG_ROLE_READ,
     PERMISSIONS.TASK_ASSIGN,
-    PERMISSIONS.AI_INSIGHTS, PERMISSIONS.AI_PERFORMANCE, PERMISSIONS.AI_TEAM_ANALYSIS,
+    // Delivery Leads see their own teams via AI_PERFORMANCE; AI_TEAM_ANALYSIS
+    // is reserved for admin/PMO/exec (org-wide "All Teams" view).
+    PERMISSIONS.AI_INSIGHTS, PERMISSIONS.AI_PERFORMANCE,
   ],
   [ROLES.TEAM_MEMBER]: [
     PERMISSIONS.PROJECT_READ,

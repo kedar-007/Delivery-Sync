@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import {
   AlertTriangle, CheckSquare, Clock, FolderKanban,
   LogIn, LogOut, CheckCircle2, Circle, ArrowUpRight, Timer,
-  Layers, ChevronRight, Calendar, BarChart2, Zap, Users,
+  Layers, ChevronRight, Calendar, Zap, Users,
   AlertCircle, Star, Bell, Award, TrendingUp, TrendingDown,
   Activity, ShieldAlert, ClipboardList, Briefcase,
   Target, BarChart, Flame, Coffee, CheckCheck,
@@ -28,7 +28,6 @@ import UserAvatar from '../components/ui/UserAvatar';
 import { useTasks } from '../hooks/useTaskSprint';
 import { useProjects } from '../hooks/useProjects';
 import { useMyProfile } from '../hooks/useBadgeProfile';
-import PerformanceModal from '../components/ui/PerformanceModal';
 import { useI18n } from '../contexts/I18nContext';
 
 // ── Live Timer ────────────────────────────────────────────────────────────────
@@ -872,7 +871,6 @@ const DashboardPage = () => {
   const { user } = useAuth();
   const isManager = hasPermission(user, PERMISSIONS.ORG_ROLE_READ);
   const isPmo = hasPermission(user, PERMISSIONS.ADMIN_USERS);
-  const [showPerformance, setShowPerformance] = useState(false);
   const { data, isLoading, error } = useDashboardSummary();
   const { data: rawTasks = [] } = useTasks();
 
@@ -894,13 +892,6 @@ const DashboardPage = () => {
       <Header
         title={t('nav.dashboard')}
         subtitle={today}
-        actions={
-          isManager ? (
-            <Button size="sm" variant="secondary" icon={<BarChart2 size={15} />} onClick={() => setShowPerformance(true)}>
-              Analyze Performance
-            </Button>
-          ) : undefined
-        }
       />
       <div className="p-6 space-y-5">
 
@@ -1006,12 +997,6 @@ const DashboardPage = () => {
 
       </div>
 
-      <PerformanceModal
-        open={showPerformance}
-        onClose={() => setShowPerformance(false)}
-        targetUserId={isManager ? undefined : user?.id}
-        targetName={isManager ? undefined : user?.name}
-      />
     </Layout>
   );
 };

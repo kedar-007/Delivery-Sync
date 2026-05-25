@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -95,11 +96,21 @@ final _taskCommentsProvider =
   return [];
 });
 
+// The Time Log section inside Task Details should only show the **current
+// user's** entries for that task — mirrors the web behaviour. The backend
+// auto-scopes /entries to req.currentUser for normal users, but admins
+// (TENANT_ADMIN / ORG_WIDE / SUBORDINATES data scope) get everyone's rows
+// back unless an explicit user_id filter is passed. We always pass user_id
+// so the view is consistent regardless of role.
 final _taskTimeEntriesProvider =
     FutureProvider.autoDispose.family<List<dynamic>, String>((ref, taskId) async {
+  final me = ref.watch(currentUserProvider);
   final raw = await ApiClient.instance.get<Map<String, dynamic>>(
     '${AppConstants.baseTime}/entries',
-    queryParameters: {'taskId': taskId},
+    queryParameters: {
+      'task_id': taskId,
+      if (me?.id != null && me!.id.isNotEmpty) 'user_id': me.id,
+    },
     fromJson: (r) => r as Map<String, dynamic>,
   );
   final d = raw['data'];
@@ -2322,8 +2333,15 @@ class _SprintAiSheetState extends State<_SprintAiSheet> {
                           // Summary
                           if ((d['sprintSummary'] as String?)?.isNotEmpty == true) ...[
                             _AiSection(label: 'Summary', icon: Icons.summarize_rounded, color: const Color(0xFFA855F7),
-                              child: Text(d['sprintSummary'] as String,
-                                  style: TextStyle(fontSize: 13, color: ds.textSecondary, height: 1.5))),
+                              child: MarkdownBody(
+                                data: d['sprintSummary'] as String,
+                                selectable: true,
+                                styleSheet: MarkdownStyleSheet(
+                                  p: TextStyle(fontSize: 13, color: ds.textSecondary, height: 1.5),
+                                  strong: TextStyle(fontSize: 13, color: ds.textSecondary, height: 1.5, fontWeight: FontWeight.w700),
+                                  listBullet: TextStyle(fontSize: 13, color: ds.textSecondary, height: 1.5),
+                                ),
+                              )),
                             const SizedBox(height: 12),
                           ],
                           // Insights
@@ -2333,7 +2351,15 @@ class _SprintAiSheetState extends State<_SprintAiSheet> {
                             const SizedBox(height: 12),
                           ] else if (d['insights'] is String && (d['insights'] as String).isNotEmpty) ...[
                             _AiSection(label: 'Insights', icon: Icons.lightbulb_outline_rounded, color: AppColors.info,
-                              child: Text(d['insights'] as String, style: TextStyle(fontSize: 13, color: ds.textSecondary, height: 1.5))),
+                              child: MarkdownBody(
+                                data: d['insights'] as String,
+                                selectable: true,
+                                styleSheet: MarkdownStyleSheet(
+                                  p: TextStyle(fontSize: 13, color: ds.textSecondary, height: 1.5),
+                                  strong: TextStyle(fontSize: 13, color: ds.textSecondary, height: 1.5, fontWeight: FontWeight.w700),
+                                  listBullet: TextStyle(fontSize: 13, color: ds.textSecondary, height: 1.5),
+                                ),
+                              )),
                             const SizedBox(height: 12),
                           ],
                           // Risks

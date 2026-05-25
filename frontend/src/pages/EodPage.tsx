@@ -11,9 +11,10 @@ import { PageLoader } from '../components/ui/Spinner';
 import VoiceRecorder from '../components/voice/VoiceRecorder';
 import VoiceAiInsights from '../components/voice/VoiceAiInsights';
 import { useProjects } from '../hooks/useProjects';
-import { useSubmitEod, useUpdateEod, useEodRollup, useEod } from '../hooks/useEod';
+import { useTeamPeers } from '../hooks/useTeams';
+import { useSubmitEod, useUpdateEod, useEodRollup, useEod, useEodPaged } from '../hooks/useEod';
 import { useProcessVoice, type EodVoiceResult } from '../hooks/useVoiceAI';
-import { format, subDays } from 'date-fns';
+import { format, subDays, startOfWeek, endOfWeek } from 'date-fns';
 import {
   CheckCircle, Sparkles, History, Pencil, X,
   FolderOpen, ChevronDown, ChevronRight, TrendingUp,
@@ -197,13 +198,91 @@ const EodPage = () => {
   const { data: myEods = [], isLoading: myLoading } = useEod();
   const { user: authUser } = useAuth();
   const canSeeTeamEods = hasPermission(authUser, PERMISSIONS.EOD_TEAM_VIEW);
+
+  // Team EOD filter + pagination state — mirrors the Team Standups tab so
+  // managers get the same UX across both views. Defaults to "Today" so the
+  // tab loads useful data on first open.
+  const [teamDateFrom, setTeamDateFrom]   = useState<string>(today);
+  const [teamDateTo,   setTeamDateTo]     = useState<string>(today);
+  const [teamUserId,   setTeamUserId]     = useState<string>('');
+  const [teamProjectId, setTeamProjectId] = useState<string>('');
+  const [teamPage,     setTeamPage]       = useState(1);
+  const [teamPageSize, setTeamPageSize]   = useState(5);
+
+  // Reset to page 1 whenever any team-tab filter changes
+  useEffect(() => { setTeamPage(1); },
+    [teamDateFrom, teamDateTo, teamUserId, teamProjectId, teamPageSize]);
+
+  const teamParams = React.useMemo<Record<string, string>>(() => {
+    const p: Record<string, string> = { scope: 'team' };
+    if (teamDateFrom)  p.startDate  = teamDateFrom;
+    if (teamDateTo)    p.endDate    = teamDateTo;
+    if (teamUserId)    p.userId     = teamUserId;
+    if (teamProjectId) p.projectId  = teamProjectId;
+    p.page     = String(teamPage);
+    p.pageSize = String(teamPageSize);
+    return p;
+  }, [teamDateFrom, teamDateTo, teamUserId, teamProjectId, teamPage, teamPageSize]);
+
   // Team-view fetch — only fires when the Team EOD tab is opened AND the
-  // user has EOD_TEAM_VIEW. Passes scope=team so the backend expands the
-  // query from "own only" to "all team peers".
-  const { data: teamEods = [], isLoading: teamLoading } = useEod(
-    { scope: 'team' },
+  // user has EOD_TEAM_VIEW. Uses the paginated hook so the response includes
+  // { data, pagination } and we can render proper page controls.
+  const { data: teamResult, isLoading: teamLoading } = useEodPaged(
+    teamParams,
     { enabled: tab === 'team' && canSeeTeamEods }
   );
+  const teamEods       = teamResult?.data ?? [];
+  const teamPagination = teamResult?.pagination ?? null;
+  const teamTotal      = teamPagination?.total ?? teamEods.length;
+  const teamTotalPages = Math.max(1, teamPagination?.totalPages ?? Math.ceil(teamEods.length / teamPageSize));
+
+  // User-filter roster — sourced from `/api/teams/peers` so the dropdown
+  // lists every person the caller can see (team members + leads, or the
+  // whole tenant for org-wide callers), not just users who happen to have
+  // an entry on the visible page.
+  const { data: teamPeers = [] } = useTeamPeers(tab === 'team' && canSeeTeamEods);
+  const teamUserOptions = React.useMemo(() => {
+    if (teamPeers.length > 0) {
+      return teamPeers
+        .map((p) => ({ id: p.id, name: p.name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+    const seen = new Map<string, { id: string; name: string }>();
+    (teamEods as Array<{ userId?: string; userName?: string }>).forEach((e) => {
+      const id = String(e.userId || '');
+      if (id && !seen.has(id)) seen.set(id, { id, name: e.userName || 'Team member' });
+    });
+    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [teamPeers, teamEods]);
+
+  const applyTeamDatePreset = (preset: 'today' | 'yesterday' | 'week' | 'all') => {
+    const now = new Date();
+    if (preset === 'all')       { setTeamDateFrom(''); setTeamDateTo(''); return; }
+    if (preset === 'today')     { const d = format(now, 'yyyy-MM-dd'); setTeamDateFrom(d); setTeamDateTo(d); return; }
+    if (preset === 'yesterday') { const d = format(subDays(now, 1), 'yyyy-MM-dd'); setTeamDateFrom(d); setTeamDateTo(d); return; }
+    if (preset === 'week') {
+      setTeamDateFrom(format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd'));
+      setTeamDateTo  (format(endOfWeek  (now, { weekStartsOn: 1 }), 'yyyy-MM-dd'));
+    }
+  };
+  const teamActivePreset = React.useMemo<'today' | 'yesterday' | 'week' | 'all' | 'custom'>(() => {
+    const now = new Date();
+    const t  = format(now, 'yyyy-MM-dd');
+    const y  = format(subDays(now, 1), 'yyyy-MM-dd');
+    const ws = format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+    const we = format(endOfWeek  (now, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+    if (!teamDateFrom && !teamDateTo)            return 'all';
+    if (teamDateFrom === t  && teamDateTo === t) return 'today';
+    if (teamDateFrom === y  && teamDateTo === y) return 'yesterday';
+    if (teamDateFrom === ws && teamDateTo === we) return 'week';
+    return 'custom';
+  }, [teamDateFrom, teamDateTo]);
+  const teamHasFilter = Boolean(teamDateFrom || teamDateTo || teamUserId || teamProjectId);
+  const clearTeamFilters = () => {
+    setTeamDateFrom(today); setTeamDateTo(today);
+    setTeamUserId(''); setTeamProjectId('');
+  };
+
   const { data: rollupData, isLoading: rollupLoading } = useEodRollup({ projectId: rollupProjectId });
   const processVoice = useProcessVoice();
 
@@ -711,12 +790,101 @@ const EodPage = () => {
               </span>
             </div>
 
+            {/* Filter card — date presets + custom range + project + user +
+                Clear button. Mirrors the Team Standups tab so the UX is
+                consistent across both team views. */}
+            <Card>
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                {[
+                  { key: 'today',     label: 'Today' },
+                  { key: 'yesterday', label: 'Yesterday' },
+                  { key: 'week',      label: 'This Week' },
+                  { key: 'all',       label: 'All Time' },
+                ].map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    onClick={() => applyTeamDatePreset(p.key as 'today' | 'yesterday' | 'week' | 'all')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                      teamActivePreset === p.key
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-ds-surface text-ds-text border-ds-border hover:bg-ds-surface-hover'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+                {teamActivePreset === 'custom' && (
+                  <span className="px-3 py-1.5 text-xs font-medium rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                    Custom
+                  </span>
+                )}
+                {teamHasFilter && (
+                  <button
+                    type="button"
+                    onClick={clearTeamFilters}
+                    className="ml-auto px-3 py-1.5 text-xs font-medium rounded-full border border-red-200 text-red-600 bg-ds-surface hover:bg-red-50 transition-colors"
+                    title="Reset filters back to today"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <label className="form-label">From</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={teamDateFrom}
+                    onChange={(e) => setTeamDateFrom(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="form-label">To</label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={teamDateTo}
+                    onChange={(e) => setTeamDateTo(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Project</label>
+                  <select
+                    className="form-select"
+                    value={teamProjectId}
+                    onChange={(e) => setTeamProjectId(e.target.value)}
+                  >
+                    <option value="">All projects</option>
+                    {(projects as Array<{ id: string; name: string }>).map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label">User</label>
+                  <select
+                    className="form-select"
+                    value={teamUserId}
+                    onChange={(e) => setTeamUserId(e.target.value)}
+                  >
+                    <option value="">All users</option>
+                    {teamUserOptions.map((u) => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </Card>
+
             {teamLoading ? (
               <PageLoader />
             ) : (teamEods as EodEntry[]).length === 0 ? (
               <EmptyState
-                title="No team EODs yet"
-                description="Your team peers haven't submitted EODs in the visible window. They'll show up here as soon as they do."
+                title="No team EODs in this range"
+                description="Try widening the date range or clearing the user / project filter."
               />
             ) : (
               <div className="space-y-3">
@@ -739,9 +907,9 @@ const EodPage = () => {
                                 {entry.projectName}
                               </span>
                             )}
-                            {typeof entry.progress_percentage === 'number' && (
+                            {typeof entry.progressPercentage === 'number' && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">
-                                {entry.progress_percentage}% done
+                                {entry.progressPercentage}% done
                               </span>
                             )}
                           </div>
@@ -758,10 +926,10 @@ const EodPage = () => {
                           <p className="text-sm text-gray-700 leading-snug">{entry.accomplishments}</p>
                         </div>
                       )}
-                      {entry.planned_tomorrow && (
+                      {entry.plannedTomorrow && (
                         <div className="flex gap-2">
                           <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Tomorrow</span>
-                          <p className="text-sm text-gray-700 leading-snug">{entry.planned_tomorrow}</p>
+                          <p className="text-sm text-gray-700 leading-snug">{entry.plannedTomorrow}</p>
                         </div>
                       )}
                       {entry.blockers && (
@@ -773,6 +941,80 @@ const EodPage = () => {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Pagination footer — server-driven. Mirrors Team Standups. */}
+            {(teamEods as EodEntry[]).length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border border-ds-border rounded-xl bg-ds-surface-hover">
+                <div className="flex items-center gap-4 text-xs text-ds-text-muted">
+                  <span>
+                    Showing <strong className="text-ds-text">{((teamPage - 1) * teamPageSize) + 1}–{Math.min(teamPage * teamPageSize, teamTotal)}</strong> of <strong className="text-ds-text">{teamTotal}</strong> EODs
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <label htmlFor="team-eod-page-size" className="text-ds-text-muted">Rows per page:</label>
+                    <select
+                      id="team-eod-page-size"
+                      value={teamPageSize}
+                      onChange={(e) => setTeamPageSize(parseInt(e.target.value, 10) || 5)}
+                      className="text-xs border border-ds-border rounded px-1.5 py-0.5 bg-ds-surface text-ds-text"
+                    >
+                      <option value={3}>3</option>
+                      <option value={5}>5</option>
+                      <option value={10}>10</option>
+                      <option value={20}>20</option>
+                      <option value={50}>50</option>
+                    </select>
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    disabled={teamPage === 1}
+                    onClick={() => setTeamPage(1)}
+                    className="px-2 py-1 text-xs border border-ds-border rounded hover:bg-ds-surface disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="First page"
+                  >«</button>
+                  <button
+                    disabled={teamPage === 1}
+                    onClick={() => setTeamPage((p) => Math.max(1, p - 1))}
+                    className="px-2 py-1 text-xs border border-ds-border rounded hover:bg-ds-surface disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Previous page"
+                  >←</button>
+                  {Array.from({ length: teamTotalPages }, (_, i) => i + 1)
+                    .filter((p) => p === 1 || p === teamTotalPages || Math.abs(p - teamPage) <= 1)
+                    .reduce<(number | '...')[]>((acc, p, i, arr) => {
+                      if (i > 0 && (p as number) - (arr[i - 1] as number) > 1) acc.push('...');
+                      acc.push(p);
+                      return acc;
+                    }, [])
+                    .map((p, i) =>
+                      p === '...' ? (
+                        <span key={`team-eod-ellipsis-${i}`} className="px-1 text-ds-text-muted text-xs">…</span>
+                      ) : (
+                        <button
+                          key={p}
+                          onClick={() => setTeamPage(p as number)}
+                          className={`min-w-[28px] px-2 py-1 text-xs border rounded ${
+                            teamPage === p
+                              ? 'bg-indigo-600 text-white border-indigo-600 font-semibold'
+                              : 'border-ds-border hover:bg-ds-surface'
+                          }`}
+                        >{p}</button>
+                      )
+                    )}
+                  <button
+                    disabled={teamPage >= teamTotalPages}
+                    onClick={() => setTeamPage((p) => Math.min(teamTotalPages, p + 1))}
+                    className="px-2 py-1 text-xs border border-ds-border rounded hover:bg-ds-surface disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Next page"
+                  >→</button>
+                  <button
+                    disabled={teamPage >= teamTotalPages}
+                    onClick={() => setTeamPage(teamTotalPages)}
+                    className="px-2 py-1 text-xs border border-ds-border rounded hover:bg-ds-surface disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Last page"
+                  >»</button>
+                </div>
               </div>
             )}
           </div>

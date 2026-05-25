@@ -541,13 +541,21 @@ class DataService {
    * Fetches comprehensive per-member data across ALL modules:
    * standups, EODs, tasks, attendance, leave, time entries, actions, blockers.
    *
+   * Resolution priority for which users to include:
+   *   1. Forced own-scope (TEAM_MEMBER without team-view perms)         → self only
+   *   2. targetUserId explicitly provided                                → that user
+   *   3. teamId provided                                                 → members of that team
+   *   4. Scope 'all' (TENANT_ADMIN / PMO)                                → all active users
+   *   5. DELIVERY_LEAD                                                   → their project teams
+   *
    * @param {string}      tenantId
    * @param {string}      userId        – requesting user's ID
    * @param {string}      role          – requesting user's role
    * @param {string|null} targetUserId  – specific user to analyse (null = all accessible)
    * @param {number}      days          – look-back window (7 / 30 / 90)
+   * @param {string|null} [teamId]      – when set, scope to this team's members
    */
-  async getHolisticPerformanceData(tenantId, userId, role, targetUserId, days) {
+  async getHolisticPerformanceData(tenantId, userId, role, targetUserId, days, teamId = null) {
     const scope = AI_SCOPE[role] ?? 'own';
     const since = DataService._daysAgo(days);
     const today = DataService._today();
@@ -559,6 +567,25 @@ class DataService {
       targetIds = [String(userId)];
     } else if (targetUserId) {
       targetIds = [String(targetUserId)];
+    } else if (teamId) {
+      // Team-scoped: pull the member list from team_members
+      const rows = await this._query(
+        `SELECT DISTINCT user_id FROM ${TABLES.TEAM_MEMBERS}
+         WHERE tenant_id = '${DataService._esc(tenantId)}'
+           AND team_id  = '${DataService._esc(String(teamId))}'
+         LIMIT 100`
+      );
+      targetIds = [...new Set(rows.map((r) => String(r.user_id)).filter(Boolean))];
+      // Also include the team lead (lead may not have a team_members row)
+      const leadRows = await this._query(
+        `SELECT lead_user_id FROM ${TABLES.TEAMS}
+         WHERE tenant_id = '${DataService._esc(tenantId)}'
+           AND ROWID     = '${DataService._esc(String(teamId))}'
+         LIMIT 1`
+      );
+      const leadId = leadRows[0]?.lead_user_id ? String(leadRows[0].lead_user_id) : null;
+      if (leadId && !targetIds.includes(leadId)) targetIds.unshift(leadId);
+      console.log(`[DataService.holistic] scope=team teamId=${teamId} resolved ${targetIds.length} members`);
     } else if (scope === 'all') {
       // Admin / PMO — all active users in tenant
       const rows = await this._query(
@@ -639,7 +666,7 @@ class DataService {
              AND status = 'APPROVED' AND start_date >= '${since}' LIMIT 200`
         ),
         this._query(
-          `SELECT user_id, hours FROM ${TABLES.TIME_ENTRIES}
+          `SELECT user_id, hours, is_billable FROM ${TABLES.TIME_ENTRIES}
            WHERE tenant_id = '${DataService._esc(tenantId)}' AND user_id IN (${idList})
              AND entry_date >= '${since}' LIMIT 200`
         ),
@@ -654,15 +681,20 @@ class DataService {
       ]);
 
     // ── 4. Aggregate per member ────────────────────────────────────────────
+    // Build the per-day date axis once — every member's time series uses it.
+    const dateAxis = DataService._dateRange(since, today);
+
     const memberData = {};
     targetIds.forEach((id) => {
       const user = userMap[id] || {};
 
       const userTasks    = tasks.filter((t) => { try { return JSON.parse(t.assignee_ids || '[]').map(String).includes(id); } catch { return false; } });
       const tasksDone    = userTasks.filter((t) => t.status === 'DONE').length;
+      const tasksInProg  = userTasks.filter((t) => t.status === 'IN_PROGRESS').length;
       const tasksOverdue = userTasks.filter(
         (t) => t.status !== 'DONE' && t.due_date && t.due_date < today
       ).length;
+      const tasksTodo    = Math.max(0, userTasks.length - tasksDone - tasksInProg - tasksOverdue);
       const storyPtsDone = userTasks
         .filter((t) => t.status === 'DONE')
         .reduce((s, t) => s + (parseFloat(t.story_points) || 0), 0);
@@ -672,9 +704,18 @@ class DataService {
         ? Math.round(userAttend.reduce((s, a) => s + (parseFloat(a.work_hours) || 0), 0) / userAttend.length * 10) / 10
         : 0;
 
-      const totalLogged = timeEntries
-        .filter((e) => String(e.user_id) === id)
-        .reduce((s, e) => s + (parseFloat(e.hours) || 0), 0);
+      const userTimeEntries = timeEntries.filter((e) => String(e.user_id) === id);
+      const totalLogged     = userTimeEntries.reduce((s, e) => s + (parseFloat(e.hours) || 0), 0);
+      // Billable / non-billable split — DataStore stores is_billable as strings.
+      // Treat anything except a falsy "false"/"0" as billable so legacy rows w/o
+      // the flag (default true) still count as billable.
+      const isBillable = (e) => {
+        const v = String(e.is_billable ?? '').toLowerCase();
+        return v !== 'false' && v !== '0' && v !== 'no';
+      };
+      const billableHours    = Math.round(userTimeEntries.filter(isBillable).reduce((s, e) => s + (parseFloat(e.hours) || 0), 0) * 10) / 10;
+      const nonBillableHours = Math.round((totalLogged - billableHours) * 10) / 10;
+      const billableUtilization = totalLogged > 0 ? Math.round((billableHours / totalLogged) * 100) : 0;
 
       const leaveDays = leaveReqs
         .filter((l) => String(l.user_id) === id)
@@ -683,6 +724,33 @@ class DataService {
       const userStandups = standups.filter((s) => String(s.user_id) === id);
       const userEods     = eods.filter((e) => String(e.user_id) === id);
       const userActions  = actions.filter((a) => String(a.assigned_to) === id);
+      const userBlockers = blockers.filter((b) => String(b.raised_by) === id);
+
+      // Daily activity buckets — each row {date, standups, eods, hours, mood}
+      const byDate = Object.fromEntries(dateAxis.map((d) => [d, { date: d, standups: 0, eods: 0, hours: 0, mood: null }]));
+      userStandups.forEach((s) => { if (byDate[s.entry_date]) byDate[s.entry_date].standups += 1; });
+      userEods.forEach((e) => {
+        if (!byDate[e.entry_date]) return;
+        byDate[e.entry_date].eods += 1;
+        if (e.mood) byDate[e.entry_date].mood = String(e.mood).toUpperCase();
+      });
+      userAttend.forEach((a) => {
+        if (byDate[a.attendance_date]) byDate[a.attendance_date].hours = parseFloat(a.work_hours) || 0;
+      });
+      const dailyActivity = dateAxis.map((d) => byDate[d]);
+
+      // Mood score series — map mood label → numeric (1–5) so it can plot
+      const moodSeries = dailyActivity
+        .filter((row) => row.mood)
+        .map((row) => ({ date: row.date, mood: row.mood, score: DataService._moodScore(row.mood) }));
+
+      // Blocker severity breakdown
+      const blockerBreakdown = {
+        high:   userBlockers.filter((b) => String(b.severity).toUpperCase() === 'HIGH').length,
+        medium: userBlockers.filter((b) => String(b.severity).toUpperCase() === 'MEDIUM').length,
+        low:    userBlockers.filter((b) => String(b.severity).toUpperCase() === 'LOW').length,
+        resolved: userBlockers.filter((b) => String(b.status).toUpperCase() === 'RESOLVED').length,
+      };
 
       memberData[id] = {
         userId:               id,
@@ -697,6 +765,8 @@ class DataService {
         // tasks
         tasksTotal:           userTasks.length,
         tasksDone,
+        tasksInProgress:      tasksInProg,
+        tasksTodo,
         tasksOverdue,
         storyPointsDone:      Math.round(storyPtsDone),
         taskCompletionPct:    userTasks.length > 0 ? Math.round((tasksDone / userTasks.length) * 100) : null,
@@ -706,16 +776,71 @@ class DataService {
         avgWorkHours:         avgHours,
         // time tracking
         hoursLogged:          Math.round(totalLogged * 10) / 10,
+        billableHours,
+        nonBillableHours,
+        billableUtilization,
+        timeEntryCount:       userTimeEntries.length,
         // leave
         leaveDaysTaken:       Math.round(leaveDays),
         // actions / blockers
         actionsTotal:         userActions.length,
         actionsDone:          userActions.filter((a) => a.status === 'DONE').length,
-        blockersRaised:       blockers.filter((b) => String(b.raised_by) === id).length,
+        blockersRaised:       userBlockers.length,
+        blockerBreakdown,
+        // time series (used by the UI charts)
+        dailyActivity,
+        moodSeries,
       };
     });
 
-    return { memberData, days, since };
+    // ── 5. Team medians for benchmark bars ─────────────────────────────────
+    const teamMedians = DataService._teamMedians(memberData);
+
+    return { memberData, days, since, dateAxis, teamMedians };
+  }
+
+  // ─── Helpers for holistic performance ─────────────────────────────────────
+
+  /** Inclusive YYYY-MM-DD date range from `since` → `until`. */
+  static _dateRange(since, until) {
+    const out = [];
+    const start = new Date(since + 'T00:00:00Z');
+    const end   = new Date(until + 'T00:00:00Z');
+    for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+      out.push(d.toISOString().slice(0, 10));
+    }
+    return out;
+  }
+
+  /** Map mood labels to a 1–5 score; unknowns drop to 3 (neutral). */
+  static _moodScore(mood) {
+    const m = String(mood || '').toUpperCase();
+    if (m === 'EXCELLENT' || m === 'GREAT' || m === '🚀' || m === 'AMAZING') return 5;
+    if (m === 'GOOD'      || m === 'HAPPY' || m === '😊' || m === 'POSITIVE') return 4;
+    if (m === 'OK'        || m === 'NEUTRAL' || m === 'AVERAGE')              return 3;
+    if (m === 'LOW'       || m === 'SAD'    || m === '😞' || m === 'TIRED')   return 2;
+    if (m === 'BAD'       || m === 'TERRIBLE' || m === 'STRESSED')            return 1;
+    return 3;
+  }
+
+  /** Compute team-wide medians for the metrics rendered in the benchmark chart. */
+  static _teamMedians(memberData) {
+    const arr = Object.values(memberData);
+    if (arr.length === 0) {
+      return { consistencyPct: 0, taskCompletionPct: 0, avgWorkHours: 0, hoursLogged: 0, storyPointsDone: 0 };
+    }
+    const median = (key) => {
+      const xs = arr.map((m) => Number(m[key]) || 0).sort((a, b) => a - b);
+      const mid = Math.floor(xs.length / 2);
+      return xs.length % 2 ? xs[mid] : Math.round(((xs[mid - 1] + xs[mid]) / 2) * 10) / 10;
+    };
+    return {
+      consistencyPct:    median('consistencyPct'),
+      taskCompletionPct: median('taskCompletionPct'),
+      avgWorkHours:      median('avgWorkHours'),
+      hoursLogged:       median('hoursLogged'),
+      storyPointsDone:   median('storyPointsDone'),
+    };
   }
 
   // ─── Sprint Analysis Data ─────────────────────────────────────────────────

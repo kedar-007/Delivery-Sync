@@ -15,6 +15,10 @@ const ctrl = (req) => new TeamController(req.catalystApp);
 // Team CRUD
 router.post('/',    auth, can(PERMISSIONS.TEAM_WRITE), asyncHandler((req, res) => ctrl(req).createTeam(req, res)));
 router.get('/',     auth, can(PERMISSIONS.TEAM_READ),  asyncHandler((req, res) => ctrl(req).getTeams(req, res)));
+// Team peers — resolves the caller's team-scope user set (no extra perm needed;
+// only returns users from teams they're already in or lead). Used to populate
+// the User filter dropdown on Team Standups / Team EOD views.
+router.get('/peers', auth,                            asyncHandler((req, res) => ctrl(req).getMyTeamPeers(req, res)));
 router.get('/:teamId',  auth, can(PERMISSIONS.TEAM_READ),  asyncHandler((req, res) => ctrl(req).getTeam(req, res)));
 router.put('/:teamId',  auth, can(PERMISSIONS.TEAM_WRITE), asyncHandler((req, res) => ctrl(req).updateTeam(req, res)));
 router.delete('/:teamId', auth, can(PERMISSIONS.TEAM_WRITE), asyncHandler((req, res) => ctrl(req).deleteTeam(req, res)));

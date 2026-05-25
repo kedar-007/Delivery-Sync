@@ -32,6 +32,7 @@ import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import UserAvatar from '../components/ui/UserAvatar';
+import MarkdownText from '../components/ui/MarkdownText';
 import {
   useSprints,
   useSprintBoard,
@@ -1609,7 +1610,7 @@ export default function SprintBoardPage() {
                             </div>
                             <span className="text-sm font-bold text-indigo-800">AI Analysis</span>
                           </div>
-                          <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{aiInsight}</p>
+                          <MarkdownText text={aiInsight} className="text-sm text-gray-700" accent="indigo" />
                         </div>
                       ) : (
                         <div className="text-center py-10">

@@ -130,11 +130,32 @@ class EodController {
       }
 
       const whereExtra = conditions.length > 0 ? conditions.join(' AND ') : null;
-      const eods = await this.db.findWhere(
-        TABLES.EOD_ENTRIES, tenantId,
-        whereExtra,
-        { orderBy: 'entry_date DESC, CREATEDTIME DESC', limit: 100 }
-      );
+
+      // Opt-in pagination — same shape as StandupController.getStandups.
+      // The legacy "My Submissions" view does not pass `page`, so it keeps
+      // getting the unpaginated `{ eods: [...] }` shape.
+      const paginated  = req.query.page !== undefined;
+      const page       = Math.max(1,   parseInt(req.query.page,     10) || 1);
+      const pageSize   = Math.min(200, Math.max(1, parseInt(req.query.pageSize, 10) || 20));
+      const offset     = (page - 1) * pageSize;
+
+      const tenantClause = `tenant_id = '${DataStoreService.escape(String(tenantId))}'`;
+      const fullWhere    = whereExtra ? `${tenantClause} AND ${whereExtra}` : tenantClause;
+
+      const [eods, countRows] = await Promise.all([
+        this.db.findWhere(
+          TABLES.EOD_ENTRIES, tenantId,
+          whereExtra,
+          {
+            orderBy: 'entry_date DESC, CREATEDTIME DESC',
+            limit:   paginated ? pageSize : 100,
+            offset:  paginated ? offset   : undefined,
+          }
+        ),
+        paginated
+          ? this.db.query(`SELECT COUNT(ROWID) FROM ${TABLES.EOD_ENTRIES} WHERE ${fullWhere}`)
+          : Promise.resolve(null),
+      ]);
 
       // Enrich with project names
       const projectIds = [...new Set(eods.map((e) => e.project_id).filter(Boolean))];
@@ -164,26 +185,40 @@ class EodController {
         } catch (_) { /* enrichment is non-fatal */ }
       }
 
-      return ResponseHelper.success(res, {
-        eods: eods.map((e) => {
-          const u = userMap[String(e.user_id)] || {};
-          return {
-            id: String(e.ROWID),
-            projectId: e.project_id,
-            projectName: projectMap[String(e.project_id)] || null,
-            userId: e.user_id,
-            userName:      u.name       || null,
-            userAvatarUrl: u.avatar_url || null,
-            date: e.entry_date,
-            accomplishments: e.accomplished,
-            plannedTomorrow: e.plan_for_tomorrow,
-            blockers: e.blockers,
-            progressPercentage: Number(e.progress_percentage || 0),
-            mood: e.mood,
-            submittedAt: e.submitted_at,
-          };
-        }),
+      const items = eods.map((e) => {
+        const u = userMap[String(e.user_id)] || {};
+        return {
+          id: String(e.ROWID),
+          projectId: e.project_id,
+          projectName: projectMap[String(e.project_id)] || null,
+          userId: e.user_id,
+          userName:      u.name       || null,
+          userAvatarUrl: u.avatar_url || null,
+          date: e.entry_date,
+          accomplishments: e.accomplished,
+          plannedTomorrow: e.plan_for_tomorrow,
+          blockers: e.blockers,
+          progressPercentage: Number(e.progress_percentage || 0),
+          mood: e.mood,
+          submittedAt: e.submitted_at,
+        };
       });
+
+      if (paginated) {
+        // ZCQL returns COUNT under an unpredictable column name — grab first
+        // value of first row, matching the Standup pagination handling.
+        let total = 0;
+        if (Array.isArray(countRows) && countRows.length > 0) {
+          const firstVal = Object.values(countRows[0])[0];
+          total = parseInt(String(firstVal), 10) || 0;
+        }
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        return ResponseHelper.success(res, {
+          eods: items,
+          pagination: { page, pageSize, total, totalPages, hasMore: page < totalPages },
+        });
+      }
+      return ResponseHelper.success(res, { eods: items });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }

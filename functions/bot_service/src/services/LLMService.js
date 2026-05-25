@@ -75,6 +75,20 @@ class LLMService {
   // ─── Single-turn call ──────────────────────────────────────────────────────
 
   async call(prompt, systemPrompt, options = {}) {
+    const messages = [{ role: 'user', content: prompt }];
+    return this._queuedCall(messages, systemPrompt, options);
+  }
+
+  // ─── Multi-turn call ───────────────────────────────────────────────────────
+
+  async callWithHistory(messages, systemPrompt, options = {}) {
+    console.log(`[LLMService] callWithHistory — turns=${messages.length}`);
+    return this._queuedCall(messages, systemPrompt, options);
+  }
+
+  // ─── Internal ──────────────────────────────────────────────────────────────
+
+  async _queuedCall(messages, systemPrompt, options) {
     let release;
     const slot = new Promise((r) => { release = r; });
     const prev = LLMService._llmQueue;
@@ -83,54 +97,32 @@ class LLMService {
     await prev;
     console.log('[LLMService] Queue slot acquired — starting LLM call');
     try {
-      return await this._callWithRetry(prompt, systemPrompt, options, LLMService.MAX_RETRIES);
+      return await this._callWithRetry(messages, systemPrompt, options, LLMService.MAX_RETRIES);
     } finally {
       release();
       console.log('[LLMService] Queue slot released');
     }
   }
 
-  // ─── Multi-turn call ───────────────────────────────────────────────────────
-
-  async callWithHistory(messages, systemPrompt, options = {}) {
-    const history = messages.slice(0, -1);
-    const current = messages[messages.length - 1];
-    console.log(`[LLMService] callWithHistory — history_turns=${history.length}, current_message_len=${current.content.length}`);
-
-    let prompt = '';
-    if (history.length > 0) {
-      prompt += '[CONVERSATION HISTORY]\n';
-      for (const m of history) {
-        const role = m.role === 'user' ? 'User' : 'Assistant';
-        prompt += `${role}: ${m.content}\n`;
-      }
-      prompt += '\n';
-    }
-    prompt += `[CURRENT MESSAGE]\nUser: ${current.content}`;
-    console.log(`[LLMService] Prompt assembled — total_prompt_len=${prompt.length}`);
-
-    return this.call(prompt, systemPrompt, options);
-  }
-
-  // ─── Internal ──────────────────────────────────────────────────────────────
-
-  async _callWithRetry(prompt, systemPrompt, options, retriesLeft) {
+  async _callWithRetry(userMessages, systemPrompt, options, retriesLeft) {
     const token = await this.getAccessToken();
 
-    const maxTokens = options.max_tokens ?? LLM_CONFIG.MAX_TOKENS;
-    // Include systemPrompt length in estimate — Zoho validates input against max_tokens
-    // and system_prompt is sent separately but counts toward the input token budget
-    const inputEst  = Math.ceil((prompt.length + (systemPrompt?.length || 0)) / 2.5);
-    const effective = Math.min(1050, inputEst + maxTokens);
+    // GLM API is OpenAI-style: max_tokens caps OUTPUT tokens only.
+    const maxOutputTokens = options.max_tokens ?? LLM_CONFIG.MAX_TOKENS;
+
+    const messages = [];
+    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
+    messages.push(...userMessages);
 
     const payload = {
-      prompt,
-      model:         LLM_CONFIG.MODEL,
-      system_prompt: systemPrompt,
-      top_p:         options.top_p       ?? LLM_CONFIG.TOP_P,
-      top_k:         options.top_k       ?? LLM_CONFIG.TOP_K,
-      temperature:   options.temperature ?? LLM_CONFIG.TEMPERATURE,
-      max_tokens:    effective,
+      model:       LLM_CONFIG.MODEL,
+      messages,
+      temperature: options.temperature ?? LLM_CONFIG.TEMPERATURE,
+      max_tokens:  maxOutputTokens,
+      stream:      false,
+      // Disable GLM-4.7 "thinking" mode — chain-of-thought leaks into the response,
+      // breaks JSON-only prompts, and can echo internal system rules to the UI.
+      chat_template_kwargs: { enable_thinking: false },
     };
 
     const headers = {
@@ -139,13 +131,22 @@ class LLMService {
       'CATALYST-ORG': process.env.ORG_ID,
     };
 
-    console.log(`[LLMService] Calling LLM | model=${LLM_CONFIG.MODEL} | max_tokens=${effective} | prompt_len=${prompt.length} | retriesLeft=${retriesLeft}`);
+    console.log(`[LLMService] Calling LLM | model=${LLM_CONFIG.MODEL} | max_tokens=${maxOutputTokens} | messages=${messages.length} | retriesLeft=${retriesLeft}`);
 
     try {
-      const res  = await axios.post(LLM_CONFIG.ENDPOINT, payload, { headers, timeout: 90000 });
-      const text = res.data?.response;
-      if (!text) throw new Error('LLM returned empty response.');
-      const usage = res.data?.usage ?? {};
+      const res = await axios.post(LLM_CONFIG.ENDPOINT, payload, { headers, timeout: 90000 });
+      // GLM (OpenAI-style) puts the answer at choices[0].message.content. Some Catalyst
+      // deployments wrap the OpenAI response inside a `data` envelope, so try both.
+      // NOTE: never fall back to `message.reasoning` — that's GLM's chain-of-thought and
+      // will leak the system prompt to the UI.
+      const root   = res.data?.choices ? res.data : (res.data?.data ?? res.data);
+      const choice = root?.choices?.[0];
+      const text   = choice?.message?.content || root?.response;
+      const usage  = root?.usage ?? {};
+      if (!text) {
+        console.warn('[LLMService] Empty content. Raw response body:', JSON.stringify(res.data, null, 2));
+        throw new Error('LLM returned empty response.');
+      }
       console.log(`[LLMService] LLM success | tokens_used=${usage.total_tokens ?? '?'} | response_len=${text.length}`);
       return { response: text, usage };
     } catch (err) {
@@ -154,7 +155,7 @@ class LLMService {
         const delay = LLMService.RETRY_DELAY * (LLMService.MAX_RETRIES - retriesLeft + 1);
         console.warn(`[LLMService] Transient error (${err.message}) — retrying in ${delay}ms (${retriesLeft} retries left)`);
         await new Promise((r) => setTimeout(r, delay));
-        return this._callWithRetry(prompt, systemPrompt, options, retriesLeft - 1);
+        return this._callWithRetry(userMessages, systemPrompt, options, retriesLeft - 1);
       }
       console.error('[LLMService] LLM call failed (non-retryable):', err.response?.data ?? err.message);
       throw new Error(err.message || 'LLM call failed');

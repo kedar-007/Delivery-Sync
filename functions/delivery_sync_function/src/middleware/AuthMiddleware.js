@@ -268,7 +268,16 @@ class AuthMiddleware {
         const userId = String(user.ROWID);
         const tenantId = String(user.tenant_id);
         const isFullAdmin = isSuperAdmin || resolvedRole === 'TENANT_ADMIN';
-        const roleBase = isFullAdmin ? Object.values(PERMISSIONS) : (ROLE_PERMISSIONS[resolvedRole] || []);
+        let roleBase = isFullAdmin ? Object.values(PERMISSIONS) : (ROLE_PERMISSIONS[resolvedRole] || []);
+        // AI perms carve-out: when a user has an explicit org-role assignment,
+        // the org-role is authoritative for AI permissions even if the user's
+        // system role is TENANT_ADMIN. This is what makes "Self+Team only" stick
+        // for a Delivery Lead who happens to be TENANT_ADMIN at the Catalyst layer.
+        // SUPER_ADMIN keeps the bypass (system-level, not tenant-scoped).
+        const AI_GATED = new Set(['AI_INSIGHTS', 'AI_PERFORMANCE_SELF', 'AI_PERFORMANCE', 'AI_TEAM_ANALYSIS']);
+        if (orgRoleId && !isSuperAdmin) {
+          roleBase = roleBase.filter((p) => !AI_GATED.has(p));
+        }
         const base = new Set([...roleBase, ...(orgRoleId ? orgRolePermissions : [])]);
         // Per-user permission overrides — direct DB call. The unified
         // authCtx cache above short-circuits this whole path on a warm session.

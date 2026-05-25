@@ -13,6 +13,7 @@ import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import { PageLoader } from '../components/ui/Spinner';
 import Alert from '../components/ui/Alert';
+import MarkdownText from '../components/ui/MarkdownText';
 import { useExecSummary, type ExecProject } from '../hooks/useExecDashboard';
 import {
   useAiDetectBlockers, useAiTrends, useAiProjectHealth,
@@ -290,7 +291,7 @@ const AiAnalysisPanel = ({
             </p>
           )}
           {blockerData.summary && (
-            <p className="text-xs text-gray-500 mt-2 italic">{blockerData.summary}</p>
+            <MarkdownText text={blockerData.summary} className="text-xs text-gray-500 mt-2" accent="blue" />
           )}
         </div>
       )}

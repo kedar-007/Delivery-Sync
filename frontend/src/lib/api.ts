@@ -315,6 +315,11 @@ export const notificationsApi = {
 export const teamsApi = {
   list: (params?: Record<string, string>) =>
     api.get('/teams', { params }).then((r) => r.data.data),
+  // Returns the user roster the caller can see for *_TEAM_VIEW dropdowns
+  // (Team Standups / Team EODs / Team Attendance). Org-wide callers get every
+  // tenant user; team-scoped callers get their team peers + leads. Shape:
+  // { peers: [{ id, name, email, avatarUrl }] }
+  peers: () => api.get('/teams/peers').then((r) => r.data.data),
   get: (teamId: string) => api.get(`/teams/${teamId}`).then((r) => r.data.data),
   create: (data: unknown) => api.post('/teams', data).then((r) => r.data.data),
   update: (teamId: string, data: unknown) =>
@@ -416,7 +421,7 @@ export const aiApi = {
     aiClient.post('/task-insight', params).then((r) => r.data),
 
   /** Holistic performance analysis across ALL modules (tasks, attendance, leave, time, standups, etc.) */
-  holisticPerformance: (params: { targetUserId?: string; days?: 7 | 30 | 90 }) =>
+  holisticPerformance: (params: { targetUserId?: string; teamId?: string; days?: 7 | 30 | 90; forceRefresh?: boolean }) =>
     aiClient.post('/holistic-performance', params).then((r) => r.data),
 
   /** Sprint-specific analysis: velocity, completion rate, star rating, recommendations */
@@ -698,6 +703,7 @@ export const assetsApi = {
     handover:        (id: string, data: unknown) => assetClient.patch(`/requests/${id}/handover`, data).then((r) => r.data.data),
     initiateReturn:  (id: string, data?: unknown) => assetClient.post(`/requests/${id}/return`, data ?? {}).then((r) => r.data.data),
     verifyReturn:    (id: string, data: unknown) => assetClient.patch(`/requests/${id}/verify-return`, data).then((r) => r.data.data),
+    rejectReturn:    (id: string, data: unknown) => assetClient.patch(`/requests/${id}/reject-return`, data).then((r) => r.data.data),
     fulfill:         (id: string, data: unknown) => assetClient.patch(`/requests/${id}/fulfill`, data).then((r) => r.data.data),
     assignableUsers: () => assetClient.get('/requests/assignable-users').then((r) => r.data.data),
     orgRoles:        () => assetClient.get('/requests/org-roles').then((r) => r.data.data),
@@ -711,6 +717,18 @@ export const assetsApi = {
     list:     (params?: Record<string, string>) => assetClient.get('/maintenance', { params }).then((r) => r.data.data),
     schedule: (data: unknown) => assetClient.post('/maintenance', data).then((r) => r.data.data),
     complete: (id: string, data?: unknown) => assetClient.patch(`/maintenance/${id}/complete`, data).then((r) => r.data.data),
+  },
+  scan: {
+    // Native path — client decoded the QR locally and is passing the raw token.
+    byToken: (token: string) => assetClient.get(`/scan/${encodeURIComponent(token)}`).then((r) => r.data.data),
+    // Zia fallback — client uploads the photo and the server decodes via Zia Barcode Scanner.
+    decodeImage: (file: File) => {
+      const fd = new FormData();
+      fd.append('image', file);
+      return assetClient.post('/scan/decode', fd, {
+        headers: { 'Content-Type': undefined },
+      }).then((r) => r.data.data);
+    },
   },
 };
 

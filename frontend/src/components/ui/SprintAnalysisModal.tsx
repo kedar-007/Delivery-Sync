@@ -9,6 +9,7 @@ import {
   CheckCircle2, Zap, Users, BarChart3,
 } from 'lucide-react';
 import Modal from './Modal';
+import MarkdownText from './MarkdownText';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -160,7 +161,7 @@ export default function SprintAnalysisModal({
                   </span>
                 )}
               </div>
-              <p className="text-sm text-gray-700 leading-relaxed">{result.sprintSummary}</p>
+              <MarkdownText text={result.sprintSummary ?? ''} className="text-sm text-gray-700" />
             </div>
           </div>
 
@@ -193,7 +194,7 @@ export default function SprintAnalysisModal({
                 <TrendingUp size={14} className="text-blue-600" />
                 <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Insights</span>
               </div>
-              <p className="text-sm text-gray-700 leading-relaxed">{result.insights}</p>
+              <MarkdownText text={result.insights ?? ''} className="text-sm text-gray-700" accent="blue" />
             </div>
           )}
 

@@ -507,12 +507,12 @@ class OrgRolesController {
       { group: 'Attendance', keys: ['ATTENDANCE_READ', 'ATTENDANCE_WRITE', 'ATTENDANCE_TEAM_VIEW', 'ATTENDANCE_ADMIN', 'IP_CONFIG_WRITE'] },
       { group: 'Leave', keys: ['LEAVE_READ', 'LEAVE_WRITE', 'LEAVE_APPROVE', 'LEAVE_ADMIN'] },
       { group: 'People & Org', keys: ['PROFILE_READ', 'PROFILE_WRITE', 'TEAM_READ', 'TEAM_WRITE', 'ORG_READ', 'ORG_WRITE', 'ORG_ROLE_READ', 'ORG_ROLE_WRITE', 'ANNOUNCEMENT_READ', 'ANNOUNCEMENT_WRITE'] },
-      { group: 'Assets', keys: ['ASSET_READ', 'ASSET_WRITE', 'ASSET_ASSIGN', 'ASSET_APPROVE', 'ASSET_ADMIN'] },
+      { group: 'Assets', keys: ['ASSET_READ', 'ASSET_WRITE', 'ASSET_ASSIGN', 'ASSET_APPROVE', 'ASSET_ADMIN', 'ASSET_SCAN_BASIC', 'ASSET_SCAN_FULL'] },
       { group: 'Badges', keys: ['BADGE_READ', 'BADGE_WRITE', 'BADGE_AWARD'] },
       { group: 'Reports & Dashboard', keys: ['REPORT_READ', 'REPORT_WRITE', 'DASHBOARD_READ', 'CEO_DASHBOARD', 'CTO_DASHBOARD'] },
       { group: 'Notifications', keys: ['NOTIFICATION_READ'] },
       { group: 'Admin', keys: ['ADMIN_USERS', 'ADMIN_SETTINGS', 'INVITE_USER', 'CONFIG_READ', 'CONFIG_WRITE'] },
-      { group: 'AI & Insights', keys: ['AI_INSIGHTS', 'AI_PERFORMANCE', 'AI_TEAM_ANALYSIS'] },
+      { group: 'AI & Insights', keys: ['AI_INSIGHTS', 'AI_PERFORMANCE_SELF', 'AI_PERFORMANCE', 'AI_TEAM_ANALYSIS'] },
     ];
 
     return ResponseHelper.success(res, { groups, all: ALL_PERMISSION_KEYS });
@@ -587,17 +587,18 @@ class OrgRolesController {
     if (!roleIds.length) return {};
     try {
       const inClause = roleIds.map((id) => `'${id}'`).join(',');
-      // No tenant_id filter — avoids precision-loss mismatch on records created with Number(tenantId)
+      // No tenant_id filter — avoids precision-loss mismatch on records created with Number(tenantId).
+      // LIMIT capped at 300 because ZCQL rejects queries with LIMIT > 300.
       const assignments = await this.db.query(
         `SELECT user_id, org_role_id FROM ${TABLES.USER_ORG_ROLES} ` +
-        `WHERE org_role_id IN (${inClause}) AND is_active != 'false' LIMIT 500`
+        `WHERE org_role_id IN (${inClause}) AND is_active != 'false' LIMIT 300`
       );
       if (!assignments.length) return {};
 
       const userIds = [...new Set(assignments.map((a) => String(a.user_id)))];
       const userInClause = userIds.map((id) => `'${id}'`).join(',');
       const users = await this.db.query(
-        `SELECT ROWID, name, avatar_url FROM ${TABLES.USERS} WHERE ROWID IN (${userInClause}) LIMIT 500`
+        `SELECT ROWID, name, avatar_url FROM ${TABLES.USERS} WHERE ROWID IN (${userInClause}) LIMIT 300`
       );
       const userMap = {};
       users.forEach((u) => { userMap[String(u.ROWID)] = u; });

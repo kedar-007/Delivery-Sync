@@ -59,6 +59,11 @@ export const PERMISSIONS = {
   ASSET_ASSIGN:  'ASSET_ASSIGN',
   ASSET_APPROVE: 'ASSET_APPROVE',
   ASSET_ADMIN:   'ASSET_ADMIN',
+  // QR scan tiers — granted via Org Roles / per-user overrides.
+  // FULL → ops/IT: full asset record + device credentials + history.
+  // BASIC → any authenticated reader: owner + asset name only.
+  ASSET_SCAN_FULL:  'ASSET_SCAN_FULL',
+  ASSET_SCAN_BASIC: 'ASSET_SCAN_BASIC',
   // ── Badges & Profile ──────────────────────────────────────────────────────
   BADGE_READ:    'BADGE_READ',
   BADGE_WRITE:   'BADGE_WRITE',
@@ -79,9 +84,14 @@ export const PERMISSIONS = {
   // ── Data seeding ──────────────────────────────────────────────────────────
   DATA_SEED: 'DATA_SEED',
   // ── AI & Insights ─────────────────────────────────────────────────────────
-  AI_INSIGHTS:      'AI_INSIGHTS',
-  AI_PERFORMANCE:   'AI_PERFORMANCE',
-  AI_TEAM_ANALYSIS: 'AI_TEAM_ANALYSIS',
+  //   AI_INSIGHTS         – basic AI page (summary, suggestions, NLQ)
+  //   AI_PERFORMANCE_SELF – analyse OWN data only
+  //   AI_PERFORMANCE      – analyse own team(s)
+  //   AI_TEAM_ANALYSIS    – analyse ANY team + org-wide "All Teams"
+  AI_INSIGHTS:         'AI_INSIGHTS',
+  AI_PERFORMANCE_SELF: 'AI_PERFORMANCE_SELF',
+  AI_PERFORMANCE:      'AI_PERFORMANCE',
+  AI_TEAM_ANALYSIS:    'AI_TEAM_ANALYSIS',
   // ── Executive dashboards ──────────────────────────────────────────────────
   CEO_DASHBOARD: 'CEO_DASHBOARD',
   CTO_DASHBOARD: 'CTO_DASHBOARD',
@@ -141,10 +151,27 @@ export const canDo = (role: UserRole | undefined | null, permission: Permission)
  * For TEAM_MEMBER, uses server-computed user.permissions when available
  * (includes org role grants), then falls back to the base TEAM_MEMBER set.
  */
+// AI permissions are strictly governed by user.permissions — they never auto-
+// inherit from the TENANT_ADMIN bypass, because an org-role assignment is
+// allowed to narrow AI access even for TENANT_ADMIN.
+const AI_GATED_PERMS = new Set<Permission>([
+  'AI_INSIGHTS', 'AI_PERFORMANCE_SELF', 'AI_PERFORMANCE', 'AI_TEAM_ANALYSIS',
+]);
+
 export const hasPermission = (user: CurrentUser | null | undefined, permission: Permission): boolean => {
   if (!user) return false;
-  if (user.role === 'TENANT_ADMIN' || user.role === 'SUPER_ADMIN') return true;
+  // SUPER_ADMIN is a system-level role — always bypass.
+  if (user.role === 'SUPER_ADMIN') return true;
+  // When the backend has computed the effective permissions array, it is the
+  // source of truth (already accounts for system role + org-role + user
+  // grants/revokes). TENANT_ADMIN does NOT bypass when an org-role has narrowed
+  // a permission — otherwise revoking org-wide AI for a TENANT_ADMIN user with
+  // a "Delivery Lead" org-role wouldn't actually take effect on the UI.
   if (user.permissions) return user.permissions.includes(permission);
+  // Fallback (permissions array hasn't loaded yet). TENANT_ADMIN bypass applies
+  // only to non-AI perms — AI access must be explicitly granted, never inferred
+  // from the role bypass, so we don't flash org-wide UI during auth load.
+  if (user.role === 'TENANT_ADMIN' && !AI_GATED_PERMS.has(permission)) return true;
   return canDo(user.role, permission);
 };
 

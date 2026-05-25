@@ -53,7 +53,23 @@ Map<String, dynamic> _normaliseRecord(Map<String, dynamic> r) {
   };
 }
 
-String _clientTime() => DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+// Backend stores attendance timestamps in UTC ("YYYY-MM-DD HH:MM:SS" with no
+// TZ suffix) — mirror the web's `new Date().toISOString().slice(0,19)` by
+// formatting `DateTime.now().toUtc()`. Sending local time here is what caused
+// the wrong-time bug: e.g. checking in from IST at 10:00 was being stored as
+// 10:00 UTC and read back as 15:30 IST. (.toUtc() shifts to the right instant.)
+String _clientTime() =>
+    DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now().toUtc());
+
+// Backend timestamps come back as "YYYY-MM-DD HH:MM:SS" without a 'Z' suffix
+// but are UTC. Dart's DateTime.parse treats unsuffixed strings as local — so
+// we normalise + append 'Z' to force UTC. Mirrors the web's
+// `String(s).replace(' ', 'T').replace(/Z?$/, 'Z')` parse.
+DateTime _parseServerTime(String s) {
+  final normalized = (s.contains('T') ? s : s.replaceFirst(' ', 'T'))
+      .replaceAll(RegExp(r'Z?$'), '');
+  return DateTime.parse('${normalized}Z');
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Providers
@@ -151,6 +167,45 @@ final teamRecordsProvider =
   final list = d is List ? d : (d is Map ? (d['records'] as List? ?? []) : []);
   return list.whereType<Map<String, dynamic>>().map(_normaliseRecord).toList();
 });
+
+// My WFH requests — used to gate the "Check In WFH" button. The button is only
+// visible if there's an APPROVED request whose date range covers today; this
+// matches the web's AttendanceWidget behaviour. Without this gate, anyone can
+// punch in as WFH from anywhere — defeating the approval flow.
+final myWfhRequestsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  try {
+    final raw = await ApiClient.instance.get<Map<String, dynamic>>(
+      '${AppConstants.basePeople}/attendance/wfh-requests',
+      queryParameters: {'mine': 'true'},
+      fromJson: (r) => r as Map<String, dynamic>,
+    );
+    final d = raw['data'];
+    final list = d is List
+        ? d
+        : (d is Map ? (d['requests'] as List? ?? d['data'] as List? ?? []) : []);
+    return list.whereType<Map<String, dynamic>>().toList();
+  } catch (_) {
+    return [];
+  }
+});
+
+/// Finds the WFH request that authorises a WFH check-in TODAY. Returns null if
+/// the user has no approved request covering today's date — mirrors the web's
+/// `todayApprovedWfh` derivation.
+Map<String, dynamic>? findTodayApprovedWfh(List<Map<String, dynamic>> requests) {
+  final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+  for (final r in requests) {
+    if ((r['status'] as String?)?.toUpperCase() != 'APPROVED') continue;
+    final from = (r['wfhDate'] ?? r['wfh_date'] ?? '').toString();
+    final to   = (r['wfhDateTo'] ?? r['wfh_date_to'] ?? from).toString();
+    final effectiveTo = to.isEmpty ? from : to;
+    if (from.isEmpty) continue;
+    if (from.compareTo(todayStr) <= 0 && todayStr.compareTo(effectiveTo) <= 0) {
+      return r;
+    }
+  }
+  return null;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Screen
@@ -303,8 +358,9 @@ class _TodayCardState extends ConsumerState<_TodayCard> {
     _breakTimer = null;
     _breakSecs  = 0;
     if (start != null) {
-      // IST times stored without TZ — parse as local, no 'Z' suffix
-      final t = DateTime.parse(start.replaceFirst(' ', 'T'));
+      // Backend stores break_start as UTC without TZ suffix; parse via helper
+      // so the elapsed timer doesn't drift by the local offset.
+      final t = _parseServerTime(start);
       void tick() { _breakSecs = DateTime.now().difference(t).inSeconds.clamp(0, 86400); }
       tick();
       _breakTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -424,67 +480,41 @@ class _TodayCardState extends ConsumerState<_TodayCard> {
   void _handleCheckInError(Object e) {
     final msg = e.toString().toLowerCase();
     if (msg.contains('403') || msg.contains('not allowed') || msg.contains('ip')) {
+      // Office-network check failed — only offer WFH fallback if the user
+      // actually has an approved WFH request for today. Without that gate
+      // anyone could bypass office-network enforcement by punching in as
+      // WFH from anywhere.
+      final wfh = findTodayApprovedWfh(
+        ref.read(myWfhRequestsProvider).valueOrNull ?? const [],
+      );
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Check-in Blocked'),
-          content: const Text(
-            'Check-in is not allowed from this network.\n\nYou can still check in as Working From Home.'),
+          content: Text(
+            wfh != null
+                ? 'Check-in is not allowed from this network.\n\n'
+                  'You have an approved WFH request — tap "Check In WFH" to use it.'
+                : 'Check-in is not allowed from this network.\n\n'
+                  'If you\'re working from home, request WFH approval from the '
+                  'Leave / WFH screen first, then come back here.',
+          ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            FilledButton(
-              onPressed: () { Navigator.pop(ctx); _showWfhDialog(); },
-              child: const Text('Check In WFH'),
-            ),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+            if (wfh != null)
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _checkInWfh((wfh['reason'] as String?) ?? '');
+                },
+                child: const Text('Check In WFH'),
+              ),
           ],
         ),
       );
     } else {
       _snack('Check-in failed: $e', AppColors.error);
     }
-  }
-
-  void _showWfhDialog() {
-    final ctrl = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Row(children: [
-          Icon(Icons.home_rounded, color: AppColors.info, size: 20),
-          SizedBox(width: 8),
-          Text('WFH Check-in'),
-        ]),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('A notification will be sent to your manager.',
-              style: TextStyle(fontSize: 13)),
-          const SizedBox(height: 12),
-          TextField(
-            controller: ctrl,
-            decoration: const InputDecoration(
-              labelText: 'Reason (optional)',
-              hintText: 'e.g. Doctor appointment…',
-            ),
-            maxLines: 2,
-            textCapitalization: TextCapitalization.sentences,
-          ),
-        ]),
-        actions: [
-          TextButton(
-            onPressed: () { Navigator.pop(ctx); ctrl.dispose(); },
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final reason = ctrl.text.trim();
-              Navigator.pop(ctx);
-              ctrl.dispose();
-              _checkInWfh(reason);
-            },
-            child: const Text('Check In WFH'),
-          ),
-        ],
-      ),
-    );
   }
 
   void _snack(String msg, Color color) {
@@ -737,24 +767,113 @@ class _TodayCardState extends ConsumerState<_TodayCard> {
       );
     }
 
+    // The WFH check-in button is only shown when the user has an APPROVED
+    // WFH request whose date range covers today — same gate as the web's
+    // AttendanceWidget. The approved request also supplies the wfh_reason,
+    // so we skip the in-app reason dialog (the manager already saw it on
+    // the request).
+    final wfhAsync = ref.watch(myWfhRequestsProvider);
+    final todayApprovedWfh = findTodayApprovedWfh(wfhAsync.valueOrNull ?? const []);
+    final approvedReason = (todayApprovedWfh?['reason'] as String?) ?? '';
+
     return Row(children: [
       if (canCheckIn) ...[
         Expanded(child: _Btn(
           icon: Icons.login_rounded, label: 'Check In',
           color: AppColors.success, onTap: _checkIn,
         )),
-        const SizedBox(width: 10),
-        Expanded(child: _Btn(
-          icon: Icons.home_rounded, label: 'WFH',
-          color: AppColors.info, onTap: _showWfhDialog,
-        )),
+        if (todayApprovedWfh != null) ...[
+          const SizedBox(width: 10),
+          Expanded(child: _Btn(
+            icon: Icons.home_rounded, label: 'WFH',
+            color: AppColors.info,
+            onTap: () => _checkInWfh(approvedReason),
+          )),
+        ],
       ],
       if (canCheckOut)
         Expanded(child: _Btn(
           icon: Icons.logout_rounded, label: 'Check Out',
-          color: AppColors.ragRed, onTap: _checkOut,
+          color: AppColors.ragRed, onTap: () => _confirmCheckOut(checkedIn),
         )),
     ]);
+  }
+
+  /// Show a confirmation dialog before check-out. Mirrors the web's
+  /// "You won't be able to check in again today" warning — without this,
+  /// users were accidentally tapping Check Out and getting locked out for
+  /// the rest of the day.
+  Future<void> _confirmCheckOut(String? checkedIn) async {
+    // Compute elapsed worked time so the user can see what they're giving up.
+    String? elapsed;
+    if (checkedIn != null) {
+      try {
+        final start = _parseServerTime(checkedIn);
+        final d = DateTime.now().difference(start);
+        if (!d.isNegative) {
+          final h = d.inHours;
+          final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+          elapsed = h > 0 ? '${h}h ${m}m' : '${m}m';
+        }
+      } catch (_) {}
+    }
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(children: const [
+          Icon(Icons.warning_amber_rounded, color: AppColors.warning, size: 22),
+          SizedBox(width: 10),
+          Expanded(child: Text('Check out for the day?')),
+        ]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.warningBg,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.warning.withOpacity(0.35)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "You won't be able to check in again today.",
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Once you check out, today\'s attendance is final.'
+                    '${elapsed != null ? ' Worked so far: $elapsed.' : ''}',
+                    style: const TextStyle(fontSize: 12, height: 1.35),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Only proceed if you\'re done for the day.',
+              style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.ragRed),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Yes, Check Me Out'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await _checkOut();
   }
 
   static (Color, String, IconData) _statusInfo(String status) => switch (status) {
@@ -767,8 +886,7 @@ class _TodayCardState extends ConsumerState<_TodayCard> {
 
   static String _formatTime(String iso) {
     try {
-      final s = iso.contains('T') ? iso : iso.replaceFirst(' ', 'T');
-      return DateFormat('h:mm a').format(DateTime.parse(s).toLocal());
+      return DateFormat('h:mm a').format(_parseServerTime(iso).toLocal());
     } catch (_) { return iso; }
   }
 }
@@ -1391,8 +1509,7 @@ class _DayRow extends StatelessWidget {
 
   static String _fmt(String iso) {
     try {
-      final dt = DateTime.parse(iso.contains('T') ? iso : iso.replaceFirst(' ', 'T'));
-      return DateFormat('h:mm a').format(dt.toLocal());
+      return DateFormat('h:mm a').format(_parseServerTime(iso).toLocal());
     } catch (_) { return iso; }
   }
 }
@@ -1737,8 +1854,7 @@ class _LiveUserTile extends StatelessWidget {
 
   static String _fmt(String iso) {
     try {
-      final s = iso.contains('T') ? iso : iso.replaceFirst(' ', 'T');
-      return DateFormat('h:mm a').format(DateTime.parse(s).toLocal());
+      return DateFormat('h:mm a').format(_parseServerTime(iso).toLocal());
     } catch (_) { return iso; }
   }
 }

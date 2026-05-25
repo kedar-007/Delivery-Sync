@@ -1,4 +1,5 @@
 'use strict';
+const crypto              = require('crypto');
 const DataStoreService    = require('../services/DataStoreService');
 const AuditService        = require('../services/AuditService');
 const NotificationService = require('../services/NotificationService');
@@ -6,6 +7,10 @@ const ResponseHelper      = require('../utils/ResponseHelper');
 const {
   TABLES, ASSET_STATUS, ASSET_REQ_STATUS, AUDIT_ACTION, NOTIFICATION_TYPE, PERMISSIONS,
 } = require('../utils/Constants');
+
+// 32-char URL-safe token. Tokens are per-assignment, so on return the row's
+// is_active flips to 'false' and the token stops resolving — no rotation needed.
+const newQrToken = () => crypto.randomBytes(24).toString('base64url');
 
 class AssetRequestController {
   constructor(catalystApp) {
@@ -19,23 +24,53 @@ class AssetRequestController {
   }
 
   // ── GET /requests ─────────────────────────────────────────────────────────────
+  // Visibility tiers (additive — each tier ORs more rows into the result):
+  //   1. Everyone     → own requests + requests where they're in ops_assignees
+  //   2. ASSET_APPROVE → also requests raised by their direct reports
+  //                      (USER_PROFILES.reporting_manager_id = me.id)
+  //   3. ASSET_ASSIGN  → also every in-flight request in the tenant — the
+  //                      whole ops queue (approved → return-verified). Without
+  //                      this an ops user not pre-named in ops_assignees can't
+  //                      see returns and can't verify them.
   async list(req, res) {
     const me = req.currentUser;
     const { status } = req.query;
 
-    const canSeeAll = this._hasPerm(me, PERMISSIONS.ASSET_APPROVE) || this._hasPerm(me, PERMISSIONS.ASSET_ADMIN);
-    const canSeeOpsQueue = this._hasPerm(me, PERMISSIONS.ASSET_ASSIGN);
+    const ownClause = `requested_by = '${me.id}' OR ops_assignees LIKE '%"${me.id}"%'`;
+    const clauses   = [`(${ownClause})`];
 
-    let visWhere = '';
-    if (!canSeeAll) {
-      // Own requests OR requests where this user is in the ops_assignees list
-      if (canSeeOpsQueue) {
-        visWhere = `(requested_by = '${me.id}' OR ops_assignees LIKE '%"${me.id}"%')`;
-      } else {
-        visWhere = `(requested_by = '${me.id}' OR ops_assignees LIKE '%"${me.id}"%')`;
+    if (this._hasPerm(me, PERMISSIONS.ASSET_APPROVE)) {
+      // ZCQL caps LIMIT at 300, which is also a sane upper bound on direct
+      // reports for any single manager.
+      const reporteeProfiles = await this.db.findWhere(
+        TABLES.USER_PROFILES, req.tenantId,
+        `reporting_manager_id = '${me.id}'`, { limit: 300 },
+      );
+      const reporteeIds = reporteeProfiles
+        .map((p) => p.user_id)
+        .filter(Boolean)
+        .map((id) => `'${String(id)}'`);
+      if (reporteeIds.length) {
+        clauses.push(`requested_by IN (${reporteeIds.join(',')})`);
       }
     }
 
+    if (this._hasPerm(me, PERMISSIONS.ASSET_ASSIGN)) {
+      // Ops queue: every request that's been approved and hasn't been finished
+      // or cancelled. Lets ops users find returns even when they weren't
+      // pre-named as ops_assignees.
+      const opsStatuses = [
+        ASSET_REQ_STATUS.APPROVED,
+        ASSET_REQ_STATUS.ASSIGNED_TO_OPS,
+        ASSET_REQ_STATUS.PROCESSING,
+        ASSET_REQ_STATUS.HANDED_OVER,
+        ASSET_REQ_STATUS.RETURNED,
+        ASSET_REQ_STATUS.RETURN_VERIFIED,
+      ].map((s) => `'${s}'`).join(',');
+      clauses.push(`status IN (${opsStatuses})`);
+    }
+
+    let visWhere = clauses.length === 1 ? clauses[0] : `(${clauses.join(' OR ')})`;
     let where = visWhere;
     if (status) where += (where ? ' AND ' : '') + `status = '${DataStoreService.escape(status)}'`;
 
@@ -53,6 +88,8 @@ class AssetRequestController {
       ...requests.map((r) => r.requested_by),
       ...requests.map((r) => r.approved_by),
       ...requests.map((r) => r.handover_by),
+      ...requests.map((r) => r.return_verified_by),
+      ...requests.map((r) => r.return_rejected_by),
       ...allOpsIds,
     ].filter(Boolean))];
     const categoryIds = [...new Set(requests.map((r) => r.category_id).filter(Boolean))];
@@ -78,6 +115,8 @@ class AssetRequestController {
       const user        = userMap[String(r.requested_by)] ?? {};
       const approver    = userMap[String(r.approved_by)]  ?? {};
       const handoverUsr = userMap[String(r.handover_by)]  ?? {};
+      const verifier    = userMap[String(r.return_verified_by)] ?? {};
+      const rejecter    = userMap[String(r.return_rejected_by)] ?? {};
       const cat         = catMap[String(r.category_id)]   ?? {};
       const asset       = assetMap[String(r.asset_id)]    ?? {};
 
@@ -109,6 +148,10 @@ class AssetRequestController {
         requested_by_avatar:   user.avatar_url ?? null,
         approved_by_name:      approver.name   ?? null,
         handover_by_name:      handoverUsr.name ?? null,
+        return_verified_by_name:  verifier.name      ?? null,
+        return_verified_by_email: verifier.email     ?? null,
+        return_verified_by_avatar: verifier.avatar_url ?? null,
+        return_rejected_by_name:   rejecter.name      ?? null,
         category_name:         cat.name   ?? null,
         asset_name:            asset.name ?? null,
         asset_tag:             asset.asset_tag ?? null,
@@ -430,6 +473,8 @@ class AssetRequestController {
     if (!asset || asset.status !== ASSET_STATUS.AVAILABLE)
       return ResponseHelper.validationError(res, 'Asset is not available for handover');
 
+    const qrToken = newQrToken();
+
     const updateData = {
       ROWID: req.params.requestId,
       status: ASSET_REQ_STATUS.HANDED_OVER,
@@ -437,6 +482,7 @@ class AssetRequestController {
       handover_by: String(req.currentUser.id),
       handover_at: DataStoreService.fmtDT(new Date()),
       handover_notes: notes || '',
+      qr_token: qrToken,
     };
     if (device_id)       updateData.device_id       = String(device_id);
     if (device_username) updateData.device_username = String(device_username);
@@ -460,6 +506,7 @@ class AssetRequestController {
       assigned_date:           DataStoreService.fmtDT(new Date()),
       condition_at_assignment: asset.asset_condition || 'GOOD',
       is_active:               'true',
+      qr_token:                qrToken,
     });
 
     // Fetch names for notifications
@@ -536,24 +583,74 @@ class AssetRequestController {
       return_reason: reason,
     });
 
-    // Notify ops assignees
-    let opsIds = [];
-    try { opsIds = JSON.parse(req_.ops_assignees || '[]'); } catch { opsIds = []; }
-    if (opsIds.length) {
-      const opsUsers = await this.db.query(
-        `SELECT ROWID, name, email FROM ${TABLES.USERS} WHERE ROWID IN (${opsIds.map((id) => `'${id}'`).join(',')}) LIMIT 200`,
+    // Fan-out: notify everyone who might need to act on this return.
+    //   1. ops_assignees recorded on the request (the explicitly named pickers)
+    //   2. handover_by (the person who physically handed the asset over)
+    //   3. requester's reporting manager (for visibility on team movements)
+    //   4. all active users holding ASSET_ASSIGN — the broader ops team —
+    //      so a return doesn't sit silent when no one was pre-named
+    const notifyIds = new Set();
+
+    // 1. ops_assignees
+    try {
+      JSON.parse(req_.ops_assignees || '[]').forEach((id) => id && notifyIds.add(String(id)));
+    } catch { /* malformed JSON — ignore */ }
+
+    // 2. The user who handed the asset over
+    if (req_.handover_by) notifyIds.add(String(req_.handover_by));
+
+    // 3. Reporting manager — adds a manager-level FYI
+    try {
+      const profileRows = await this.db.findWhere(
+        TABLES.USER_PROFILES, req.tenantId,
+        `user_id = '${req.currentUser.id}'`, { limit: 1 },
       );
+      const rmId = profileRows[0]?.reporting_manager_id;
+      if (rmId) notifyIds.add(String(rmId));
+    } catch { /* non-critical — keep going */ }
+
+    // 4. Broadcast to all users holding ASSET_ASSIGN. The permission set is
+     //    stored as a JSON string per org role, so we LIKE-filter on the
+     //    permissions column to find roles that grant ASSET_ASSIGN, then
+     //    fan out through user_org_roles.
+    try {
+      const opsRoleRows = await this.db.query(
+        `SELECT org_role_id FROM ${TABLES.ORG_ROLE_PERMISSIONS} ` +
+        `WHERE permissions LIKE '%"${PERMISSIONS.ASSET_ASSIGN}"%' LIMIT 100`,
+      );
+      const roleIds = opsRoleRows.map((r) => r.org_role_id).filter(Boolean);
+      if (roleIds.length) {
+        const opsUserRows = await this.db.query(
+          `SELECT user_id FROM ${TABLES.USER_ORG_ROLES} ` +
+          `WHERE tenant_id = '${req.tenantId}' AND is_active = 'true' ` +
+          `AND org_role_id IN (${roleIds.map((id) => `'${id}'`).join(',')}) LIMIT 200`,
+        );
+        opsUserRows.forEach((r) => r.user_id && notifyIds.add(String(r.user_id)));
+      }
+    } catch (e) {
+      console.error('[initiateReturn] ops broadcast lookup failed:', e.message);
+    }
+
+    // Don't notify the requester themselves.
+    notifyIds.delete(String(req.currentUser.id));
+
+    if (notifyIds.size) {
       const requesterRows = await this.db.query(
         `SELECT name FROM ${TABLES.USERS} WHERE ROWID = '${req.currentUser.id}' LIMIT 1`,
       );
       const requesterName = requesterRows[0]?.name ?? 'A team member';
-      for (const opsUser of opsUsers) {
+      const assetName = req_.asset_id
+        ? (await this.db.query(`SELECT name FROM ${TABLES.ASSETS} WHERE ROWID = '${req_.asset_id}' LIMIT 1`))[0]?.name
+        : null;
+      for (const userId of notifyIds) {
         await this.notif.sendInApp({
-          tenantId: req.tenantId, userId: String(opsUser.ROWID),
+          tenantId: req.tenantId, userId,
           title: 'Asset Return — Verify Required',
-          message: `${requesterName} has returned an asset. Please verify and process.`,
+          message: assetName
+            ? `${requesterName} has returned "${assetName}". Please verify and process.`
+            : `${requesterName} has returned an asset. Please verify and process.`,
           type: NOTIFICATION_TYPE.ASSET_RETURNED, entityType: 'ASSET_REQUEST', entityId: req.params.requestId,
-        });
+        }).catch((err) => console.error('[initiateReturn] notify failed for', userId, err.message));
       }
     }
 
@@ -566,32 +663,69 @@ class AssetRequestController {
   }
 
   // ── PATCH /requests/:id/verify-return ─────────────────────────────────────────
-  // Ops team verifies return with checklist
+  // Ops team verifies return, branching the asset's next state by condition:
+  //   • GOOD / FAIR  → asset back to AVAILABLE
+  //   • DAMAGED      → asset to MAINTENANCE; a maintenance record is auto-created
+  //                    with the damage description + estimated cost
+  //   • LOST         → asset retired (status LOST); no maintenance record
+  // Optional `missing_items` records partial recovery (e.g. charger lost, laptop OK).
   async verifyReturn(req, res) {
-    const { condition = 'GOOD', checklist = [], notes = '' } = req.body ?? {};
+    const {
+      condition = 'GOOD',
+      checklist = [],
+      missing_items = [],
+      damage_severity = 'NONE',
+      damage_description = '',
+      estimated_cost = 0,
+      notes = '',
+    } = req.body ?? {};
+
+    const validConditions = ['GOOD', 'FAIR', 'DAMAGED', 'LOST'];
+    if (!validConditions.includes(condition)) {
+      return ResponseHelper.validationError(res, `condition must be one of ${validConditions.join(', ')}`);
+    }
+    if ((condition === 'DAMAGED' || condition === 'LOST') && !String(damage_description).trim()) {
+      return ResponseHelper.validationError(res, 'damage_description is required for DAMAGED or LOST returns');
+    }
+
     const req_ = await this.db.findById(TABLES.ASSET_REQUESTS, req.params.requestId, req.tenantId);
     if (!req_) return ResponseHelper.notFound(res, 'Request not found');
     if (req_.status !== ASSET_REQ_STATUS.RETURNED)
       return ResponseHelper.validationError(res, 'Request must be in RETURNED status to verify');
 
+    // Decide the asset's next state from the condition.
+    let nextAssetStatus;
+    if      (condition === 'LOST')    nextAssetStatus = ASSET_STATUS.LOST;
+    else if (condition === 'DAMAGED') nextAssetStatus = ASSET_STATUS.MAINTENANCE;
+    else                              nextAssetStatus = ASSET_STATUS.AVAILABLE;
+
     await this.db.update(TABLES.ASSET_REQUESTS, {
       ROWID: req.params.requestId,
       status: ASSET_REQ_STATUS.RETURN_VERIFIED,
-      return_condition:    condition,
-      return_checklist:    JSON.stringify(checklist),
-      return_notes:        notes,
-      return_verified_by:  String(req.currentUser.id),
-      return_verified_at:  DataStoreService.fmtDT(new Date()),
+      return_condition:          condition,
+      return_checklist:          JSON.stringify(checklist),
+      return_missing_items:      JSON.stringify(missing_items),
+      return_damage_severity:    damage_severity,
+      return_damage_description: damage_description,
+      return_estimated_cost:     String(estimated_cost || 0),
+      return_notes:              notes,
+      return_verified_by:        String(req.currentUser.id),
+      return_verified_at:        DataStoreService.fmtDT(new Date()),
+      qr_token:                  null,
     });
 
-    // Free the asset
     if (req_.asset_id) {
-      await this.db.update(TABLES.ASSETS, {
+      // Clear the assignee. The `assigned_to` column has a foreign-key
+      // constraint to users.ROWID, so '0' is rejected — use null instead.
+      // Historical owner is preserved on the assignment row below.
+      const assetUpdate = {
         ROWID: req_.asset_id,
-        status: ASSET_STATUS.AVAILABLE,
-        assigned_to: '0',
-      });
-      // Close the active assignment record
+        status: nextAssetStatus,
+        assigned_to: null,
+      };
+      await this.db.update(TABLES.ASSETS, assetUpdate);
+
+      // Close the active assignment record with the verification outcome.
       const rid = DataStoreService.escape(req.params.requestId);
       const assignments = await this.db.findWhere(
         TABLES.ASSET_ASSIGNMENTS, req.tenantId,
@@ -601,23 +735,46 @@ class AssetRequestController {
       if (assignments[0]) {
         await this.db.update(TABLES.ASSET_ASSIGNMENTS, {
           ROWID: assignments[0].ROWID,
-          returned_date:      DataStoreService.fmtDT(new Date()),
+          returned_date:       DataStoreService.fmtDT(new Date()),
           condition_at_return: condition,
           return_notes:        notes,
           is_active:           'false',
         });
       }
+
+      // DAMAGED → auto-create a maintenance record so the repair is tracked
+      // and the asset doesn't silently sit in MAINTENANCE forever.
+      if (condition === 'DAMAGED') {
+        await this.db.insert(TABLES.ASSET_MAINTENANCE, {
+          tenant_id:      String(req.tenantId),
+          asset_id:       String(req_.asset_id),
+          type:           'REPAIR',
+          description:    `Damage on return: ${damage_description}`.slice(0, 1000),
+          scheduled_date: DataStoreService.fmtDT(new Date()),
+          cost:           String(estimated_cost || 0),
+          performed_by:   '0',
+          status:         'SCHEDULED',
+          created_by:     String(req.currentUser.id),
+        }).catch((err) => {
+          console.error('[verifyReturn] auto-maintenance record failed:', err.message);
+        });
+      }
     }
 
-    // Notify requester
+    // Notify requester — message reflects the outcome.
     const requesterRows = await this.db.query(
       `SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${req_.requested_by}' LIMIT 1`,
     );
     if (requesterRows[0]) {
+      const outcomeMsg = condition === 'LOST'
+        ? 'Your asset return was logged as LOST. Please contact your manager.'
+        : condition === 'DAMAGED'
+          ? 'Your asset return was verified — damage noted and sent for repair.'
+          : 'Your asset return has been verified. Thank you!';
       await this.notif.sendInApp({
         tenantId: req.tenantId, userId: req_.requested_by,
         title: 'Asset Return Verified',
-        message: 'Your asset return has been verified. Thank you!',
+        message: outcomeMsg,
         type: NOTIFICATION_TYPE.ASSET_RETURN_VERIFIED, entityType: 'ASSET_REQUEST', entityId: req.params.requestId,
       });
     }
@@ -625,9 +782,59 @@ class AssetRequestController {
     await this.audit.log({
       tenantId: req.tenantId, entityType: 'ASSET_REQUEST', entityId: req.params.requestId,
       action: AUDIT_ACTION.RETURN_VERIFY,
-      newValue: { condition, checklist }, performedBy: req.currentUser.id,
+      newValue: { condition, checklist, missing_items, damage_severity, estimated_cost },
+      performedBy: req.currentUser.id,
     });
-    return ResponseHelper.success(res, { message: 'Return verified' });
+    return ResponseHelper.success(res, { message: 'Return verified', condition, asset_status: nextAssetStatus });
+  }
+
+  // ── PATCH /requests/:id/reject-return ────────────────────────────────────────
+  // Ops can bounce a return back to HANDED_OVER when the physical handover is
+  // incomplete (wrong asset, missing accessories, damage not declared, etc.).
+  // The requester then re-initiates return after addressing the issue.
+  async rejectReturn(req, res) {
+    const { notes = '' } = req.body ?? {};
+    if (!String(notes).trim()) {
+      return ResponseHelper.validationError(res, 'A rejection note is required so the requester knows what to fix');
+    }
+    const req_ = await this.db.findById(TABLES.ASSET_REQUESTS, req.params.requestId, req.tenantId);
+    if (!req_) return ResponseHelper.notFound(res, 'Request not found');
+    if (req_.status !== ASSET_REQ_STATUS.RETURNED) {
+      return ResponseHelper.validationError(res, 'Only a return in RETURNED status can be rejected');
+    }
+
+    await this.db.update(TABLES.ASSET_REQUESTS, {
+      ROWID: req.params.requestId,
+      // Bounce back to HANDED_OVER — asset is still physically with the requester.
+      status: ASSET_REQ_STATUS.HANDED_OVER,
+      return_rejected_by:    String(req.currentUser.id),
+      return_rejected_at:    DataStoreService.fmtDT(new Date()),
+      return_rejection_notes: notes,
+      // Clear the pending-return fields so the requester can re-initiate cleanly.
+      return_by:     null,
+      return_at:     null,
+      return_reason: null,
+    });
+
+    // Notify the requester so they know what to fix.
+    const userRows = await this.db.query(
+      `SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${req_.requested_by}' LIMIT 1`,
+    );
+    if (userRows[0]) {
+      await this.notif.sendInApp({
+        tenantId: req.tenantId, userId: req_.requested_by,
+        title: 'Asset Return Needs Attention',
+        message: `Your asset return was bounced back: ${notes.slice(0, 140)}`,
+        type: NOTIFICATION_TYPE.ASSET_RETURNED, entityType: 'ASSET_REQUEST', entityId: req.params.requestId,
+      });
+    }
+
+    await this.audit.log({
+      tenantId: req.tenantId, entityType: 'ASSET_REQUEST', entityId: req.params.requestId,
+      action: AUDIT_ACTION.RETURN_INITIATE, // reuse — represents return-flow activity
+      newValue: { rejected: true, notes }, performedBy: req.currentUser.id,
+    });
+    return ResponseHelper.success(res, { message: 'Return rejected and bounced back to requester' });
   }
 
   // ── PATCH /requests/:id/fulfill (legacy) ──────────────────────────────────────

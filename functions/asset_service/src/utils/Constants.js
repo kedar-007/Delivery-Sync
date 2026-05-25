@@ -42,6 +42,10 @@ const PERMISSIONS = Object.freeze({
   // Assets
   ASSET_READ: 'ASSET_READ', ASSET_WRITE: 'ASSET_WRITE',
   ASSET_ASSIGN: 'ASSET_ASSIGN', ASSET_APPROVE: 'ASSET_APPROVE', ASSET_ADMIN: 'ASSET_ADMIN',
+  // QR scan tiers — granted via org roles / per-user overrides, not by legacy role.
+  // FULL → ops/IT: full asset record, device credentials, full assignment history.
+  // BASIC → default authenticated reader: owner + asset name only.
+  ASSET_SCAN_FULL: 'ASSET_SCAN_FULL', ASSET_SCAN_BASIC: 'ASSET_SCAN_BASIC',
   // Badges & Profile
   BADGE_READ: 'BADGE_READ', BADGE_WRITE: 'BADGE_WRITE', BADGE_AWARD: 'BADGE_AWARD',
   PROFILE_READ: 'PROFILE_READ', PROFILE_WRITE: 'PROFILE_WRITE',

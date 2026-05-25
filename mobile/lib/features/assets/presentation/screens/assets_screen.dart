@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/services/api_client.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../features/auth/providers/auth_provider.dart';
 import '../../../../shared/widgets/ds_metric_card.dart';
 import '../../../../shared/widgets/user_avatar.dart';
 
@@ -70,12 +73,30 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen>
   @override
   Widget build(BuildContext context) {
     final ds = context.ds;
+    final user = ref.watch(currentUserProvider);
+    // Anyone with asset read access can scan a sticker; the backend decides
+    // the response tier from ASSET_SCAN_FULL. Matches the web gate.
+    final canScan = (user?.permissions.contains('ASSET_READ') ?? false) ||
+        (user?.permissions.contains('ASSET_SCAN_FULL') ?? false) ||
+        (user?.permissions.contains('ASSET_SCAN_BASIC') ?? false);
     return Scaffold(
       backgroundColor: ds.bgPage,
       appBar: AppBar(
         title: const Text('Assets'),
         backgroundColor: ds.bgPage,
         surfaceTintColor: Colors.transparent,
+        actions: [
+          if (canScan)
+            IconButton(
+              tooltip: 'Scan QR',
+              icon: const Icon(Icons.qr_code_scanner_rounded),
+              // Route is registered under the More-tab branch
+              // (`/more/assets/scan`). The previous `/home/...` path didn't
+              // exist so go_router fell back to home and the camera screen
+              // never opened.
+              onPressed: () => context.push('/more/assets/scan'),
+            ),
+        ],
         bottom: TabBar(
           controller: _tabCtrl,
           tabs: const [
@@ -614,10 +635,12 @@ class _RequestTile extends StatelessWidget {
     final categoryName = request['categoryName'] as String? ?? request['category_name'] as String?;
     final handoverName = request['handoverByName'] as String? ?? request['handover_by_name'] as String?;
     final approvedName = request['approvedByName'] as String? ?? request['approved_by_name'] as String?;
+    final qrToken      = request['qr_token'] as String? ?? request['qrToken'] as String?;
+    final assetTag     = request['asset_tag'] as String? ?? request['assetTag'] as String?;
 
     final (color, label) = _statusInfo(status);
 
-    return Container(
+    final card = Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -672,6 +695,71 @@ class _RequestTile extends StatelessWidget {
               style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: color)),
         ),
       ]),
+    );
+
+    // While the asset is in the requester's hands, expose the printable QR
+    // sticker — they may need to re-print it or hand the device to ops.
+    if (status == 'HANDED_OVER' && qrToken != null && qrToken.isNotEmpty) {
+      return InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => _showQrSheet(context, qrToken, assetTag),
+        child: card,
+      );
+    }
+    return card;
+  }
+
+  void _showQrSheet(BuildContext context, String token, String? assetTag) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: context.ds.bgCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        final ds = sheetCtx.ds;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(width: 36, height: 4, decoration: BoxDecoration(
+                color: ds.border, borderRadius: BorderRadius.circular(2),
+              )),
+              const SizedBox(height: 16),
+              const Text('Asset QR Sticker',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 4),
+              Text(
+                'Print and stick this on the device. The token rotates automatically on return.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: ds.textMuted),
+              ),
+              const SizedBox(height: 18),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: ds.border),
+                ),
+                child: QrImageView(
+                  data: 'dsync://asset-scan/$token',
+                  size: 220,
+                  version: QrVersions.auto,
+                  errorCorrectionLevel: QrErrorCorrectLevel.M,
+                ),
+              ),
+              if (assetTag != null && assetTag.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(assetTag,
+                    style: TextStyle(fontSize: 12, color: ds.textMuted, fontFamily: 'monospace')),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 

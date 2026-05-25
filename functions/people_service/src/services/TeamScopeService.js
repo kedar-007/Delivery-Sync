@@ -50,29 +50,36 @@ class TeamScopeService {
       );
       ledTeams.forEach((t) => myTeamIds.add(String(t.ROWID)));
 
-      // Also add the leads of the teams I'm in (so a member sees their TL's records)
+      // Also add the leads of the teams I'm in (so a member sees their TL's records).
+      // Uses IN(...) instead of "ROWID = 'A' OR ROWID = 'B' OR ..." — the OR form
+      // combined with findWhere's `tenant_id = X AND ${whereExtra}` parses as
+      // `(tenant_id = X AND ROWID = 'A') OR ROWID = 'B' OR ...` due to SQL
+      // AND/OR precedence, which drops the tenant filter for all but the first
+      // clause AND breaks ZCQL parsing for >1 team.
       if (memberRows.length > 0) {
         const teamIdList = Array.from(myTeamIds).filter(Boolean);
         if (teamIdList.length > 0) {
-          // Single multi-OR query to fetch all team rows in one round-trip
-          const where = teamIdList.map((id) => `ROWID = '${id}'`).join(' OR ');
+          const inList = teamIdList.map((id) => `'${id}'`).join(',');
           const teams = await this.db.findWhere(
-            TABLES.TEAMS, tid, where, { limit: 200 }
+            TABLES.TEAMS, tid, `ROWID IN (${inList})`, { limit: 200 }
           );
           teams.forEach((t) => { if (t.lead_user_id) out.add(String(t.lead_user_id)); });
         }
       }
 
-      // 3. For each team I'm in or lead, pull all its members
+      // 3. For each team I'm in or lead, pull all its members.
+      // Same IN(...) fix as above. Also LIMIT capped at 300 because ZCQL
+      // rejects queries with LIMIT > 300 (errors out the whole query rather
+      // than truncating).
       if (myTeamIds.size > 0) {
         const teamIdList = Array.from(myTeamIds);
         // Chunk to keep WHERE clauses reasonable
         const chunkSize = 20;
         for (let i = 0; i < teamIdList.length; i += chunkSize) {
           const slice = teamIdList.slice(i, i + chunkSize);
-          const where = slice.map((id) => `team_id = '${id}'`).join(' OR ');
+          const inList = slice.map((id) => `'${id}'`).join(',');
           const allMembers = await this.db.findWhere(
-            TABLES.TEAM_MEMBERS, tid, where, { limit: 500 }
+            TABLES.TEAM_MEMBERS, tid, `team_id IN (${inList})`, { limit: 300 }
           );
           allMembers.forEach((m) => { if (m.user_id) out.add(String(m.user_id)); });
         }

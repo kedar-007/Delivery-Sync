@@ -204,11 +204,14 @@ class LeaveController {
     const me = req.currentUser;
     let where = '';
 
-    if (mine === 'true' || me.role === 'TEAM_MEMBER') {
-      // My own leaves only
-      where = `user_id = '${me.id}'`;
-    } else if (team === 'true') {
-      // Only requests from direct reports (users whose reporting_manager_id = me)
+    // `team=true` must take precedence: the project uses TEAM_MEMBER as the
+    // only non-admin role, and reporting managers are themselves TEAM_MEMBERs
+    // who hold LEAVE_APPROVE via their org role. The previous role-string
+    // short-circuit (`me.role === 'TEAM_MEMBER'`) forced every RM into a
+    // "mine only" view, hiding their reportees' leave requests. The route
+    // already gates on LEAVE_READ; team-scoped reads are further constrained
+    // to the caller's direct reports below.
+    if (team === 'true') {
       const reporteeProfiles = await this.db.findWhere(
         TABLES.USER_PROFILES, req.tenantId,
         `reporting_manager_id = '${me.id}'`, { limit: 200 }
@@ -218,6 +221,9 @@ class LeaveController {
       }
       const ids = reporteeProfiles.map(p => `'${p.user_id}'`).join(',');
       where = `user_id IN (${ids})`;
+    } else if (mine === 'true' || me.role === 'TEAM_MEMBER') {
+      // My own leaves only (default for any non-admin caller).
+      where = `user_id = '${me.id}'`;
     }
 
     if (status) where += (where ? ' AND ' : '') + `status = '${DataStoreService.escape(status)}'`;

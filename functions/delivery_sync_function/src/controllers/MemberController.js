@@ -160,8 +160,10 @@ class MemberController {
         return ResponseHelper.success(res, { added: 0, skipped: 0 }, 'Team has no members');
       }
 
+      // ZCQL caps LIMIT at 300 per query — overshooting errors the entire
+      // query, so we must stay at or below 300 here.
       const existingRows = await this.db.query(
-        `SELECT user_id FROM ${TABLES.PROJECT_MEMBERS} WHERE tenant_id = '${tenantId}' AND project_id = '${projectId}' LIMIT 500`
+        `SELECT user_id FROM ${TABLES.PROJECT_MEMBERS} WHERE tenant_id = '${tenantId}' AND project_id = '${projectId}' LIMIT 300`
       );
       const existingUserIds = new Set(existingRows.map((r) => String(r.user_id)));
 
@@ -184,12 +186,14 @@ class MemberController {
 
         const memberRole = tm.role || 'MEMBER';
 
+        // Match the single-user `addMember` shape — the project_members table
+        // does not have an `added_by` column, so including it makes Catalyst
+        // reject the insert with "Invalid input value for column name".
         await this.db.insert(TABLES.PROJECT_MEMBERS, {
           tenant_id: tenantId,
           project_id: projectId,
           user_id: uid,
           role: memberRole,
-          added_by: addedBy,
         });
         added++;
 

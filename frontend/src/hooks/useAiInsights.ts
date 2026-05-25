@@ -57,7 +57,7 @@ export const useAiNLQuery = () =>
 
 export const useAiHolisticPerformance = () =>
   useMutation({
-    mutationFn: (params: { targetUserId?: string; days?: 7 | 30 | 90 }) =>
+    mutationFn: (params: { targetUserId?: string; teamId?: string; days?: 7 | 30 | 90; forceRefresh?: boolean }) =>
       aiApi.holisticPerformance(params),
     retry: 1,
     retryDelay: 1500,

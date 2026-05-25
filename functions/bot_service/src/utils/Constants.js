@@ -49,12 +49,10 @@ const TABLES = Object.freeze({
   BOT_QUICK_ACTIONS:  'bot_quick_actions',
 });
 
-// ─── LLM Configuration (same Zoho Qwen endpoint used by ai_service) ──────────
+// ─── LLM Configuration (same Zoho GLM endpoint used by ai_service) ───────────
 const LLM_CONFIG = Object.freeze({
-  ENDPOINT:        'https://api.catalyst.zoho.in/quickml/v2/project/17682000000819069/llm/chat',
-  MODEL:           'crm-di-qwen_text_moe_30b',
-  TOP_P:           0.9,
-  TOP_K:           50,
+  ENDPOINT:        'https://api.catalyst.zoho.in/quickml/v1/project/17682000000819069/glm/chat',
+  MODEL:           'crm-di-glm47b_30b_it',
   TEMPERATURE:     0.8,
   MAX_TOKENS:      350,
   MAX_PLAN_TOKENS: 450,

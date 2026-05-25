@@ -1,10 +1,14 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:go_router/go_router.dart';
 import 'package:logger/logger.dart';
 
 import '../constants/app_constants.dart';
+import '../router/app_router.dart';
+import '../router/notification_routes.dart';
 import 'catalyst_service.dart';
 
 /// Zoho Catalyst Push Notification Service.
@@ -124,9 +128,71 @@ class NotificationService {
     );
   }
 
+  /// Build the JSON payload for a notification — encoded into the OS
+  /// notification's `payload` field and parsed back by [_onNotificationTap]
+  /// when the user taps the OS banner / notification-centre entry.
+  ///
+  /// Backend callers should already populate these fields; the helper exists
+  /// so the notification list inside the app can deep-link the same way as
+  /// a push tap (same code path, same destination).
+  static String encodePayload({
+    String? entityType,
+    String? entityId,
+    Map<String, dynamic>? metadata,
+  }) =>
+      jsonEncode({
+        if (entityType != null) 'entityType': entityType,
+        if (entityId   != null) 'entityId':   entityId,
+        if (metadata   != null) 'metadata':   metadata,
+      });
+
+  /// Navigate to the specific record a notification points at. Safe to call
+  /// from non-widget code — uses the [rootNavigatorKey] attached to GoRouter.
+  ///
+  /// The same logic lives in the web app's NotificationBell — keeping both
+  /// sides in sync means a notification opened on phone vs. browser lands on
+  /// the same record either way.
+  void openForEntity({
+    required String? entityType,
+    required String? entityId,
+    Map<String, dynamic>? metadata,
+  }) {
+    final route = notificationRoute(
+      entityType: entityType,
+      entityId: entityId,
+      metadata: metadata,
+    );
+    if (route == null) return;
+
+    final ctx = rootNavigatorKey.currentContext;
+    if (ctx == null) {
+      _log.w('Notification tap: rootNavigatorKey has no context yet, skipping nav');
+      return;
+    }
+    final uri = Uri(path: route.path, queryParameters: route.queryParameters);
+    try {
+      ctx.go(uri.toString());
+    } catch (e) {
+      _log.e('Notification navigation failed', error: e);
+    }
+  }
+
   void _onNotificationTap(NotificationResponse response) {
-    _log.d('Notification tapped: ${response.payload}');
-    // TODO: navigate based on payload
+    final payload = response.payload;
+    _log.d('Notification tapped: $payload');
+    if (payload == null || payload.isEmpty) return;
+    try {
+      final decoded = jsonDecode(payload) as Map<String, dynamic>;
+      openForEntity(
+        entityType: decoded['entityType'] as String?,
+        entityId:   decoded['entityId'] as String?,
+        metadata:   decoded['metadata'] is Map
+            ? Map<String, dynamic>.from(decoded['metadata'] as Map)
+            : null,
+      );
+    } catch (e) {
+      _log.w('Could not parse notification payload as JSON: $payload');
+    }
   }
 
   // ── Request permissions explicitly (call after login) ─────────────────────

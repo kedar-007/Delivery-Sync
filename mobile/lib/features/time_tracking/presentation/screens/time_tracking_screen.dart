@@ -11,6 +11,7 @@ import 'package:intl/intl.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/services/api_client.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../shared/models/models.dart';
 import '../../../../shared/widgets/ds_metric_card.dart';
 import '../../../../shared/widgets/user_avatar.dart';
 import '../../../auth/providers/auth_provider.dart';
@@ -25,6 +26,7 @@ Map<String, dynamic> _normaliseEntry(Map<String, dynamic> r) => {
   'id':          (r['ROWID'] ?? r['id'] ?? '').toString(),
   'projectId':   (r['project_id'] ?? r['projectId'] ?? '').toString(),
   'projectName': r['project_name'] as String? ?? r['projectName'] as String? ?? '',
+  'taskName':    r['task_name']    as String? ?? r['taskName']    as String? ?? '',
   'description': r['description'] as String? ?? '',
   'date':        _stripDate(r['entry_date'] as String? ?? r['date'] as String? ?? ''),
   'hours':       (r['hours'] as num? ?? 0).toDouble(),
@@ -107,6 +109,74 @@ final _entriesRangeProvider =
   final list = d is List ? d : (d is Map ? (d['entries'] as List? ?? d['data'] as List? ?? []) : []);
   return list.whereType<Map<String, dynamic>>().map(_normaliseEntry).toList();
 });
+
+/// Paginated + filtered entries for the My Entries tab.
+/// Mirrors web `MyTimeLogTab`: passes `page`, `pageSize`, `date_from`, `date_to`,
+/// `project_id`, `status` (and `user_id` so the API scopes to the caller).
+/// Response shape: `{ entries: [...], total, page, pageSize, totalPages }`.
+typedef _EntriesFilter = ({
+  String? from,
+  String? to,
+  String? projectId,
+  String? status,
+  String? userId,
+  int page,
+  int pageSize,
+});
+
+final _myEntriesProvider = FutureProvider.autoDispose
+    .family<({List<Map<String, dynamic>> entries, int total, int totalPages}), _EntriesFilter>(
+  (ref, p) async {
+    final qp = <String, String>{
+      'page':     p.page.toString(),
+      'pageSize': p.pageSize.toString(),
+    };
+    if (p.from      != null && p.from!.isNotEmpty)      qp['date_from']  = p.from!;
+    if (p.to        != null && p.to!.isNotEmpty)        qp['date_to']    = p.to!;
+    if (p.projectId != null && p.projectId!.isNotEmpty) qp['project_id'] = p.projectId!;
+    if (p.status    != null && p.status!.isNotEmpty)    qp['status']     = p.status!;
+    if (p.userId    != null && p.userId!.isNotEmpty)    qp['user_id']    = p.userId!;
+
+    final raw = await ApiClient.instance.get<Map<String, dynamic>>(
+      '${AppConstants.baseTime}/entries',
+      queryParameters: qp,
+      fromJson: (r) => r as Map<String, dynamic>,
+    );
+
+    final d = raw['data'];
+    // Paginated shape: { data: { entries: [...], pagination: { total, totalPages, ... } } }
+    // Legacy shape:    { data: [...] }
+    List<dynamic> list = const [];
+    int total      = 0;
+    int totalPages = 1;
+    if (d is Map) {
+      list = (d['entries'] as List?) ?? (d['data'] as List?) ?? const [];
+      final pg = d['pagination'];
+      if (pg is Map) {
+        total      = (pg['total']      as num?)?.toInt() ?? list.length;
+        totalPages = (pg['totalPages'] as num?)?.toInt()
+            ?? (total == 0 ? 1 : ((total + p.pageSize - 1) ~/ p.pageSize));
+      } else {
+        // Server returned all rows in one go — slice client-side so the
+        // pagination UI still works.
+        total      = list.length;
+        totalPages = total == 0 ? 1 : ((total + p.pageSize - 1) ~/ p.pageSize);
+        final start = (p.page - 1) * p.pageSize;
+        final end   = (start + p.pageSize).clamp(0, list.length);
+        list = start < list.length ? list.sublist(start, end) : const [];
+      }
+    } else if (d is List) {
+      total      = d.length;
+      totalPages = total == 0 ? 1 : ((total + p.pageSize - 1) ~/ p.pageSize);
+      final start = (p.page - 1) * p.pageSize;
+      final end   = (start + p.pageSize).clamp(0, d.length);
+      list = start < d.length ? d.sublist(start, end) : const [];
+    }
+
+    final entries = list.whereType<Map<String, dynamic>>().map(_normaliseEntry).toList();
+    return (entries: entries, total: total, totalPages: totalPages.clamp(1, 1 << 30));
+  },
+);
 
 final _pendingApprovalsProvider = FutureProvider.autoDispose<List<dynamic>>((ref) async {
   final raw = await ApiClient.instance.get<Map<String, dynamic>>(
@@ -202,6 +272,7 @@ class _TimeTrackingScreenState extends ConsumerState<TimeTrackingScreen>
         onAdded: () {
           ref.invalidate(_myWeekSummaryProvider);
           ref.invalidate(_entriesRangeProvider);
+          ref.invalidate(_myEntriesProvider);
         },
       ),
     );
@@ -210,48 +281,620 @@ class _TimeTrackingScreenState extends ConsumerState<TimeTrackingScreen>
 
 // ── Entries tab ───────────────────────────────────────────────────────────────
 
-class _EntriesTab extends ConsumerWidget {
+/// Quick-pick date presets — mirrors web `MyTimeLogTab` PRESETS.
+enum _DatePreset { today, yesterday, week, all, custom }
+
+extension _DatePresetX on _DatePreset {
+  String get label => switch (this) {
+        _DatePreset.today     => 'Today',
+        _DatePreset.yesterday => 'Yesterday',
+        _DatePreset.week      => 'This Week',
+        _DatePreset.all       => 'All Time',
+        _DatePreset.custom    => 'Custom',
+      };
+}
+
+class _EntriesTab extends ConsumerStatefulWidget {
   const _EntriesTab({required this.onRefresh});
   final VoidCallback onRefresh;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final summaryAsync = ref.watch(_myWeekSummaryProvider);
+  ConsumerState<_EntriesTab> createState() => _EntriesTabState();
+}
+
+class _EntriesTabState extends ConsumerState<_EntriesTab> {
+  // Filter state. Default range = Today, matching the brief.
+  String _from   = DateFormat('yyyy-MM-dd').format(DateTime.now());
+  String _to     = DateFormat('yyyy-MM-dd').format(DateTime.now());
+  String _projectId = '';
+  String _status    = '';
+  int _page     = 1;
+  int _pageSize = 5;
+
+  static const _pageSizeOptions = [3, 5, 10, 20, 50];
+
+  // ── Preset helpers ───────────────────────────────────────────────────────
+  _DatePreset get _activePreset {
+    final today = DateTime.now();
+    final t  = DateFormat('yyyy-MM-dd').format(today);
+    final y  = DateFormat('yyyy-MM-dd').format(today.subtract(const Duration(days: 1)));
+    // Monday-anchored week boundary, matching web (startOfWeek weekStartsOn: 1)
+    final wsDt = today.subtract(Duration(days: today.weekday - 1));
+    final weDt = wsDt.add(const Duration(days: 6));
+    final ws = DateFormat('yyyy-MM-dd').format(wsDt);
+    final we = DateFormat('yyyy-MM-dd').format(weDt);
+
+    if (_from.isEmpty && _to.isEmpty)         return _DatePreset.all;
+    if (_from == t  && _to == t)              return _DatePreset.today;
+    if (_from == y  && _to == y)              return _DatePreset.yesterday;
+    if (_from == ws && _to == we)             return _DatePreset.week;
+    return _DatePreset.custom;
+  }
+
+  void _applyPreset(_DatePreset p) {
+    final today = DateTime.now();
+    setState(() {
+      _page = 1;
+      switch (p) {
+        case _DatePreset.all:
+          _from = ''; _to = '';
+          break;
+        case _DatePreset.today:
+          final d = DateFormat('yyyy-MM-dd').format(today);
+          _from = d; _to = d;
+          break;
+        case _DatePreset.yesterday:
+          final d = DateFormat('yyyy-MM-dd').format(today.subtract(const Duration(days: 1)));
+          _from = d; _to = d;
+          break;
+        case _DatePreset.week:
+          final wsDt = today.subtract(Duration(days: today.weekday - 1));
+          final weDt = wsDt.add(const Duration(days: 6));
+          _from = DateFormat('yyyy-MM-dd').format(wsDt);
+          _to   = DateFormat('yyyy-MM-dd').format(weDt);
+          break;
+        case _DatePreset.custom:
+          // no-op — custom is implied by manual date edits.
+          break;
+      }
+    });
+  }
+
+  bool get _hasAnyFilter =>
+      _from.isNotEmpty || _to.isNotEmpty || _projectId.isNotEmpty || _status.isNotEmpty;
+
+  void _clearFilters() => setState(() {
+    _from = ''; _to = '';
+    _projectId = ''; _status = '';
+    _page = 1;
+  });
+
+  Future<void> _pickFromDate() async {
+    final init = DateTime.tryParse(_from) ?? DateTime.now();
+    final d = await showDatePicker(
+      context: context,
+      initialDate: init,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (d != null) setState(() { _from = DateFormat('yyyy-MM-dd').format(d); _page = 1; });
+  }
+
+  Future<void> _pickToDate() async {
+    final init = DateTime.tryParse(_to) ?? DateTime.now();
+    final d = await showDatePicker(
+      context: context,
+      initialDate: init,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (d != null) setState(() { _to = DateFormat('yyyy-MM-dd').format(d); _page = 1; });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user        = ref.watch(currentUserProvider);
+    final projects    = ref.watch(projectsProvider);
+    final filter      = (
+      from:      _from.isEmpty ? null : _from,
+      to:        _to.isEmpty   ? null : _to,
+      projectId: _projectId.isEmpty ? null : _projectId,
+      status:    _status.isEmpty    ? null : _status,
+      userId:    user?.id,
+      page:      _page,
+      pageSize:  _pageSize,
+    );
+    final entriesAsync = ref.watch(_myEntriesProvider(filter));
 
     return RefreshIndicator(
-      onRefresh: () async => onRefresh(),
+      onRefresh: () async {
+        ref.invalidate(_myWeekSummaryProvider);
+        ref.invalidate(_myEntriesProvider);
+        widget.onRefresh();
+      },
       color: AppColors.primaryLight,
-      child: summaryAsync.when(
-        data: (summary) {
-          final entries = (summary['entries'] as List).cast<Map<String, dynamic>>();
-          if (entries.isEmpty) {
-            return const _EmptyState();
-          }
-          final totalHours = summary['totalHours'] as double;
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+        children: [
+          _FilterCard(
+            from:           _from,
+            to:             _to,
+            projectId:      _projectId,
+            status:         _status,
+            projects:       projects,
+            activePreset:   _activePreset,
+            hasAnyFilter:   _hasAnyFilter,
+            onPreset:       _applyPreset,
+            onPickFrom:     _pickFromDate,
+            onPickTo:       _pickToDate,
+            onProject:      (v) => setState(() { _projectId = v ?? ''; _page = 1; }),
+            onStatus:       (v) => setState(() { _status    = v ?? ''; _page = 1; }),
+            onClear:        _clearFilters,
+          ),
+          const SizedBox(height: 12),
+          entriesAsync.when(
+            loading: () => Column(
+              children: List.generate(_pageSize.clamp(1, 5), (_) => const ShimmerCard()),
+            ),
+            error: (e, _) => Padding(
+              padding: const EdgeInsets.all(20),
+              child: Text('$e', style: const TextStyle(color: AppColors.error)),
+            ),
+            data: (res) {
+              if (res.entries.isEmpty) {
+                return const _EmptyState();
+              }
+              // Group by date for the existing date-header pattern.
+              final Map<String, List<Map<String, dynamic>>> grouped = {};
+              for (final e in res.entries) {
+                (grouped[e['date'] as String] ??= []).add(e);
+              }
+              final sortedDays = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
+              final start = (_page - 1) * _pageSize + 1;
+              final end   = start + res.entries.length - 1;
 
-          // Group by date
-          final Map<String, List<Map<String, dynamic>>> grouped = {};
-          for (final e in entries) {
-            (grouped[e['date'] as String] ??= []).add(e);
-          }
-          final sortedDays = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
+              return Column(
+                children: [
+                  for (final day in sortedDays) ...[
+                    Align(alignment: Alignment.centerLeft, child: _DateHeader(day)),
+                    const SizedBox(height: 8),
+                    ...grouped[day]!.map((e) => _TimeEntryCard(e)),
+                    const SizedBox(height: 12),
+                  ],
+                  _PaginationFooter(
+                    start:       start,
+                    end:         end,
+                    total:       res.total,
+                    page:        _page,
+                    totalPages:  res.totalPages,
+                    pageSize:    _pageSize,
+                    options:     _pageSizeOptions,
+                    onPageSize:  (v) => setState(() { _pageSize = v; _page = 1; }),
+                    onPage:      (p) => setState(() => _page = p.clamp(1, res.totalPages)),
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
 
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-            children: [
-              _TotalHoursCard(totalHours: totalHours, count: entries.length),
-              const SizedBox(height: 16),
-              for (final day in sortedDays) ...[
-                _DateHeader(day),
-                const SizedBox(height: 8),
-                ...grouped[day]!.map((e) => _TimeEntryCard(e)),
-                const SizedBox(height: 12),
+// ── Filter card ───────────────────────────────────────────────────────────────
+
+class _FilterCard extends StatelessWidget {
+  const _FilterCard({
+    required this.from,
+    required this.to,
+    required this.projectId,
+    required this.status,
+    required this.projects,
+    required this.activePreset,
+    required this.hasAnyFilter,
+    required this.onPreset,
+    required this.onPickFrom,
+    required this.onPickTo,
+    required this.onProject,
+    required this.onStatus,
+    required this.onClear,
+  });
+
+  final String from;
+  final String to;
+  final String projectId;
+  final String status;
+  final AsyncValue<List<Project>> projects;
+  final _DatePreset activePreset;
+  final bool hasAnyFilter;
+  final ValueChanged<_DatePreset> onPreset;
+  final VoidCallback onPickFrom;
+  final VoidCallback onPickTo;
+  final ValueChanged<String?> onProject;
+  final ValueChanged<String?> onStatus;
+  final VoidCallback onClear;
+
+  static const _presets = [
+    _DatePreset.today,
+    _DatePreset.yesterday,
+    _DatePreset.week,
+    _DatePreset.all,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final ds = context.ds;
+    final projectsList = projects.maybeWhen(data: (l) => l, orElse: () => const <Project>[]);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: ds.bgCard,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: ds.border),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Preset chips row
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            for (final p in _presets)
+              _PresetChip(label: p.label, selected: activePreset == p, onTap: () => onPreset(p)),
+            if (activePreset == _DatePreset.custom)
+              _PresetChip(label: 'Custom', selected: true, onTap: null, tone: _ChipTone.info),
+            if (hasAnyFilter)
+              GestureDetector(
+                onTap: onClear,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.error.withOpacity(0.08),
+                    border: Border.all(color: AppColors.error.withOpacity(0.4)),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.close_rounded, size: 12, color: AppColors.error),
+                    SizedBox(width: 4),
+                    Text('Clear', style: TextStyle(fontSize: 11, color: AppColors.error, fontWeight: FontWeight.w600)),
+                  ]),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        // From / To row
+        Row(children: [
+          Expanded(child: _DatePickerField(label: 'From', value: from, onTap: onPickFrom)),
+          const SizedBox(width: 8),
+          Expanded(child: _DatePickerField(label: 'To',   value: to,   onTap: onPickTo)),
+        ]),
+        const SizedBox(height: 10),
+        // Project / Status row
+        Row(children: [
+          Expanded(
+            child: _DropdownField<String>(
+              label:    'Project',
+              value:    projectId,
+              hint:     'All projects',
+              items: [
+                const DropdownMenuItem<String>(value: '', child: Text('All projects')),
+                ...projectsList.map((p) => DropdownMenuItem<String>(value: p.id, child: Text(p.name, overflow: TextOverflow.ellipsis))),
               ],
-            ],
-          );
-        },
-        loading: () => ListView(children: List.generate(4, (_) => const ShimmerCard())),
-        error: (e, _) => Center(child: Text('$e', style: const TextStyle(color: AppColors.error))),
+              onChanged: onProject,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _DropdownField<String>(
+              label:   'Status',
+              value:   status,
+              hint:    'All statuses',
+              items: const [
+                DropdownMenuItem(value: '',          child: Text('All statuses')),
+                DropdownMenuItem(value: 'DRAFT',     child: Text('Draft')),
+                DropdownMenuItem(value: 'SUBMITTED', child: Text('Submitted')),
+                DropdownMenuItem(value: 'APPROVED',  child: Text('Approved')),
+                DropdownMenuItem(value: 'REJECTED',  child: Text('Rejected')),
+              ],
+              onChanged: onStatus,
+            ),
+          ),
+        ]),
+      ]),
+    );
+  }
+}
+
+enum _ChipTone { primary, info }
+
+class _PresetChip extends StatelessWidget {
+  const _PresetChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.tone = _ChipTone.primary,
+  });
+  final String label;
+  final bool selected;
+  final VoidCallback? onTap;
+  final _ChipTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds = context.ds;
+    final accent = tone == _ChipTone.info ? AppColors.info : AppColors.primary;
+    final bg     = selected
+        ? (tone == _ChipTone.info ? accent.withOpacity(0.12) : accent)
+        : ds.bgCard;
+    final fg = selected
+        ? (tone == _ChipTone.info ? accent : Colors.white)
+        : ds.textPrimary;
+    final border = selected
+        ? (tone == _ChipTone.info ? accent.withOpacity(0.4) : accent)
+        : ds.border;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: border),
+        ),
+        child: Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: fg)),
+      ),
+    );
+  }
+}
+
+class _DatePickerField extends StatelessWidget {
+  const _DatePickerField({required this.label, required this.value, required this.onTap});
+  final String label;
+  final String value; // 'yyyy-MM-dd' or ''
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds = context.ds;
+    String display = '—';
+    if (value.isNotEmpty) {
+      final dt = DateTime.tryParse(value);
+      display = dt != null ? DateFormat('d MMM yyyy').format(dt) : value;
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label, style: TextStyle(fontSize: 10, color: ds.textMuted, fontWeight: FontWeight.w600, letterSpacing: 0.5)),
+      const SizedBox(height: 4),
+      GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          decoration: BoxDecoration(
+            color: ds.bgInput,
+            border: Border.all(color: ds.border),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(children: [
+            Icon(Icons.calendar_today_rounded, size: 14, color: ds.textMuted),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                display,
+                style: TextStyle(fontSize: 12, color: value.isEmpty ? ds.textMuted : ds.textPrimary),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ]),
+        ),
+      ),
+    ]);
+  }
+}
+
+class _DropdownField<T> extends StatelessWidget {
+  const _DropdownField({
+    required this.label,
+    required this.value,
+    required this.hint,
+    required this.items,
+    required this.onChanged,
+  });
+  final String label;
+  final T? value;
+  final String hint;
+  final List<DropdownMenuItem<T>> items;
+  final ValueChanged<T?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds = context.ds;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label, style: TextStyle(fontSize: 10, color: ds.textMuted, fontWeight: FontWeight.w600, letterSpacing: 0.5)),
+      const SizedBox(height: 4),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: ds.bgInput,
+          border: Border.all(color: ds.border),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<T>(
+            isExpanded: true,
+            value: value,
+            hint: Text(hint, style: TextStyle(fontSize: 12, color: ds.textMuted)),
+            icon: Icon(Icons.expand_more_rounded, size: 18, color: ds.textMuted),
+            style: TextStyle(fontSize: 12, color: ds.textPrimary),
+            dropdownColor: ds.bgElevated,
+            items: items,
+            onChanged: onChanged,
+          ),
+        ),
+      ),
+    ]);
+  }
+}
+
+// ── Pagination footer ─────────────────────────────────────────────────────────
+
+class _PaginationFooter extends StatelessWidget {
+  const _PaginationFooter({
+    required this.start,
+    required this.end,
+    required this.total,
+    required this.page,
+    required this.totalPages,
+    required this.pageSize,
+    required this.options,
+    required this.onPageSize,
+    required this.onPage,
+  });
+
+  final int start;
+  final int end;
+  final int total;
+  final int page;
+  final int totalPages;
+  final int pageSize;
+  final List<int> options;
+  final ValueChanged<int> onPageSize;
+  final ValueChanged<int> onPage;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds = context.ds;
+    // Build elided page list: 1, ..., page-1, page, page+1, ..., last
+    final List<int?> pageList = [];
+    for (var i = 1; i <= totalPages; i++) {
+      if (i == 1 || i == totalPages || (i - page).abs() <= 1) {
+        if (pageList.isNotEmpty && pageList.last != null && i - (pageList.last as int) > 1) {
+          pageList.add(null); // ellipsis sentinel
+        }
+        pageList.add(i);
+      }
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: ds.bgCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: ds.border),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Showing X–Y of Z + rows-per-page selector
+        Row(children: [
+          Expanded(
+            child: Text(
+              'Showing $start–$end of $total entries',
+              style: TextStyle(fontSize: 11, color: ds.textMuted),
+            ),
+          ),
+          Text('Rows:', style: TextStyle(fontSize: 11, color: ds.textMuted)),
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            decoration: BoxDecoration(
+              color: ds.bgInput,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: ds.border),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<int>(
+                value: pageSize,
+                isDense: true,
+                icon: Icon(Icons.expand_more_rounded, size: 14, color: ds.textMuted),
+                style: TextStyle(fontSize: 12, color: ds.textPrimary),
+                dropdownColor: ds.bgElevated,
+                items: options
+                    .map((n) => DropdownMenuItem(value: n, child: Text('$n')))
+                    .toList(),
+                onChanged: (v) { if (v != null) onPageSize(v); },
+              ),
+            ),
+          ),
+        ]),
+        if (totalPages > 1) ...[
+          const SizedBox(height: 8),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            _PageBtn(icon: Icons.first_page_rounded, enabled: page > 1, onTap: () => onPage(1)),
+            _PageBtn(icon: Icons.chevron_left_rounded, enabled: page > 1, onTap: () => onPage(page - 1)),
+            ...pageList.map((p) => p == null
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Text('…', style: TextStyle(fontSize: 12, color: ds.textMuted)),
+                  )
+                : _PageNumber(n: p, active: p == page, onTap: () => onPage(p))),
+            _PageBtn(icon: Icons.chevron_right_rounded, enabled: page < totalPages, onTap: () => onPage(page + 1)),
+            _PageBtn(icon: Icons.last_page_rounded,     enabled: page < totalPages, onTap: () => onPage(totalPages)),
+          ]),
+        ],
+      ]),
+    );
+  }
+}
+
+class _PageBtn extends StatelessWidget {
+  const _PageBtn({required this.icon, required this.enabled, required this.onTap});
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds = context.ds;
+    return Opacity(
+      opacity: enabled ? 1.0 : 0.35,
+      child: GestureDetector(
+        onTap: enabled ? onTap : null,
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 2),
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: ds.bgInput,
+            border: Border.all(color: ds.border),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Icon(icon, size: 16, color: ds.textPrimary),
+        ),
+      ),
+    );
+  }
+}
+
+class _PageNumber extends StatelessWidget {
+  const _PageNumber({required this.n, required this.active, required this.onTap});
+  final int n;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds = context.ds;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 2),
+        constraints: const BoxConstraints(minWidth: 28),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        decoration: BoxDecoration(
+          color: active ? AppColors.primary : ds.bgInput,
+          border: Border.all(color: active ? AppColors.primary : ds.border),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          '$n',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+            color: active ? Colors.white : ds.textPrimary,
+          ),
+        ),
       ),
     );
   }
@@ -553,12 +1196,21 @@ class _WeekBarChart extends StatelessWidget {
     final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
     const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
+    // Scale the y-axis to the actual data with a sensible floor (so a quiet
+    // week still renders a readable 8h ceiling) and *no* fixed upper cap
+    // (the old clamp(8, 16) caused tall bars to overflow the chart bounds
+    // and bleed into the cards above whenever a day exceeded 16h — which
+    // happens with imported/summary entries or anyone logging >2 daily).
+    final chartMaxY = (maxY + 1).clamp(8.0, double.infinity);
     return SizedBox(
       height: 140,
-      child: BarChart(
+      // ClipRect contains anything that might still render past the chart's
+      // box (gradient fringes, tooltip overflow). Belt-and-braces with the
+      // maxY fix above.
+      child: ClipRect(child: BarChart(
         BarChartData(
           alignment: BarChartAlignment.spaceAround,
-          maxY: (maxY + 1).clamp(8, 16),
+          maxY: chartMaxY,
           barTouchData: BarTouchData(
             touchTooltipData: BarTouchTooltipData(
               getTooltipItem: (group, _, rod, __) {
@@ -619,7 +1271,7 @@ class _WeekBarChart extends StatelessWidget {
             );
           }),
         ),
-      ),
+      )),
     );
   }
 }
@@ -798,9 +1450,16 @@ class _TimeEntryCard extends StatelessWidget {
     final ds     = context.ds;
     final hours  = (entry['hours'] as num? ?? 0).toDouble();
     final desc   = entry['description'] as String? ?? '';
+    final task   = entry['taskName']    as String? ?? '';
     final proj   = entry['projectName'] as String? ?? '';
     final status = entry['status'] as String? ?? 'DRAFT';
     final bill   = entry['isBillable'] as bool? ?? false;
+
+    // Task column pattern (matches web `MyTimeLogTab`): task name in bold on
+    // top, description below as secondary text. Fall back to description-only
+    // when no task is set on the entry.
+    final hasTask = task.isNotEmpty;
+    final primary = hasTask ? task : (desc.isNotEmpty ? desc : 'No description');
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -810,7 +1469,7 @@ class _TimeEntryCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: ds.border),
       ),
-      child: Row(children: [
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Container(
           width: 50, height: 50,
           decoration: BoxDecoration(
@@ -830,10 +1489,19 @@ class _TimeEntryCard extends StatelessWidget {
             if (proj.isNotEmpty)
               Text(proj, style: TextStyle(fontSize: 11, color: AppColors.primaryLight, fontWeight: FontWeight.w600)),
             Text(
-              desc.isNotEmpty ? desc : 'No description',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: ds.textPrimary),
+              primary,
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: ds.textPrimary),
               maxLines: 1, overflow: TextOverflow.ellipsis,
             ),
+            if (hasTask && desc.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  desc,
+                  style: TextStyle(fontSize: 11, color: ds.textMuted),
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                ),
+              ),
             const SizedBox(height: 4),
             Row(children: [
               if (bill)
@@ -924,7 +1592,9 @@ class _AddTimeEntrySheet extends ConsumerStatefulWidget {
 class _AddTimeEntrySheetState extends ConsumerState<_AddTimeEntrySheet> {
   final _hoursCtrl = TextEditingController(text: '8');
   final _descCtrl  = TextEditingController();
-  DateTime _date   = DateTime.now();
+  // Date is mandatory (matches web Log Time form). Initialised to today so the
+  // field can never be empty — the picker also disallows null returns.
+  DateTime? _date = DateTime.now();
   String? _projectId;
   bool _billable          = false;
   bool _sendForApproval   = false;
@@ -963,7 +1633,9 @@ class _AddTimeEntrySheetState extends ConsumerState<_AddTimeEntrySheet> {
             Text('Log Time', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: ds.textPrimary)),
             const SizedBox(height: 16),
 
-            // Date
+            // Date — required
+            Text('Date *', style: TextStyle(fontSize: 11, color: ds.textMuted, fontWeight: FontWeight.w600, letterSpacing: 0.5)),
+            const SizedBox(height: 4),
             GestureDetector(
               onTap: _pickDate,
               child: Container(
@@ -971,12 +1643,17 @@ class _AddTimeEntrySheetState extends ConsumerState<_AddTimeEntrySheet> {
                 decoration: BoxDecoration(
                   color: ds.bgInput,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: ds.border),
+                  border: Border.all(
+                    color: _date == null ? AppColors.error : ds.border,
+                  ),
                 ),
                 child: Row(children: [
                   Icon(Icons.calendar_today_rounded, size: 18, color: ds.textMuted),
                   const SizedBox(width: 12),
-                  Text(DateFormat('EEE, d MMM yyyy').format(_date), style: TextStyle(color: ds.textPrimary)),
+                  Text(
+                    _date != null ? DateFormat('EEE, d MMM yyyy').format(_date!) : 'Select date',
+                    style: TextStyle(color: _date != null ? ds.textPrimary : ds.textMuted),
+                  ),
                 ]),
               ),
             ),
@@ -1080,7 +1757,7 @@ class _AddTimeEntrySheetState extends ConsumerState<_AddTimeEntrySheet> {
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
       context: context,
-      initialDate: _date,
+      initialDate: _date ?? DateTime.now(),
       firstDate: DateTime.now().subtract(const Duration(days: 90)),
       lastDate: DateTime.now(),
     );
@@ -1088,6 +1765,10 @@ class _AddTimeEntrySheetState extends ConsumerState<_AddTimeEntrySheet> {
   }
 
   Future<void> _submit() async {
+    if (_date == null) {
+      setState(() => _error = 'Date is required');
+      return;
+    }
     final hours = double.tryParse(_hoursCtrl.text.trim());
     if (hours == null || hours <= 0 || hours > 24) {
       setState(() => _error = 'Enter valid hours (0.5 – 24)');
@@ -1098,7 +1779,7 @@ class _AddTimeEntrySheetState extends ConsumerState<_AddTimeEntrySheet> {
       final resp = await ApiClient.instance.post(
         '${AppConstants.baseTime}/entries',
         data: {
-          'entry_date':  DateFormat('yyyy-MM-dd').format(_date),
+          'entry_date':  DateFormat('yyyy-MM-dd').format(_date!),
           'hours':       hours,
           'is_billable': _billable,
           if (_projectId != null && _projectId!.isNotEmpty) 'project_id': _projectId,

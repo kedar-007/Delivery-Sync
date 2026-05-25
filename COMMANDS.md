@@ -1,6 +1,10 @@
 # Delivery Sync — Developer Commands
 
 ## iOS Simulator (iPhone 17 Pro — iOS 26.4)
+xcrun simctl terminate 32BDEB61-3F94-402C-942A-F20B9FD6EE58 com.dsvone.deliverySync 2>/dev/null; cd /Users/kedar/Documents/C-DS/mobile && flutter run -d 32BDEB61-3F94-402C-942A-F20B9FD6EE58 --debug
+
+ cd /Users/kedar/Documents/C-DS/mobile && flutter run -d emulator-5554
+
 
 ```zsh
 # ── Quick run (simulator already booted) ────────────────────────────────────

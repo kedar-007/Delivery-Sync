@@ -6,7 +6,8 @@ const { handleAPIError } = require('../utils/ErrorHelper');
 
 /**
  * LLMService — manages Zoho OAuth token lifecycle and wraps the Catalyst LLM
- * (Qwen 30B MoE) with caching, retry logic, and response normalisation.
+ * (GLM-4.7B Flash, OpenAI-style messages API) with caching, retry logic, and
+ * response normalisation.
  *
  * Token flow:
  *   1. Check Catalyst Cache segment for a cached token.
@@ -15,7 +16,7 @@ const { handleAPIError } = require('../utils/ErrorHelper');
  *
  * LLM call flow:
  *   1. Acquire access token.
- *   2. POST prompt to the Zoho QuickML LLM endpoint.
+ *   2. POST { model, messages, max_tokens, temperature, stream } to the GLM endpoint.
  *   3. On 5xx response retry up to MAX_RETRIES times with exponential back-off.
  *   4. Return normalised { response, usage } or throw a structured error.
  */
@@ -139,21 +140,22 @@ class LLMService {
       throw tokenErr;
     }
 
-    // For this Zoho Qwen model, max_tokens is the TOTAL context window (input + output).
-    // Estimate input tokens at ~2.5 chars/token and add the desired output budget on top.
-    // Hard cap at 2048 — the crm-di-qwen_text_moe_30b model returns 500 above this.
-    const desiredOutputTokens  = options.max_tokens ?? LLM_CONFIG.MAX_TOKENS;
-    const estimatedInputTokens = Math.ceil(prompt.length / 2.5);
-    const effectiveMaxTokens   = Math.min(2048, estimatedInputTokens + desiredOutputTokens);
+    // GLM API is OpenAI-style: max_tokens caps OUTPUT tokens only (not input+output).
+    const maxOutputTokens = options.max_tokens ?? LLM_CONFIG.MAX_TOKENS;
+
+    const messages = [];
+    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
+    messages.push({ role: 'user', content: prompt });
 
     const payload = {
-      prompt,
-      model:         LLM_CONFIG.MODEL,
-      system_prompt: systemPrompt,
-      top_p:         options.top_p         ?? LLM_CONFIG.TOP_P,
-      top_k:         options.top_k         ?? LLM_CONFIG.TOP_K,
-      temperature:   options.temperature   ?? LLM_CONFIG.TEMPERATURE,
-      max_tokens:    effectiveMaxTokens,
+      model:       LLM_CONFIG.MODEL,
+      messages,
+      temperature: options.temperature ?? LLM_CONFIG.TEMPERATURE,
+      max_tokens:  maxOutputTokens,
+      stream:      false,
+      // Disable GLM-4.7 "thinking" mode — chain-of-thought leaks into the response,
+      // breaks JSON-only prompts, and can echo internal system rules to the UI.
+      chat_template_kwargs: { enable_thinking: false },
     };
 
     const headers = {
@@ -166,9 +168,19 @@ class LLMService {
 
     try {
       const response = await axios.post(LLM_CONFIG.ENDPOINT, payload, { headers, timeout: 90000 });
-      const { response: text, usage } = response.data;
+      // GLM (OpenAI-style) puts the answer at choices[0].message.content. Some Catalyst
+      // deployments wrap the OpenAI response inside a `data` envelope, so try both.
+      // NOTE: never fall back to `message.reasoning` — that's GLM's chain-of-thought and
+      // will leak the system prompt to the UI.
+      const root    = response.data?.choices ? response.data : (response.data?.data ?? response.data);
+      const choice  = root?.choices?.[0];
+      const text    = choice?.message?.content || root?.response;
+      const usage   = root?.usage;
 
-      if (!text) throw new Error('LLM returned an empty response body.');
+      if (!text) {
+        console.warn('[LLMService] Empty content. Raw response body:', JSON.stringify(response.data, null, 2));
+        throw new Error('LLM returned an empty response body.');
+      }
 
       console.log(`[LLMService] LLM success | tokens_used=${usage?.total_tokens ?? '?'}`);
       return { response: text, usage: usage ?? {} };

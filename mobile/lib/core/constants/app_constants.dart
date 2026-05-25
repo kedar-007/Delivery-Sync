@@ -89,6 +89,8 @@ class Permissions {
   static const String leaveApprove   = 'LEAVE_APPROVE';
   static const String leaveAdmin     = 'LEAVE_ADMIN';
   static const String assetRead      = 'ASSET_READ';
+  static const String assetScanFull  = 'ASSET_SCAN_FULL';
+  static const String assetScanBasic = 'ASSET_SCAN_BASIC';
   // ── Time ────────────────────────────────────────────────────────────────────
   static const String timeRead       = 'TIME_READ';
   static const String timeWrite      = 'TIME_WRITE';

@@ -49,11 +49,10 @@ const AI_SCOPE = Object.freeze({
 });
 
 // ─── LLM Configuration ────────────────────────────────────────────────────────
+// GLM-4.7B Flash via Zoho Catalyst (OpenAI-style messages API).
 const LLM_CONFIG = Object.freeze({
-  ENDPOINT:    'https://api.catalyst.zoho.in/quickml/v2/project/17682000000819069/llm/chat',
-  MODEL:       'crm-di-qwen_text_moe_30b',
-  TOP_P:       0.9,
-  TOP_K:       50,
+  ENDPOINT:    'https://api.catalyst.zoho.in/quickml/v1/project/17682000000819069/glm/chat',
+  MODEL:       'crm-di-glm47b_30b_it',
   TEMPERATURE: 0.7,
   MAX_TOKENS:  600,
   CACHE_KEY:   'ai_zoho_token',

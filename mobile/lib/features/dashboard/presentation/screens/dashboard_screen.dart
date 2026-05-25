@@ -345,8 +345,14 @@ class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
 
   static DateTime _parseTime(String s) {
     try {
-      // IST times stored without TZ suffix — parse as local
-      return DateTime.parse(s.contains('T') ? s : s.replaceFirst(' ', 'T'));
+      // Backend stores attendance times in UTC without a 'Z' suffix —
+      // DateTime.parse would otherwise treat the string as local and shift
+      // the elapsed timer by the user's TZ offset. Normalise + append 'Z'
+      // so we get an absolute UTC instant. (.toLocal() is applied at
+      // display time in _fmtTime.)
+      final normalized = (s.contains('T') ? s : s.replaceFirst(' ', 'T'))
+          .replaceAll(RegExp(r'Z?$'), '');
+      return DateTime.parse('${normalized}Z');
     } catch (_) {
       final today = DateTime.now();
       final parts = s.split(':');
@@ -393,7 +399,11 @@ class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
         ?? (bs['short'] as Map<String, dynamic>?)?['active'] as Map<String, dynamic>?;
   }
 
-  static String _clientTime() => DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+  // Mirror the web's `toISOString().slice(0,19)` — format the current moment
+  // in UTC. Without .toUtc() the server records local-time strings as if they
+  // were UTC, which is exactly the wrong-time bug we're fixing here.
+  static String _clientTime() =>
+      DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now().toUtc());
 
   String _fmtElapsed(Duration d) {
     final h = d.inHours;
@@ -403,7 +413,9 @@ class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
   }
 
   String _fmtTime(String iso) {
-    try { return DateFormat('h:mm a').format(_parseTime(iso)); }
+    // _parseTime returns a UTC instant; .toLocal() before formatting so the
+    // displayed clock matches the user's wall time.
+    try { return DateFormat('h:mm a').format(_parseTime(iso).toLocal()); }
     catch (_) { return iso; }
   }
 
@@ -530,18 +542,33 @@ class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
   void _handleCheckInError(Object e) {
     final msg = e.toString().toLowerCase();
     if (msg.contains('403') || msg.contains('not allowed') || msg.contains('ip')) {
+      // Same approval gate as the attendance screen — don't let users bypass
+      // the office-network check by punching in as WFH without prior approval.
+      final wfh = findTodayApprovedWfh(
+        ref.read(myWfhRequestsProvider).valueOrNull ?? const [],
+      );
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Check-in Blocked'),
-          content: const Text(
-              'Check-in is not allowed from this network.\nYou can still check in as WFH.'),
+          content: Text(
+            wfh != null
+                ? 'Check-in is not allowed from this network.\n\n'
+                  'You have an approved WFH request — tap "Check In WFH" to use it.'
+                : 'Check-in is not allowed from this network.\n\n'
+                  'If you\'re working from home, request WFH approval from the '
+                  'Leave / WFH screen first, then come back here.',
+          ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            FilledButton(
-              onPressed: () { Navigator.pop(ctx); _showWfhDialog(); },
-              child: const Text('Check In WFH'),
-            ),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+            if (wfh != null)
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _checkInWfh((wfh['reason'] as String?) ?? '');
+                },
+                child: const Text('Check In WFH'),
+              ),
           ],
         ),
       );
@@ -551,50 +578,91 @@ class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
     }
   }
 
-  void _showWfhDialog() {
-    final ctrl = TextEditingController();
-    showDialog(
+  /// Mirrors the web's check-out confirmation modal — without it, an accidental
+  /// tap locks the user out of attendance for the rest of the day. Used by the
+  /// dashboard's compact attendance widget.
+  Future<void> _confirmCheckOut(String? checkedInIso) async {
+    String? elapsed;
+    if (checkedInIso != null) {
+      try {
+        final start = _parseTime(checkedInIso); // already UTC-aware
+        final d = DateTime.now().difference(start);
+        if (!d.isNegative) {
+          final h = d.inHours;
+          final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+          elapsed = h > 0 ? '${h}h ${m}m' : '${m}m';
+        }
+      } catch (_) {}
+    }
+
+    final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Row(children: [
-          Icon(Icons.home_rounded, color: AppColors.info, size: 20),
-          SizedBox(width: 8),
-          Text('WFH Check-in'),
+        title: Row(children: const [
+          Icon(Icons.warning_amber_rounded, color: AppColors.warning, size: 22),
+          SizedBox(width: 10),
+          Expanded(child: Text('Check out for the day?')),
         ]),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('A notification will be sent to your manager.',
-              style: TextStyle(fontSize: 13)),
-          const SizedBox(height: 12),
-          TextField(
-            controller: ctrl,
-            decoration: const InputDecoration(
-              labelText: 'Reason (optional)',
-              hintText: 'e.g. Doctor appointment…',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.warningBg,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.warning.withOpacity(0.35)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "You won't be able to check in again today.",
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Once you check out, today\'s attendance is final.'
+                    '${elapsed != null ? ' Worked so far: $elapsed.' : ''}',
+                    style: const TextStyle(fontSize: 12, height: 1.35),
+                  ),
+                ],
+              ),
             ),
-            maxLines: 2,
-            textCapitalization: TextCapitalization.sentences,
-          ),
-        ]),
+            const SizedBox(height: 10),
+            const Text(
+              'Only proceed if you\'re done for the day.',
+              style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+            ),
+          ],
+        ),
         actions: [
-          TextButton(onPressed: () { Navigator.pop(ctx); ctrl.dispose(); }, child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
-            onPressed: () {
-              final reason = ctrl.text.trim();
-              Navigator.pop(ctx);
-              ctrl.dispose();
-              _checkInWfh(reason);
-            },
-            child: const Text('Check In WFH'),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.ragRed),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Yes, Check Me Out'),
           ),
         ],
       ),
     );
+    if (ok == true) await _checkOut();
   }
 
   @override
   Widget build(BuildContext context) {
     final ds     = context.ds;
     final record = ref.watch(_dashAttendanceProvider);
+    // Gate the WFH button: only show it when there's an APPROVED WFH request
+    // covering today. The provider + helper live in the attendance screen so
+    // both surfaces stay in sync.
+    final wfhAsync = ref.watch(myWfhRequestsProvider);
+    final todayApprovedWfh =
+        findTodayApprovedWfh(wfhAsync.valueOrNull ?? const []);
 
     return record.when(
       data: (r) {
@@ -753,15 +821,20 @@ class _AttendanceWidgetState extends ConsumerState<_AttendanceWidget> {
                             Expanded(child: _AttBtn(
                                 icon: Icons.login_rounded, label: 'Check In',
                                 color: AppColors.success, onTap: _checkIn)),
-                            const SizedBox(width: 8),
-                            Expanded(child: _AttBtn(
-                                icon: Icons.home_rounded, label: 'WFH',
-                                color: AppColors.info, onTap: _showWfhDialog)),
+                            if (todayApprovedWfh != null) ...[
+                              const SizedBox(width: 8),
+                              Expanded(child: _AttBtn(
+                                  icon: Icons.home_rounded, label: 'WFH',
+                                  color: AppColors.info,
+                                  onTap: () => _checkInWfh(
+                                      (todayApprovedWfh['reason'] as String?) ?? ''))),
+                            ],
                           ],
                           if (checkedIn)
                             Expanded(child: _AttBtn(
                                 icon: Icons.logout_rounded, label: 'Check Out',
-                                color: AppColors.ragRed, onTap: _checkOut)),
+                                color: AppColors.ragRed,
+                                onTap: () => _confirmCheckOut(checkInTime))),
                         ]),
                         if (checkedIn && !onBreak) ...[
                           const SizedBox(height: 8),

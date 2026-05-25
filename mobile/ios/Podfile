@@ -45,11 +45,29 @@ post_install do |installer|
   end
 
   # iOS 26 simulators on Apple Silicon require arm64 — Rosetta is no longer available.
-  # ZohoPortalAuthKit only ships an arm64-device slice (no arm64-sim), so we:
-  #   1. Patch the binary to add a proper arm64-sim slice.
+  # Several third-party static frameworks only ship an arm64-device slice (no
+  # arm64-sim), so we:
+  #   1. Patch each binary to add a proper arm64-sim slice (Mach-O retag).
   #   2. Remove arm64 from EXCLUDED_ARCHS in all CocoaPods-generated xcconfigs so
   #      Xcode actually links the patched arm64-sim slice for simulator builds.
-  patch_zoho_portal_auth_for_arm64_simulator(installer)
+  pods_root = installer.sandbox.root.to_s
+
+  # ZohoPortalAuthKit — corporate SSO SDK.
+  patch_static_arm64_for_simulator(
+    'ZohoPortalAuthKit',
+    File.join(pods_root, 'ZohoPortalAuth/ZohoPortalAuthKit.framework/ZohoPortalAuthKit'),
+  )
+
+  # Google ML Kit chain pulled in by mobile_scanner (barcode scanning). Each
+  # framework's arm64 slice is a static archive tagged for iOS device — apply
+  # the same retag so the simulator linker accepts them.
+  ['MLImage', 'MLKitBarcodeScanning', 'MLKitVision', 'MLKitCommon'].each do |fw|
+    patch_static_arm64_for_simulator(
+      fw,
+      File.join(pods_root, "#{fw}/Frameworks/#{fw}.framework/#{fw}"),
+    )
+  end
+
   fix_excluded_archs_for_arm64_sim(installer)
 end
 
@@ -70,20 +88,17 @@ def fix_excluded_archs_for_arm64_sim(installer)
   puts "[Podfile] Removed arm64 from EXCLUDED_ARCHS in #{fixed} xcconfig file(s) for iOS 26 sim."
 end
 
-def patch_zoho_portal_auth_for_arm64_simulator(installer)
+def patch_static_arm64_for_simulator(name, fw_binary)
   require 'fileutils'
 
-  pods_root = installer.sandbox.root.to_s
-  fw_binary  = File.join(pods_root, 'ZohoPortalAuth/ZohoPortalAuthKit.framework/ZohoPortalAuthKit')
-
   unless File.exist?(fw_binary)
-    puts '[Podfile] ZohoPortalAuthKit binary not found — skipping arm64-sim patch.'
+    puts "[Podfile] #{name} binary not found — skipping arm64-sim patch."
     return
   end
 
-  puts '[Podfile] Patching ZohoPortalAuthKit for arm64 iOS Simulator (iOS 26+)…'
+  puts "[Podfile] Patching #{name} for arm64 iOS Simulator (iOS 26+)…"
 
-  tmp = '/tmp/zoho_arm64_sim_patch'
+  tmp = "/tmp/#{name.downcase}_arm64_sim_patch"
   FileUtils.rm_rf(tmp)
   FileUtils.mkdir_p("#{tmp}/ar_work")
 
@@ -208,10 +223,10 @@ def patch_zoho_portal_auth_for_arm64_simulator(installer)
       system(%(lipo -create "#{no_arm64}" "#{arm64_sim_a}" -output "#{fw_binary}"))
     end
 
-    puts '[Podfile] ✓ ZohoPortalAuthKit patched — arm64-sim slice ready for iOS 26 simulator.'
+    puts "[Podfile] ✓ #{name} patched — arm64-sim slice ready for iOS 26 simulator."
 
   rescue => e
-    puts "[Podfile] Warning: ZohoPortalAuth patch failed: #{e.message}"
+    puts "[Podfile] Warning: #{name} patch failed: #{e.message}"
   ensure
     FileUtils.rm_rf(tmp)
   end

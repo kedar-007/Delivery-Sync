@@ -1296,7 +1296,9 @@ class DataSeedController {
         'ANNOUNCEMENT_READ','ANNOUNCEMENT_WRITE',
         'ORG_READ','INVITE_USER','NOTIFICATION_READ',
         'PROFILE_READ','ASSET_READ',
-        'AI_INSIGHTS','AI_PERFORMANCE','AI_TEAM_ANALYSIS',
+        // Delivery Lead can analyse their own teams (AI_PERFORMANCE) but NOT
+        // the whole org (AI_TEAM_ANALYSIS) — that's admin/PMO/exec territory.
+        'AI_INSIGHTS','AI_PERFORMANCE',
       ];
       const TEAM_LEAD_PERMS = [
         'PROJECT_READ','PROJECT_WRITE','SPRINT_READ','SPRINT_WRITE',

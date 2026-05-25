@@ -18,6 +18,19 @@ export const useTeam = (teamId: string) =>
     enabled: !!teamId,
   });
 
+// Roster for *_TEAM_VIEW user-filter dropdowns. Returns every user the caller
+// is allowed to see (team peers + leads, or the full tenant for org-wide
+// callers), so dropdowns aren't limited to who happens to have posted today.
+export type TeamPeer = { id: string; name: string; email?: string; avatarUrl?: string };
+
+export const useTeamPeers = (enabled = true) =>
+  useQuery<TeamPeer[]>({
+    queryKey: [KEY, 'peers'],
+    queryFn: () => teamsApi.peers().then((d: any) => (d?.peers ?? []) as TeamPeer[]),
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  });
+
 export const useCreateTeam = () => {
   const qc = useQueryClient();
   return useMutation({

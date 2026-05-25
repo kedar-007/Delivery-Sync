@@ -2,6 +2,7 @@
 
 const DataStoreService = require('../services/DataStoreService');
 const NotificationService = require('../services/NotificationService');
+const TeamScopeService = require('../services/TeamScopeService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const { TABLES, NOTIFICATION_TYPE } = require('../utils/Constants');
 
@@ -421,6 +422,95 @@ class TeamController {
       await this.db.delete(TABLES.TEAM_MEMBERS, memberId);
       return ResponseHelper.success(res, null, 'Member removed from team');
     } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
+   * GET /api/teams/peers
+   *
+   * Returns the user roster the caller is allowed to see in the User filter
+   * dropdown on Team Standups / Team EODs / Team Attendance:
+   *
+   *   - Org-wide callers (TENANT_ADMIN, or anyone whose dataScope is
+   *     ORG_WIDE / SUBORDINATES) → every active user in the tenant. The
+   *     *_TEAM_VIEW endpoints already grant these callers visibility on
+   *     everyone, so the dropdown must match — otherwise admins see entries
+   *     in the list that they can't actually filter by.
+   *   - Everyone else → the set resolved by `TeamScopeService.getTeamPeerUserIds`
+   *     (peers from teams the caller is in or leads).
+   *
+   * Open to any authenticated user — the result is scoped to what the caller
+   * can already see elsewhere, so there's no extra data exposure.
+   */
+  async getMyTeamPeers(req, res) {
+    try {
+      const { tenantId, id: userId, role, dataScope } = req.currentUser;
+
+      // Org-wide visibility — match what the *_TEAM_VIEW endpoints already
+      // permit. A TENANT_ADMIN whose only "team" is themselves still needs to
+      // see every user in the dropdown so they can filter the list.
+      const isOrgWide =
+        role === 'TENANT_ADMIN' ||
+        role === 'SUPER_ADMIN'  ||
+        dataScope === 'ORG_WIDE' ||
+        dataScope === 'SUBORDINATES';
+
+      console.log(`[TeamController.getMyTeamPeers] caller userId=${userId} tenantId=${tenantId} role=${role} dataScope=${dataScope} isOrgWide=${isOrgWide}`);
+
+      if (isOrgWide) {
+        // ZCQL caps LIMIT at 300 per query — overshoot errors the whole call.
+        const allUsers = await this.db.findWhere(
+          TABLES.USERS, tenantId, null,
+          { orderBy: 'name ASC', limit: 300 }
+        );
+        const peers = allUsers
+          .map((u) => ({
+            id:        String(u.ROWID),
+            name:      u.name || u.email || 'Team member',
+            email:     u.email || null,
+            avatarUrl: u.avatar_url || null,
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        console.log(`[TeamController.getMyTeamPeers] org-wide path returning ${peers.length} peers`);
+        return ResponseHelper.success(res, {
+          peers,
+          _debug: { caller: { userId, tenantId, role, dataScope }, isOrgWide: true, source: 'org-wide all-users', count: peers.length },
+        });
+      }
+
+      const scope = new TeamScopeService(this.db);
+      const userIds = await scope.getTeamPeerUserIds(tenantId, userId);
+      console.log(`[TeamController.getMyTeamPeers] team-scope resolved userIds=${JSON.stringify(userIds)}`);
+      if (!userIds.length) {
+        return ResponseHelper.success(res, {
+          peers: [],
+          _debug: { caller: { userId, tenantId, role, dataScope }, isOrgWide: false, resolvedUserIds: userIds, reason: 'team-scope returned empty' },
+        });
+      }
+
+      const inList = userIds.map((id) => `'${DataStoreService.escape(String(id))}'`).join(',');
+      // ZCQL caps LIMIT at 300 per query.
+      const rows = await this.db.query(
+        `SELECT ROWID, name, email, avatar_url FROM ${TABLES.USERS} WHERE ROWID IN (${inList}) LIMIT 300`
+      );
+      console.log(`[TeamController.getMyTeamPeers] user lookup returned ${rows.length} rows`);
+
+      const peers = rows
+        .map((u) => ({
+          id:        String(u.ROWID),
+          name:      u.name || u.email || 'Team member',
+          email:     u.email || null,
+          avatarUrl: u.avatar_url || null,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      return ResponseHelper.success(res, {
+        peers,
+        _debug: { caller: { userId, tenantId, role, dataScope }, isOrgWide: false, resolvedUserIds: userIds, userLookupCount: rows.length },
+      });
+    } catch (err) {
+      console.error('[TeamController.getMyTeamPeers] failed:', err.message);
       return ResponseHelper.serverError(res, err.message);
     }
   }

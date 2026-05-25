@@ -11,6 +11,7 @@ import Header from '../components/layout/Header';
 import { PageLoader } from '../components/ui/Spinner';
 import Alert from '../components/ui/Alert';
 import ProjectPicker from '../components/ui/ProjectPicker';
+import MarkdownText from '../components/ui/MarkdownText';
 import { useProjects } from '../hooks/useProjects';
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
@@ -541,7 +542,7 @@ const AiInsightsPage = () => {
                     {summary.data.meta?.standupCount ?? 0} standups · {summary.data.meta?.eodCount ?? 0} EODs · {date}
                   </span>
                 </div>
-                <p className="text-sm text-gray-700 leading-relaxed">{summary.data.data?.summary}</p>
+                <MarkdownText text={summary.data.data?.summary ?? ''} className="text-sm text-gray-700" />
 
                 <Collapsible label={`Key Highlights (${summary.data.data?.highlights?.length ?? 0})`}>
                   <BulletList items={summary.data.data?.highlights} icon={<CheckCircle size={13} />} color="text-green-500" />
@@ -631,7 +632,7 @@ const AiInsightsPage = () => {
             <div className="space-y-5">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-700">{perf.data.data?.teamSummary}</p>
+                  <MarkdownText text={perf.data.data?.teamSummary ?? ''} className="text-sm text-gray-700" />
                   <div className="flex items-center gap-3 mt-2">
                     {perf.data.data?.topPerformer && (
                       <span className="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
@@ -791,7 +792,7 @@ const AiInsightsPage = () => {
 
                 <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
                   <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Executive Summary</p>
-                  <p className="text-sm text-gray-700 leading-relaxed">{report.data.data?.executiveSummary}</p>
+                  <MarkdownText text={report.data.data?.executiveSummary ?? ''} className="text-sm text-gray-700" />
                 </div>
 
                 <Collapsible label={`Key Achievements (${report.data.data?.keyAchievements?.length ?? 0})`}>
@@ -857,7 +858,7 @@ const AiInsightsPage = () => {
                 </div>
 
                 {blockerDetect.data.data?.summary && (
-                  <p className="text-sm text-gray-700">{blockerDetect.data.data.summary}</p>
+                  <MarkdownText text={blockerDetect.data.data.summary} className="text-sm text-gray-700" />
                 )}
 
                 {(blockerDetect.data.data?.blockers ?? []).length > 0 ? (
@@ -977,7 +978,7 @@ const AiInsightsPage = () => {
                 </div>
 
                 {retro.data.data?.sprintSummary && (
-                  <p className="text-sm text-gray-700 leading-relaxed">{retro.data.data.sprintSummary}</p>
+                  <MarkdownText text={retro.data.data.sprintSummary} className="text-sm text-gray-700" />
                 )}
 
                 <Collapsible label={`What Went Well (${retro.data.data?.wentWell?.length ?? 0})`}>
@@ -1149,7 +1150,7 @@ const AiInsightsPage = () => {
                 {/* Team overview */}
                 {(teamSummary || topPerformer || teamMorale) && (
                   <div className="bg-violet-50 rounded-xl p-3 space-y-1">
-                    {teamSummary && <p className="text-sm text-gray-700 leading-relaxed">{teamSummary}</p>}
+                    {teamSummary && <MarkdownText text={teamSummary} className="text-sm text-gray-700" />}
                     <div className="flex items-center gap-4 flex-wrap mt-1">
                       {topPerformer && (
                         <span className="text-xs text-gray-600 flex items-center gap-1">

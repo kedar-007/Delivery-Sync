@@ -28,6 +28,7 @@ router.patch('/:requestId/fulfill',      RBACMiddleware.require(PERMISSIONS.ASSE
 // ── Return workflow ────────────────────────────────────────────────────────────
 router.post('/:requestId/return',        RBACMiddleware.require(PERMISSIONS.ASSET_READ),    (req, res) => ctrl(req).initiateReturn(req, res));
 router.patch('/:requestId/verify-return',RBACMiddleware.require(PERMISSIONS.ASSET_ASSIGN),  (req, res) => ctrl(req).verifyReturn(req, res));
+router.patch('/:requestId/reject-return',RBACMiddleware.require(PERMISSIONS.ASSET_ASSIGN),  (req, res) => ctrl(req).rejectReturn(req, res));
 
 // ── Edit (requester can edit their own PENDING request) ────────────────────────
 router.patch('/:requestId', RBACMiddleware.require(PERMISSIONS.ASSET_READ), (req, res) => ctrl(req).update(req, res));

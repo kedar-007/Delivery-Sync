@@ -17,6 +17,7 @@ import '../../features/profile/presentation/screens/profile_screen.dart';
 import '../../features/ai_insights/presentation/screens/ai_insights_screen.dart';
 import '../../features/attendance/presentation/screens/attendance_screen.dart';
 import '../../features/assets/presentation/screens/assets_screen.dart';
+import '../../features/assets/presentation/screens/asset_scanner_screen.dart';
 import '../../features/badges/presentation/screens/badges_screen.dart';
 import '../../features/people/presentation/screens/org_chart_screen.dart';
 import '../../features/shell/presentation/screens/shell_screen.dart';
@@ -33,11 +34,18 @@ import '../../features/teams/presentation/screens/teams_screen.dart';
 import '../../features/decisions/presentation/screens/decisions_screen.dart';
 import '../../features/milestones/presentation/screens/milestones_screen.dart';
 
+/// Top-level navigator key — exposed so non-widget code (e.g. the push
+/// notification tap handler in NotificationService) can call `context.go(...)`
+/// without needing a Widget context. Attached to GoRouter below.
+final GlobalKey<NavigatorState> rootNavigatorKey =
+    GlobalKey<NavigatorState>(debugLabel: 'root');
+
 final routerProvider = Provider<GoRouter>((ref) {
   final auth = ref.watch(authProvider);
 
   return GoRouter(
     initialLocation: '/login',
+    navigatorKey: rootNavigatorKey,
     refreshListenable: _AuthListenable(ref),
     onException: (_, __, router) {
       // Ignore OAuth redirect URI parse errors (deliverysync://)
@@ -152,6 +160,12 @@ final routerProvider = Provider<GoRouter>((ref) {
                 GoRoute(
                   path: 'assets',
                   builder: (_, __) => const AssetsScreen(),
+                  routes: [
+                    GoRoute(
+                      path: 'scan',
+                      builder: (_, __) => const AssetScannerScreen(),
+                    ),
+                  ],
                 ),
                 GoRoute(
                   path: 'badges',

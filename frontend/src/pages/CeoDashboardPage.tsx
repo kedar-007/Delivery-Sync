@@ -13,6 +13,7 @@ import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import { PageLoader } from '../components/ui/Spinner';
 import Alert from '../components/ui/Alert';
+import MarkdownText from '../components/ui/MarkdownText';
 import { useExecSummary, type ExecProject } from '../hooks/useExecDashboard';
 import { useAiProjectHealth, useAiSuggestions, useAiDetectBlockers, useAiTrends } from '../hooks/useAiInsights';
 import { format, parseISO } from 'date-fns';
@@ -344,7 +345,7 @@ const AiBriefPanel = ({
             )}
           </p>
           {blockers.summary && (
-            <p className="text-xs text-amber-900 mb-2 leading-snug">{blockers.summary}</p>
+            <MarkdownText text={blockers.summary} className="text-xs text-amber-900 mb-2" accent="amber" />
           )}
           {blockers.blockers?.slice(0, 3).map((b: any, i: number) => (
             <div key={i} className="flex items-start gap-2 text-xs text-amber-800 mb-1 leading-snug">

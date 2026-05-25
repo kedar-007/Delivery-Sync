@@ -75,6 +75,8 @@ class Project extends Equatable {
     this.startDate,
     this.endDate,
     this.memberCount = 0,
+    this.standupEnabled = true,
+    this.eodEnabled = true,
   });
 
   final String id;
@@ -85,6 +87,20 @@ class Project extends Equatable {
   final String? startDate;
   final String? endDate;
   final int memberCount;
+  final bool standupEnabled;
+  final bool eodEnabled;
+
+  // Backend stores reminder flags as strings ('true'/'false') in row store;
+  // ProjectController maps them to camelCase booleans in responses. Accept
+  // both shapes so the model works regardless of which endpoint we're parsing.
+  static bool _parseFlag(dynamic v, {bool defaultValue = true}) {
+    if (v == null) return defaultValue;
+    if (v is bool) return v;
+    final s = v.toString().toLowerCase();
+    if (s == 'false' || s == '0') return false;
+    if (s == 'true' || s == '1') return true;
+    return defaultValue;
+  }
 
   factory Project.fromJson(Map<String, dynamic> j) => Project(
         id:          j['id']?.toString() ?? '',
@@ -95,10 +111,25 @@ class Project extends Equatable {
         startDate:   j['startDate'] as String?,
         endDate:     j['endDate'] as String?,
         memberCount: (j['memberCount'] as num?)?.toInt() ?? 0,
+        standupEnabled: _parseFlag(j['standupEnabled'] ?? j['standup_enabled']),
+        eodEnabled:     _parseFlag(j['eodEnabled']     ?? j['eod_enabled']),
+      );
+
+  Project copyWith({bool? standupEnabled, bool? eodEnabled}) => Project(
+        id:             id,
+        name:           name,
+        ragStatus:      ragStatus,
+        status:         status,
+        description:    description,
+        startDate:      startDate,
+        endDate:        endDate,
+        memberCount:    memberCount,
+        standupEnabled: standupEnabled ?? this.standupEnabled,
+        eodEnabled:     eodEnabled     ?? this.eodEnabled,
       );
 
   @override
-  List<Object?> get props => [id, name, ragStatus, status];
+  List<Object?> get props => [id, name, ragStatus, status, standupEnabled, eodEnabled];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -913,6 +944,9 @@ class DSNotification extends Equatable {
     required this.isRead,
     required this.createdAt,
     this.link,
+    this.entityType,
+    this.entityId,
+    this.metadata,
   });
 
   final String id;
@@ -923,6 +957,19 @@ class DSNotification extends Equatable {
   final String createdAt;
   final String? link;
 
+  // entityType + entityId let the tap handler route to the specific record
+  // (a single task, leave request, blocker etc.) instead of just landing on
+  // the generic list page. Both come from the backend's sendInApp() call.
+  // Backend uses a mix of UPPER and lower case for entityType — the route
+  // mapper in notification_routes.dart normalises before matching.
+  final String? entityType;
+  final String? entityId;
+
+  // metadata is a free-form bag. Notable keys today:
+  //   • projectId       — passed by SPRINT / ACTION notifications so the
+  //                       deep-link can land on the right project's board.
+  final Map<String, dynamic>? metadata;
+
   factory DSNotification.fromJson(Map<String, dynamic> j) => DSNotification(
         id:        j['id']?.toString() ?? '',
         type:      j['type'] as String? ?? '',
@@ -931,6 +978,11 @@ class DSNotification extends Equatable {
         isRead:    j['isRead'] as bool? ?? false,
         createdAt: j['createdAt'] as String? ?? '',
         link:      j['link'] as String?,
+        entityType: j['entityType'] as String? ?? j['entity_type'] as String?,
+        entityId:   j['entityId']?.toString() ?? j['entity_id']?.toString(),
+        metadata:   (j['metadata'] is Map)
+                      ? Map<String, dynamic>.from(j['metadata'] as Map)
+                      : null,
       );
 
   Map<String, dynamic> toJson() => {
@@ -940,7 +992,10 @@ class DSNotification extends Equatable {
         'message':   message,
         'isRead':    isRead,
         'createdAt': createdAt,
-        if (link != null) 'link': link,
+        if (link       != null) 'link':       link,
+        if (entityType != null) 'entityType': entityType,
+        if (entityId   != null) 'entityId':   entityId,
+        if (metadata   != null) 'metadata':   metadata,
       };
 
   @override

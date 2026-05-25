@@ -199,7 +199,7 @@ class AssetController {
         : [],
       requestIds.length
         ? this.db.query(
-            `SELECT ROWID, approved_by, handover_by FROM ${TABLES.ASSET_REQUESTS}
+            `SELECT ROWID, approved_by, handover_by, status, return_at, return_reason FROM ${TABLES.ASSET_REQUESTS}
              WHERE ROWID IN (${requestIds.map((id) => `'${id}'`).join(',')}) LIMIT 100`,
           )
         : [],
@@ -255,6 +255,11 @@ class AssetController {
         assignment_notes:      asgn.assignment_notes ?? null,
         expected_return_date:  asgn.expected_return_date ?? null,
         request_id:            asgn.request_id ?? null,
+        // Surface the underlying request status so the UI can show a
+        // "Return requested — awaiting ops" badge when status is RETURNED.
+        request_status:        req_.status      ?? null,
+        return_at:             req_.return_at   ?? null,
+        return_reason:         req_.return_reason ?? null,
       };
     });
 

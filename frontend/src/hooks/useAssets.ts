@@ -36,6 +36,11 @@ const normaliseAsset = (r: any) => ({
   expectedReturnDate:  r.expected_return_date ?? r.expectedReturnDate ?? null,
   categoryName:        r.category_name       ?? r.categoryName       ?? null,
   requestId:           r.request_id          ?? r.requestId          ?? null,
+  // Underlying asset_request status — used by the My Assets tab to show
+  // "Return Requested" when the user has already initiated a return.
+  requestStatus:       r.request_status      ?? r.requestStatus      ?? null,
+  returnAt:            r.return_at           ?? r.returnAt           ?? null,
+  returnReason:        r.return_reason       ?? r.returnReason       ?? null,
   createdBy:           r.CREATORID           ?? r.created_by         ?? r.createdBy,
   createdAt:           r.CREATEDTIME         ?? r.created_at         ?? r.createdAt,
   updatedAt:           r.MODIFIEDTIME        ?? r.updated_at         ?? r.updatedAt,
@@ -70,6 +75,7 @@ const normaliseRequest = (r: any) => ({
   deviceId:             r.device_id             ?? r.deviceId ?? null,
   deviceUsername:       r.device_username       ?? r.deviceUsername ?? null,
   devicePassword:       r.device_password       ?? r.devicePassword ?? null,
+  qrToken:              r.qr_token              ?? r.qrToken ?? null,
   returnBy:             r.return_by             ?? r.returnBy ?? null,
   returnAt:             r.return_at             ?? r.returnAt ?? null,
   returnReason:         r.return_reason         ?? r.returnReason ?? null,
@@ -77,7 +83,20 @@ const normaliseRequest = (r: any) => ({
   returnChecklist:      r.return_checklist      ? (typeof r.return_checklist === 'string' ? JSON.parse(r.return_checklist) : r.return_checklist) : [],
   returnNotes:          r.return_notes          ?? r.returnNotes ?? null,
   returnVerifiedBy:     r.return_verified_by    ?? r.returnVerifiedBy ?? null,
+  returnVerifiedByName: r.return_verified_by_name ?? r.returnVerifiedByName ?? null,
+  returnVerifiedByEmail: r.return_verified_by_email ?? r.returnVerifiedByEmail ?? null,
+  returnVerifiedByAvatar: r.return_verified_by_avatar ?? r.returnVerifiedByAvatar ?? null,
+  returnRejectedByName: r.return_rejected_by_name ?? r.returnRejectedByName ?? null,
   returnVerifiedAt:     r.return_verified_at    ?? r.returnVerifiedAt ?? null,
+  returnMissingItems:   r.return_missing_items
+    ? (typeof r.return_missing_items === 'string' ? JSON.parse(r.return_missing_items) : r.return_missing_items)
+    : [],
+  returnDamageSeverity: r.return_damage_severity    ?? r.returnDamageSeverity ?? null,
+  returnDamageDescription: r.return_damage_description ?? r.returnDamageDescription ?? null,
+  returnEstimatedCost:  parseFloat(r.return_estimated_cost ?? r.returnEstimatedCost ?? 0) || 0,
+  returnRejectionNotes: r.return_rejection_notes ?? r.returnRejectionNotes ?? null,
+  returnRejectedBy:     r.return_rejected_by     ?? r.returnRejectedBy ?? null,
+  returnRejectedAt:     r.return_rejected_at     ?? r.returnRejectedAt ?? null,
   fulfilledBy:          r.fulfilled_by          ?? r.fulfilledBy ?? null,
   fulfilledAt:          r.fulfilled_at          ?? r.fulfilledAt ?? null,
   fulfillmentNotes:     r.fulfillment_notes     ?? r.fulfillmentNotes ?? '',
@@ -248,6 +267,14 @@ export const useVerifyReturn = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: unknown }) => assetsApi.requests.verifyReturn(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assets'] }),
+  });
+};
+
+export const useRejectReturn = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: unknown }) => assetsApi.requests.rejectReturn(id, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['assets'] }),
   });
 };

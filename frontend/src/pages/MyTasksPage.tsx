@@ -25,6 +25,7 @@ import { timeEntriesApi, tasksApi, aiApi } from '../lib/api';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { useQuery } from '@tanstack/react-query';
 import UserAvatar from '../components/ui/UserAvatar';
+import MarkdownText from '../components/ui/MarkdownText';
 
 // ── Time helpers: HH:MM ↔ decimal hours ──────────────────────────────────────
 const parseHoursInput = (val: string): number => {
@@ -817,7 +818,7 @@ function TaskDetailPanel({
                     <Brain size={15} className="text-indigo-500" />
                     <span className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">AI Insights</span>
                   </div>
-                  <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{aiInsight}</p>
+                  <MarkdownText text={aiInsight} className="text-sm text-gray-700" accent="indigo" />
                 </div>
               ) : (
                 <p className="text-xs text-gray-400 text-center py-8">No insights available.</p>

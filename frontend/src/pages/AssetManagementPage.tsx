@@ -4,8 +4,10 @@ import {
   Package, Plus, Edit2, Wrench, CheckCircle2, XCircle,
   RotateCcw, AlertTriangle, Calendar, Tag, Upload, ChevronRight, MapPin,
   Eye, Clock, User, FileText, Hash, Search, Key, Monitor, Truck,
-  ClipboardCheck, Shield, ChevronDown, ChevronUp, Lock, Info,
+  ClipboardCheck, Shield, ChevronDown, ChevronUp, Lock, Info, QrCode,
 } from 'lucide-react';
+import { QRCodeCanvas } from 'qrcode.react';
+import AssetScannerModal from '../components/assets/AssetScannerModal';
 import { format, parseISO, isValid } from 'date-fns';
 import { useForm } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
@@ -26,8 +28,7 @@ import {
   useCreateAsset, useUpdateAsset, useBulkCreateAssets,
   useAssetRequests, useRequestAsset, useUpdateAssetRequest, useApproveAssetRequest, useRejectAssetRequest,
   useAssignOpsRequest, useStartProcessingRequest, useHandoverAssetRequest,
-  useInitiateReturn, useVerifyReturn,
-  useReturnAsset,
+  useInitiateReturn, useVerifyReturn, useRejectReturn,
   useAssetMaintenance, useScheduleMaintenance,
   useAssignableUsers, useAssetOrgRoles,
 } from '../hooks/useAssets';
@@ -79,6 +80,11 @@ interface Asset {
   assignmentNotes?: string | null;
   expectedReturnDate?: string | null;
   requestId?: string | null;
+  // Status of the underlying asset_request. When equal to 'RETURNED' the user
+  // has already initiated a return and we should show the awaiting-verification state.
+  requestStatus?: string | null;
+  returnAt?: string | null;
+  returnReason?: string | null;
 }
 
 interface OpsAssignee { id: string; name: string; email: string; avatarUrl?: string; }
@@ -117,6 +123,7 @@ interface AssetRequest {
   deviceId?: string;
   deviceUsername?: string;
   devicePassword?: string;
+  qrToken?: string | null;
   // Return
   returnBy?: string;
   returnAt?: string;
@@ -125,7 +132,19 @@ interface AssetRequest {
   returnChecklist?: string[];
   returnNotes?: string;
   returnVerifiedBy?: string;
+  returnVerifiedByName?: string | null;
+  returnVerifiedByEmail?: string | null;
+  returnVerifiedByAvatar?: string | null;
+  returnRejectedByName?: string | null;
   returnVerifiedAt?: string;
+  // Industry-standard return workflow (Core 3 + partial recovery)
+  returnMissingItems?: string[];
+  returnDamageSeverity?: 'NONE' | 'MINOR' | 'MODERATE' | 'SEVERE' | null;
+  returnDamageDescription?: string | null;
+  returnEstimatedCost?: number;
+  returnRejectionNotes?: string | null;
+  returnRejectedBy?: string | null;
+  returnRejectedAt?: string | null;
 }
 
 interface MaintenanceRecord {
@@ -913,16 +932,32 @@ interface MyAssetsTabProps {
 
 const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
   const { data: myAssets = [], isLoading, error } = useMyAssets();
-  const returnAsset = useReturnAsset();
+  const initiateReturn = useInitiateReturn();
   const [requestModalOpen, setRequestModalOpen] = useState(false);
-  const [returnTarget, setReturnTarget] = useState<string | null>(null);
+  // returnTarget holds the *request id*, not the asset id — the user-initiated
+  // return goes through POST /requests/:id/return (gated on ASSET_READ) so it
+  // works for everyone. The legacy /assignments/:id/return endpoint needs
+  // ASSET_ASSIGN and silently 403s for normal requesters.
+  const [returnTarget, setReturnTarget] = useState<{ requestId: string; assetName?: string } | null>(null);
+  const [returnNotes, setReturnNotes]   = useState('');
+  const [returnError, setReturnError]   = useState('');
+
+  React.useEffect(() => {
+    if (returnTarget) { setReturnNotes(''); setReturnError(''); }
+  }, [returnTarget]);
 
   const handleReturn = async () => {
     if (!returnTarget) return;
     try {
-      await returnAsset.mutateAsync({ id: returnTarget });
+      setReturnError('');
+      await initiateReturn.mutateAsync({
+        id: returnTarget.requestId,
+        data: { reason: returnNotes },
+      });
       setReturnTarget(null);
-    } catch { /* noop */ }
+    } catch (err) {
+      setReturnError(err instanceof Error ? err.message : 'Could not initiate return');
+    }
   };
 
   if (isLoading) return (
@@ -953,11 +988,22 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
         />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {(myAssets as Asset[]).map((asset) => (
-            <div key={asset.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
-              {/* Card header — colored band */}
+          {(myAssets as Asset[]).map((asset) => {
+            const returnPending = asset.requestStatus === 'RETURNED';
+            return (
+            <div key={asset.id} className={`rounded-xl border shadow-sm overflow-hidden flex flex-col ${
+              returnPending
+                ? 'bg-amber-50/40 border-amber-200'
+                : 'bg-white border-gray-200'
+            }`}>
+              {/* Card header — colored band reflects state. Amber when a return
+                  has been initiated and is waiting on ops to verify. */}
               <div className={`h-1.5 w-full ${
-                asset.status === 'ASSIGNED' ? 'bg-gradient-to-r from-indigo-500 to-violet-500' : 'bg-gray-200'
+                returnPending
+                  ? 'bg-gradient-to-r from-amber-400 to-orange-500'
+                  : asset.status === 'ASSIGNED'
+                    ? 'bg-gradient-to-r from-indigo-500 to-violet-500'
+                    : 'bg-gray-200'
               }`} />
 
               <div className="p-5 flex flex-col gap-4 flex-1">
@@ -967,8 +1013,26 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
                     <p className="text-base font-bold text-gray-900 truncate">{asset.assetName}</p>
                     <p className="text-xs text-gray-400 mt-0.5">{asset.categoryName ?? '—'}</p>
                   </div>
-                  <Badge variant={assetStatusVariant(asset.status)}>{asset.status}</Badge>
+                  {returnPending ? (
+                    <span className="text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full whitespace-nowrap">
+                      RETURN REQUESTED
+                    </span>
+                  ) : (
+                    <Badge variant={assetStatusVariant(asset.status)}>{asset.status}</Badge>
+                  )}
                 </div>
+
+                {returnPending && (
+                  <div className="bg-amber-100/60 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-2">
+                    <Clock size={13} className="text-amber-600 shrink-0 mt-0.5" />
+                    <div className="text-xs leading-snug">
+                      <p className="font-semibold text-amber-800">Awaiting ops verification</p>
+                      <p className="text-amber-700">
+                        You initiated this return{asset.returnAt ? ` on ${safeFormat(asset.returnAt, 'MMM d')}` : ''}. The IT/ops team will confirm receipt and condition.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Serial number */}
                 {asset.serialNumber && (
@@ -1053,13 +1117,22 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
                   variant="outline"
                   className="mt-auto"
                   icon={<RotateCcw size={14} />}
-                  onClick={() => setReturnTarget(asset.id)}
+                  disabled={!asset.requestId || returnPending}
+                  title={
+                    returnPending
+                      ? 'Return already requested — waiting for ops to verify.'
+                      : !asset.requestId
+                        ? 'Contact your IT admin — this asset was directly assigned and has no request to return through.'
+                        : undefined
+                  }
+                  onClick={() => asset.requestId && setReturnTarget({ requestId: String(asset.requestId), assetName: asset.assetName })}
                 >
-                  Return Asset
+                  {returnPending ? 'Return Pending' : 'Return Asset'}
                 </Button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -1070,18 +1143,30 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
         availableAssets={availableAssets}
       />
 
-      {/* Return confirm modal */}
-      <Modal open={returnTarget !== null} onClose={() => setReturnTarget(null)} title="Return Asset" size="sm">
-        <p className="text-sm text-gray-600">Are you sure you want to return this asset? This action cannot be undone.</p>
+      {/* Return confirm modal — initiates the return so ops can verify. */}
+      <Modal open={returnTarget !== null} onClose={() => setReturnTarget(null)} title="Return Asset" size="md">
+        <div className="space-y-3">
+          {returnError && <Alert type="error" message={returnError} />}
+          <p className="text-sm text-gray-600">
+            Initiating a return marks <strong>{returnTarget?.assetName ?? 'this asset'}</strong> as
+            awaiting collection. The IT/ops team will verify it once they receive the device back.
+          </p>
+          <div>
+            <label className="form-label">Reason / notes <span className="text-gray-400 font-normal">(optional)</span></label>
+            <textarea className="form-textarea" rows={3}
+              placeholder="e.g. Leaving the team, upgrading to a new device…"
+              value={returnNotes} onChange={(e) => setReturnNotes(e.target.value)} />
+          </div>
+        </div>
         <ModalActions>
           <Button variant="outline" onClick={() => setReturnTarget(null)}>Cancel</Button>
           <Button
-            variant="danger"
             icon={<RotateCcw size={16} />}
-            loading={returnAsset.isPending}
+            loading={initiateReturn.isPending}
             onClick={handleReturn}
+            className="bg-orange-600 hover:bg-orange-700 text-white"
           >
-            Return Asset
+            Initiate Return
           </Button>
         </ModalActions>
       </Modal>
@@ -1815,79 +1900,84 @@ const HandoverModal = ({ open, onClose, request, availableAssets, onDone }: Hand
   const filteredAssets = availableAssets.filter((a) => !request.categoryId || String(a.categoryId) === request.categoryId);
 
   return (
-    <Modal open={open} onClose={onClose} title="Hand Over Asset" size="md">
+    <Modal open={open} onClose={onClose} title="Hand Over Asset" size="2xl">
       <div className="space-y-4">
         {error && <Alert type="error" message={error} />}
 
-        {/* Who it's for */}
-        <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 flex items-center gap-3">
-          <UserAvatar name={request.requestedByName ?? ''} avatarUrl={request.requestedByAvatar ?? undefined} size="sm" />
-          <div>
-            <p className="text-xs text-indigo-500 font-medium">Handing over to</p>
-            <p className="text-sm font-semibold text-indigo-800">{request.requestedByName ?? '—'}</p>
-          </div>
-        </div>
-
-        {/* Asset picker */}
-        <div>
-          <label className="form-label">Select Asset to Hand Over *</label>
-          <select className="form-select" value={assetId} onChange={(e) => setAssetId(e.target.value)}>
-            <option value="">Choose asset…</option>
-            {filteredAssets.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.assetName}{a.assetTag ? ` (${a.assetTag})` : ''}{a.serialNumber ? ` · ${a.serialNumber}` : ''}
-              </option>
-            ))}
-            {availableAssets.filter((a) => !filteredAssets.some((f) => f.id === a.id)).length > 0 && (
-              <>
-                <option disabled>── Other categories ──</option>
-                {availableAssets.filter((a) => !filteredAssets.some((f) => f.id === a.id)).map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.assetName}{a.assetTag ? ` (${a.assetTag})` : ''}
-                  </option>
-                ))}
-              </>
-            )}
-          </select>
-        </div>
-
-        {/* Device credentials section */}
-        <div className="border border-gray-200 rounded-xl p-4 space-y-3">
-          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide flex items-center gap-1.5">
-            <Key size={12} /> Device Credentials <span className="text-gray-400 font-normal normal-case">(optional — for laptops, phones, etc.)</span>
-          </p>
-          <div>
-            <label className="form-label">Device ID / Serial</label>
-            <input className="form-input" placeholder="e.g. IMEI, device serial…" value={deviceId} onChange={(e) => setDeviceId(e.target.value)} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+        {/* "Who it's for" + asset picker — full width since these are the
+            primary decisions for the handover. */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 flex items-center gap-3">
+            <UserAvatar name={request.requestedByName ?? ''} avatarUrl={request.requestedByAvatar ?? undefined} size="sm" />
             <div>
-              <label className="form-label">Username / Login</label>
-              <input className="form-input" placeholder="Username or email…" value={deviceUsername} onChange={(e) => setDeviceUsername(e.target.value)} />
+              <p className="text-xs text-indigo-500 font-medium">Handing over to</p>
+              <p className="text-sm font-semibold text-indigo-800">{request.requestedByName ?? '—'}</p>
             </div>
+          </div>
+
+          <div>
+            <label className="form-label">Select Asset to Hand Over *</label>
+            <select className="form-select" value={assetId} onChange={(e) => setAssetId(e.target.value)}>
+              <option value="">Choose asset…</option>
+              {filteredAssets.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.assetName}{a.assetTag ? ` (${a.assetTag})` : ''}{a.serialNumber ? ` · ${a.serialNumber}` : ''}
+                </option>
+              ))}
+              {availableAssets.filter((a) => !filteredAssets.some((f) => f.id === a.id)).length > 0 && (
+                <>
+                  <option disabled>── Other categories ──</option>
+                  {availableAssets.filter((a) => !filteredAssets.some((f) => f.id === a.id)).map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.assetName}{a.assetTag ? ` (${a.assetTag})` : ''}
+                    </option>
+                  ))}
+                </>
+              )}
+            </select>
+          </div>
+        </div>
+
+        {/* Credentials + notes side-by-side on md+ so the modal grows wide
+            instead of tall. The credentials block keeps its own internal grid. */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="border border-gray-200 rounded-xl p-4 space-y-3">
+            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide flex items-center gap-1.5">
+              <Key size={12} /> Device Credentials <span className="text-gray-400 font-normal normal-case">(optional)</span>
+            </p>
             <div>
-              <label className="form-label">Password</label>
-              <div className="relative">
-                <input
-                  className="form-input pr-9"
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="Device password…"
-                  value={devicePassword}
-                  onChange={(e) => setDevicePassword(e.target.value)}
-                />
-                <button type="button" onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                  <Lock size={13} />
-                </button>
+              <label className="form-label">Device ID / Serial</label>
+              <input className="form-input" placeholder="e.g. IMEI, device serial…" value={deviceId} onChange={(e) => setDeviceId(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="form-label">Username / Login</label>
+                <input className="form-input" placeholder="Username or email…" value={deviceUsername} onChange={(e) => setDeviceUsername(e.target.value)} />
+              </div>
+              <div>
+                <label className="form-label">Password</label>
+                <div className="relative">
+                  <input
+                    className="form-input pr-9"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Device password…"
+                    value={devicePassword}
+                    onChange={(e) => setDevicePassword(e.target.value)}
+                  />
+                  <button type="button" onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                    <Lock size={13} />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <div>
-          <label className="form-label">Handover Notes <span className="text-gray-400 font-normal">(optional)</span></label>
-          <textarea className="form-textarea" rows={2} placeholder="Collection point, instructions, accessories included…"
-            value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <div className="flex flex-col">
+            <label className="form-label">Handover Notes <span className="text-gray-400 font-normal">(optional)</span></label>
+            <textarea className="form-textarea flex-1 min-h-[160px]" placeholder="Collection point, instructions, accessories included…"
+              value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
         </div>
 
         <ModalActions>
@@ -1919,25 +2009,66 @@ interface VerifyReturnModalProps {
   onDone: () => void;
 }
 
+type ItemStatus = 'PRESENT' | 'MISSING';
+type Condition  = 'GOOD' | 'FAIR' | 'DAMAGED' | 'LOST';
+type Severity   = 'NONE' | 'MINOR' | 'MODERATE' | 'SEVERE';
+
 const VerifyReturnModal = ({ open, onClose, request, onDone }: VerifyReturnModalProps) => {
   const verify = useVerifyReturn();
-  const [condition, setCondition] = useState('GOOD');
-  const [checklist, setChecklist] = useState<string[]>([]);
-  const [notes, setNotes]         = useState('');
-  const [error, setError]         = useState('');
+  const reject = useRejectReturn();
+  const [condition, setCondition] = useState<Condition>('GOOD');
+  // Per-item status enables partial-recovery reporting (e.g. charger MISSING,
+  // laptop PRESENT). Stored as { item: status } so we can emit two arrays.
+  const [checklistState, setChecklistState] = useState<Record<string, ItemStatus>>({});
+  const [damageSeverity, setDamageSeverity] = useState<Severity>('NONE');
+  const [damageDescription, setDamageDescription] = useState('');
+  const [estimatedCost, setEstimatedCost] = useState<string>('');
+  const [notes, setNotes] = useState('');
+  const [error, setError] = useState('');
+  const [showRejectForm, setShowRejectForm] = useState(false);
+  const [rejectionNotes, setRejectionNotes] = useState('');
 
   React.useEffect(() => {
-    if (open) { setCondition('GOOD'); setChecklist([]); setNotes(''); setError(''); }
+    if (open) {
+      setCondition('GOOD');
+      setChecklistState({});
+      setDamageSeverity('NONE');
+      setDamageDescription('');
+      setEstimatedCost('');
+      setNotes('');
+      setError('');
+      setShowRejectForm(false);
+      setRejectionNotes('');
+    }
   }, [open]);
 
-  const toggleCheck = (item: string) =>
-    setChecklist((prev) => prev.includes(item) ? prev.filter((x) => x !== item) : [...prev, item]);
+  const setItem = (item: string, status: ItemStatus) =>
+    setChecklistState((prev) => ({ ...prev, [item]: status }));
+
+  const presentItems = Object.entries(checklistState).filter(([, s]) => s === 'PRESENT').map(([k]) => k);
+  const missingItems = Object.entries(checklistState).filter(([, s]) => s === 'MISSING').map(([k]) => k);
+  const isDamaged = condition === 'DAMAGED' || condition === 'LOST';
 
   const handleSubmit = async () => {
     if (!request) return;
+    if (isDamaged && !damageDescription.trim()) {
+      setError('Please describe the damage / loss');
+      return;
+    }
     try {
       setError('');
-      await verify.mutateAsync({ id: request.id, data: { condition, checklist, notes } });
+      await verify.mutateAsync({
+        id: request.id,
+        data: {
+          condition,
+          checklist: presentItems,
+          missing_items: missingItems,
+          damage_severity: damageSeverity,
+          damage_description: damageDescription,
+          estimated_cost: parseFloat(estimatedCost) || 0,
+          notes,
+        },
+      });
       onDone();
       onClose();
     } catch (err: unknown) {
@@ -1945,10 +2076,26 @@ const VerifyReturnModal = ({ open, onClose, request, onDone }: VerifyReturnModal
     }
   };
 
+  const handleReject = async () => {
+    if (!request) return;
+    if (!rejectionNotes.trim()) {
+      setError('Please explain what the requester needs to fix');
+      return;
+    }
+    try {
+      setError('');
+      await reject.mutateAsync({ id: request.id, data: { notes: rejectionNotes } });
+      onDone();
+      onClose();
+    } catch (err: unknown) {
+      setError((err as Error).message ?? 'Rejection failed');
+    }
+  };
+
   if (!request) return null;
 
   return (
-    <Modal open={open} onClose={onClose} title="Verify Asset Return" size="md">
+    <Modal open={open} onClose={onClose} title="Verify Asset Return" size="2xl">
       <div className="space-y-4">
         {error && <Alert type="error" message={error} />}
 
@@ -1965,54 +2112,155 @@ const VerifyReturnModal = ({ open, onClose, request, onDone }: VerifyReturnModal
           )}
         </div>
 
-        {/* Condition */}
-        <div>
-          <label className="form-label">Asset Condition *</label>
-          <div className="grid grid-cols-4 gap-2 mt-1">
-            {(['EXCELLENT', 'GOOD', 'FAIR', 'POOR'] as const).map((c) => (
-              <button key={c} type="button"
-                onClick={() => setCondition(c)}
-                className={`py-2.5 rounded-xl text-xs font-semibold border-2 transition-all ${
-                  condition === c
-                    ? c === 'EXCELLENT' ? 'border-green-500 bg-green-50 text-green-700'
-                    : c === 'GOOD'      ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : c === 'FAIR'      ? 'border-amber-500 bg-amber-50 text-amber-700'
-                    :                    'border-red-500 bg-red-50 text-red-700'
-                    : 'border-gray-200 text-gray-500 hover:border-gray-300'
-                }`}>
-                {c}
-              </button>
-            ))}
+        {showRejectForm ? (
+          /* ── Reject (bounce-back) flow ─────────────────────────────────── */
+          <div className="space-y-3">
+            <div className="bg-amber-50 border border-amber-100 rounded-xl p-3">
+              <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1">
+                Bounce the return back
+              </p>
+              <p className="text-xs text-amber-800 leading-snug">
+                Use this when the physical handover is incomplete — wrong device, missing accessories,
+                damage not declared. The request goes back to HANDED_OVER so the requester can re-initiate.
+              </p>
+            </div>
+            <div>
+              <label className="form-label">What needs to be fixed? *</label>
+              <textarea className="form-textarea" rows={3}
+                placeholder="e.g. Returned without the charger. Please bring the original charger to the IT desk."
+                value={rejectionNotes} onChange={(e) => setRejectionNotes(e.target.value)} />
+            </div>
+            <ModalActions>
+              <Button variant="outline" onClick={() => setShowRejectForm(false)}>Back</Button>
+              <Button onClick={handleReject} loading={reject.isPending}
+                className="bg-amber-600 hover:bg-amber-700 text-white" icon={<RotateCcw size={15} />}>
+                Bounce Back to Requester
+              </Button>
+            </ModalActions>
           </div>
-        </div>
+        ) : (
+          /* ── Verify flow ───────────────────────────────────────────────── */
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* LEFT — outcome */}
+              <div className="space-y-4">
+                <div>
+                  <label className="form-label">Asset Condition *</label>
+                  <div className="grid grid-cols-4 gap-2 mt-1">
+                    {(['GOOD', 'FAIR', 'DAMAGED', 'LOST'] as const).map((c) => (
+                      <button key={c} type="button"
+                        onClick={() => setCondition(c)}
+                        className={`py-2.5 rounded-xl text-xs font-semibold border-2 transition-all ${
+                          condition === c
+                            ? c === 'GOOD'    ? 'border-green-500 bg-green-50 text-green-700'
+                            : c === 'FAIR'    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                            : c === 'DAMAGED' ? 'border-amber-500 bg-amber-50 text-amber-700'
+                            :                  'border-red-500 bg-red-50 text-red-700'
+                            : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                        }`}>
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1.5 leading-snug">
+                    GOOD / FAIR → back to inventory · DAMAGED → sent for repair (maintenance record auto-created) · LOST → asset retired.
+                  </p>
+                </div>
 
-        {/* Checklist */}
-        <div>
-          <label className="form-label flex items-center gap-1.5"><ClipboardCheck size={13} className="text-gray-400" /> Return Checklist</label>
-          <div className="space-y-1.5 mt-1">
-            {DEFAULT_CHECKLIST.map((item) => (
-              <label key={item} className="flex items-center gap-2.5 cursor-pointer p-2 rounded-lg hover:bg-gray-50 transition-colors">
-                <input type="checkbox" className="rounded text-indigo-600"
-                  checked={checklist.includes(item)}
-                  onChange={() => toggleCheck(item)} />
-                <span className="text-sm text-gray-700">{item}</span>
-              </label>
-            ))}
-          </div>
-        </div>
+                {isDamaged && (
+                  <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 space-y-3">
+                    <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Damage Report</p>
+                    <div>
+                      <label className="form-label">Severity</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {(['MINOR', 'MODERATE', 'SEVERE'] as const).map((s) => (
+                          <button key={s} type="button"
+                            onClick={() => setDamageSeverity(s)}
+                            className={`py-2 rounded-lg text-xs font-semibold border transition-all ${
+                              damageSeverity === s
+                                ? 'border-amber-500 bg-amber-100 text-amber-800'
+                                : 'border-amber-200 text-amber-600 hover:bg-amber-50'
+                            }`}>
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="form-label">Damage Description *</label>
+                      <textarea className="form-textarea" rows={2}
+                        placeholder="Cracked screen, dent on lid, missing keys…"
+                        value={damageDescription} onChange={(e) => setDamageDescription(e.target.value)} />
+                    </div>
+                    {condition === 'DAMAGED' && (
+                      <div>
+                        <label className="form-label">Estimated Repair Cost</label>
+                        <input className="form-input" type="number" min={0} placeholder="0"
+                          value={estimatedCost} onChange={(e) => setEstimatedCost(e.target.value)} />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
 
-        <div>
-          <label className="form-label">Verification Notes <span className="text-gray-400 font-normal">(optional)</span></label>
-          <textarea className="form-textarea" rows={2} placeholder="Any issues found, missing items, damage notes…"
-            value={notes} onChange={(e) => setNotes(e.target.value)} />
-        </div>
+              {/* RIGHT — checklist + notes */}
+              <div className="space-y-4">
+                <div>
+                  <label className="form-label flex items-center gap-1.5">
+                    <ClipboardCheck size={13} className="text-gray-400" /> Recovery Checklist
+                  </label>
+                  <p className="text-xs text-gray-400 mb-2">Mark each item as PRESENT or MISSING for partial-recovery tracking.</p>
+                  <div className="space-y-1.5">
+                    {DEFAULT_CHECKLIST.map((item) => {
+                      const status = checklistState[item];
+                      return (
+                        <div key={item} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-gray-50">
+                          <span className="flex-1 text-sm text-gray-700">{item}</span>
+                          <div className="flex gap-1">
+                            <button type="button" onClick={() => setItem(item, 'PRESENT')}
+                              className={`text-[10px] font-semibold px-2 py-1 rounded ${
+                                status === 'PRESENT'
+                                  ? 'bg-green-100 text-green-700 border border-green-200'
+                                  : 'bg-gray-50 text-gray-400 border border-gray-200 hover:text-gray-600'
+                              }`}>
+                              PRESENT
+                            </button>
+                            <button type="button" onClick={() => setItem(item, 'MISSING')}
+                              className={`text-[10px] font-semibold px-2 py-1 rounded ${
+                                status === 'MISSING'
+                                  ? 'bg-red-100 text-red-700 border border-red-200'
+                                  : 'bg-gray-50 text-gray-400 border border-gray-200 hover:text-gray-600'
+                              }`}>
+                              MISSING
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
 
-        <ModalActions>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSubmit} loading={verify.isPending} icon={<ClipboardCheck size={15} />}>
-            Verify Return
-          </Button>
-        </ModalActions>
+                <div>
+                  <label className="form-label">Verification Notes <span className="text-gray-400 font-normal">(optional)</span></label>
+                  <textarea className="form-textarea" rows={3} placeholder="Any context for future audit…"
+                    value={notes} onChange={(e) => setNotes(e.target.value)} />
+                </div>
+              </div>
+            </div>
+
+            <ModalActions>
+              <Button variant="outline" onClick={onClose}>Cancel</Button>
+              <Button variant="outline" onClick={() => setShowRejectForm(true)}
+                className="text-amber-700 border-amber-300 hover:bg-amber-50"
+                icon={<RotateCcw size={14} />}>
+                Reject Return
+              </Button>
+              <Button onClick={handleSubmit} loading={verify.isPending} icon={<ClipboardCheck size={15} />}>
+                Verify Return
+              </Button>
+            </ModalActions>
+          </>
+        )}
       </div>
     </Modal>
   );
@@ -2096,7 +2344,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
 
   return (
     <>
-      <Modal open={open} onClose={onClose} title="Request Details" size="lg">
+      <Modal open={open} onClose={onClose} title="Request Details" size="2xl">
         <div className="space-y-5">
           {/* Status + Priority */}
           <div className="flex items-center gap-2 flex-wrap">
@@ -2109,6 +2357,10 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
             </span>
           </div>
 
+          {/* Body laid out in 2 columns on md+ so the modal stays wide, not tall.
+              Left: the original request (who/what/why). Right: process state. */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="space-y-5">
           {/* Requester */}
           <div className="bg-gray-50 rounded-xl p-4">
             <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><User size={12} /> Requested By</p>
@@ -2160,7 +2412,9 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
               )}
             </div>
           )}
+          </div>{/* ── end left column ── */}
 
+          <div className="space-y-5">{/* ── right column: process state ── */}
           {/* Ops Assignees */}
           {req.opsAssigneeDetails && req.opsAssigneeDetails.length > 0 && (
             <div>
@@ -2184,6 +2438,49 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
                 By <strong>{req.handoverByName ?? '—'}</strong> on {safeFormat(req.handoverAt, 'MMM d, yyyy · hh:mm a')}
               </p>
               {req.handoverNotes && <p className="text-xs text-teal-700 mt-1">{req.handoverNotes}</p>}
+
+              {/* Asset QR — printed on a sticker and applied to the physical device.
+                  A new token is generated on every handover, so the previous QR
+                  stops resolving as soon as the return is verified. */}
+              {req.qrToken && req.status === 'HANDED_OVER' && (isRequester || isOpsUser || canAssign) && (
+                <div className="mt-3 border-t border-teal-200 pt-3">
+                  <p className="text-xs font-semibold text-teal-700 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                    <QrCode size={12} /> Asset QR Sticker
+                  </p>
+                  <div className="flex items-center gap-3 bg-white rounded-lg p-3 border border-teal-200">
+                    <div className="shrink-0 bg-white p-1.5 rounded">
+                      <QRCodeCanvas
+                        id={`asset-qr-${req.id}`}
+                        value={`dsync://asset-scan/${req.qrToken}`}
+                        size={112}
+                        level="M"
+                        includeMargin={false}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-teal-700 leading-snug">
+                        Print and stick this on the device. Authorised users scan it from the mobile app to see
+                        asset details. Token rotates automatically on return.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const canvas = document.getElementById(`asset-qr-${req.id}`) as HTMLCanvasElement | null;
+                          if (!canvas) return;
+                          const url = canvas.toDataURL('image/png');
+                          const link = document.createElement('a');
+                          link.href = url;
+                          link.download = `asset-qr-${req.assetTag || req.id}.png`;
+                          link.click();
+                        }}
+                        className="mt-2 text-xs font-semibold text-teal-700 hover:text-teal-900 inline-flex items-center gap-1"
+                      >
+                        <Upload size={11} className="rotate-180" /> Download PNG
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Device Credentials — shown to requester or ops */}
               {hasDeviceCreds && (isRequester || isOpsUser || canAssign) && (
@@ -2229,20 +2526,73 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
             </div>
           )}
           {req.returnVerifiedAt && (
-            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+            <div className={`border rounded-xl p-4 ${
+              req.returnCondition === 'LOST'
+                ? 'bg-red-50 border-red-100'
+                : req.returnCondition === 'DAMAGED'
+                  ? 'bg-amber-50 border-amber-100'
+                  : 'bg-gray-50 border-gray-200'
+            }`}>
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5"><ClipboardCheck size={12} /> Return Verified</p>
               <p className="text-sm text-gray-700">
                 Condition: <strong>{req.returnCondition ?? '—'}</strong>
                 {' · '}{safeFormat(req.returnVerifiedAt, 'MMM d, yyyy')}
               </p>
+              {req.returnVerifiedByName && (
+                <div className="mt-2 flex items-center gap-2 text-xs text-gray-600">
+                  <UserAvatar name={req.returnVerifiedByName} avatarUrl={req.returnVerifiedByAvatar ?? undefined} size="xs" />
+                  <span>Verified by <strong className="text-gray-800">{req.returnVerifiedByName}</strong></span>
+                </div>
+              )}
+              {(req.returnCondition === 'DAMAGED' || req.returnCondition === 'LOST') && req.returnDamageDescription && (
+                <div className="mt-2 bg-white/60 rounded-lg p-2.5 border border-amber-200">
+                  <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-0.5">
+                    {req.returnDamageSeverity ?? 'Damage'} {req.returnCondition === 'LOST' ? '· Asset Lost' : '· Damage Report'}
+                  </p>
+                  <p className="text-xs text-amber-900">{req.returnDamageDescription}</p>
+                  {req.returnEstimatedCost ? (
+                    <p className="text-xs text-amber-800 mt-1">
+                      Estimated cost: <strong>{req.returnEstimatedCost.toLocaleString()}</strong>
+                    </p>
+                  ) : null}
+                </div>
+              )}
               {req.returnChecklist && req.returnChecklist.length > 0 && (
-                <ul className="mt-2 space-y-0.5">
-                  {req.returnChecklist.map((item, i) => (
-                    <li key={i} className="text-xs text-gray-600 flex items-center gap-1.5"><CheckCircle2 size={10} className="text-green-500" />{item}</li>
-                  ))}
-                </ul>
+                <div className="mt-2">
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Returned items</p>
+                  <ul className="space-y-0.5">
+                    {req.returnChecklist.map((item, i) => (
+                      <li key={i} className="text-xs text-gray-600 flex items-center gap-1.5"><CheckCircle2 size={10} className="text-green-500" />{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {req.returnMissingItems && req.returnMissingItems.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wide mb-1">Missing items</p>
+                  <ul className="space-y-0.5">
+                    {req.returnMissingItems.map((item, i) => (
+                      <li key={i} className="text-xs text-red-700 flex items-center gap-1.5"><XCircle size={10} className="text-red-500" />{item}</li>
+                    ))}
+                  </ul>
+                </div>
               )}
               {req.returnNotes && <p className="text-xs text-gray-500 mt-1">{req.returnNotes}</p>}
+            </div>
+          )}
+
+          {/* Bounce-back banner — shown when ops has rejected a prior return and
+              the request is back in HANDED_OVER. Tells the requester what to fix. */}
+          {req.returnRejectionNotes && req.status === 'HANDED_OVER' && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+              <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                <AlertTriangle size={12} /> Previous Return Bounced Back
+              </p>
+              <p className="text-sm text-amber-900">{req.returnRejectionNotes}</p>
+              <p className="text-xs text-amber-700 mt-1">
+                {req.returnRejectedByName && <>by <strong>{req.returnRejectedByName}</strong>{' · '}</>}
+                {req.returnRejectedAt && safeFormat(req.returnRejectedAt, 'MMM d, yyyy · hh:mm a')}
+              </p>
             </div>
           )}
 
@@ -2264,6 +2614,8 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
               </div>
             </div>
           )}
+          </div>{/* ── end right column ── */}
+          </div>{/* ── end 2-col body ── */}
 
           {/* Action buttons based on status & permissions */}
           <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
@@ -2659,6 +3011,13 @@ const AssetManagementPage = () => {
   const canWrite     = hasPermission(user, PERMISSIONS.ASSET_WRITE) || isAdmin;
   const canApprove   = hasPermission(user, PERMISSIONS.ASSET_APPROVE) || isAdmin;
   const canAssign    = hasPermission(user, PERMISSIONS.ASSET_ASSIGN);
+  // Anyone with asset read access can scan a sticker. The backend decides
+  // what they see: FULL tier when the caller holds ASSET_SCAN_FULL, otherwise
+  // the BASIC owner-lookup payload. This matches the original spec
+  // ("ops team get full details, normal users see who owns the asset") without
+  // requiring an explicit scan-permission grant on every user.
+  const canScan      = hasPermission(user, PERMISSIONS.ASSET_READ);
+  const [scanOpen, setScanOpen] = useState(false);
 
   const { data: categories = [] } = useAssetCategories();
   const { data: availableAssets = [] } = useAvailableAssets();
@@ -2678,7 +3037,20 @@ const AssetManagementPage = () => {
       <Header
         title={t('nav.assets')}
         subtitle="Track and manage organisational assets"
+        actions={
+          canScan ? (
+            <Button
+              variant="secondary"
+              icon={<QrCode size={14} />}
+              onClick={() => setScanOpen(true)}
+            >
+              Scan QR
+            </Button>
+          ) : undefined
+        }
       />
+
+      <AssetScannerModal open={scanOpen} onClose={() => setScanOpen(false)} />
 
       <div className="p-6 space-y-5">
         {/* Tab bar */}

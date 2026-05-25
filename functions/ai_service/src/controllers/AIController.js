@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto        = require('crypto');
 const LLMService     = require('../services/LLMService');
 const DataService    = require('../services/DataService');
 const PromptService  = require('../services/PromptService');
@@ -25,6 +26,77 @@ class AIController {
   constructor(catalystApp) {
     this.llm  = new LLMService(catalystApp);
     this.data = new DataService(catalystApp);
+    // Shared Catalyst cache segment — reused for the perf-payload cache (10-min TTL).
+    this.cache = catalystApp.cache().segment();
+  }
+
+  /**
+   * Holistic performance is expensive (8 parallel DB queries + LLM call). Cache
+   * the full response envelope per (tenant, scope, days) so that re-opens hit
+   * memory, not the DB/LLM.
+   *
+   * NOTE: Catalyst Cache's `segment.put(key, value, expiryInHours)` requires an
+   * INTEGER hours value — fractional values get floored to 0 and the entry
+   * expires immediately. Keep this as an integer.
+   */
+  static PERF_CACHE_TTL_HOURS = 1; // 1 hour
+
+  /**
+   * Cache key strategy:
+   *  - team-scoped  (teamId set)      → keyed by tenant+teamId+days. ANY viewer
+   *    with permission to see the team gets the same data, so the cache is
+   *    shared. RBAC still gates *access* before the cache lookup runs.
+   *  - user-scoped  (targetUserId)    → keyed by tenant+targetUserId+days. Same
+   *    logic — the data for "user X over N days" doesn't depend on who's asking.
+   *  - org-wide     (neither)         → keyed by tenant+role+days. Role drives
+   *    scope (admin sees all, delivery-lead sees projects), so we keep role in
+   *    the key to keep scoped views isolated.
+   */
+  _perfCacheKey({ tenantId, userId, role, targetUserId, teamId, days }) {
+    // Catalyst Cache caps key length (~50 chars) AND requires alphanumeric+underscore.
+    // Catalyst IDs are 17 digits each — two of those overflow the limit. So we
+    // hash (tenant, scope, id, days) to a short fixed-length string, keeping the
+    // scope letter (t/u/o) up front so logs are still legible.
+    let scope = 'o'; // org
+    let scopeId = role;
+    if (teamId)            { scope = 't'; scopeId = teamId; }
+    else if (targetUserId) { scope = 'u'; scopeId = targetUserId; }
+    const raw  = `${tenantId}|${scope}|${scopeId}|${days}`;
+    const hash = crypto.createHash('md5').update(raw).digest('hex').slice(0, 18);
+    // perf_<scope>_<18 hex chars> = 25 chars total, safely under any Catalyst limit.
+    return `perf_${scope}_${hash}`;
+  }
+
+  /**
+   * RBAC guard for team-scoped performance:
+   *  - `AI_TEAM_ANALYSIS` (TENANT_ADMIN / PMO / EXEC) → any team
+   *  - `AI_PERFORMANCE` (DELIVERY_LEAD / TEAM_MEMBER) → only teams they belong to
+   * Throws on denial.
+   */
+  async _assertCanViewTeam(tenantId, userId, role, teamId) {
+    if (!teamId) return;
+    // Org-wide AI scope already covers cross-team viewing.
+    if (AI_SCOPE[role] === 'all') return;
+    // Otherwise: must be a member of the team OR its lead.
+    const memberRows = await this.data._query(
+      `SELECT user_id FROM team_members
+       WHERE tenant_id = '${this.data.constructor._esc(tenantId)}'
+         AND team_id   = '${this.data.constructor._esc(String(teamId))}'
+         AND user_id   = '${this.data.constructor._esc(String(userId))}'
+       LIMIT 1`
+    );
+    if (memberRows.length > 0) return;
+    const leadRows = await this.data._query(
+      `SELECT ROWID FROM teams
+       WHERE tenant_id     = '${this.data.constructor._esc(tenantId)}'
+         AND ROWID         = '${this.data.constructor._esc(String(teamId))}'
+         AND lead_user_id  = '${this.data.constructor._esc(String(userId))}'
+       LIMIT 1`
+    );
+    if (leadRows.length > 0) return;
+    const err = new Error('You do not have access to this team\'s performance.');
+    err.status = 403;
+    throw err;
   }
 
   // ─── 1. Daily Summary ─────────────────────────────────────────────────────
@@ -612,17 +684,47 @@ Keep it under 120 words and practical.`;
   async getHolisticPerformance(req, res) {
     try {
       const { tenantId, id: userId, role } = req.currentUser;
-      const { targetUserId, days: rawDays } = req.body;
+      const { targetUserId, teamId, days: rawDays, forceRefresh } = req.body;
       const days = [7, 30, 90].includes(parseInt(rawDays, 10)) ? parseInt(rawDays, 10) : 7;
 
-      const { memberData, since } = await this.data.getHolisticPerformanceData(
-        tenantId, userId, role, targetUserId || null, days
+      // RBAC: a non-admin caller may only request a teamId they belong to.
+      try {
+        await this._assertCanViewTeam(tenantId, userId, role, teamId);
+      } catch (rbacErr) {
+        return ResponseHelper.forbidden(res, rbacErr.message || 'Forbidden');
+      }
+
+      // ── Cache lookup ──────────────────────────────────────────────────────
+      const cacheKey  = this._perfCacheKey({ tenantId, userId, role, targetUserId, teamId, days });
+      // Compact scope tag for log readability (the hashed key alone isn't enough).
+      const scopeTag  = `[${teamId ? `team=${teamId}` : targetUserId ? `user=${targetUserId}` : `org=${role}`} d=${days}]`;
+      if (!forceRefresh) {
+        try {
+          const cached = await this.cache.get(cacheKey);
+          if (cached?.cache_value) {
+            const payload = JSON.parse(cached.cache_value);
+            console.log(`[perf-cache] HIT  key=${cacheKey} ${scopeTag}`);
+            return ResponseHelper.aiResponse(res, 'holistic_performance', payload.data, {
+              ...payload.meta, cached: true,
+            });
+          }
+          console.log(`[perf-cache] MISS key=${cacheKey} ${scopeTag} (no entry)`);
+        } catch (cacheErr) {
+          console.warn(`[perf-cache] MISS key=${cacheKey} ${scopeTag} (err=${cacheErr.message})`);
+        }
+      } else {
+        console.log(`[perf-cache] BYPASS key=${cacheKey} ${scopeTag} (forceRefresh)`);
+      }
+
+      const { memberData, since, dateAxis, teamMedians } = await this.data.getHolisticPerformanceData(
+        tenantId, userId, role, targetUserId || null, days, teamId || null
       );
 
       if (Object.keys(memberData).length === 0) {
         return ResponseHelper.aiResponse(res, 'holistic_performance', {
           teamSummary: 'No member data found for the selected period.',
           members: [], topPerformer: null, teamMorale: 'Unknown', alerts: [],
+          dateAxis: dateAxis ?? [], teamMedians: teamMedians ?? {},
         }, { days, scope: AI_SCOPE[role] });
       }
 
@@ -656,14 +758,82 @@ Keep it under 120 words and practical.`;
         source = 'rule_based';
       }
 
-      return ResponseHelper.aiResponse(res, 'holistic_performance', parsed, {
+      // Splice in the structured time-series / per-member data the UI needs for
+      // charts. The LLM only produces the narrative; raw metrics come from DB.
+      parsed.dateAxis     = dateAxis;
+      parsed.teamMedians  = teamMedians;
+      parsed.teamAggregate = this._buildTeamAggregate(parsed.members ?? [], memberData, dateAxis);
+      parsed.members = (parsed.members ?? []).map((m) => {
+        // Match LLM member by name (case-insensitive); fallback to position.
+        const match = Object.values(memberData).find(
+          (md) => md.name && m.name && md.name.toLowerCase() === m.name.toLowerCase()
+        );
+        if (!match) return m;
+        return {
+          ...m,
+          userId:          match.userId,
+          dailyActivity:   match.dailyActivity,
+          moodSeries:      match.moodSeries,
+          metrics: {
+            standupCount:      match.standupCount,
+            eodCount:          match.eodCount,
+            consistencyPct:    match.consistencyPct,
+            tasksTotal:        match.tasksTotal,
+            tasksDone:         match.tasksDone,
+            tasksInProgress:   match.tasksInProgress,
+            tasksTodo:         match.tasksTodo,
+            tasksOverdue:      match.tasksOverdue,
+            storyPointsDone:   match.storyPointsDone,
+            taskCompletionPct: match.taskCompletionPct,
+            attendanceDays:    match.attendanceDays,
+            wfhDays:           match.wfhDays,
+            avgWorkHours:      match.avgWorkHours,
+            hoursLogged:       match.hoursLogged,
+            billableHours:     match.billableHours,
+            nonBillableHours:  match.nonBillableHours,
+            billableUtilization: match.billableUtilization,
+            timeEntryCount:    match.timeEntryCount,
+            leaveDaysTaken:    match.leaveDaysTaken,
+            actionsTotal:      match.actionsTotal,
+            actionsDone:       match.actionsDone,
+            blockersRaised:    match.blockersRaised,
+            blockerBreakdown:  match.blockerBreakdown,
+          },
+        };
+      });
+
+      const meta = {
         days,
         since,
         memberCount,
         tokensUsed,
         scope: AI_SCOPE[role],
         source,
-      });
+      };
+
+      // Write to cache. Non-fatal on failure. Verify by reading back so we can
+      // tell silent-rejection (put succeeded but get returns nothing) from
+      // genuine put failures.
+      try {
+        const body = JSON.stringify({ data: parsed, meta });
+        console.log(`[perf-cache] PUT-START key=${cacheKey} ${scopeTag} bytes=${body.length} ttl=${AIController.PERF_CACHE_TTL_HOURS}h`);
+        await this.cache.put(cacheKey, body, AIController.PERF_CACHE_TTL_HOURS);
+        console.log(`[perf-cache] PUT-OK key=${cacheKey} ${scopeTag}`);
+        try {
+          const verify = await this.cache.get(cacheKey);
+          if (verify?.cache_value) {
+            console.log(`[perf-cache] VERIFY-OK key=${cacheKey} ${scopeTag} stored_bytes=${verify.cache_value.length}`);
+          } else {
+            console.warn(`[perf-cache] VERIFY-EMPTY key=${cacheKey} ${scopeTag} — put resolved but read-back returned no value (likely value size cap)`);
+          }
+        } catch (verifyErr) {
+          console.warn(`[perf-cache] VERIFY-FAIL key=${cacheKey} ${scopeTag} err=${verifyErr.message}`);
+        }
+      } catch (cacheErr) {
+        console.warn(`[perf-cache] PUT-FAIL key=${cacheKey} ${scopeTag} err=${cacheErr.message}`);
+      }
+
+      return ResponseHelper.aiResponse(res, 'holistic_performance', parsed, { ...meta, cached: false });
 
     } catch (err) {
       console.error('[AIController.getHolisticPerformance]', err.message);
@@ -805,6 +975,136 @@ Keep it under 120 words and practical.`;
   }
 
   // ─── Private: Rule-based performance fallback ────────────────────────────
+
+  /**
+   * Aggregates per-member data into a single team-level snapshot for the team
+   * overview block in the UI. Computes:
+   *   - averaged factor scores (across all members, by factor name)
+   *   - summed daily activity (standups, eods, hours) over the date axis
+   *   - averaged mood per day (only days where at least one member logged)
+   *   - summed task status counts
+   *   - ranked member list (top → bottom by score) with delta vs team avg
+   *   - average team score, avg star rating, overall completion %
+   *
+   * Returns null when there's fewer than 2 members (overview makes no sense).
+   */
+  _buildTeamAggregate(parsedMembers, memberData, dateAxis) {
+    const rawArr = Object.values(memberData);
+    if (rawArr.length < 2) return null;
+
+    // Avg score / star rating from parsed (LLM or rule-based) member rows
+    const scores = parsedMembers.map((m) => Number(m.score) || 0);
+    const stars  = parsedMembers.map((m) => Number(m.starRating) || 0);
+    const avgScore = scores.length ? Math.round(scores.reduce((s, n) => s + n, 0) / scores.length) : 0;
+    const avgStars = stars.length  ? Math.round((stars.reduce((s, n) => s + n, 0) / stars.length) * 10) / 10 : 0;
+
+    // Factor averages by name (use the LLM/rule output since those are the displayed scores)
+    const factorBuckets = {};
+    parsedMembers.forEach((m) => {
+      (m.factors ?? []).forEach((f) => {
+        if (!f?.name) return;
+        if (!factorBuckets[f.name]) factorBuckets[f.name] = [];
+        factorBuckets[f.name].push(Number(f.score) || 0);
+      });
+    });
+    const factorAverages = Object.entries(factorBuckets).map(([name, vals]) => ({
+      name,
+      score: Math.round(vals.reduce((s, n) => s + n, 0) / vals.length),
+    }));
+
+    // Daily activity sums + mood avg (only count days where ≥1 person logged a mood)
+    const byDate = Object.fromEntries(dateAxis.map((d) => [d, {
+      date: d, standups: 0, eods: 0, hours: 0, moodSum: 0, moodCount: 0,
+    }]));
+    rawArr.forEach((m) => {
+      (m.dailyActivity ?? []).forEach((row) => {
+        const bucket = byDate[row.date];
+        if (!bucket) return;
+        bucket.standups += row.standups || 0;
+        bucket.eods     += row.eods || 0;
+        bucket.hours    += row.hours || 0;
+      });
+      (m.moodSeries ?? []).forEach((p) => {
+        const bucket = byDate[p.date];
+        if (!bucket) return;
+        bucket.moodSum   += Number(p.score) || 0;
+        bucket.moodCount += 1;
+      });
+    });
+    const dailyActivity = dateAxis.map((d) => {
+      const b = byDate[d];
+      return { date: d, standups: b.standups, eods: b.eods, hours: Math.round(b.hours * 10) / 10 };
+    });
+    const moodSeries = dateAxis
+      .map((d) => byDate[d])
+      .filter((b) => b.moodCount > 0)
+      .map((b) => ({
+        date:  b.date,
+        score: Math.round((b.moodSum / b.moodCount) * 10) / 10,
+        mood:  '',
+      }));
+
+    // Task status summed across team
+    const taskStatus = rawArr.reduce(
+      (acc, m) => ({
+        done:       acc.done       + (m.tasksDone        || 0),
+        inProgress: acc.inProgress + (m.tasksInProgress  || 0),
+        todo:       acc.todo       + (m.tasksTodo        || 0),
+        overdue:    acc.overdue    + (m.tasksOverdue     || 0),
+      }),
+      { done: 0, inProgress: 0, todo: 0, overdue: 0 }
+    );
+
+    // Member ranking: top → bottom with delta from team avg
+    const ranking = parsedMembers
+      .map((m) => ({
+        name:  m.name,
+        score: Number(m.score) || 0,
+        delta: (Number(m.score) || 0) - avgScore,
+      }))
+      .sort((a, b) => b.score - a.score);
+
+    // Total raw hours and task throughput for header metrics
+    const totalHours         = Math.round(rawArr.reduce((s, m) => s + (m.hoursLogged || 0), 0) * 10) / 10;
+    const totalBillable      = Math.round(rawArr.reduce((s, m) => s + (m.billableHours || 0), 0) * 10) / 10;
+    const totalNonBillable   = Math.round((totalHours - totalBillable) * 10) / 10;
+    const teamUtilization    = totalHours > 0 ? Math.round((totalBillable / totalHours) * 100) : 0;
+    const totalTasksDone     = rawArr.reduce((s, m) => s + (m.tasksDone || 0), 0);
+    const totalStandups      = rawArr.reduce((s, m) => s + (m.standupCount || 0), 0);
+    const totalBlockers      = rawArr.reduce((s, m) => s + (m.blockersRaised || 0), 0);
+
+    // Per-member hours breakdown for the workload-balance chart in the UI.
+    const memberHours = rawArr
+      .map((m) => ({
+        name:        m.name,
+        hours:       m.hoursLogged || 0,
+        billable:    m.billableHours || 0,
+        nonBillable: m.nonBillableHours || 0,
+        utilization: m.billableUtilization || 0,
+      }))
+      .sort((a, b) => b.hours - a.hours);
+
+    return {
+      memberCount:     rawArr.length,
+      avgScore,
+      avgStarRating:   avgStars,
+      factorAverages,
+      taskStatus,
+      dailyActivity,
+      moodSeries,
+      ranking,
+      memberHours,
+      totals: {
+        hoursLogged:      totalHours,
+        billableHours:    totalBillable,
+        nonBillableHours: totalNonBillable,
+        billableUtilization: teamUtilization,
+        tasksDone:        totalTasksDone,
+        standupCount:     totalStandups,
+        blockersRaised:   totalBlockers,
+      },
+    };
+  }
 
   /**
    * Computes a fully rule-based holistic performance result from raw memberData.

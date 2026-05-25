@@ -12,6 +12,7 @@ import { PageLoader } from '../components/ui/Spinner';
 import VoiceRecorder from '../components/voice/VoiceRecorder';
 import VoiceAiInsights from '../components/voice/VoiceAiInsights';
 import { useProjects } from '../hooks/useProjects';
+import { useTeamPeers } from '../hooks/useTeams';
 import {
   useSubmitStandup, useUpdateStandup,
   useStandupRollup, useMyTodayStandup,
@@ -209,18 +210,25 @@ const StandupPage = () => {
   const teamTotal      = teamPagination?.total ?? teamStandups.length;
   const teamTotalPages = Math.max(1, teamPagination?.totalPages ?? Math.ceil(teamStandups.length / teamPageSize));
 
-  // Build a list of distinct users that have appeared in the current result
-  // window so the User filter dropdown has values to show. Showing every
-  // tenant user would be confusing; we only surface people who actually have
-  // standups in the visible range.
+  // User-filter roster — fetched from `/api/teams/peers` so the dropdown
+  // lists every person the caller can see (team members + leads, or the
+  // whole tenant for org-wide callers), not just users who happen to have
+  // an entry on the visible page. Falls back to entries-derived users if
+  // the endpoint isn't reachable, so the dropdown is never empty.
+  const { data: teamPeers = [] } = useTeamPeers(tab === 'team' && canSeeTeamStandups);
   const teamUserOptions = React.useMemo(() => {
+    if (teamPeers.length > 0) {
+      return teamPeers
+        .map((p) => ({ id: p.id, name: p.name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
     const seen = new Map<string, { id: string; name: string }>();
     (teamStandups as Array<{ userId?: string; userName?: string }>).forEach((s) => {
       const id = String(s.userId || '');
       if (id && !seen.has(id)) seen.set(id, { id, name: s.userName || 'Team member' });
     });
     return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [teamStandups]);
+  }, [teamPeers, teamStandups]);
 
   // Date preset helpers — same shape as the Time Tracking tab so the UI feels
   // consistent across the app.

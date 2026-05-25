@@ -64,6 +64,10 @@
 	<string>DSV OpsPulse needs microphone access to record your voice for standup and EOD submissions.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>DSV OpsPulse uses speech recognition to transcribe your voice for AI-powered standup and EOD form filling.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>DSV OpsPulse uses the camera to scan asset QR codes.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>DSV OpsPulse needs photo access when the camera can't read a QR code so you can upload a clear photo instead.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

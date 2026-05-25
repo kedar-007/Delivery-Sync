@@ -86,6 +86,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Reports',            to: '/reports',            icon: <FileText size={16} />,  permission: PERMISSIONS.REPORT_READ },
 { label: 'Team Activity',      to: '/team-activity',      icon: <Timer size={16} />,     permission: PERMISSIONS.TIME_ANALYTICS },
       { label: 'AI Insights',        to: '/ai-insights',        icon: <Sparkles size={16} />,  permission: PERMISSIONS.REPORT_READ, moduleKey: 'ai' },
+      { label: 'AI Performance',     to: '/ai-performance',     icon: <BarChart3 size={16} />, permissions: [PERMISSIONS.AI_PERFORMANCE_SELF, PERMISSIONS.AI_PERFORMANCE, PERMISSIONS.AI_TEAM_ANALYSIS], moduleKey: 'ai' },
     ],
   },
 

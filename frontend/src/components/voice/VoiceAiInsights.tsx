@@ -1,6 +1,7 @@
 import React from 'react';
 import { Sparkles, X, TrendingUp, AlertTriangle, Lightbulb, Star } from 'lucide-react';
 import type { VoiceInsights } from '../../hooks/useVoiceAI';
+import MarkdownText from '../ui/MarkdownText';
 
 interface VoiceAiInsightsProps {
   summary: string;
@@ -55,7 +56,7 @@ const VoiceAiInsights: React.FC<VoiceAiInsightsProps> = ({ summary, insights, on
       <div className="px-4 py-3 space-y-3">
         {/* Summary */}
         {summary && (
-          <p className="text-sm text-gray-700 leading-relaxed">{summary}</p>
+          <MarkdownText text={summary} className="text-sm text-gray-700" accent="violet" />
         )}
 
         {/* Score + Sentiment row */}

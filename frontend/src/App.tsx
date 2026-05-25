@@ -27,6 +27,7 @@ import ProfilePage from "./pages/ProfilePage";
 import SettingsPage from "./pages/SettingsPage";
 import TeamsPage from "./pages/TeamsPage";
 import AiInsightsPage from "./pages/AiInsightsPage";
+import AiPerformancePage from "./pages/AiPerformancePage";
 import CeoDashboardPage from "./pages/CeoDashboardPage";
 import CtoDashboardPage from "./pages/CtoDashboardPage";
 import AttendancePage from "./pages/AttendancePage";
@@ -151,6 +152,7 @@ const AppRoutes = () => {
         <Route path="reports"            element={<PermRoute permission="REPORT_READ"><ReportsPage /></PermRoute>} />
 <Route path="team-activity"      element={<PermRoute permission="TIME_ANALYTICS"><TeamActivityPage /></PermRoute>} />
         <Route path="ai-insights"        element={<PermRoute permission="AI_INSIGHTS"><AiInsightsPage /></PermRoute>} />
+        <Route path="ai-performance"     element={<PermRoute permission={['AI_PERFORMANCE_SELF', 'AI_PERFORMANCE', 'AI_TEAM_ANALYSIS']}><AiPerformancePage /></PermRoute>} />
 
         {/* ── Executive module ── */}
         <Route path="portfolio"      element={<PermRoute permission="ORG_ROLE_READ"><PortfolioDashboard /></PermRoute>} />

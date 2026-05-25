@@ -155,7 +155,8 @@ const TOOLS = [
       const [todayRows, weekRows, monthRows] = await Promise.all([
         db.query(`SELECT hours, is_billable, description FROM ${TABLES.TIME_ENTRIES} WHERE tenant_id='${e(tenantId)}' AND user_id='${e(userId)}' AND entry_date='${today}' LIMIT 50`),
         db.query(`SELECT hours, is_billable FROM ${TABLES.TIME_ENTRIES} WHERE tenant_id='${e(tenantId)}' AND user_id='${e(userId)}' AND entry_date>='${weekStart}' LIMIT 200`),
-        db.query(`SELECT hours FROM ${TABLES.TIME_ENTRIES} WHERE tenant_id='${e(tenantId)}' AND user_id='${e(userId)}' AND entry_date>='${monthStart}' LIMIT 500`),
+        // ZCQL caps LIMIT at 300 — overshooting rejects the whole query.
+        db.query(`SELECT hours FROM ${TABLES.TIME_ENTRIES} WHERE tenant_id='${e(tenantId)}' AND user_id='${e(userId)}' AND entry_date>='${monthStart}' LIMIT 300`),
       ]);
       const sum      = (rows) => rows.reduce((s, r) => s + (parseFloat(r.hours) || 0), 0);
       const billable = (rows) => rows.filter((r) => String(r.is_billable).toLowerCase() === 'true').reduce((s, r) => s + (parseFloat(r.hours) || 0), 0);
