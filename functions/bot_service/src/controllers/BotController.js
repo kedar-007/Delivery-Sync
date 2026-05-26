@@ -14,6 +14,61 @@ const PERSONALITY_TONES = {
   CONCISE:      'Brief and direct only.',
 };
 
+// Module-level session history cache — persists for 1 hr per session across requests on the same instance
+const _historyCache = new Map(); // key: `${tenantId}:${sessionId}`
+const HISTORY_CACHE_TTL = 60 * 60 * 1000;
+
+function _cacheKey(tenantId, sessionId) { return `${tenantId}:${sessionId}`; }
+
+function _getCached(tenantId, sessionId) {
+  const entry = _historyCache.get(_cacheKey(tenantId, sessionId));
+  if (!entry || entry.expiry < Date.now()) return null;
+  return entry.messages;
+}
+
+function _setCached(tenantId, sessionId, messages) {
+  _historyCache.set(_cacheKey(tenantId, sessionId), {
+    messages: messages.slice(-24), // keep up to 24 turns in memory
+    expiry:   Date.now() + HISTORY_CACHE_TTL,
+  });
+}
+
+function _appendCached(tenantId, sessionId, userMsg, botMsg, botType) {
+  const existing = _getCached(tenantId, sessionId) || [];
+  const updated  = [
+    ...existing,
+    { role: 'user',      message: userMsg, content: userMsg },
+    { role: 'assistant', message: botMsg,  content: botMsg, message_type: botType },
+  ];
+  _setCached(tenantId, sessionId, updated);
+}
+
+// Extract all top-level JSON objects from an LLM response string.
+// If the LLM output two objects (text + action_execute), we prefer the action one.
+function _extractBestJson(raw) {
+  const cleaned = raw.replace(/^```json?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  const objects = [];
+  let depth = 0, start = -1;
+  for (let i = 0; i < cleaned.length; i++) {
+    if (cleaned[i] === '{') { if (depth === 0) start = i; depth++; }
+    else if (cleaned[i] === '}') {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        try { objects.push(JSON.parse(cleaned.slice(start, i + 1))); } catch {}
+        start = -1;
+      }
+    }
+  }
+  if (objects.length === 0) return JSON.parse(cleaned); // will throw naturally
+  const priority = ['action_execute', 'create_time_entry', 'daily_plan', 'leave_balance', 'action_form', 'choice_list', 'text'];
+  objects.sort((a, b) => {
+    const ai = priority.indexOf(a.type ?? '');
+    const bi = priority.indexOf(b.type ?? '');
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+  return objects[0];
+}
+
 class BotController {
   constructor(catalystApp) {
     this.catalystApp = catalystApp;
@@ -64,10 +119,16 @@ class BotController {
     const personality = profile?.bot_personality || 'FRIENDLY';
     console.log(`[BotController] message Step 1 ✓ — botName=${botName} personality=${personality}`);
 
-    // Step 2: load conversation history for context
+    // Step 2: load conversation history — try in-memory cache first, fall back to DB
     console.log('[BotController] message Step 2 — loading conversation history');
-    const history = await this.bot.getConversationHistory(userId, tenantId, session_id, 6);
-    console.log(`[BotController] message Step 2 ✓ — ${history.length} prior messages loaded`);
+    let history = _getCached(tenantId, session_id);
+    if (history) {
+      console.log(`[BotController] message Step 2 ✓ — ${history.length} messages from cache (session hot)`);
+    } else {
+      history = await this.bot.getConversationHistory(userId, tenantId, session_id, 24);
+      _setCached(tenantId, session_id, history);
+      console.log(`[BotController] message Step 2 ✓ — ${history.length} messages from DB (cache miss)`);
+    }
 
     // Step 3: build context block (scan vs smart)
     const isDailyPlan      = message_type === 'daily_plan' || userMessage.toLowerCase().includes('daily plan');
@@ -87,10 +148,25 @@ class BotController {
       console.log(`[BotController] message Step 3 ✓ — context_len=${contextBlock.length}`);
     }
 
-    // If mid-conversation about an action, keep project + leave data in context every turn
-    const lastBotMsg = history.filter((h) => h.role === 'assistant').slice(-1)[0]?.message || '';
-    const isActionConv = /leave|standup|task|project|type of leave|what dates|start date|which project/i.test(lastBotMsg);
-    if (isActionConv && !projectsForLLM) {
+    // If mid-conversation about an action, refresh context for the LLM every turn
+    const lastBotMsg   = history.filter((h) => h.role === 'assistant').slice(-1)[0]?.message || '';
+    const isLeaveConv  = /leave|sick|annual|half.?day|log.*leave|leave.*log/i.test(lastBotMsg);
+    const isActionConv = isLeaveConv || /standup|task|project|type of leave|what dates|start date|which project/i.test(lastBotMsg);
+    if (isLeaveConv && !projectsForLLM) {
+      // Leave flow: inject only leave types — NOT projects (showing projects causes the LLM to ask "which project?")
+      try {
+        const ltRows = await this.bot.db.query(
+          `SELECT name FROM ${TABLES.LEAVE_TYPES} WHERE tenant_id='${DataStoreService.escape(tenantId)}' LIMIT 20`
+        );
+        if (ltRows.length > 0) {
+          projectsForLLM = 'Leave types (use name as leave_type_id): ' + ltRows.map((t) => t.name).join(', ');
+        }
+        console.log('[BotController] message Step 3 — leave context loaded (types only, no projects)');
+      } catch (err) {
+        console.warn('[BotController] message Step 3 — leave type context failed:', err.message);
+      }
+    } else if (isActionConv && !projectsForLLM) {
+      // Standup / task flow: inject projects + leave types
       try {
         projectsForLLM = await this.mcp.buildActionContext(userId, tenantId);
         if (projectsForLLM) console.log('[BotController] message Step 3 — refreshed action context via MCPService');
@@ -99,8 +175,11 @@ class BotController {
       }
     }
 
-    // For voice time-entry or time-log messages, pre-load the user's project list so the LLM can match names
-    if (isVoiceTimeEntry || /log|hour|time entry/i.test(userMessage)) {
+    // For voice time-entry or time-log messages, pre-load the user's project list so the LLM can match names.
+    // Skip if we are already mid-conversation about a leave/action — "log for tomorrow" would otherwise
+    // be misread as a time-entry request and overwrite the leave context.
+    const isTimeEntryMsg = isVoiceTimeEntry || /\b(log|logged)\s+\d|\d+\s*h(our)?s?\b|time entry/i.test(userMessage);
+    if (isTimeEntryMsg && !isLeaveConv) {
       try {
         const projRows = await this.bot.db.query(
           `SELECT ROWID, name FROM ${TABLES.PROJECTS}
@@ -145,9 +224,11 @@ Reply ONLY as JSON. Schemas:
 {"type":"create_time_entry","content":"<msg>","data":{"project_name":"","project_id":"","hours":0,"description":"","is_billable":true}}
 
 Rules:
+- Output EXACTLY ONE JSON object per response — never two.
+- CRITICAL: A text response NEVER creates, logs, or submits anything. Writing "I have logged your leave" in a text response does NOTHING. The ONLY way to actually create/submit data is to output action_execute. If you say you did something without outputting action_execute, it did not happen.
 - Always put REAL numbers in content. Never say "here is your data:" without the actual data.
 - When user message starts with "[SELECTED]", they picked that option from the previous choice_list. NEVER show the same choice_list again. Treat it as answered and move to the NEXT required field immediately.
-- For leave: use leave_type_id = leave type NAME (e.g. "Sick Leave"), start_date(YYYY-MM-DD), end_date(YYYY-MM-DD), reason, is_half_day("true"/"false"). Show choice_list of names for type. After selection ask for dates.
+- For leave: fields are leave_type_id (leave type NAME, e.g. "Sick Leave"), start_date(YYYY-MM-DD), end_date(YYYY-MM-DD), is_half_day("true"/"false"), reason(optional). Leave does NOT need a project — NEVER ask for a project in a leave flow. Extract ALL fields from the user's message and history FIRST. If "today/tomorrow/next Monday" or a date is mentioned, resolve to YYYY-MM-DD immediately — never ask again. If "full day" is mentioned, set is_half_day="false" — never ask. When ALL fields are known, output action_execute immediately — do NOT output a text response saying you logged it.
 - submit_standup: project_id(numeric),yesterday,today,blockers
 - create_task: title,project_id(numeric),task_priority(HIGH|MEDIUM|LOW),type(TASK|BUG|STORY),description,due_date
 - Execute via action_execute only when ALL required fields are collected.`;
@@ -179,15 +260,30 @@ Rules:
       });
     }
 
-    // Step 6: parse LLM JSON response
+    // Step 6: parse LLM JSON response — handle multiple JSON objects in one response
+    // (LLM sometimes emits a text block then an action_execute block; we prefer the action)
     console.log('[BotController] message Step 6 — parsing LLM response as JSON');
     try {
-      const cleaned = llmResponse.replace(/^```json?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
-      parsedReply   = JSON.parse(cleaned);
+      parsedReply = _extractBestJson(llmResponse);
       console.log(`[BotController] message Step 6 ✓ — type=${parsedReply.type} items=${parsedReply.items?.length ?? 0}`);
     } catch (_) {
       console.warn('[BotController] message Step 6 — JSON parse failed, treating as plain text');
       parsedReply = { type: 'text', content: llmResponse };
+    }
+
+    // Step 6.5a: safety net — if LLM returned text claiming it logged/submitted leave but
+    // gave no action_execute, force a re-attempt by injecting a synthetic action_execute from
+    // whatever leave fields are present in the raw LLM response or the last user message.
+    if (parsedReply.type === 'text' && isLeaveConv && /logged|submitted|recorded|applied/i.test(parsedReply.content || '')) {
+      console.warn('[BotController] Step 6.5a — LLM claimed to log leave via text only; attempting to extract action_execute from raw response');
+      try {
+        // Try to find a hidden action_execute anywhere in the raw response
+        const allObjs = _extractBestJson(llmResponse + ' '); // triggers multi-parse
+        if (allObjs && allObjs.type === 'action_execute') {
+          parsedReply = allObjs;
+          console.log('[BotController] Step 6.5a ✓ — rescued action_execute from raw response');
+        }
+      } catch { /* raw has no action_execute — proceed with text, nothing to rescue */ }
     }
 
     // Step 6.5: post-process structured LLM responses
@@ -223,7 +319,9 @@ Rules:
       this.bot.saveMessage(userId, tenantId, session_id, 'user',      userMessage,    message_type),
       this.bot.saveMessage(userId, tenantId, session_id, 'assistant', assistantContent, parsedReply.type || 'text'),
     ]);
-    console.log('[BotController] message Step 7 ✓ — messages persisted');
+    // Keep in-memory cache in sync so the next turn sees this exchange immediately
+    _appendCached(tenantId, session_id, userMessage, assistantContent, parsedReply.type || 'text');
+    console.log('[BotController] message Step 7 ✓ — messages persisted + cache updated');
 
     // Step 8: persist daily plan todos (if applicable)
     let savedTodos = [];
@@ -440,25 +538,49 @@ Rules:
       // Resolve leave_type_id: LLM sends the leave type name (e.g. "Sick Leave").
       // Look up the real ROWID by name to avoid float64 precision loss on 17-digit IDs.
       if (action === 'create_leave' && resolved.leave_type_id) {
-        const nameHint = String(resolved.leave_type_id).trim().toLowerCase();
-        const rows = await this.bot.db.query(
-          `SELECT ROWID FROM ${TABLES.LEAVE_TYPES}
-           WHERE tenant_id='${DataStoreService.escape(tenantId)}'
-             AND LOWER(name) LIKE '%${DataStoreService.escape(nameHint)}%'
-           LIMIT 1`
-        );
-        if (rows.length > 0) resolved.leave_type_id = String(rows[0].ROWID);
+        const raw = String(resolved.leave_type_id).trim();
+        // If the LLM sent a name (not a numeric string), resolve it to the ROWID string.
+        // Keep as String throughout — 17-digit Catalyst ROWIDs exceed MAX_SAFE_INTEGER.
+        if (!/^\d+$/.test(raw)) {
+          // ZCQL does not support LOWER() — fetch all leave types and match in JS
+          const allTypes = await this.bot.db.query(
+            `SELECT ROWID, name FROM ${TABLES.LEAVE_TYPES}
+             WHERE tenant_id='${DataStoreService.escape(tenantId)}'
+             LIMIT 20`
+          );
+          const rawLc = raw.toLowerCase();
+          const match  = allTypes.find(
+            (t) => t.name.toLowerCase() === rawLc || t.name.toLowerCase().includes(rawLc)
+          );
+          if (match) {
+            resolved.leave_type_id = String(match.ROWID);
+            console.log(`[BotController] _executeActionFromLLM — resolved leave_type "${raw}" → id=${resolved.leave_type_id}`);
+          } else {
+            console.warn(`[BotController] _executeActionFromLLM — leave type "${raw}" not found. Available: ${allTypes.map((t) => t.name).join(', ')}`);
+            return {
+              type:    'action_executed',
+              content: `I couldn't find a leave type called "${raw}". Available types: ${allTypes.map((t) => t.name).join(', ')}.`,
+              data:    { success: false, action: 'create_leave' },
+            };
+          }
+        }
+        // else: already a numeric string — pass through as-is
       }
 
       // Resolve project_id if the LLM returned a name instead of a numeric ID
       if ((action === 'submit_standup' || action === 'create_task') && resolved.project_id && isNaN(Number(resolved.project_id))) {
-        const rows = await this.bot.db.query(
-          `SELECT ROWID FROM ${TABLES.PROJECTS}
+        // ZCQL does not support LOWER() — fetch user's projects and match in JS
+        const allProjects = await this.bot.db.query(
+          `SELECT ROWID, name FROM ${TABLES.PROJECTS}
            WHERE tenant_id = '${DataStoreService.escape(tenantId)}'
-             AND LOWER(name) LIKE '%${DataStoreService.escape(String(resolved.project_id).toLowerCase())}%'
-           LIMIT 1`
+             AND ROWID IN (SELECT project_id FROM ${TABLES.PROJECT_MEMBERS} WHERE tenant_id='${DataStoreService.escape(tenantId)}' AND user_id='${DataStoreService.escape(userId)}')
+           LIMIT 30`
         );
-        if (rows.length > 0) resolved.project_id = String(rows[0].ROWID);
+        const nameLc = String(resolved.project_id).toLowerCase();
+        const match  = allProjects.find(
+          (p) => p.name.toLowerCase() === nameLc || p.name.toLowerCase().includes(nameLc)
+        );
+        if (match) resolved.project_id = String(match.ROWID);
       }
     } catch (err) {
       console.warn('[BotController] _executeActionFromLLM — ID resolution failed (non-fatal):', err.message);
@@ -591,6 +713,9 @@ Rules:
     const { leave_type_id, start_date, end_date, reason, is_half_day } = formData;
     if (!leave_type_id || !start_date || !end_date) {
       return { type: 'action_executed', content: 'Missing required fields (leave type, start/end date).', data: { success: false, action: 'create_leave' } };
+    }
+    if (!/^\d+$/.test(String(leave_type_id))) {
+      return { type: 'action_executed', content: `Leave type "${leave_type_id}" could not be resolved to a valid ID.`, data: { success: false, action: 'create_leave' } };
     }
     const startMs = new Date(start_date).getTime();
     const endMs   = new Date(end_date).getTime();
@@ -742,13 +867,15 @@ Rules:
         if (rows.length > 0) { resolvedProjectId = rows[0].ROWID; resolvedProjectName = rows[0].name; }
       }
       if (!resolvedProjectId && project_name) {
+        // ZCQL does not support LOWER() — fetch and match in JS
         const rows = await this.bot.db.query(
           `SELECT ROWID, name FROM ${TABLES.PROJECTS}
            WHERE tenant_id = '${DataStoreService.escape(tenantId)}'
-             AND LOWER(name) LIKE '%${DataStoreService.escape(project_name.toLowerCase())}%'
-           LIMIT 1`
+           LIMIT 30`
         );
-        if (rows.length > 0) { resolvedProjectId = rows[0].ROWID; resolvedProjectName = rows[0].name; }
+        const pNameLc = project_name.toLowerCase();
+        const pMatch  = rows.find((p) => p.name.toLowerCase() === pNameLc || p.name.toLowerCase().includes(pNameLc));
+        if (pMatch) { resolvedProjectId = pMatch.ROWID; resolvedProjectName = pMatch.name; }
       }
     } catch (err) {
       console.warn('[BotController] _handleCreateTimeEntry — project lookup failed (non-fatal):', err.message);

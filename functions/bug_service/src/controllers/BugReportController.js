@@ -555,7 +555,7 @@ class BugReportController {
 
   // ─── GET /api/bugs/reports/all ─────────────────────────────────────────────
   async listAllReports(req, res) {
-    const { role } = req.currentUser;
+    const { role, tenantId } = req.currentUser;
     const { tenant_id, status, severity, page = 1, limit = 50, all } = req.query;
 
     const pageNum   = Math.max(1, parseInt(page, 10)  || 1);
@@ -564,17 +564,23 @@ class BugReportController {
     // `all=true` flag returns the entire result set (paginated internally to
     // overcome ZCQL's per-query cap). Used by stat tiles + "view all" mode.
     const fetchAll  = String(all).toLowerCase() === 'true';
+    const isSuperAdmin = role === 'SUPER_ADMIN';
 
     console.log(`[BugReportCtrl] listAllReports Step 1 — role=${role} page=${pageNum} limit=${limitNum} all=${fetchAll}`);
 
-    if (!ADMIN_ROLES.includes(role) && role !== 'SUPER_ADMIN') {
+    if (!ADMIN_ROLES.includes(role) && !isSuperAdmin) {
       console.warn(`[BugReportCtrl] listAllReports ✗ — role ${role} not permitted`);
       return ResponseHelper.forbidden(res, 'Admin access required');
     }
 
-    // Build cross-tenant WHERE
+    // Build WHERE clause — TENANT_ADMIN is always scoped to their own tenant;
+    // SUPER_ADMIN can optionally filter by a specific tenant via query param.
     const conditions = [];
-    if (tenant_id) conditions.push(`tenant_id = '${esc(tenant_id)}'`);
+    if (!isSuperAdmin && tenantId) {
+      conditions.push(`tenant_id = '${esc(String(tenantId))}'`);
+    } else if (isSuperAdmin && tenant_id) {
+      conditions.push(`tenant_id = '${esc(tenant_id)}'`);
+    }
     if (status)    conditions.push(`status = '${esc(status)}'`);
     if (severity)  conditions.push(`severity = '${esc(severity)}'`);
 

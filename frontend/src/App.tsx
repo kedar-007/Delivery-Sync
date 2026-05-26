@@ -51,6 +51,7 @@ import IpConfigPage from "./pages/IpConfigPage";
 import AccessRevokedPage from "./pages/AccessRevokedPage";
 import BugReportsPage from "./pages/BugReportsPage";
 import AuditLogsPage from "./pages/AuditLogsPage";
+import OrgSetupPage from "./pages/OrgSetupPage";
 import { ConfirmProvider } from "./components/ui/ConfirmDialog";
 import { ToastProvider } from "./components/ui/Toast";
 
@@ -82,21 +83,44 @@ const loadScript = (src: string): Promise<void> =>
 // ── Inner app — consumes AuthContext ──────────────────────────────────────────
 
 const AppRoutes = () => {
-  const { user, loading, isLoggedOut, isDeactivated } = useAuth();
+  const { user, loading, isLoggedOut, isDeactivated, needsOrgSetup } = useAuth();
+
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const tenantSlug = user?.tenantSlug || localStorage.getItem('tenantSlug') || '';
 
   if (loading) return <AppLoader />;
   if (isDeactivated) return <AccessRevokedPage />;
 
   // ✅ Single source of truth — AuthContext decides if user is logged in
   const mustLogin = !user || isLoggedOut;
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const tenantSlug = user?.tenantSlug || localStorage.getItem('tenantSlug') || '';
-  const homePath = isSuperAdmin ? '/super-admin' : (tenantSlug ? `/${tenantSlug}/dashboard` : '/login');
+  // When user is authenticated but tenant slug is missing, send to /org-setup
+  // so they can complete their workspace details — no polling, just a real page.
+  const homePath = isSuperAdmin
+    ? '/super-admin'
+    : tenantSlug
+      ? `/${tenantSlug}/dashboard`
+      : '/org-setup';
 
   return (
     <>
     <Routes>
-      <Route path="/login" element={mustLogin ? <LoginPage /> : <Navigate to={homePath} replace />} />
+      {/* Org-setup: shown for first-time TENANT_ADMIN (needsOrgSetup)
+           OR for any authenticated user whose tenantSlug is missing */}
+      <Route path="/org-setup" element={
+        needsOrgSetup || (user && !user.tenantSlug)
+          ? <OrgSetupPage />
+          : user
+            ? <Navigate to={`/${user.tenantSlug}/dashboard`} replace />
+            : <Navigate to="/login" replace />
+      } />
+
+      <Route path="/login" element={
+        needsOrgSetup
+          ? <Navigate to="/org-setup" replace />
+          : mustLogin
+            ? <LoginPage />
+            : <Navigate to={homePath} replace />
+      } />
       <Route path="/super-admin" element={
         mustLogin ? <Navigate to="/login" replace /> :
         isSuperAdmin ? <SuperAdminPage /> :
@@ -168,7 +192,11 @@ const AppRoutes = () => {
         <Route path="ip-config"    element={<PermRoute permission="IP_CONFIG_WRITE"><IpConfigPage /></PermRoute>} />
       </Route>
 
-      <Route path="*" element={<Navigate to={mustLogin ? "/login" : homePath} replace />} />
+      <Route path="*" element={
+        needsOrgSetup
+          ? <Navigate to="/org-setup" replace />
+          : <Navigate to={mustLogin ? "/login" : homePath} replace />
+      } />
     </Routes>
     {user && !isLoggedOut && user.botEnabled !== false && <BotWidget />}
   </>

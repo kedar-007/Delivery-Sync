@@ -275,7 +275,14 @@ class AttendanceController {
       const userMap = {};
       users.forEach(u => { userMap[String(u.ROWID)] = u; });
 
-      const enriched = records.map(r => {
+      // Team-scope filter: managers see all; team leads see their team; others see all.
+      const allowedIds = await this._resolveTeamAllowedIds(req);
+
+      const visible = allowedIds
+        ? records.filter(r => allowedIds.has(String(r.user_id)))
+        : records;
+
+      const enriched = visible.map(r => {
         const u = userMap[String(r.user_id)] || {};
         return {
           ...r,
@@ -359,7 +366,7 @@ class AttendanceController {
     if (isManager || hasAdminPerm) {
       // No additional restriction — optional user_id filter passes through.
       if (uid) where += `user_id = '${DataStoreService.escape(uid)}' AND `;
-    } else if (hasTeamView) {
+    } else if (hasTeamView || await this._isTeamLead(req.tenantId, callerUid)) {
       // Team peer scope. Build a list of allowed user IDs and intersect with
       // any explicit user_id query param (so a manager can drill into one
       // peer at a time without accidentally seeing someone outside their
@@ -1130,7 +1137,44 @@ class AttendanceController {
     } catch (_) { return false; }
   }
 
-  // Check if user has ATTENDANCE_ADMIN via role or permission_overrides
+  // Returns true if userId is a designated team lead (teams.lead_user_id) or
+  // holds a lead-level role in team_members for any team in the tenant.
+  async _isTeamLead(tenantId, userId) {
+    const self = String(userId);
+    const tid  = String(tenantId);
+    const ledTeams = await this.db.findWhere(
+      TABLES.TEAMS, tid, `lead_user_id = '${self}'`, { limit: 1 }
+    );
+    if (ledTeams && ledTeams.length > 0) return true;
+    const LEAD_ROLES = new Set(['DELIVERY_LEAD', 'LEAD', 'TECH_LEAD', 'SCRUM_MASTER', 'PROJECT_MANAGER']);
+    const memberRows = await this.db.findWhere(
+      TABLES.TEAM_MEMBERS, tid, `user_id = '${self}'`, { limit: 200 }
+    );
+    return memberRows.some(m => LEAD_ROLES.has(m.role));
+  }
+
+  // Returns null (unrestricted) for managers/admins, or a Set<string> of
+  // allowed user IDs for team leads. Used by live(), anomalies(), notCheckedIn().
+  async _resolveTeamAllowedIds(req) {
+    const MANAGER_ROLES = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
+    if (MANAGER_ROLES.includes(req.currentUser.role)) return null;
+    if (await this._checkAttendanceAdmin(req)) return null;
+
+    const userPerms = Array.isArray(req.currentUser.permissions) ? req.currentUser.permissions : [];
+    const hasTeamView = userPerms.includes(PERMISSIONS.ATTENDANCE_TEAM_VIEW);
+
+    const callerRows = await this.db.findWhere(TABLES.USERS, req.tenantId,
+      `email = '${req.currentUser.email}'`, { limit: 1 });
+    const callerUid = callerRows && callerRows.length > 0 ? String(callerRows[0].ROWID) : String(req.currentUser.id);
+
+    if (hasTeamView || await this._isTeamLead(req.tenantId, callerUid)) {
+      const scope = new TeamScopeService(this.db);
+      const ids = await scope.getTeamPeerUserIds(req.tenantId, callerUid);
+      return new Set(ids.map(String));
+    }
+    return null; // non-leads see all on dashboard widgets (existing behaviour)
+  }
+
   async _checkAttendanceAdmin(req) {
     try {
       const rows = await this.db.query(
@@ -1220,7 +1264,11 @@ class AttendanceController {
       const checkedInUserIds = new Set(checkedInRecords.map(r => String(r.user_id)));
 
       // Filter out anyone who has checked in under any record
-      const absent = absentRecords.filter(r => !checkedInUserIds.has(String(r.user_id)));
+      let absent = absentRecords.filter(r => !checkedInUserIds.has(String(r.user_id)));
+
+      // Team-scope filter: team leads see only their team's anomalies.
+      const allowedIds = await this._resolveTeamAllowedIds(req);
+      if (allowedIds) absent = absent.filter(r => allowedIds.has(String(r.user_id)));
 
       const userMap = {};
       users.forEach(u => { userMap[String(u.ROWID)] = u; });
@@ -1247,7 +1295,15 @@ class AttendanceController {
           { limit: 200 }),
       ]);
       const checkedInUserIds = new Set(checkedInRecords.map(r => String(r.user_id)));
-      const notIn = allUsers.filter(u => !checkedInUserIds.has(String(u.ROWID)));
+
+      // Team-scope filter: team leads see only their team members.
+      const allowedIds = await this._resolveTeamAllowedIds(req);
+
+      const notIn = allUsers.filter(u => {
+        if (checkedInUserIds.has(String(u.ROWID))) return false;
+        if (allowedIds && !allowedIds.has(String(u.ROWID))) return false;
+        return true;
+      });
       return ResponseHelper.success(res, notIn.map(u => ({
         id:        u.ROWID,
         userId:    u.ROWID,

@@ -1,8 +1,11 @@
 'use strict';
 
 const DataStoreService = require('../services/DataStoreService');
+const CacheService = require('../services/CacheService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const { TABLES, USER_STATUS } = require('../utils/Constants');
+
+const AUTH_CTX_KEY_VERSION = 'v1';
 
 /**
  * AuthController – handles user session resolution and first-time registration.
@@ -140,6 +143,105 @@ class AuthController {
       return ResponseHelper.serverError(res, err.message);
     }
   }
+  /**
+   * POST /api/auth/setup-org
+   * Called by an invited TENANT_ADMIN on first login (tenant_id='0' sentinel).
+   * Creates the tenant record, links the user to it, and activates the account.
+   * Body: { orgName, slug }
+   * Not protected by full AuthMiddleware — only Catalyst session required.
+   */
+  async setupOrganisation(req, res) {
+    try {
+      const { orgName, slug } = req.body;
+      if (!orgName || !slug) {
+        return ResponseHelper.validationError(res, 'orgName and slug are required');
+      }
+
+      const slugClean = slug.toLowerCase().trim().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+      if (!slugClean) {
+        return ResponseHelper.validationError(res, 'slug must contain at least one letter or number');
+      }
+
+      const userManagement = req.catalystApp.userManagement();
+      const catalystUser = await userManagement.getCurrentUser();
+      const email = catalystUser.email_id.toLowerCase();
+      const name  = catalystUser.first_name
+        ? `${catalystUser.first_name} ${catalystUser.last_name || ''}`.trim()
+        : email;
+
+      // Find the TENANT_ADMIN with no org yet (status INVITED or ACTIVE with no tenant)
+      const rows = await this.db.query(
+        `SELECT * FROM ${TABLES.USERS} WHERE email = '${DataStoreService.escape(email)}' AND role = 'TENANT_ADMIN' AND status IN ('INVITED', 'ACTIVE') LIMIT 1`
+      );
+
+      if (rows.length === 0) {
+        return ResponseHelper.notFound(res, 'No pending organisation setup found for this account');
+      }
+
+      const pendingUser = rows[0];
+
+      // Check that tenant_id is the sentinel (no org yet), or that the linked tenant was deleted.
+      if (pendingUser.tenant_id && String(pendingUser.tenant_id) !== '0') {
+        const existingTenantRows = await this.db.query(
+          `SELECT ROWID, slug FROM ${TABLES.TENANTS} WHERE ROWID = '${String(pendingUser.tenant_id)}' LIMIT 1`
+        );
+        if (existingTenantRows.length > 0) {
+          // Org already exists — return the slug so the frontend can redirect to the dashboard
+          // instead of leaving the user stranded on the org-setup page.
+          return res.status(409).json({
+            success: false,
+            code: 'ALREADY_SETUP',
+            message: 'Organisation already set up for this account',
+            data: { tenantSlug: existingTenantRows[0].slug || '' },
+          });
+        }
+        // Tenant was deleted — fall through and allow the user to create a new one.
+      }
+
+      // Slug uniqueness check
+      const existingSlug = await this.db.query(
+        `SELECT ROWID FROM ${TABLES.TENANTS} WHERE slug = '${DataStoreService.escape(slugClean)}' LIMIT 1`
+      );
+      if (existingSlug.length > 0) {
+        return ResponseHelper.conflict(res, 'This domain slug is already taken — please choose another');
+      }
+
+      // Create tenant
+      const tenant = await this.db.insert(TABLES.TENANTS, {
+        name:     orgName.trim(),
+        slug:     slugClean,
+        plan:     'STARTER',
+        status:   'ACTIVE',
+        settings: '{}',
+      });
+
+      const tenantId = String(tenant.ROWID);
+
+      // Activate the user and link to the new tenant
+      await this.db.update(TABLES.USERS, {
+        ROWID:            String(pendingUser.ROWID),
+        tenant_id:        tenantId,
+        catalyst_user_id: Number(catalystUser.user_id),
+        name,
+        status:           USER_STATUS.ACTIVE,
+      });
+
+      // Bust the server-side auth cache so the next /me call fetches fresh
+      // tenant info (tenantName, tenantSlug) instead of serving stale data.
+      try {
+        const cache = new CacheService(req.catalystApp);
+        await cache.invalidate(`authCtx:${AUTH_CTX_KEY_VERSION}:${String(pendingUser.ROWID)}`);
+      } catch (_) { /* non-fatal */ }
+
+      return ResponseHelper.created(res, {
+        tenant: { id: tenantId, name: orgName.trim(), slug: slugClean },
+        user:   { id: String(pendingUser.ROWID), email, name, role: 'TENANT_ADMIN', tenantId },
+      }, 'Organisation created successfully');
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
   /**
    * GET /api/auth/users
    * Returns active users in the current user's tenant (for assignment dropdowns).

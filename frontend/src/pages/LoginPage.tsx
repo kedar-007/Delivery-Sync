@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import BrandLogo from "../components/ui/BrandLogo";
+import { useAuth } from "../contexts/AuthContext";
 
 const FEATURES = [
   { title: "Live Delivery Tracking", desc: "Monitor every shipment in real time.", color: "from-blue-500 to-cyan-500" },
@@ -46,12 +47,34 @@ const LeftPanel = () => (
 
 export default function LoginPage() {
   const didInit = useRef(false);
+  const { refetch } = useAuth();
 
   //  Clear the logged-out flag when login page mounts so a fresh
   // reload after logout doesn't get stuck in an unauthenticated loop
   useEffect(() => {
     localStorage.removeItem('ds_logged_out');
     localStorage.removeItem('tenantSlug');
+  }, []);
+
+  // After Catalyst signIn completes, the SDK redirects to service_url ("/app/index.html").
+  // Because that differs from the current hash (#/login) only in the hash portion,
+  // browsers treat it as a hash-change — NOT a full page reload — so fetchUser()
+  // is never re-called. Listen for hashchange + window focus and silently re-check
+  // the session so AuthContext picks up the Catalyst session immediately.
+  useEffect(() => {
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const tryRefetch = () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => { refetch(true).catch(() => {}); }, 400);
+    };
+    window.addEventListener('hashchange', tryRefetch);
+    window.addEventListener('focus',      tryRefetch);
+    return () => {
+      window.removeEventListener('hashchange', tryRefetch);
+      window.removeEventListener('focus',      tryRefetch);
+      if (debounce) clearTimeout(debounce);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

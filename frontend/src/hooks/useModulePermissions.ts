@@ -25,16 +25,42 @@ const DEFAULTS: ModulePermissions = {
   executive:  true,
 };
 
+// Per-user localStorage cache so the sidebar renders with the correct module
+// state immediately on page reload, eliminating the flash where disabled
+// modules briefly appear before the API response arrives.
+function lsKey(userId: string) { return `dsv:mods:${userId}`; }
+
+function lsRead(userId: string): ModulePermissions | undefined {
+  try {
+    const s = localStorage.getItem(lsKey(userId));
+    return s ? JSON.parse(s) : undefined;
+  } catch { return undefined; }
+}
+
+function lsWrite(userId: string, m: ModulePermissions) {
+  try { localStorage.setItem(lsKey(userId), JSON.stringify(m)); } catch { /* storage quota */ }
+}
+
 export function useModulePermissions() {
   const { user } = useAuth();
-  // SUPER_ADMIN and TENANT_ADMIN bypass module checks — always have full access
-  const skip = !user || user.role === 'SUPER_ADMIN' || user.role === 'TENANT_ADMIN';
+  // SUPER_ADMIN bypasses module checks — they're on their own admin page with full access.
+  // TENANT_ADMIN now respects module settings so super-admin can gate reports/AI per org.
+  const skip = !user || user.role === 'SUPER_ADMIN';
+  const userId = user?.id ? String(user.id) : '';
 
   const { data } = useQuery({
     queryKey: ['module-permissions'],
-    queryFn: () => adminApi.getModules().then((d) => d.modules as ModulePermissions),
+    queryFn: async () => {
+      const m = await adminApi.getModules().then((d) => d.modules as ModulePermissions);
+      // Persist so the next page reload serves the correct state instantly.
+      if (userId) lsWrite(userId, m);
+      return m;
+    },
     enabled: !skip,
-    staleTime: 60 * 1000, // 1 minute — module changes propagate within a reasonable window
+    staleTime: 0, // always background-refetch on mount so changes propagate immediately
+    // Seed with the last-known value from localStorage — prevents the flash
+    // where DEFAULTS (all true) renders first before the API responds.
+    initialData: !skip && userId ? lsRead(userId) : undefined,
   });
 
   if (skip) return DEFAULTS;

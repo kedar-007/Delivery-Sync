@@ -91,6 +91,7 @@ const PERM_GROUPS: PermGroup[] = [
       { key: 'TIME_WRITE',     label: 'Log Time',           desc: 'Submit time entries' },
       { key: 'TIME_APPROVE',   label: 'Approve Time',       desc: 'Approve team time submissions' },
       { key: 'TIME_ANALYTICS', label: 'Team Activity Analytics', desc: 'View billable/non-billable hours breakdown across all team members' },
+      { key: 'TIME_TEAM_VIEW', label: 'Team Time View',     desc: "See time logs submitted by your team members (scoped to teams you're in or lead)" },
     ],
   },
   {
@@ -361,6 +362,13 @@ const AI_GUIDE: Record<string, AiGuide> = {
     defaultRoles: ['TENANT_ADMIN'],
     risk: 'medium',
     tip: 'Grant to reporting managers and project leads who need to track team utilisation and billing. Team members should not have this — it exposes other people\'s work hours.',
+  },
+  TIME_TEAM_VIEW: {
+    summary: "Grants access to the Team Logs tab in Time Tracking — shows time entries submitted by team members the user is in or leads. Scoped to the caller's teams only; they cannot see entries for teams they are not part of.",
+    unlocks: ['Team Logs tab in Time Tracking', "Today/yesterday/custom date range view of teammates' entries", 'Per-member entry cards with project, task and hours breakdown', 'Filter by individual team member'],
+    defaultRoles: ['TENANT_ADMIN', 'DELIVERY_LEAD'],
+    risk: 'medium',
+    tip: "Grant to team leads, delivery leads, and project managers who need to review their team's time submissions. Does not grant approval rights — add TIME_APPROVE for that.",
   },
   ACTION_READ: {
     summary: 'Allows viewing action items within projects including owner, due date, and status.',
@@ -709,7 +717,7 @@ const AI_GUIDE: Record<string, AiGuide> = {
 
 // ─── CRUD matrix data (mirrors AdminPage CRUD_MODULES exactly) ────────────────
 
-interface CrudRow { name: string; view?: string; write?: string; approve?: string; admin?: string }
+interface CrudRow { name: string; view?: string; write?: string; approve?: string; admin?: string; team?: string }
 interface CrudSection { section: string; rows: CrudRow[] }
 
 const CRUD_MODULES: CrudSection[] = [
@@ -738,7 +746,7 @@ const CRUD_MODULES: CrudSection[] = [
   {
     section: 'Time & Attendance',
     rows: [
-      { name: 'Time Tracking', view: 'TIME_READ',       write: 'TIME_WRITE',       approve: 'TIME_APPROVE',          admin: 'TIME_ANALYTICS' },
+      { name: 'Time Tracking', view: 'TIME_READ',       write: 'TIME_WRITE',       approve: 'TIME_APPROVE',          admin: 'TIME_ANALYTICS',          team: 'TIME_TEAM_VIEW' },
       { name: 'Attendance',    view: 'ATTENDANCE_READ',  write: 'ATTENDANCE_WRITE', approve: 'ATTENDANCE_TEAM_VIEW',  admin: 'ATTENDANCE_ADMIN' },
       { name: 'Leave',         view: 'LEAVE_READ',       write: 'LEAVE_WRITE',      approve: 'LEAVE_APPROVE',         admin: 'LEAVE_ADMIN' },
     ],
@@ -822,6 +830,7 @@ const PERM_INFO: Record<string, { label: string; desc: string }> = {
   TIME_WRITE:         { label: 'Log Time',          desc: 'Submit time entries' },
   TIME_APPROVE:       { label: 'Approve',           desc: 'Approve team time submissions' },
   TIME_ANALYTICS:     { label: 'Analytics',         desc: 'Billable / non-billable hours breakdown' },
+  TIME_TEAM_VIEW:     { label: 'Team View',         desc: "See time logs of your team members (teams you're in or lead)" },
   ATTENDANCE_READ:      { label: 'View',            desc: 'See own attendance records' },
   ATTENDANCE_WRITE:     { label: 'Check In/Out',    desc: 'Log daily attendance, WFH, breaks' },
   ATTENDANCE_TEAM_VIEW: { label: 'Team View',       desc: "See peers' attendance — live view, records, export" },
@@ -1126,7 +1135,7 @@ const UserPermissionsModal = ({ open, onClose, userId, userName, userRole }: Pro
     rows: lowerSearch
       ? rows.filter((r) =>
           r.name.toLowerCase().includes(lowerSearch) ||
-          (['view', 'write', 'approve', 'admin'] as const).some((col) => {
+          (['view', 'write', 'approve', 'admin', 'team'] as const).some((col) => {
             const perm = r[col];
             if (!perm) return false;
             const info  = PERM_INFO[perm];
@@ -1241,12 +1250,13 @@ const UserPermissionsModal = ({ open, onClose, userId, userName, userRole }: Pro
               </div>
 
               {/* Column headers */}
-              <div className="grid shrink-0 mb-1 px-3" style={{ gridTemplateColumns: '1fr 68px 100px 90px 72px' }}>
+              <div className="grid shrink-0 mb-1 px-3" style={{ gridTemplateColumns: '1fr 68px 100px 90px 72px 80px' }}>
                 <span className="text-xs font-semibold text-gray-400">Module</span>
                 <span className="text-xs font-bold text-blue-500 text-center">View</span>
                 <span className="text-xs font-bold text-indigo-500 text-center">Create / Edit</span>
                 <span className="text-xs font-bold text-amber-500 text-center">Approve</span>
                 <span className="text-xs font-bold text-red-500 text-center">Admin</span>
+                <span className="text-xs font-bold text-teal-500 text-center">Team View</span>
               </div>
               <div className="h-px bg-gray-200 mb-3 shrink-0" />
 
@@ -1256,7 +1266,7 @@ const UserPermissionsModal = ({ open, onClose, userId, userName, userRole }: Pro
                   <p className="text-sm text-gray-400 text-center py-8">No modules match "{search}"</p>
                 ) : filteredCrudModules.map(({ section, rows }) => {
                   const allPerms = Array.from(new Set(rows.flatMap((r) =>
-                    ([r.view, r.write, r.approve, r.admin] as (string | undefined)[]).filter(Boolean) as string[]
+                    ([r.view, r.write, r.approve, r.admin, r.team] as (string | undefined)[]).filter(Boolean) as string[]
                   )));
                   const allOn  = allPerms.length > 0 && allPerms.every((p) => enabled.has(p));
                   const someOn = !allOn && allPerms.some((p) => enabled.has(p));
@@ -1287,11 +1297,12 @@ const UserPermissionsModal = ({ open, onClose, userId, userName, userRole }: Pro
                             { perm: row.write,   activeClass: 'bg-indigo-500 text-white', hoverClass: 'hover:bg-indigo-50' },
                             { perm: row.approve, activeClass: 'bg-amber-500 text-white',  hoverClass: 'hover:bg-amber-50' },
                             { perm: row.admin,   activeClass: 'bg-red-500 text-white',    hoverClass: 'hover:bg-red-50' },
+                            { perm: row.team,    activeClass: 'bg-teal-500 text-white',   hoverClass: 'hover:bg-teal-50' },
                           ];
                           return (
                             <div key={row.name}
                               className={`grid items-center px-3 py-2.5 ${i > 0 ? 'border-t border-gray-100' : ''}`}
-                              style={{ gridTemplateColumns: '1fr 68px 100px 90px 72px' }}
+                              style={{ gridTemplateColumns: '1fr 68px 100px 90px 72px 80px' }}
                             >
                               <span className="text-sm font-medium text-gray-800 truncate pr-2">{row.name}</span>
                               {COLS.map(({ perm, activeClass, hoverClass }, ci) => (

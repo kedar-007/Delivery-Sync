@@ -1100,12 +1100,24 @@ function ChoiceListCard({ content, choices, accent, onPick }: {
   accent:   string;
   onPick:   (label: string, value: string) => void;
 }) {
-  const [picked, setPicked] = useState<string | null>(null);
+  const [picked,     setPicked]     = useState<string | null>(null);
+  const [customDate, setCustomDate] = useState('');
+
+  // If every choice value is an ISO date, show a calendar picker instead of chips
+  const isDatePicker = choices.length > 0 && choices.every((c) => /^\d{4}-\d{2}-\d{2}$/.test(c.value));
 
   const handlePick = (label: string, value: string) => {
     if (picked) return;
     setPicked(label);
     onPick(label, value);
+  };
+
+  const handleCustomDate = () => {
+    if (!customDate || picked) return;
+    // Format as readable label e.g. "26 May 2026"
+    const d = new Date(customDate + 'T00:00:00');
+    const label = d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
+    handlePick(label, customDate);
   };
 
   return (
@@ -1122,39 +1134,106 @@ function ChoiceListCard({ content, choices, accent, onPick }: {
           {content}
         </p>
       </div>
-      {/* Choice buttons */}
+
       <div style={{
         padding: '10px 12px 12px',
         background: 'rgba(8,11,20,.7)',
         border: `1px solid ${accent}1A`,
         borderTop: 'none',
         borderRadius: '0 0 14px 14px',
-        display: 'flex', flexWrap: 'wrap', gap: 7,
       }}>
-        {choices.map((c) => {
-          const isSelected = picked === c.label;
-          return (
-            <button
-              key={c.value}
-              type="button"
-              onClick={() => handlePick(c.label, c.value)}
-              disabled={!!picked}
-              style={{
-                padding: '7px 14px', borderRadius: 100, cursor: picked ? 'default' : 'pointer',
-                background: isSelected
-                  ? `linear-gradient(135deg, ${accent}33, #9B59FF33)`
-                  : `${accent}0F`,
-                border: `1px solid ${isSelected ? accent : `${accent}28`}`,
-                color: isSelected ? accent : '#94a3b8',
-                fontSize: 12, fontFamily: "'Syne',sans-serif", fontWeight: 700,
-                transition: 'all 0.2s ease',
-                opacity: picked && !isSelected ? 0.4 : 1,
-              }}
-            >
-              {c.label}
-            </button>
-          );
-        })}
+        {isDatePicker ? (
+          <>
+            {/* Preset shortcut chips */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 10 }}>
+              {choices.map((c) => {
+                const isSelected = picked === c.label;
+                return (
+                  <button
+                    key={c.value}
+                    type="button"
+                    onClick={() => handlePick(c.label, c.value)}
+                    disabled={!!picked}
+                    style={{
+                      padding: '6px 14px', borderRadius: 100, cursor: picked ? 'default' : 'pointer',
+                      background: isSelected ? `linear-gradient(135deg, ${accent}33, #9B59FF33)` : `${accent}0F`,
+                      border: `1px solid ${isSelected ? accent : `${accent}28`}`,
+                      color: isSelected ? accent : '#94a3b8',
+                      fontSize: 12, fontFamily: "'Syne',sans-serif", fontWeight: 700,
+                      transition: 'all 0.2s ease',
+                      opacity: picked && !isSelected ? 0.4 : 1,
+                    }}
+                  >
+                    {c.label}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Calendar date input */}
+            {!picked && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="date"
+                  value={customDate}
+                  onChange={(e) => setCustomDate(e.target.value)}
+                  style={{
+                    flex: 1, padding: '7px 12px', borderRadius: 10,
+                    background: 'rgba(255,255,255,.06)', border: `1px solid ${accent}28`,
+                    color: '#E2E8F0', fontSize: 12, fontFamily: "'Syne',sans-serif",
+                    outline: 'none', colorScheme: 'dark',
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleCustomDate}
+                  disabled={!customDate}
+                  style={{
+                    padding: '7px 16px', borderRadius: 10,
+                    background: customDate ? `linear-gradient(135deg, ${accent}33, #9B59FF33)` : 'rgba(255,255,255,.04)',
+                    border: `1px solid ${customDate ? accent : 'rgba(255,255,255,.1)'}`,
+                    color: customDate ? accent : '#475569',
+                    fontSize: 12, fontFamily: "'Syne',sans-serif", fontWeight: 700,
+                    cursor: customDate ? 'pointer' : 'default',
+                    transition: 'all 0.2s ease', whiteSpace: 'nowrap',
+                  }}
+                >
+                  Pick →
+                </button>
+              </div>
+            )}
+            {picked && (
+              <p style={{ margin: 0, fontSize: 11, color: '#64748B', fontFamily: "'JetBrains Mono',monospace" }}>
+                ✓ {picked} selected
+              </p>
+            )}
+          </>
+        ) : (
+          /* Regular choice chips */
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+            {choices.map((c) => {
+              const isSelected = picked === c.label;
+              return (
+                <button
+                  key={c.value}
+                  type="button"
+                  onClick={() => handlePick(c.label, c.value)}
+                  disabled={!!picked}
+                  style={{
+                    padding: '7px 14px', borderRadius: 100, cursor: picked ? 'default' : 'pointer',
+                    background: isSelected ? `linear-gradient(135deg, ${accent}33, #9B59FF33)` : `${accent}0F`,
+                    border: `1px solid ${isSelected ? accent : `${accent}28`}`,
+                    color: isSelected ? accent : '#94a3b8',
+                    fontSize: 12, fontFamily: "'Syne',sans-serif", fontWeight: 700,
+                    transition: 'all 0.2s ease',
+                    opacity: picked && !isSelected ? 0.4 : 1,
+                  }}
+                >
+                  {c.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2309,7 +2388,7 @@ export default function BotWidget() {
                       onSubmitForm={(action, data, summary) =>
                         sendMessage(JSON.stringify({ action, ...data }), 'action_submit', summary)
                       }
-                      onChoice={(label, value) => sendMessage(`[SELECTED] ${label} (id:${value || label})`)}
+                      onChoice={(label, value) => sendMessage(`[SELECTED] ${label} (id:${value || label})`, 'text', label)}
                     />
                   ))}
                 </div>

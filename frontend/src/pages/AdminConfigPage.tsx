@@ -5,7 +5,7 @@ import {
   Settings, GitMerge, ToggleLeft, ToggleRight, Shield, FileText,
   CalendarDays, Award, Plus, Trash2, Edit2, CheckCircle2,
   AlertCircle, ChevronDown, ChevronRight, Zap, Flag, Users,
-  Lock, Unlock, RefreshCw, Info, Star, GripVertical, Search, Bot, Bug, X, Layers,
+  Lock, Unlock, RefreshCw, Info, Star, GripVertical, Search, Bot, Bug, X, Layers, Building2,
 } from 'lucide-react';
 import {
   DndContext,
@@ -43,6 +43,7 @@ import { useI18n } from '../contexts/I18nContext';
 // ── Tab definitions ───────────────────────────────────────────────────────────
 
 const TABS = [
+  { key: 'organisation', label: 'Organisation',  icon: Building2 },
   { key: 'workflows',   label: 'Workflows',      icon: GitMerge },
   { key: 'modules',     label: 'Modules',        icon: Layers },
   { key: 'features',    label: 'Feature Flags',  icon: Flag },
@@ -1980,12 +1981,101 @@ function BotSettingsTab() {
   );
 }
 
+// ── Organisation Tab ───────────────────────────────────────────────────────────
+
+function OrganisationTab() {
+  const { refetch } = useAuth();
+  const [saving, setSaving]   = useState(false);
+  const [saved,  setSaved]    = useState(false);
+  const [error,  setError]    = useState<string | null>(null);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['tenant'],
+    queryFn: () => adminApi.getTenant(),
+  });
+
+  const tenant = data?.tenant;
+  const [name, setName] = useState('');
+
+  useEffect(() => {
+    if (tenant?.name && !name) setName(tenant.name);
+  }, [tenant?.name]);
+
+  const handleSave = async () => {
+    setError(null);
+    setSaved(false);
+    if (!name.trim()) { setError('Organisation name cannot be empty'); return; }
+    setSaving(true);
+    try {
+      await adminApi.updateTenantName(name.trim());
+      await refetch(true).catch(() => {});
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e: unknown) {
+      setError((e as Error).message || 'Failed to update name');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (isLoading) return <div className="p-6 text-sm text-gray-400">Loading…</div>;
+
+  return (
+    <div className="max-w-lg">
+      <h2 className="text-base font-semibold text-gray-800 mb-1">Organisation Details</h2>
+      <p className="text-sm text-gray-400 mb-6">Update the display name for your organisation. The workspace slug (URL) cannot be changed.</p>
+
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+            Organisation name <span className="text-red-500">*</span>
+          </label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            placeholder="e.g. Acme Corp"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-1.5">Workspace slug</label>
+          <div className="flex items-center rounded-xl border border-gray-100 bg-gray-50 overflow-hidden">
+            <span className="px-3 py-2.5 text-sm text-gray-400 border-r border-gray-200 whitespace-nowrap select-none">app /</span>
+            <span className="px-3 py-2.5 text-sm font-mono text-gray-500">{tenant?.slug || '—'}</span>
+          </div>
+          <p className="mt-1.5 text-xs text-gray-400">Slug is permanent and cannot be changed after creation.</p>
+        </div>
+
+        {error && (
+          <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 text-sm text-red-700">
+            <AlertCircle size={14} className="shrink-0" />{error}
+          </div>
+        )}
+
+        <button
+          onClick={handleSave}
+          disabled={saving || !name.trim() || name.trim() === tenant?.name}
+          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
+        >
+          {saving
+            ? <><RefreshCw size={14} className="animate-spin" /> Saving…</>
+            : saved
+              ? <><CheckCircle2 size={14} className="text-emerald-300" /> Saved</>
+              : 'Save Changes'
+          }
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function AdminConfigPage() {
   const { t } = useI18n();
   const { confirm: openConfirm } = useConfirm();
-  const [activeTab, setActiveTab] = useState<TabKey>('workflows');
+  const [activeTab, setActiveTab] = useState<TabKey>('organisation');
   const [seeding, setSeeding]   = useState(false);
   const [seedMsg, setSeedMsg]   = useState('');
 
@@ -2003,6 +2093,7 @@ export default function AdminConfigPage() {
   }, [openConfirm]);
 
   const tabContent: Record<TabKey, React.ReactNode> = {
+    organisation: <OrganisationTab />,
     workflows:   <WorkflowsTab />,
     modules:     <ModulesTab />,
     features:    <FeatureFlagsTab />,

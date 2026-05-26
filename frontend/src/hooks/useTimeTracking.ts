@@ -210,6 +210,31 @@ export const useRetractTimeEntry = () => {
   });
 };
 
+// ── Team Analytics ────────────────────────────────────────────────────────────
+export const useTeamAnalytics = (params?: Record<string, string>, enabled = true) =>
+  useQuery({
+    queryKey: ['time', 'analytics', 'team', params],
+    queryFn: () => timeEntriesApi.teamAnalytics(params),
+    enabled,
+  });
+
+export const useTeamMemberEntries = (params?: Record<string, string>, enabled = true) =>
+  useQuery<TimeEntriesResult>({
+    queryKey: ['time', 'team-entries', params],
+    queryFn: async () => {
+      const res = await timeEntriesApi.list(params);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (res && typeof res === 'object' && !Array.isArray(res) && Array.isArray((res as any).entries)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const r = res as any;
+        return { data: r.entries.map(normaliseEntry), pagination: r.pagination ?? null };
+      }
+      const arr = Array.isArray(res) ? res : [];
+      return { data: arr.map(normaliseEntry), pagination: null };
+    },
+    enabled,
+  });
+
 // ── Approvals ─────────────────────────────────────────────────────────────────
 export const useTimeApprovals = (params?: Record<string, string>, enabled = true) =>
   useQuery({

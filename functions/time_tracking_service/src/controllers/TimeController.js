@@ -3,8 +3,9 @@
 const DataStoreService    = require('../services/DataStoreService');
 const AuditService        = require('../services/AuditService');
 const NotificationService = require('../services/NotificationService');
+const TeamScopeService    = require('../services/TeamScopeService');
 const ResponseHelper      = require('../utils/ResponseHelper');
-const { TABLES, TIME_STATUS, AUDIT_ACTION, NOTIFICATION_TYPE } = require('../utils/Constants');
+const { TABLES, PERMISSIONS, TIME_STATUS, AUDIT_ACTION, NOTIFICATION_TYPE } = require('../utils/Constants');
 
 class TimeController {
   constructor(catalystApp) {
@@ -24,13 +25,49 @@ class TimeController {
     const tenantId = req.tenantId;
     const me = req.currentUser;
 
+    // Pagination params — only kick in when the caller passes `page`.
+    const paginated = req.query.page !== undefined;
+    const page      = Math.max(1,   parseInt(req.query.page,     10) || 1);
+    const pageSize  = Math.min(200, Math.max(1, parseInt(req.query.pageSize, 10) || 50));
+    const offset    = (page - 1) * pageSize;
+
     let where = '';
-    // Restrict to own entries unless user has ORG_WIDE/SUBORDINATES data scope or is TENANT_ADMIN
-    const canSeeAll = me.role === 'TENANT_ADMIN'
+    // Visibility ladder (most permissive first):
+    //   1. Admin roles / ORG_WIDE scope → see all entries in the tenant
+    //   2. TIME_TEAM_VIEW or team lead  → see team peers' entries only
+    //   3. (fallback)                   → own entries only
+    const MANAGER_ROLES = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
+    const canSeeAll = MANAGER_ROLES.includes(me.role)
       || me.dataScope === 'ORG_WIDE'
       || me.dataScope === 'SUBORDINATES';
-    const effectiveUserId = canSeeAll ? (user_id || null) : me.id;
-    if (effectiveUserId) where += `user_id = '${DataStoreService.escape(effectiveUserId)}' AND `;
+    const userPerms   = Array.isArray(me.permissions) ? me.permissions : [];
+    const hasTeamView = userPerms.includes(PERMISSIONS.TIME_TEAM_VIEW);
+    const callerUid   = String(me.id);
+
+    if (canSeeAll) {
+      if (user_id) where += `user_id = '${DataStoreService.escape(user_id)}' AND `;
+    } else if (hasTeamView || await this._isTeamLead(tenantId, callerUid)) {
+      const scope = new TeamScopeService(this.db);
+      const peerIds = await scope.getTeamPeerUserIds(tenantId, callerUid);
+      let allowed = peerIds;
+      if (user_id) {
+        allowed = peerIds.filter((id) => String(id) === String(user_id));
+        if (allowed.length === 0) {
+          const empty = paginated ? { entries: [], pagination: { page: 1, pageSize, total: 0, totalPages: 1, hasMore: false } } : [];
+          return ResponseHelper.success(res, empty);
+        }
+      }
+      if (allowed.length === 0) {
+        where += `user_id = '${DataStoreService.escape(callerUid)}' AND `;
+      } else if (allowed.length === 1) {
+        where += `user_id = '${DataStoreService.escape(allowed[0])}' AND `;
+      } else {
+        const inList = allowed.map((id) => `'${DataStoreService.escape(id)}'`).join(',');
+        where += `user_id IN (${inList}) AND `;
+      }
+    } else {
+      where += `user_id = '${DataStoreService.escape(callerUid)}' AND `;
+    }
     if (project_id) where += `project_id = '${DataStoreService.escape(project_id)}' AND `;
     if (task_id)    where += `task_id = '${DataStoreService.escape(task_id)}' AND `;
     if (status)     where += `status = '${DataStoreService.escape(status)}' AND `;
@@ -38,12 +75,6 @@ class TimeController {
     if (date_from)  where += `entry_date >= '${DataStoreService.escape(date_from)}' AND `;
     if (date_to)    where += `entry_date <= '${DataStoreService.escape(date_to)}' AND `;
     where = where.replace(/ AND $/, '');
-
-    // Pagination params — only kick in when the caller passes `page`.
-    const paginated = req.query.page !== undefined;
-    const page      = Math.max(1,   parseInt(req.query.page,     10) || 1);
-    const pageSize  = Math.min(200, Math.max(1, parseInt(req.query.pageSize, 10) || 50));
-    const offset    = (page - 1) * pageSize;
 
     // Fetch the slice + (only when paginated) a parallel COUNT for totals.
     // The COUNT query reuses the same WHERE clause so totals stay in sync.
@@ -472,18 +503,41 @@ class TimeController {
     }
     if (!from || !to) return ResponseHelper.validationError(res, 'date_from and date_to are required for period=custom');
 
+    // Team-scope: resolve which user IDs this caller may see.
+    const MANAGER_ROLES_A = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
+    const me_a = req.currentUser;
+    const canSeeAll_a = MANAGER_ROLES_A.includes(me_a.role)
+      || me_a.dataScope === 'ORG_WIDE'
+      || me_a.dataScope === 'SUBORDINATES';
+    const userPerms_a  = Array.isArray(me_a.permissions) ? me_a.permissions : [];
+    const hasTeamView_a = userPerms_a.includes(PERMISSIONS.TIME_TEAM_VIEW);
+    let allowedUserIds = null; // null → unrestricted
+    if (!canSeeAll_a) {
+      const callerUid_a = String(me_a.id);
+      if (hasTeamView_a || await this._isTeamLead(tenantId, callerUid_a)) {
+        const scope = new TeamScopeService(this.db);
+        allowedUserIds = new Set((await scope.getTeamPeerUserIds(tenantId, callerUid_a)).map(String));
+      }
+    }
+
     // Build query for tenant
     let where = `entry_date >= '${DataStoreService.escape(from)}' AND entry_date <= '${DataStoreService.escape(to)}'`;
     if (user_id)    where += ` AND user_id = '${DataStoreService.escape(user_id)}'`;
     if (project_id) where += ` AND project_id = '${DataStoreService.escape(project_id)}'`;
 
-    const [entries, users, projects] = await Promise.all([
+    let [entries, users, projects] = await Promise.all([
       this.db.queryAll(
         `SELECT * FROM ${TABLES.TIME_ENTRIES} WHERE tenant_id = '${DataStoreService.escape(tenantId)}' AND ${where} ORDER BY entry_date ASC`
       ),
       this.db.findAll(TABLES.USERS,    { tenant_id: tenantId }, { limit: 200 }),
       this.db.findAll(TABLES.PROJECTS, { tenant_id: tenantId }, { limit: 200 }),
     ]);
+
+    // Apply team scope filter to entries and user list
+    if (allowedUserIds) {
+      entries = entries.filter((e) => allowedUserIds.has(String(e.user_id)));
+      users   = users.filter((u) => allowedUserIds.has(String(u.ROWID)));
+    }
 
     // Fetch org role names for users
     const orgRoleRows = await this.db.queryAll(
@@ -593,6 +647,27 @@ class TimeController {
     const tenantId = req.tenantId;
     if (!user_id) return ResponseHelper.validationError(res, 'user_id is required');
 
+    // Guard: non-managers can only view their own activity OR a team peer's.
+    const me_b = req.currentUser;
+    const MANAGER_ROLES_B = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
+    const canSeeAll_b = MANAGER_ROLES_B.includes(me_b.role)
+      || me_b.dataScope === 'ORG_WIDE'
+      || me_b.dataScope === 'SUBORDINATES';
+    if (!canSeeAll_b && String(me_b.id) !== String(user_id)) {
+      const userPerms_b   = Array.isArray(me_b.permissions) ? me_b.permissions : [];
+      const hasTeamView_b = userPerms_b.includes(PERMISSIONS.TIME_TEAM_VIEW);
+      const callerUid_b   = String(me_b.id);
+      const isLead_b = hasTeamView_b || await this._isTeamLead(tenantId, callerUid_b);
+      if (isLead_b) {
+        const scope   = new TeamScopeService(this.db);
+        const peers   = await scope.getTeamPeerUserIds(tenantId, callerUid_b);
+        const allowed = new Set(peers.map(String));
+        if (!allowed.has(String(user_id))) return ResponseHelper.forbidden(res, 'Cannot view activity for this user');
+      } else {
+        return ResponseHelper.forbidden(res, 'Cannot view activity for this user');
+      }
+    }
+
     const istNow = new Date(Date.now() + 5.5 * 3600000);
     let from, to;
     if (period === 'week') {
@@ -663,6 +738,22 @@ class TimeController {
       }
     }
     return ResponseHelper.success(res, results);
+  }
+
+  // Returns true if userId is a designated team lead (teams.lead_user_id) or
+  // holds a lead-level role in team_members.
+  async _isTeamLead(tenantId, userId) {
+    const self = String(userId);
+    const tid  = String(tenantId);
+    const ledTeams = await this.db.findWhere(
+      TABLES.TEAMS, tid, `lead_user_id = '${self}'`, { limit: 1 }
+    );
+    if (ledTeams && ledTeams.length > 0) return true;
+    const LEAD_ROLES = new Set(['DELIVERY_LEAD', 'LEAD', 'TECH_LEAD', 'SCRUM_MASTER', 'PROJECT_MANAGER']);
+    const memberRows = await this.db.findWhere(
+      TABLES.TEAM_MEMBERS, tid, `user_id = '${self}'`, { limit: 200 }
+    );
+    return memberRows.some(m => LEAD_ROLES.has(m.role));
   }
 }
 

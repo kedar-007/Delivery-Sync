@@ -16,10 +16,11 @@ interface AuthContextValue {
   loading: boolean;
   error: string | null;
   needsRegistration: boolean;
+  needsOrgSetup: boolean;
   isLoggedOut: boolean;
   isDeactivated: boolean;
   suspensionInfo: SuspensionInfo | null;
-  refetch: () => Promise<void>;
+  refetch: (silent?: boolean) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -28,10 +29,11 @@ const AuthContext = createContext<AuthContextValue>({
   loading: true,
   error: null,
   needsRegistration: false,
+  needsOrgSetup: false,
   isLoggedOut: false,
   isDeactivated: false,
   suspensionInfo: null,
-  refetch: async () => { },
+  refetch: async (_silent?: boolean) => { },
   logout: async () => { },
 });
 
@@ -70,6 +72,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [needsRegistration, setNeedsReg] = useState(false);
+  const [needsOrgSetup, setNeedsOrgSetup] = useState(false);
   const [isLoggedOut, setIsLoggedOut] = useState(
     // Initialise from localStorage so first render is correct
     localStorage.getItem('ds_logged_out') === '1'
@@ -81,14 +84,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       if (!silent) setLoading(true);
       setError(null);
-      setNeedsReg(false);
-      setSuspensionInfo(null);
-      setIsDeactivated(false);
+      if (!silent) {
+        // For silent refetch (e.g. after org setup) do NOT pre-clear these — clearing them
+        // before the API responds creates a window where needsOrgSetup=false + user=null,
+        // which triggers the catch-all route to redirect to /login.
+        setNeedsReg(false);
+        setNeedsOrgSetup(false);
+        setSuspensionInfo(null);
+        setIsDeactivated(false);
+      }
 
       const data = await authApi.me();
       const u = data?.user ?? null;
+      // Batch all state updates together after the API call so no intermediate
+      // render sees an inconsistent state (e.g. user=null + needsOrgSetup=false).
       setUser(u);
       setIsLoggedOut(false);
+      localStorage.removeItem('ds_logged_out'); // session confirmed valid — clear stale flag
+      if (silent) {
+        setNeedsReg(false);
+        setNeedsOrgSetup(false);
+        setSuspensionInfo(null);
+        setIsDeactivated(false);
+      }
 
       if (u?.tenantSlug) {
         localStorage.setItem('tenantSlug', u.tenantSlug);
@@ -104,6 +122,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setSuspensionInfo(e.data.suspension);
       } else if (e.status === 403 && e.data?.code === 'USER_DEACTIVATED') {
         setIsDeactivated(true);
+      } else if (e.status === 403 && e.data?.code === 'NEEDS_ORG_SETUP') {
+        setNeedsOrgSetup(true);
       } else if (e.status === 403) {
         setNeedsReg(true);
       }
@@ -113,11 +133,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
-    // If flagged as logged out, skip the API call entirely
-    if (localStorage.getItem('ds_logged_out') === '1') {
-      setLoading(false);
-      return;
-    }
+    // Always call fetchUser on mount, even if ds_logged_out='1' is in localStorage.
+    // An invited user who has a valid Catalyst session (accepted the invite email)
+    // must not be blocked by a stale logout flag left over from a previous user's
+    // logout on the same browser. If the session really is invalid, /me returns 401
+    // and the login page is shown — same end result, but without the false block.
     fetchUser();
     // Silently refetch permissions when the tab becomes visible again (e.g. after admin
     // grants a new permission in another tab). Silent = no full-screen loader so the
@@ -164,7 +184,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   return (
     <AuthContext.Provider value={{
       user, loading, error,
-      needsRegistration, isLoggedOut, isDeactivated,
+      needsRegistration, needsOrgSetup, isLoggedOut, isDeactivated,
       suspensionInfo,
       refetch: fetchUser,
       logout,

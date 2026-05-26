@@ -32,10 +32,14 @@ api.interceptors.response.use(
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 export const authApi = {
-  me: () => api.get('/auth/me').then((r) => r.data.data),
+  // ?_= busts the browser's ETag cache so /me always returns a fresh 200,
+  // never a 304 that could serve stale user state (e.g. empty tenantSlug).
+  me: () => api.get(`/auth/me?_=${Date.now()}`).then((r) => r.data.data),
   registerTenant: (data: { tenantName: string; domain: string }) =>
     api.post('/auth/register-tenant', data).then((r) => r.data.data),
   acceptInvite: () => api.post('/auth/accept-invite').then((r) => r.data.data),
+  setupOrg: (data: { orgName: string; slug: string }) =>
+    api.post('/auth/setup-org', data).then((r) => r.data.data),
 };
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -197,6 +201,8 @@ export const adminApi = {
   activateUser: (id: string) =>
     api.patch(`/admin/users/${id}/activate`).then((r) => r.data.data),
   getTenant: () => api.get('/admin/tenant').then((r) => r.data.data),
+  updateTenantName: (name: string) =>
+    api.patch('/admin/tenant/name', { name }).then((r) => r.data.data),
   updateTenantSettings: (settings: Record<string, unknown>) =>
     api.patch('/admin/tenant/settings', settings).then((r) => r.data.data),
   getAuditLogs: (params?: Record<string, string>) =>
@@ -273,6 +279,10 @@ export const superAdminApi = {
     api.post(`/super-admin/users/${userId}/block`, { reason }).then(r => r.data.data),
   unblockUser: (userId: string) =>
     api.post(`/super-admin/users/${userId}/unblock`).then(r => r.data.data),
+
+  // Tenant Admin Invite
+  inviteTenantAdmin: (data: { email: string; name: string; orgId?: string }) =>
+    api.post('/super-admin/invite-tenant-admin', data).then(r => r.data.data),
 
   // AI Recommendations
   getRecommendations: (params?: Record<string, string>) =>

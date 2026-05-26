@@ -59,4 +59,7 @@ router.get('/feature-usage',             asyncHandler((req, res) => ctrl(req).ge
 // ── Smart Alerts ──────────────────────────────────────────────────────────────
 router.get('/alerts',                    asyncHandler((req, res) => ctrl(req).getSmartAlerts(req, res)));
 
+// ── Tenant Admin Invite ───────────────────────────────────────────────────────
+router.post('/invite-tenant-admin',      asyncHandler((req, res) => ctrl(req).inviteTenantAdmin(req, res)));
+
 module.exports = router;

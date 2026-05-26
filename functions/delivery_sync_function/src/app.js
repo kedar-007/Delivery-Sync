@@ -6,6 +6,11 @@ const ResponseHelper = require('./utils/ResponseHelper');
 
 const app = express();
 
+// Disable Express's automatic ETag generation. Without ETags, the browser
+// cannot send If-None-Match conditional GETs, so /auth/me always returns a
+// full 200 response — never a 304 that would serve stale cached user state.
+app.set('etag', false);
+
 // ─── Body Parsing ────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -30,6 +35,14 @@ app.use((req, _res, next) => {
   if (req.url.startsWith(PREFIX)) {
     req.url = req.url.slice(PREFIX.length) || '/';
   }
+  next();
+});
+
+// ─── No-cache for all API responses ─────────────────────────────────────────
+// Prevents the browser from caching GET /auth/me via ETag/304, which would
+// serve stale user state (e.g. empty tenantSlug right after org creation).
+app.use('/api', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
   next();
 });
 

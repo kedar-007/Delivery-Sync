@@ -110,7 +110,7 @@ describe('AuthProvider', () => {
       return (
         <div>
           <span>{user?.email}</span>
-          <button onClick={refetch}>refetch</button>
+          <button onClick={() => refetch()}>refetch</button>
         </div>
       );
     };

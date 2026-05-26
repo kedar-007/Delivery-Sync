@@ -84,7 +84,7 @@ const APP_MODULES = [
   { key: 'time',     label: 'Time Tracking',       icon: '⏱️', desc: 'Time entries, approvals, export' },
   { key: 'reports',  label: 'Reports & Analytics', icon: '📊', desc: 'Reports, enterprise reports' },
   { key: 'ai',       label: 'AI Insights',         icon: '🤖', desc: 'AI-powered delivery insights' },
-  { key: 'exec',     label: 'Executive Dashboard', icon: '📈', desc: 'CEO/CTO dashboards, portfolio view' },
+  { key: 'executive', label: 'Executive Dashboard', icon: '📈', desc: 'CEO/CTO dashboards, portfolio view' },
 ];
 
 // Per-module chart colours (hex for SVG)
@@ -1094,11 +1094,12 @@ const SuperAdminPage: React.FC = () => {
   const [auditAction, setAuditAction] = useState('');
   const [auditPage,   setAuditPage]   = useState(1);
 
-  const [bugSearch,   setBugSearch]   = useState('');
-  const [bugStatus,   setBugStatus]   = useState('');
-  const [bugSeverity, setBugSeverity] = useState('');
-  const [bugTenant,   setBugTenant]   = useState('');
-  const [bugPage,     setBugPage]     = useState(1);
+  const [bugSearch,    setBugSearch]    = useState('');
+  const [bugStatus,    setBugStatus]    = useState('');
+  const [bugSeverity,  setBugSeverity]  = useState('');
+  const [bugTenant,    setBugTenant]    = useState('');
+  const [bugReporter,  setBugReporter]  = useState('');
+  const [bugPage,      setBugPage]      = useState(1);
   // Sub-view tab so reports and reporter replies don't get mixed together —
   // 'all' (sorted newest-first), 'reports' (no reply yet), 'replies' (has reply)
   const [bugView,     setBugView]     = useState<'all' | 'reports' | 'replies'>('all');
@@ -1125,9 +1126,16 @@ const SuperAdminPage: React.FC = () => {
   const [blockReason,    setBlockReason]    = useState('');
   const [tenantDetailId, setTenantDetailId] = useState<string | null>(null);
 
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteName,      setInviteName]      = useState('');
+  const [inviteEmail,     setInviteEmail]     = useState('');
+  const [inviteOrgId,     setInviteOrgId]     = useState('');
+  const [inviteError,     setInviteError]     = useState<string | null>(null);
+  const [inviteSuccess,   setInviteSuccess]   = useState(false);
+
   // Reset audit page when filters change
   useEffect(() => setAuditPage(1), [auditSearch, auditAction]);
-  useEffect(() => setBugPage(1), [bugSearch, bugStatus, bugSeverity, bugTenant]);
+  useEffect(() => setBugPage(1), [bugSearch, bugStatus, bugSeverity, bugTenant, bugReporter]);
 
   // ── Queries ──────────────────────────────────────────────────────────────────
   const { data: stats } = useQuery({
@@ -1177,15 +1185,21 @@ const SuperAdminPage: React.FC = () => {
     enabled:  activeTab === 'metrics',
   });
 
+  // Fetch ALL bug reports in one go (backend paginates ZCQL internally).
+  // Filters are applied client-side so KPI tiles always reflect the full dataset.
   const { data: bugReports = [], isLoading: bugLoading, isError: bugError, error: bugFetchError } = useQuery({
-    queryKey: ['sa-bug-reports', bugStatus, bugSeverity, bugTenant],
-    queryFn:  () => bugApi.listAll({
-      ...(bugStatus   && { status:    bugStatus   }),
-      ...(bugSeverity && { severity:  bugSeverity }),
-      ...(bugTenant   && { tenant_id: bugTenant   }),
-    }).then((d: any) => (d as any)?.reports ?? []),
+    queryKey: ['sa-bug-reports'],
+    queryFn:  () => bugApi.listAll({ all: 'true' }).then((d: any) => (d as any)?.reports ?? []),
     enabled: activeTab === 'bug-reports' || activeTab === 'bug-config',
     retry: 1,
+  });
+
+  // All orgs without filters — used in the invite modal org selector
+  const { data: allOrgsForInvite = [] } = useQuery({
+    queryKey: ['sa-all-tenants-invite'],
+    queryFn:  () => superAdminApi.listTenants({}).then(d => d.tenants ?? []),
+    enabled:  showInviteModal,
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: tenantDetail } = useQuery({
@@ -1241,6 +1255,19 @@ const SuperAdminPage: React.FC = () => {
   const unblockUser = useMutation({
     mutationFn: (id: string) => superAdminApi.unblockUser(id),
     onSuccess:  () => qc.invalidateQueries({ queryKey: ['sa-all-users'] }),
+  });
+
+  const inviteTenantAdmin = useMutation({
+    mutationFn: (data: { email: string; name: string; orgId?: string }) => superAdminApi.inviteTenantAdmin(data),
+    onSuccess:  () => {
+      setInviteSuccess(true);
+      qc.invalidateQueries({ queryKey: ['sa-all-users'] });
+      qc.invalidateQueries({ queryKey: ['sa-tenants'] });
+    },
+    onError: (err: unknown) => {
+      const e = err as Error & { message?: string };
+      setInviteError(e.message || 'Failed to send invitation');
+    },
   });
 
   // ── Computed ──────────────────────────────────────────────────────────────────
@@ -1317,15 +1344,16 @@ const SuperAdminPage: React.FC = () => {
     if (bugView === 'reports')      rows = rows.filter((r: any) => !r.reporter_reply);
     else if (bugView === 'replies') rows = rows.filter((r: any) => !!r.reporter_reply);
 
-    // 2. Sort
+    // 2. Client-side filters (status/severity/tenant/reporter done here so
+    //    KPI tiles always reflect the full unfiltered dataset)
+    if (bugStatus)   rows = rows.filter((r: any) => r.status   === bugStatus);
+    if (bugSeverity) rows = rows.filter((r: any) => r.severity === bugSeverity);
+    if (bugTenant)   rows = rows.filter((r: any) => r.tenant_id === bugTenant);
+    if (bugReporter) rows = rows.filter((r: any) => r.reporter_id === bugReporter);
+
+    // 3. Sort
     //    - 'replies' view: newest reply first (unseen still float higher within that)
     //    - 'all' / 'reports': newest report first by CREATEDTIME
-    //
-    //    NOTE: we used to sort by ROWID DESC assuming it was monotonic with
-    //    creation time. On this tenant ROWIDs are NOT strictly ordered with
-    //    inserts (probably because the project shares a ROWID pool across
-    //    tables and bug_reports inserts get non-sequential IDs). Sorting by
-    //    CREATEDTIME with ROWID as a tiebreaker reflects actual chronology.
     if (bugView === 'replies') {
       rows.sort((a: any, b: any) => {
         const aUnseen = !seenReplies.has(a.ROWID ?? a.id);
@@ -1341,7 +1369,7 @@ const SuperAdminPage: React.FC = () => {
       });
     }
 
-    // 3. Search filter
+    // 4. Text search
     if (bugSearch) {
       const q = bugSearch.toLowerCase();
       rows = rows.filter((r: any) =>
@@ -1351,7 +1379,7 @@ const SuperAdminPage: React.FC = () => {
       );
     }
     return rows;
-  }, [bugReports, bugSearch, seenReplies, bugView]);
+  }, [bugReports, bugSearch, bugStatus, bugSeverity, bugTenant, bugReporter, seenReplies, bugView]);
 
   const pagedBugs = filteredBugs.slice((bugPage - 1) * BUG_PAGE_SIZE, bugPage * BUG_PAGE_SIZE);
 
@@ -1366,14 +1394,25 @@ const SuperAdminPage: React.FC = () => {
   );
 
   // Reset to page 1 whenever filters / sub-view change so the new newest row is visible
-  useEffect(() => { setBugPage(1); }, [bugView, bugSearch, bugStatus, bugSeverity, bugTenant]);
+  useEffect(() => { setBugPage(1); }, [bugView, bugSearch, bugStatus, bugSeverity, bugTenant, bugReporter]);
 
   const uniqueBugTenants = useMemo(() =>
     Array.from(new Set((bugReports as any[]).map((r: any) => r.tenant_id).filter(Boolean)))
       .map(id => {
         const row = (bugReports as any[]).find((r: any) => r.tenant_id === id);
         return { id, name: row?.tenant_name ?? id };
-      }), [bugReports]);
+      })
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  [bugReports]);
+
+  const uniqueBugReporters = useMemo(() =>
+    Array.from(new Set((bugReports as any[]).map((r: any) => r.reporter_id).filter(Boolean)))
+      .map(id => {
+        const row = (bugReports as any[]).find((r: any) => r.reporter_id === id);
+        return { id, name: row?.reporter_name ?? id };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  [bugReports]);
 
   const currentTabLabel = NAV.find(n => n.id === activeTab)?.label ?? 'Platform Admin';
 
@@ -1576,7 +1615,12 @@ const SuperAdminPage: React.FC = () => {
                   <option value="">All Statuses</option>
                   <option>ACTIVE</option><option>BLOCKED</option><option>INACTIVE</option>
                 </select>
-                <span className="ml-auto text-xs text-gray-400">{(usersData as any[]).length} users</span>
+                <button
+                  onClick={() => { setShowInviteModal(true); setInviteName(''); setInviteEmail(''); setInviteError(null); setInviteSuccess(false); }}
+                  className="ml-auto flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors"
+                >
+                  <Plus size={14} /> Invite Tenant Admin
+                </button>
               </div>
 
               {/* Summary cards */}
@@ -2089,11 +2133,15 @@ const SuperAdminPage: React.FC = () => {
                   <option value="">All Organisations</option>
                   {uniqueBugTenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
-                {(bugSearch || bugStatus || bugSeverity || bugTenant) && (
-                  <button onClick={() => { setBugSearch(''); setBugStatus(''); setBugSeverity(''); setBugTenant(''); }}
+                <select value={bugReporter} onChange={e => setBugReporter(e.target.value)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:outline-none max-w-[160px]">
+                  <option value="">All Reporters</option>
+                  {uniqueBugReporters.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+                {(bugSearch || bugStatus || bugSeverity || bugTenant || bugReporter) && (
+                  <button onClick={() => { setBugSearch(''); setBugStatus(''); setBugSeverity(''); setBugTenant(''); setBugReporter(''); }}
                     className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700"><X size={12} /> Clear</button>
                 )}
-                <span className="ml-auto text-xs text-gray-400 font-medium">{filteredBugs.length} reports</span>
+                <span className="ml-auto text-xs text-gray-400 font-medium">{filteredBugs.length} of {(bugReports as any[]).length} reports</span>
               </div>
 
               {/* ── Error state ── */}
@@ -2445,6 +2493,120 @@ const SuperAdminPage: React.FC = () => {
 
       {lockTarget   && <LockModal   tenantId={lockTarget.id}   tenantName={lockTarget.name}   onClose={() => setLockTarget(null)}   />}
       {unlockTarget && <UnlockModal tenantId={unlockTarget.id} tenantName={unlockTarget.name} onClose={() => setUnlockTarget(null)} />}
+
+      {/* ── Invite Tenant Admin Modal ── */}
+      {showInviteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center">
+                  <Mail size={15} className="text-indigo-600" />
+                </div>
+                <h3 className="font-bold text-gray-900">Invite Tenant Admin</h3>
+              </div>
+              <button onClick={() => { setShowInviteModal(false); setInviteName(''); setInviteEmail(''); setInviteOrgId(''); setInviteError(null); setInviteSuccess(false); }} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100">
+                <X size={16} />
+              </button>
+            </div>
+
+            {inviteSuccess ? (
+              <div className="text-center py-6">
+                <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <Check size={22} className="text-emerald-600" />
+                </div>
+                <p className="font-semibold text-gray-800 mb-1">Invitation sent!</p>
+                <p className="text-sm text-gray-400 mb-5">
+                  <strong>{inviteName}</strong> will receive an email to join their organisation.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setInviteName(''); setInviteEmail(''); setInviteOrgId(''); setInviteError(null); setInviteSuccess(false); }}
+                    className="flex-1 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50"
+                  >
+                    Invite another
+                  </button>
+                  <button
+                    onClick={() => setShowInviteModal(false)}
+                    className="flex-1 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-gray-500 mb-5">
+                  The invited person will receive an email to create their account as an Organisation Administrator.
+                  {!inviteOrgId && <span className="text-indigo-600 font-medium"> They will be guided to set up their own organisation on first login.</span>}
+                </p>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Full name <span className="text-red-500">*</span></label>
+                    <input
+                      value={inviteName}
+                      onChange={e => setInviteName(e.target.value)}
+                      placeholder="Jane Smith"
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">Email address <span className="text-red-500">*</span></label>
+                    <input
+                      value={inviteEmail}
+                      onChange={e => setInviteEmail(e.target.value)}
+                      placeholder="jane@company.com"
+                      type="email"
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                      Organisation <span className="text-gray-400 font-normal">(optional — leave blank for self-setup)</span>
+                    </label>
+                    <select
+                      value={inviteOrgId}
+                      onChange={e => setInviteOrgId(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white"
+                    >
+                      <option value="">They will create their own organisation</option>
+                      {(allOrgsForInvite as any[]).filter((o: any) => o.status === 'ACTIVE').map((o: any) => (
+                        <option key={o.id} value={o.id}>{o.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {inviteError && (
+                  <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5 text-sm text-red-700">
+                    <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {inviteError}
+                  </div>
+                )}
+
+                <div className="flex gap-2 mt-6">
+                  <button onClick={() => { setShowInviteModal(false); setInviteName(''); setInviteEmail(''); setInviteOrgId(''); setInviteError(null); setInviteSuccess(false); }} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50">
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      setInviteError(null);
+                      inviteTenantAdmin.mutate({
+                        name: inviteName.trim(),
+                        email: inviteEmail.trim(),
+                        ...(inviteOrgId && { orgId: inviteOrgId }),
+                      });
+                    }}
+                    disabled={!inviteName.trim() || !inviteEmail.trim() || inviteTenantAdmin.isPending}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                  >
+                    {inviteTenantAdmin.isPending ? 'Sending…' : <><Mail size={13} /> Send Invitation</>}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

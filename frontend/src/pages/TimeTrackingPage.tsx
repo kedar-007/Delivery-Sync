@@ -25,9 +25,11 @@ import {
   useCreateTimeEntry, useUpdateTimeEntry, useDeleteTimeEntry,
   useSubmitTimeEntry, useRetractTimeEntry,
   useTimeApprovals, useApproveTime, useRejectTime,
+  useTeamMemberEntries,
 } from '../hooks/useTimeTracking';
 import { useProjects } from '../hooks/useProjects';
 import { useTasks } from '../hooks/useTaskSprint';
+import { useTeamPeers } from '../hooks/useTeams';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1579,9 +1581,261 @@ const ApprovalsTab = () => {
   );
 };
 
+// ── Team Time Log Tab ─────────────────────────────────────────────────────────
+
+type TeamDateMode = 'today' | 'yesterday' | 'custom';
+
+interface UserGroup {
+  userId: string;
+  userName: string;
+  userAvatarUrl: string;
+  totalHours: number;
+  billableHours: number;
+  entries: TimeEntry[];
+}
+
+const TeamTimeLogTab = () => {
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const yesterdayStr = format(subDays(new Date(), 1), 'yyyy-MM-dd');
+
+  const [dateMode, setDateMode] = useState<TeamDateMode>('today');
+  const [customFrom, setCustomFrom] = useState(todayStr);
+  const [customTo, setCustomTo]     = useState(todayStr);
+  const [selectedUserId, setSelectedUserId] = useState<string>('');
+
+  // Team peer list — used to populate the user selector
+  const { data: teamPeers = [] } = useTeamPeers();
+
+  const { dateFrom, dateTo } = useMemo(() => {
+    if (dateMode === 'today')     return { dateFrom: todayStr,     dateTo: todayStr };
+    if (dateMode === 'yesterday') return { dateFrom: yesterdayStr, dateTo: yesterdayStr };
+    return { dateFrom: customFrom, dateTo: customTo };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateMode, customFrom, customTo]);
+
+  const queryEnabled = Boolean(dateFrom && dateTo);
+  const queryParams = useMemo(() => {
+    if (!queryEnabled) return undefined;
+    const p: Record<string, string> = { date_from: dateFrom, date_to: dateTo };
+    if (selectedUserId) p.user_id = selectedUserId;
+    return p;
+  }, [queryEnabled, dateFrom, dateTo, selectedUserId]);
+
+  // Single fetch — backend team scope returns only this lead's team members' entries
+  const { data: result, isLoading, error } = useTeamMemberEntries(queryParams, queryEnabled);
+  const allEntries = (result?.data ?? []) as TimeEntry[];
+
+  // Group entries by user — maintain insertion order so backend sort is preserved
+  const userGroups = useMemo((): UserGroup[] => {
+    const map = new Map<string, UserGroup>();
+    for (const e of allEntries) {
+      const uid = String((e as any).userId ?? (e as any).user_id ?? '');
+      if (!map.has(uid)) {
+        map.set(uid, {
+          userId:        uid,
+          userName:      (e as any).userName      || (e as any).user_name      || 'Unknown',
+          userAvatarUrl: (e as any).userAvatarUrl || (e as any).user_avatar_url || '',
+          totalHours:    0,
+          billableHours: 0,
+          entries:       [],
+        });
+      }
+      const g = map.get(uid)!;
+      const hrs = parseFloat(String(e.hours)) || 0;
+      g.totalHours    += hrs;
+      if (e.isBillable) g.billableHours += hrs;
+      g.entries.push(e);
+    }
+    return Array.from(map.values()).sort((a, b) => a.userName.localeCompare(b.userName));
+  }, [allEntries]);
+
+  // Summary — derived from allEntries so no second request needed
+  const totalHours    = useMemo(() => Math.round(allEntries.reduce((s, e) => s + (parseFloat(String(e.hours)) || 0), 0) * 100) / 100, [allEntries]);
+  const billableHours = useMemo(() => Math.round(allEntries.filter((e) => e.isBillable).reduce((s, e) => s + (parseFloat(String(e.hours)) || 0), 0) * 100) / 100, [allEntries]);
+
+  const dateLabel = useMemo(() => {
+    if (dateMode === 'today')     return `Today — ${safeFormat(todayStr, 'EEEE, MMM d')}`;
+    if (dateMode === 'yesterday') return `Yesterday — ${safeFormat(yesterdayStr, 'EEEE, MMM d')}`;
+    if (dateFrom === dateTo)      return safeFormat(dateFrom, 'MMM d, yyyy');
+    return `${safeFormat(dateFrom, 'MMM d')} → ${safeFormat(dateTo, 'MMM d, yyyy')}`;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateMode, dateFrom, dateTo]);
+
+  return (
+    <div className="space-y-5">
+      {/* Date selector bar */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
+          {(['today', 'yesterday', 'custom'] as TeamDateMode[]).map((m, i) => (
+            <button
+              key={m}
+              onClick={() => setDateMode(m)}
+              className={`px-4 py-2 transition-colors capitalize ${
+                i > 0 ? 'border-l border-gray-200' : ''
+              } ${
+                dateMode === m
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-white text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              {m === 'today' ? 'Today' : m === 'yesterday' ? 'Yesterday' : 'Custom Range'}
+            </button>
+          ))}
+        </div>
+
+        {dateMode === 'custom' && (
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={customFrom}
+              max={customTo || todayStr}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              className="form-input text-xs py-1.5 px-2.5 h-8"
+            />
+            <span className="text-xs text-gray-400">→</span>
+            <input
+              type="date"
+              value={customTo}
+              min={customFrom}
+              max={todayStr}
+              onChange={(e) => setCustomTo(e.target.value)}
+              className="form-input text-xs py-1.5 px-2.5 h-8"
+            />
+          </div>
+        )}
+
+        {/* User filter */}
+        <div className="flex items-center gap-2">
+          <select
+            value={selectedUserId}
+            onChange={(e) => setSelectedUserId(e.target.value)}
+            className="form-select text-sm py-1.5 h-8 min-w-[160px]"
+          >
+            <option value="">All Members</option>
+            {(teamPeers as Array<{ id: string; name: string }>).map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          {selectedUserId && (
+            <button
+              onClick={() => setSelectedUserId('')}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+              title="Clear filter"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
+        {!isLoading && allEntries.length > 0 && (
+          <span className="ml-auto text-xs text-gray-400">
+            {userGroups.length} member{userGroups.length !== 1 ? 's' : ''} · {allEntries.length} entr{allEntries.length !== 1 ? 'ies' : 'y'}
+          </span>
+        )}
+      </div>
+
+      {/* Summary stat cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <StatCard label="Total Hours"    value={fmtH(totalHours)}           icon={<Clock size={18} className="text-indigo-500" />} />
+        <StatCard label="Billable Hours" value={fmtH(billableHours)}        icon={<DollarSign size={18} className="text-green-500" />} />
+        <StatCard label="Members Logged" value={String(userGroups.length)}  icon={<Users size={18} className="text-blue-500" />} />
+        <StatCard label="Entries Today"  value={String(allEntries.length)}  icon={<TrendingUp size={18} className="text-purple-500" />} />
+      </div>
+
+      {/* Per-member entry cards */}
+      {isLoading ? (
+        <SkeletonTable rows={6} />
+      ) : error ? (
+        <Alert type="error" message={(error as Error).message} />
+      ) : !queryEnabled ? (
+        <EmptyState icon={<CalendarDays size={36} />} title="Select a date range" description="Choose a period above to view your team's time logs." />
+      ) : userGroups.length === 0 ? (
+        <EmptyState
+          icon={<Clock size={36} />}
+          title="No entries logged"
+          description={`No team members have logged time for ${dateLabel}.`}
+        />
+      ) : (
+        <div className="space-y-3">
+          {userGroups.map((group) => (
+            <Card key={group.userId} padding={false}>
+              {/* Member header */}
+              <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-gray-50/60">
+                <div className="flex items-center gap-3">
+                  <UserAvatar name={group.userName} avatarUrl={group.userAvatarUrl} size="sm" />
+                  <span className="text-sm font-semibold text-gray-900">{group.userName}</span>
+                </div>
+                <div className="flex items-center gap-4 text-xs">
+                  <span className="text-gray-500">
+                    <span className="font-semibold text-gray-900">{fmtH(group.totalHours)}</span> total
+                  </span>
+                  {group.billableHours > 0 && (
+                    <span className="text-green-700">
+                      <span className="font-semibold">{fmtH(group.billableHours)}</span> billable
+                    </span>
+                  )}
+                  <span className="text-gray-400">
+                    {group.entries.length} entr{group.entries.length !== 1 ? 'ies' : 'y'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Entries table */}
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-50">
+                  <thead>
+                    <tr className="bg-white">
+                      {(dateFrom !== dateTo ? ['Date', 'Project', 'Task', 'Description', 'Hours', 'Billable', 'Status'] : ['Project', 'Task', 'Description', 'Hours', 'Billable', 'Status']).map((h) => (
+                        <th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {group.entries.map((e) => (
+                      <tr key={e.id} className="hover:bg-gray-50/50 transition-colors">
+                        {dateFrom !== dateTo && (
+                          <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">
+                            {safeFormat(e.date, 'EEE, MMM d')}
+                          </td>
+                        )}
+                        <td className="px-4 py-2.5 text-sm text-gray-700 max-w-[160px] truncate" title={e.projectName || e.projectId}>
+                          {e.projectName || e.projectId || '—'}
+                        </td>
+                        <td className="px-4 py-2.5 text-sm text-gray-500 max-w-[140px] truncate" title={e.taskName}>
+                          {e.taskName || '—'}
+                        </td>
+                        <td className="px-4 py-2.5 text-sm text-gray-600 max-w-[220px] truncate" title={(e as any).description}>
+                          {(e as any).description || '—'}
+                        </td>
+                        <td className="px-4 py-2.5 text-sm font-semibold text-gray-900 whitespace-nowrap">
+                          {fmtH(e.hours)}
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          {e.isBillable
+                            ? <CheckCircle2 size={14} className="text-green-500 mx-auto" />
+                            : <XCircle      size={14} className="text-gray-300 mx-auto" />}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <Badge variant={statusVariant(e.status)}>{statusLabel(e.status)}</Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type Tab = 'my-log' | 'this-week' | 'approvals';
+type Tab = 'my-log' | 'this-week' | 'team' | 'approvals';
 
 const TimeTrackingPage = () => {
   const { t } = useI18n();
@@ -1589,19 +1843,22 @@ const TimeTrackingPage = () => {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const [activeTab, setActiveTab] = useState<Tab>('my-log');
 
-  const isManager = hasPermission(user, PERMISSIONS.TIME_APPROVE);
+  const isManager     = hasPermission(user, PERMISSIONS.TIME_APPROVE);
+  const canTeamView   = hasPermission(user, PERMISSIONS.TIME_TEAM_VIEW)
+                     || hasPermission(user, PERMISSIONS.TIME_ANALYTICS);
 
   const { data: projects = [] } = useProjects();
   const { data: pendingApprovals = [] } = useTimeApprovals({ status: 'SUBMITTED' }, isManager);
   const pendingCount = (pendingApprovals as TimeApproval[]).length;
 
-  const tabs: Array<{ id: Tab; label: string; managerOnly?: boolean; badge?: number }> = [
-    { id: 'my-log', label: 'My Time Log' },
-    { id: 'this-week', label: 'Analytics' },
-    { id: 'approvals', label: 'Approvals', managerOnly: true, badge: pendingCount },
+  const tabs: Array<{ id: Tab; label: string; hidden?: boolean; badge?: number }> = [
+    { id: 'my-log',    label: 'My Time Log' },
+    { id: 'this-week', label: 'My Analytics' },
+    { id: 'team',      label: 'Team Logs',  hidden: !canTeamView },
+    { id: 'approvals', label: 'Approvals',  hidden: !isManager, badge: pendingCount },
   ];
 
-  const visibleTabs = tabs.filter((t) => !t.managerOnly || isManager);
+  const visibleTabs = tabs.filter((t) => !t.hidden);
 
   return (
     <Layout>
@@ -1634,8 +1891,9 @@ const TimeTrackingPage = () => {
         </div>
 
         {/* Tab content */}
-        {activeTab === 'my-log' && <MyTimeLogTab projects={projects as Array<{ id: string; name: string }>} />}
+        {activeTab === 'my-log'    && <MyTimeLogTab projects={projects as Array<{ id: string; name: string }>} />}
         {activeTab === 'this-week' && <AnalyticsTab projects={projects as Array<{ id: string; name: string }>} />}
+        {activeTab === 'team'      && canTeamView && <TeamTimeLogTab />}
         {activeTab === 'approvals' && isManager && <ApprovalsTab />}
       </div>
     </Layout>

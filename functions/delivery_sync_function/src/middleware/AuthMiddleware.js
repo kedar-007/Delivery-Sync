@@ -107,6 +107,30 @@ class AuthMiddleware {
         });
       }
 
+      // Invited TENANT_ADMIN with no org yet (tenant_id='0') — legacy safety fallback
+      if (
+        user.role === 'TENANT_ADMIN' &&
+        user.status === 'INVITED' &&
+        (!user.tenant_id || String(user.tenant_id) === '0')
+      ) {
+        return res.status(403).json({
+          success: false,
+          code: 'NEEDS_ORG_SETUP',
+          message: 'Please set up your organisation to continue.',
+        });
+      }
+
+      // INVITED user with a real org — auto-activate on first login
+      // Catalyst's invite link already verified the email; accepting the invite = active
+      if (user.status === 'INVITED' && user.tenant_id && String(user.tenant_id) !== '0') {
+        try {
+          await db.update(TABLES.USERS, { ROWID: String(user.ROWID), status: USER_STATUS.ACTIVE });
+          user.status = USER_STATUS.ACTIVE;
+        } catch (activateErr) {
+          console.warn('[AuthMiddleware] auto-activate failed:', activateErr.message);
+        }
+      }
+
       // ── 2b. Try the unified auth-context cache (1 cache call, replaces 6) ──
       //   Stores the fully-resolved req.currentUser + tenantId together. On a
       //   hit we skip all the tenant/role/permission lookups below.
@@ -157,6 +181,23 @@ class AuthMiddleware {
           } catch (_) {}
         }
       } catch (_) {}
+
+      // TENANT_ADMIN with a stale tenant_id (tenant was deleted) — treat as needing org setup.
+      // This prevents an infinite redirect loop: /org-setup shows the form, but setupOrganisation
+      // would reject with 'conflict' because tenant_id != '0'. Catching it here sends the
+      // correct NEEDS_ORG_SETUP signal so the frontend shows the creation form and the
+      // endpoint allows the user to create a fresh org.
+      if (
+        user.role === 'TENANT_ADMIN' &&
+        user.tenant_id && String(user.tenant_id) !== '0' &&
+        !tenantSlug
+      ) {
+        return res.status(403).json({
+          success: false,
+          code: 'NEEDS_ORG_SETUP',
+          message: 'Please set up your organisation to continue.',
+        });
+      }
 
       // If tenant is suspended or cancelled, block access and return lock details
       if (tenantStatus === 'SUSPENDED' || tenantStatus === 'CANCELLED') {

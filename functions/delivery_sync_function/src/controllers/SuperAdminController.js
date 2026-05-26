@@ -2,10 +2,45 @@
 
 const DataStoreService = require('../services/DataStoreService');
 const ResponseHelper   = require('../utils/ResponseHelper');
-const { TABLES }       = require('../utils/Constants');
+const CacheService     = require('../services/CacheService');
+const { TABLES, USER_STATUS } = require('../utils/Constants');
 
 // Catalyst ZCQL hard limit — never exceed this in any query
 const ZCQL_MAX = 200;
+
+// Catalyst role ID for TENANT_ADMIN (must match the Catalyst Console role config)
+const TENANT_ADMIN_ROLE_ID = process.env.ROLE_ID_TENANT_ADMIN || '17682000000989450';
+
+function buildTenantAdminInviteEmailHtml({ firstName, inviterName, orgName }) {
+  return `
+<div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0;">
+  <div style="background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);padding:32px 40px;">
+    <h1 style="color:#ffffff;margin:0;font-size:24px;font-weight:700;">You're invited to DSV OpsPulse</h1>
+    <p style="color:rgba(255,255,255,0.85);margin:8px 0 0;font-size:14px;">Join ${orgName} and start managing your team</p>
+  </div>
+  <div style="padding:32px 40px;">
+    <p style="color:#374151;font-size:15px;line-height:1.6;">Hi ${firstName},</p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;">
+      <strong>${inviterName}</strong> has invited you to join <strong>${orgName}</strong> on <strong>DSV OpsPulse</strong> as an Organisation Administrator.
+    </p>
+    <p style="color:#374151;font-size:15px;line-height:1.6;">
+      Once you accept this invitation, you'll be able to:
+    </p>
+    <ul style="color:#374151;font-size:15px;line-height:2;">
+      <li>Manage your organisation's team members</li>
+      <li>Manage projects, tasks, and more</li>
+      <li>Access reports and analytics</li>
+    </ul>
+    <div style="margin:28px 0;text-align:center;">
+      <a href="%LINK%" style="display:inline-block;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:600;font-size:15px;">Accept Invitation &amp; Get Started</a>
+    </div>
+    <p style="color:#6b7280;font-size:13px;">This link will guide you through creating your account. Your organisation is already set up and ready to go.</p>
+  </div>
+  <div style="padding:16px 40px;background:#f8fafc;border-top:1px solid #e2e8f0;">
+    <p style="color:#94a3b8;font-size:12px;margin:0;">DSV OpsPulse · Delivery &amp; Operations Platform</p>
+  </div>
+</div>`.trim();
+}
 
 // ── Platform modules catalogue (only modules that exist in the app) ───────────
 const ALL_MODULES = [
@@ -13,9 +48,9 @@ const ALL_MODULES = [
   { key: 'people',   label: 'People & HR',         icon: '👥', defaultEnabled: true  },
   { key: 'assets',   label: 'Asset Management',    icon: '🖥️', defaultEnabled: true  },
   { key: 'time',     label: 'Time Tracking',       icon: '⏱️', defaultEnabled: true  },
-  { key: 'reports',  label: 'Reports & Analytics', icon: '📊', defaultEnabled: true  },
-  { key: 'ai',       label: 'AI Insights',         icon: '🤖', defaultEnabled: true  },
-  { key: 'exec',     label: 'Executive Dashboard', icon: '📈', defaultEnabled: true  },
+  { key: 'reports',  label: 'Reports & Analytics', icon: '📊', defaultEnabled: false },
+  { key: 'ai',       label: 'AI Insights',         icon: '🤖', defaultEnabled: false },
+  { key: 'executive', label: 'Executive Dashboard', icon: '📈', defaultEnabled: true  },
 ];
 
 // ── AI Recommendation Engine ─────────────────────────────────────────────────
@@ -235,7 +270,9 @@ function parseTenant(t) {
  */
 class SuperAdminController {
   constructor(catalystApp) {
+    this.catalystApp = catalystApp;
     this.db = new DataStoreService(catalystApp);
+    this.auth = catalystApp.userManagement();
   }
 
   // ── Platform Stats ──────────────────────────────────────────────────────────
@@ -678,6 +715,12 @@ class SuperAdminController {
         performed_by: String(req.currentUser?.id || 'SUPER_ADMIN'),
       });
 
+      // Invalidate the AdminController module cache so users see the change immediately
+      try {
+        const cache = new CacheService(req.catalystApp);
+        await cache.invalidate(CacheService.key('modules', String(tenantId)));
+      } catch (_) {}
+
       return ResponseHelper.success(res, null, 'Module permissions updated');
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
@@ -1061,6 +1104,122 @@ class SuperAdminController {
         dailyActivity: Object.entries(daily).map(([date, count]) => ({ date, count })),
       });
     } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+  // ── Tenant Admin Invite ─────────────────────────────────────────────────────
+
+  /** POST /api/super-admin/invite-tenant-admin
+   *  Creates a Catalyst account for the new tenant admin and a DS user record
+   *  with tenant_id='0' (sentinel: no org yet). The user is directed to the
+   *  org-setup wizard on first login via the NEEDS_ORG_SETUP auth gate.
+   */
+  async inviteTenantAdmin(req, res) {
+    try {
+      const { email, name, orgId } = req.body;
+      if (!email || !name) {
+        return ResponseHelper.validationError(res, 'email and name are required');
+      }
+
+      // orgId is optional:
+      //   provided  → link user to existing org; they land on dashboard after first login
+      //   omitted   → tenant_id='0' sentinel; user sees org-setup wizard on first login
+      let tenantIdToUse = '0';
+      let orgName = null;
+
+      if (orgId) {
+        const orgRows = await this.db.query(
+          `SELECT ROWID, name FROM ${TABLES.TENANTS} WHERE ROWID = '${DataStoreService.escape(String(orgId))}' LIMIT 1`
+        );
+        if (!orgRows.length) {
+          return ResponseHelper.notFound(res, 'Organisation not found');
+        }
+        tenantIdToUse = String(orgId);
+        orgName = orgRows[0].name;
+      }
+
+      const emailLower = email.toLowerCase().trim();
+
+      // Prevent duplicate invite (any tenant)
+      const existing = await this.db.query(
+        `SELECT ROWID FROM ${TABLES.USERS} WHERE email = '${DataStoreService.escape(emailLower)}' LIMIT 1`
+      );
+      if (existing.length > 0) {
+        return ResponseHelper.conflict(res, 'A user with this email already exists in the platform');
+      }
+
+      const nameParts = name.trim().split(/\s+/);
+      const firstName = nameParts[0];
+      const lastName  = nameParts.slice(1).join(' ') || '';
+
+      // Get the super admin's Catalyst org_id — required by registerUser()
+      const currentCatalystUser = await this.auth.getCurrentUser();
+      const catalystOrgId = currentCatalystUser.org_id || '';
+      const inviterName = currentCatalystUser.first_name
+        ? `${currentCatalystUser.first_name} ${currentCatalystUser.last_name || ''}`.trim()
+        : 'the platform team';
+
+      const emailSubject = orgName
+        ? `${inviterName} invited you to join ${orgName} on DSV OpsPulse`
+        : `${inviterName} invited you to set up your organisation on DSV OpsPulse`;
+
+      const signupConfig = {
+        platform_type: 'web',
+        template_details: {
+          senders_mail: process.env.FROM_EMAIL || 'noreply@dsvopspulse.app',
+          subject: emailSubject,
+          message: buildTenantAdminInviteEmailHtml({ firstName, inviterName, orgName: orgName || 'DSV OpsPulse' }),
+        },
+        redirect_url: `${process.env.APP_BASE_URL || ''}`,
+      };
+
+      const userConfig = {
+        first_name: firstName,
+        last_name:  lastName,
+        email_id:   emailLower,
+        role_id:    TENANT_ADMIN_ROLE_ID,
+        org_id:     catalystOrgId,
+      };
+
+      const registeredUser = await this.auth.registerUser(signupConfig, userConfig);
+
+      const user = await this.db.insert(TABLES.USERS, {
+        tenant_id:        tenantIdToUse,
+        catalyst_user_id: registeredUser.user_details.user_id,
+        catalyst_org_id:  registeredUser.user_details.org_id || catalystOrgId,
+        email:            emailLower,
+        name:             name.trim(),
+        role:             'TENANT_ADMIN',
+        status:           USER_STATUS.INVITED,
+        invited_by:       String(req.currentUser?.id || 'SUPER_ADMIN'),
+      });
+
+      await this.db.insert(TABLES.AUDIT_LOGS, {
+        tenant_id:    tenantIdToUse,
+        entity_type:  'USER',
+        entity_id:    String(user.ROWID),
+        action:       'TENANT_ADMIN_INVITED',
+        new_value:    JSON.stringify({ email: emailLower, name: name.trim(), orgId: tenantIdToUse, orgName }),
+        performed_by: String(req.currentUser?.id || 'SUPER_ADMIN'),
+      });
+
+      const successMsg = orgName
+        ? `Invitation sent to ${emailLower} for organisation "${orgName}".`
+        : `Invitation sent to ${emailLower}. They'll receive an email to set up their organisation.`;
+
+      return ResponseHelper.created(res, {
+        user: {
+          id:      String(user.ROWID),
+          email:   emailLower,
+          name:    name.trim(),
+          role:    'TENANT_ADMIN',
+          status:  USER_STATUS.INVITED,
+          orgId:   tenantIdToUse,
+          orgName: orgName,
+        },
+      }, successMsg);
+    } catch (err) {
+      console.error('[SuperAdminController] inviteTenantAdmin error:', err.message);
       return ResponseHelper.serverError(res, err.message);
     }
   }

@@ -10,9 +10,10 @@ const router = express.Router();
 // Factory: new controller per request (gets fresh catalystApp)
 const ctrl = (req) => new AuthController(req.catalystApp);
 
-// Public – available before full user setup (register-tenant, accept-invite)
+// Public – available before full user setup (register-tenant, accept-invite, setup-org)
 router.post('/register-tenant', asyncHandler((req, res) => ctrl(req).registerTenant(req, res)));
-router.post('/accept-invite', asyncHandler((req, res) => ctrl(req).acceptInvite(req, res)));
+router.post('/accept-invite',   asyncHandler((req, res) => ctrl(req).acceptInvite(req, res)));
+router.post('/setup-org',       asyncHandler((req, res) => ctrl(req).setupOrganisation(req, res)));
 
 // Logout – clears Catalyst session cookies and redirects to the app login page.
 // We handle this ourselves because /__catalyst/auth/logout requires the redirect_uri

@@ -462,6 +462,40 @@ class AdminController {
   }
 
   /**
+   * PATCH /api/admin/tenant/name
+   * Updates the display name of the current tenant. TENANT_ADMIN only.
+   */
+  async updateTenantName(req, res) {
+    try {
+      const { tenantId, id: userId } = req.currentUser;
+      const { name } = req.body;
+      if (!name || !String(name).trim()) {
+        return ResponseHelper.validationError(res, 'name is required');
+      }
+      const trimmed = String(name).trim();
+
+      const rows = await this.db.query(
+        `SELECT ROWID FROM ${TABLES.TENANTS} WHERE ROWID = '${tenantId}' LIMIT 1`
+      );
+      if (rows.length === 0) return ResponseHelper.notFound(res, 'Tenant not found');
+
+      await this.db.update(TABLES.TENANTS, { ROWID: String(rows[0].ROWID), name: trimmed });
+
+      // Bust only the requesting user's auth cache so their sidebar updates immediately.
+      // Other users' caches expire within 5 minutes (TTL) naturally.
+      try {
+        const cache = new CacheService(req.catalystApp);
+        const AUTH_CTX_KEY_VERSION = 'v1';
+        await cache.invalidate(`authCtx:${AUTH_CTX_KEY_VERSION}:${String(userId)}`);
+      } catch (_) { /* non-fatal */ }
+
+      return ResponseHelper.success(res, { name: trimmed });
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
    * PATCH /api/admin/tenant/settings
    * Merges provided keys into tenants.settings JSON. TENANT_ADMIN only.
    */
@@ -747,8 +781,8 @@ class AdminController {
         { key: 'people',      label: 'People & HR',         defaultEnabled: true },
         { key: 'assets',      label: 'Asset Management',    defaultEnabled: true },
         { key: 'time',        label: 'Time Tracking',       defaultEnabled: true },
-        { key: 'reports',     label: 'Reports & Analytics', defaultEnabled: true },
-        { key: 'ai',          label: 'AI Insights',         defaultEnabled: true },
+        { key: 'reports',     label: 'Reports & Analytics', defaultEnabled: false },
+        { key: 'ai',          label: 'AI Insights',         defaultEnabled: false },
         { key: 'executive',   label: 'Executive Dashboard', defaultEnabled: true },
       ];
 

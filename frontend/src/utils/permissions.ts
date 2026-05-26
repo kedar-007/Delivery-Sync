@@ -39,10 +39,11 @@ export const PERMISSIONS = {
   SPRINT_READ:        'SPRINT_READ',
   SPRINT_WRITE:       'SPRINT_WRITE',
   // ── Time tracking ─────────────────────────────────────────────────────────
-  TIME_READ:      'TIME_READ',
-  TIME_WRITE:     'TIME_WRITE',
-  TIME_APPROVE:   'TIME_APPROVE',
-  TIME_ANALYTICS: 'TIME_ANALYTICS',
+  TIME_READ:       'TIME_READ',
+  TIME_WRITE:      'TIME_WRITE',
+  TIME_APPROVE:    'TIME_APPROVE',
+  TIME_ANALYTICS:  'TIME_ANALYTICS',
+  TIME_TEAM_VIEW:  'TIME_TEAM_VIEW',  // View team members' time logs (scoped to caller's teams)
   // ── People / HR ───────────────────────────────────────────────────────────
   ATTENDANCE_READ:      'ATTENDANCE_READ',
   ATTENDANCE_WRITE:     'ATTENDANCE_WRITE',
