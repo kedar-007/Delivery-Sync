@@ -195,6 +195,13 @@ class NotificationService {
   // ─── Shared Template Base ─────────────────────────────────────────────────────
 
   _base({ accentColor, preheader, headerTitle, headerSubtitle, body, ctaUrl, ctaLabel, footerNote = '' }) {
+    const APP_URL = (process.env.APP_URL || 'https://delivery-sync-60040289923.development.catalystserverless.in').replace(/\/$/, '');
+    const slug    = this.tenantSlug ? `/${String(this.tenantSlug).replace(/^\/+|\/+$/g, '')}` : '';
+    const fullCtaUrl = ctaUrl
+      ? (/^https?:\/\//.test(ctaUrl)
+          ? ctaUrl
+          : `${APP_URL}/app/#${slug}${ctaUrl.startsWith('/') ? '' : '/'}${ctaUrl}`)
+      : '';
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -229,7 +236,7 @@ class NotificationService {
             ${body}
             ${ctaUrl && ctaLabel ? `
             <div style="margin-top:28px;">
-              <a href="${ctaUrl}" style="display:inline-block;background:${accentColor};color:#ffffff;font-size:14px;font-weight:600;padding:13px 28px;border-radius:8px;text-decoration:none;letter-spacing:0.3px;">${ctaLabel}</a>
+              <a href="${fullCtaUrl}" style="display:inline-block;background:${accentColor};color:#ffffff;font-size:14px;font-weight:600;padding:13px 28px;border-radius:8px;text-decoration:none;letter-spacing:0.3px;">${ctaLabel}</a>
             </div>` : ''}
           </td>
         </tr>

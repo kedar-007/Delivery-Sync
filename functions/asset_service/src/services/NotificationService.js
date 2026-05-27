@@ -192,6 +192,19 @@ class NotificationService {
   // ─── Shared Template Base ─────────────────────────────────────────────────────
 
   _base({ accentColor, preheader, headerTitle, headerSubtitle, body, ctaUrl, ctaLabel, footerNote = '' }) {
+    // The SPA uses HashRouter under a `/app/` base and every route is nested
+    // under `/:tenantSlug`. The full URL shape is:
+    //   {APP_URL}/app/#/{tenantSlug}{ctaUrl}
+    // `this.tenantSlug` is set per-request by the controller before any email
+    // is dispatched. If it's missing we fall back to /app/#{ctaUrl} and the SPA
+    // can redirect to the caller's default tenant.
+    const APP_URL = (process.env.APP_URL || 'https://delivery-sync-60040289923.development.catalystserverless.in').replace(/\/$/, '');
+    const slug    = this.tenantSlug ? `/${String(this.tenantSlug).replace(/^\/+|\/+$/g, '')}` : '';
+    const fullCtaUrl = ctaUrl
+      ? (/^https?:\/\//.test(ctaUrl)
+          ? ctaUrl
+          : `${APP_URL}/app/#${slug}${ctaUrl.startsWith('/') ? '' : '/'}${ctaUrl}`)
+      : '';
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -226,7 +239,7 @@ class NotificationService {
             ${body}
             ${ctaUrl && ctaLabel ? `
             <div style="margin-top:28px;">
-              <a href="${ctaUrl}" style="display:inline-block;background:${accentColor};color:#ffffff;font-size:14px;font-weight:600;padding:13px 28px;border-radius:8px;text-decoration:none;letter-spacing:0.3px;">${ctaLabel}</a>
+              <a href="${fullCtaUrl}" style="display:inline-block;background:${accentColor};color:#ffffff;font-size:14px;font-weight:600;padding:13px 28px;border-radius:8px;text-decoration:none;letter-spacing:0.3px;">${ctaLabel}</a>
             </div>` : ''}
           </td>
         </tr>
@@ -573,7 +586,7 @@ class NotificationService {
     });
   }
 
-  _assetApprovedTemplate(name, approverName, categoryName, message) {
+  _assetApprovedTemplate(name, approverName, categoryName, message, requestId) {
     const body = `
       <p style="font-size:15px;color:#374151;margin:0 0 20px;">Hi <strong>${name}</strong>,</p>
       <p style="font-size:14px;color:#6b7280;margin:0 0 8px;">
@@ -595,11 +608,13 @@ class NotificationService {
       preheader: `${approverName} approved your asset request`,
       headerTitle: 'Asset Request Approved',
       headerSubtitle: `Category: ${categoryName}`,
-      body, ctaUrl: '/assets', ctaLabel: 'View Asset Requests',
+      body,
+      ctaUrl: requestId ? `/assets?requestId=${encodeURIComponent(requestId)}` : '/assets',
+      ctaLabel: 'View Asset Request',
     });
   }
 
-  _assetOpsAssignedTemplate(name, approverName, requesterName, categoryName, message) {
+  _assetOpsAssignedTemplate(name, approverName, requesterName, categoryName, message, requestId) {
     const body = `
       <p style="font-size:15px;color:#374151;margin:0 0 20px;">Hi <strong>${name}</strong>,</p>
       <p style="font-size:14px;color:#6b7280;margin:0 0 8px;">
@@ -621,11 +636,13 @@ class NotificationService {
       preheader: `Asset request assigned to you by ${approverName}`,
       headerTitle: 'Asset Request — Action Required',
       headerSubtitle: `Please process and hand over to ${requesterName}`,
-      body, ctaUrl: '/assets', ctaLabel: 'View Request',
+      body,
+      ctaUrl: requestId ? `/assets?requestId=${encodeURIComponent(requestId)}` : '/assets',
+      ctaLabel: 'View Request',
     });
   }
 
-  _assetHandoverTemplate(name, handoverName, assetName, deviceId, deviceUsername, devicePassword, notes) {
+  _assetHandoverTemplate(name, handoverName, assetName, deviceId, deviceUsername, devicePassword, notes, requestId) {
     const credRows = [];
     if (deviceId)       credRows.push(['Device ID',       deviceId]);
     if (deviceUsername) credRows.push(['Username / Login', deviceUsername]);
@@ -655,11 +672,13 @@ class NotificationService {
       preheader: `Your asset "${assetName}" is ready for pickup`,
       headerTitle: 'Asset Ready for Pickup',
       headerSubtitle: `Processed by: ${handoverName}`,
-      body, ctaUrl: '/assets', ctaLabel: 'View My Assets',
+      body,
+      ctaUrl: requestId ? `/assets?requestId=${encodeURIComponent(requestId)}` : '/assets',
+      ctaLabel: 'View My Assets',
     });
   }
 
-  _assetHandoverManagerTemplate(name, handoverName, requesterName, assetName, notes) {
+  _assetHandoverManagerTemplate(name, handoverName, requesterName, assetName, notes, requestId) {
     const body = `
       <p style="font-size:15px;color:#374151;margin:0 0 20px;">Hi <strong>${name}</strong>,</p>
       <p style="font-size:14px;color:#6b7280;margin:0 0 8px;">
@@ -680,7 +699,9 @@ class NotificationService {
       preheader: `Asset "${assetName}" handed over to ${requesterName}`,
       headerTitle: 'Asset Handover Complete',
       headerSubtitle: `${assetName} → ${requesterName}`,
-      body, ctaUrl: '/assets', ctaLabel: 'View Asset Requests',
+      body,
+      ctaUrl: requestId ? `/assets?requestId=${encodeURIComponent(requestId)}` : '/assets',
+      ctaLabel: 'View Asset Requests',
     });
   }
 

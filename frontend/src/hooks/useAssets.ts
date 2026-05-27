@@ -36,6 +36,7 @@ const normaliseAsset = (r: any) => ({
   expectedReturnDate:  r.expected_return_date ?? r.expectedReturnDate ?? null,
   categoryName:        r.category_name       ?? r.categoryName       ?? null,
   requestId:           r.request_id          ?? r.requestId          ?? null,
+  qrToken:             r.qr_token            ?? r.qrToken            ?? null,
   // Underlying asset_request status — used by the My Assets tab to show
   // "Return Requested" when the user has already initiated a return.
   requestStatus:       r.request_status      ?? r.requestStatus      ?? null,

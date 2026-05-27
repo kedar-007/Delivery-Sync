@@ -96,6 +96,11 @@ export const PERMISSIONS = {
   // ── Executive dashboards ──────────────────────────────────────────────────
   CEO_DASHBOARD: 'CEO_DASHBOARD',
   CTO_DASHBOARD: 'CTO_DASHBOARD',
+  // ── Cross-project data visibility ─────────────────────────────────────────
+  // Grants read access to milestones, blockers, and tasks/backlog across ALL
+  // projects regardless of membership. Not assigned to any default role — must
+  // be explicitly granted via org roles or per-user overrides (e.g. PMO, exec).
+  PROJECT_DATA_VIEW_ALL: 'PROJECT_DATA_VIEW_ALL',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

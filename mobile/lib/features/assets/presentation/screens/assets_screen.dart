@@ -38,6 +38,22 @@ final assetRequestsProvider = FutureProvider.autoDispose<List<dynamic>>((ref) as
   return [];
 });
 
+// Requests this caller has personally approved. Server-side filter via
+// `?mode=approved` (AssetRequestController.list) — bypasses the default
+// own + reportees + ops-queue scoping so the approver can audit their
+// approvals even if the requester is no longer a direct report.
+final approvedRequestsProvider = FutureProvider.autoDispose<List<dynamic>>((ref) async {
+  final raw = await ApiClient.instance.get<Map<String, dynamic>>(
+    '${AppConstants.baseAssets}/requests',
+    queryParameters: const {'mode': 'approved'},
+    fromJson: (r) => r as Map<String, dynamic>,
+  );
+  final d = raw['data'];
+  if (d is List) return d;
+  if (d is Map) return d['requests'] as List? ?? [];
+  return [];
+});
+
 final assetCategoriesProvider = FutureProvider.autoDispose<List<dynamic>>((ref) async {
   final raw = await ApiClient.instance.get<Map<String, dynamic>>(
     '${AppConstants.baseAssets}/categories',
@@ -62,11 +78,15 @@ class AssetsScreen extends ConsumerStatefulWidget {
 
 class _AssetsScreenState extends ConsumerState<AssetsScreen>
     with SingleTickerProviderStateMixin {
-  late final _tabCtrl = TabController(length: 2, vsync: this);
+  TabController? _tabCtrl;
+  // Tracks the tab-count used to build the current controller; when the
+  // user's permissions change (e.g. an admin grants ASSET_APPROVE mid-session)
+  // we rebuild the controller so the third tab can appear.
+  int _tabCount = 0;
 
   @override
   void dispose() {
-    _tabCtrl.dispose();
+    _tabCtrl?.dispose();
     super.dispose();
   }
 
@@ -74,11 +94,26 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen>
   Widget build(BuildContext context) {
     final ds = context.ds;
     final user = ref.watch(currentUserProvider);
+    final perms = user?.permissions ?? const <String>[];
+    final isAdmin = user?.role == 'TENANT_ADMIN' || user?.role == 'SUPER_ADMIN';
     // Anyone with asset read access can scan a sticker; the backend decides
     // the response tier from ASSET_SCAN_FULL. Matches the web gate.
-    final canScan = (user?.permissions.contains('ASSET_READ') ?? false) ||
-        (user?.permissions.contains('ASSET_SCAN_FULL') ?? false) ||
-        (user?.permissions.contains('ASSET_SCAN_BASIC') ?? false);
+    final canScan = perms.contains('ASSET_READ')
+        || perms.contains('ASSET_SCAN_FULL')
+        || perms.contains('ASSET_SCAN_BASIC');
+    // Approvers (and any system admin) get a third tab listing the requests
+    // they have personally approved, fetched via /requests?mode=approved.
+    final canApprove = isAdmin
+        || perms.contains('ASSET_APPROVE')
+        || perms.contains('ASSET_ADMIN');
+
+    final desiredCount = canApprove ? 3 : 2;
+    if (_tabCtrl == null || _tabCount != desiredCount) {
+      _tabCtrl?.dispose();
+      _tabCtrl  = TabController(length: desiredCount, vsync: this);
+      _tabCount = desiredCount;
+    }
+
     return Scaffold(
       backgroundColor: ds.bgPage,
       appBar: AppBar(
@@ -99,9 +134,10 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen>
         ],
         bottom: TabBar(
           controller: _tabCtrl,
-          tabs: const [
-            Tab(text: 'My Assets'),
-            Tab(text: 'Requests'),
+          tabs: [
+            const Tab(text: 'My Assets'),
+            const Tab(text: 'Requests'),
+            if (canApprove) const Tab(text: 'Approved'),
           ],
         ),
       ),
@@ -117,6 +153,7 @@ class _AssetsScreenState extends ConsumerState<AssetsScreen>
         children: [
           _MyAssetsTab(),
           _RequestsTab(),
+          if (canApprove) _ApprovedRequestsTab(),
         ],
       ),
     );
@@ -299,6 +336,7 @@ class _AssetCard extends StatelessWidget {
     final condition          = asset['conditionAtAssignment'] as String? ?? asset['condition_at_assignment'] as String?;
     final notes              = asset['assignmentNotes'] as String? ?? asset['assignment_notes'] as String?;
     final expectedReturn     = asset['expectedReturnDate'] as String? ?? asset['expected_return_date'] as String?;
+    final qrToken            = asset['qrToken'] as String? ?? asset['qr_token'] as String?;
 
     final givenByName   = handoverByName ?? assignedByName;
     final givenByAvatar = handoverByName != null ? null : assignedByAvatar;
@@ -475,6 +513,27 @@ class _AssetCard extends StatelessWidget {
                     ),
                   ),
                 ],
+
+                if (qrToken != null && qrToken.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => showAssetQrSheet(
+                        context, qrToken,
+                        assetTag: tag, assetName: name,
+                      ),
+                      icon: const Icon(Icons.qr_code_2_rounded, size: 16),
+                      label: const Text('Show QR'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primaryLight,
+                        side: BorderSide(color: AppColors.primaryLight.withOpacity(0.4)),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -622,6 +681,39 @@ class _RequestsTab extends ConsumerWidget {
   }
 }
 
+// Approver-only tab: lists requests the current user has personally approved.
+// Reuses `_RequestTile` so the QR sheet works identically — the approver
+// taps a HANDED_OVER tile and the same printable QR appears.
+class _ApprovedRequestsTab extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ds       = context.ds;
+    final requests = ref.watch(approvedRequestsProvider);
+
+    return RefreshIndicator(
+      onRefresh: () async => ref.invalidate(approvedRequestsProvider),
+      color: AppColors.primaryLight,
+      child: requests.when(
+        data: (list) => list.isEmpty
+            ? Center(child: Text('You have not approved any requests yet',
+                style: TextStyle(color: ds.textMuted)))
+            : ListView.builder(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+                itemCount: list.length,
+                itemBuilder: (_, i) => _RequestTile(list[i] as Map<String, dynamic>),
+              ),
+        loading: () => ListView(
+          padding: const EdgeInsets.all(16),
+          children: List.generate(3, (_) => const ShimmerCard(height: 80)),
+        ),
+        error: (e, _) => Center(
+          child: Text('$e', style: const TextStyle(color: AppColors.error)),
+        ),
+      ),
+    );
+  }
+}
+
 class _RequestTile extends StatelessWidget {
   const _RequestTile(this.request);
   final Map<String, dynamic> request;
@@ -710,57 +802,7 @@ class _RequestTile extends StatelessWidget {
   }
 
   void _showQrSheet(BuildContext context, String token, String? assetTag) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: context.ds.bgCard,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetCtx) {
-        final ds = sheetCtx.ds;
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Container(width: 36, height: 4, decoration: BoxDecoration(
-                color: ds.border, borderRadius: BorderRadius.circular(2),
-              )),
-              const SizedBox(height: 16),
-              const Text('Asset QR Sticker',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 4),
-              Text(
-                'Print and stick this on the device. The token rotates automatically on return.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: ds.textMuted),
-              ),
-              const SizedBox(height: 18),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: ds.border),
-                ),
-                child: QrImageView(
-                  data: 'dsync://asset-scan/$token',
-                  size: 220,
-                  version: QrVersions.auto,
-                  errorCorrectionLevel: QrErrorCorrectLevel.M,
-                ),
-              ),
-              if (assetTag != null && assetTag.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Text(assetTag,
-                    style: TextStyle(fontSize: 12, color: ds.textMuted, fontFamily: 'monospace')),
-              ],
-            ],
-          ),
-        );
-      },
-    );
+    showAssetQrSheet(context, token, assetTag: assetTag);
   }
 
   static (Color, String) _statusInfo(String s) => switch (s) {
@@ -775,4 +817,75 @@ class _RequestTile extends StatelessWidget {
     'CANCELLED'       => (AppColors.textMuted,     'Cancelled'),
     _                 => (AppColors.ragAmber,      'Pending'),
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Asset QR bottom sheet — shared by the Requests tile and the My-Assets card.
+// ─────────────────────────────────────────────────────────────────────────────
+
+void showAssetQrSheet(
+  BuildContext context,
+  String token, {
+  String? assetTag,
+  String? assetName,
+}) {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: context.ds.bgCard,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (sheetCtx) {
+      final ds = sheetCtx.ds;
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 36, height: 4,
+              decoration: BoxDecoration(
+                color: ds.border, borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Asset QR Sticker',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 4),
+            Text(
+              'Print and stick this on the device. Authorised users scan it to look up asset details.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: ds.textMuted),
+            ),
+            const SizedBox(height: 18),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: ds.border),
+              ),
+              child: QrImageView(
+                data: 'dsync://asset-scan/$token',
+                size: 220,
+                version: QrVersions.auto,
+                errorCorrectionLevel: QrErrorCorrectLevel.M,
+              ),
+            ),
+            if (assetName != null && assetName.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(assetName,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            ],
+            if (assetTag != null && assetTag.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(assetTag,
+                  style: TextStyle(fontSize: 12, color: ds.textMuted, fontFamily: 'monospace')),
+            ],
+          ],
+        ),
+      );
+    },
+  );
 }

@@ -41,11 +41,19 @@ class RBACMiddleware {
     return async (req, res, next) => {
       const user = req.currentUser;
       if (!user) return ResponseHelper.unauthorized(res);
+      // Also bypass for users explicitly granted cross-project data visibility.
+      const hasViewAll = Array.isArray(user.permissions) &&
+        user.permissions.includes('PROJECT_DATA_VIEW_ALL');
       if (user.role === 'TENANT_ADMIN' || user.role === 'PMO' || user.role === 'EXEC'
-          || user.dataScope === 'ORG_WIDE' || user.dataScope === 'SUBORDINATES') {
+          || user.dataScope === 'ORG_WIDE' || user.dataScope === 'SUBORDINATES'
+          || hasViewAll) {
         return next();
       }
-      const projectId = req.params.projectId || req.body.project_id || req.query.projectId;
+      const projectId =
+        req.params.projectId ||
+        req.body.project_id ||
+        req.query.projectId ||
+        req.query.project_id;
       if (!projectId) return next();
       try {
         const db = new DataStoreService(req.catalystApp);

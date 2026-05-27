@@ -176,7 +176,7 @@ class AssetController {
     // Active assignments for these assets
     const [assignments, categories] = await Promise.all([
       this.db.query(
-        `SELECT ROWID, asset_id, user_id, assigned_by, request_id, assigned_date, expected_return_date, condition_at_assignment, assignment_notes
+        `SELECT ROWID, asset_id, user_id, assigned_by, request_id, assigned_date, expected_return_date, condition_at_assignment, assignment_notes, qr_token
          FROM ${TABLES.ASSET_ASSIGNMENTS}
          WHERE asset_id IN (${assetIds.map((id) => `'${id}'`).join(',')})
            AND is_active = 'true'
@@ -260,6 +260,10 @@ class AssetController {
         request_status:        req_.status      ?? null,
         return_at:             req_.return_at   ?? null,
         return_reason:         req_.return_reason ?? null,
+        // Surface the per-assignment QR token so the user can re-print the
+        // sticker from the My Assets card. Token is set on handover; nulled
+        // when the assignment is closed (return verified).
+        qr_token:              asgn.qr_token    ?? null,
       };
     });
 

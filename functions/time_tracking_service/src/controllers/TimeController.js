@@ -335,6 +335,8 @@ class TimeController {
                     hoursLabel,
                     dateLabel,
                     description:   description || '',
+                    timeEntryId:   String(row.ROWID),
+                    tenantSlug:    req.currentUser?.tenantSlug || '',
                   }),
                 });
                 await this.notif.sendInApp({ tenantId, userId: approverId, title: 'Time Approval Needed', message: `${userName} submitted ${hoursLabel} on ${dateLabel} for approval`, type: NOTIFICATION_TYPE.TIME_APPROVAL_NEEDED, entityType: 'TIME_ENTRY', entityId: String(row.ROWID) });
@@ -444,6 +446,8 @@ class TimeController {
               hoursLabel,
               dateLabel,
               description:   entry.description || '',
+              timeEntryId:   String(req.params.entryId),
+              tenantSlug:    req.currentUser?.tenantSlug || '',
             }),
           });
           await this.notif.sendInApp({ tenantId: req.tenantId, userId: approverId, title: 'Time Approval Needed', message: `${req.currentUser.name} submitted ${hoursLabel} on ${dateLabel} for approval`, type: NOTIFICATION_TYPE.TIME_APPROVAL_NEEDED, entityType: 'TIME_ENTRY', entityId: req.params.entryId });
@@ -793,7 +797,18 @@ function _escapeHtml(s) {
 // Polished email sent TO the approver when someone submits a time entry that
 // needs their review. Structured greeting, summary table, clear call to
 // action, and a brand signature — matches the rest of the OpsPulse mail look.
-function _pendingApprovalEmailHtml({ approverName, submitterName, hoursLabel, dateLabel, description }) {
+function _pendingApprovalEmailHtml({ approverName, submitterName, hoursLabel, dateLabel, description, timeEntryId, tenantSlug }) {
+  // Resolve the env-specific app URL; falls back to the dev origin so the
+  // function still renders something usable when APP_URL isn't configured.
+  const APP_URL = (process.env.APP_URL || 'https://delivery-sync-60040289923.development.catalystserverless.in').replace(/\/$/, '');
+  // Deep link: /app/#/<tenantSlug>/time-tracking?approvalId=<id>. The page
+  // can read the param and scroll/open the Approvals tab to that row.
+  const slug    = tenantSlug ? `/${String(tenantSlug).replace(/^\/+|\/+$/g, '')}` : '';
+  const route   = timeEntryId
+    ? `/time-tracking?approvalId=${encodeURIComponent(timeEntryId)}`
+    : `/time-tracking`;
+  const ctaUrl  = `${APP_URL}/app/#${slug}${route}`;
+
   return `
   <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1f2937;">
     <p style="margin:0 0 16px;font-size:15px;">Hi ${_escapeHtml(approverName || 'there')},</p>
@@ -822,10 +837,13 @@ function _pendingApprovalEmailHtml({ approverName, submitterName, hoursLabel, da
       </tr>` : ''}
     </table>
 
-    <div style="background:#eef2ff;border-left:4px solid #4f46e5;border-radius:0 8px 8px 0;padding:12px 14px;margin-bottom:20px;">
-      <p style="margin:0;font-size:13px;color:#312e81;line-height:1.5;">
-        Open <strong>DSV OpsPulse → Time Tracking → Approvals</strong> to review and approve or reject this entry.
-      </p>
+    <div style="text-align:center;margin:24px 0 16px;">
+      <a href="${ctaUrl}" style="display:inline-block;background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);color:#ffffff;font-size:14px;font-weight:600;padding:12px 28px;border-radius:8px;text-decoration:none;letter-spacing:0.2px;">
+        Review &amp; Approve &nbsp;&rarr;
+      </a>
+      <div style="font-size:11px;color:#9ca3af;margin-top:8px;">
+        Or paste this link:&nbsp;<a href="${ctaUrl}" style="color:#4f46e5;text-decoration:none;word-break:break-all;">${ctaUrl}</a>
+      </div>
     </div>
 
     <p style="margin:24px 0 4px;font-size:13px;color:#374151;">Regards,</p>

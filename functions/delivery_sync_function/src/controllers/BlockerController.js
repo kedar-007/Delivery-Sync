@@ -75,11 +75,34 @@ class BlockerController {
    */
   async listBlockers(req, res) {
     try {
-      const { tenantId } = req.currentUser;
+      const { tenantId, id: userId, role, dataScope } = req.currentUser;
       const { projectId, status, severity, page, pageSize } = req.query;
 
+      const hasOrgWide = role === 'TENANT_ADMIN' || role === 'SUPER_ADMIN'
+        || dataScope === 'ORG_WIDE' || dataScope === 'SUBORDINATES';
+      const hasViewAll = Array.isArray(req.currentUser.permissions) &&
+        req.currentUser.permissions.includes('PROJECT_DATA_VIEW_ALL');
+      const canViewAllProjects = hasOrgWide || hasViewAll;
+
       const conditions = [];
-      if (projectId) conditions.push(`project_id = '${DataStoreService.escape(projectId)}'`);
+
+      if (projectId) {
+        // Specific project requested — middleware already checked membership.
+        conditions.push(`project_id = '${DataStoreService.escape(projectId)}'`);
+      } else if (!canViewAllProjects) {
+        // No project filter: restrict to projects the caller is a member of.
+        const memberships = await this.db.findAll(
+          TABLES.PROJECT_MEMBERS,
+          { tenant_id: tenantId, user_id: userId },
+          { limit: 200 }
+        );
+        if (memberships.length === 0) {
+          return ResponseHelper.success(res, { blockers: [], total: 0, page: 1, pageSize: 20, totalPages: 1 });
+        }
+        const pids = memberships.map((m) => `'${m.project_id}'`).join(',');
+        conditions.push(`project_id IN (${pids})`);
+      }
+
       if (status) conditions.push(`status = '${DataStoreService.escape(status)}'`);
       if (severity) conditions.push(`severity = '${DataStoreService.escape(severity)}'`);
 

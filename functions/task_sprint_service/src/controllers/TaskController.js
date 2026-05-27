@@ -45,8 +45,14 @@ class TaskController {
 
       let tasks = await this.db.findWhere(TABLES.TASKS, tenantId, where, { orderBy: 'CREATEDTIME DESC', limit: 200 });
 
-      // TEAM_MEMBER: filter in JS so LIKE on JSON text is not needed
-      if (role === 'TEAM_MEMBER') {
+      // PROJECT_DATA_VIEW_ALL holders see all project tasks without JS restriction.
+      const hasViewAll = Array.isArray(req.currentUser.permissions) &&
+        req.currentUser.permissions.includes('PROJECT_DATA_VIEW_ALL');
+
+      // TEAM_MEMBER: filter in JS so LIKE on JSON text is not needed.
+      // Skipped when the user holds PROJECT_DATA_VIEW_ALL — they should see all
+      // tasks in the requested project even if not the creator or assignee.
+      if (role === 'TEAM_MEMBER' && !hasViewAll) {
         tasks = tasks.filter(t => {
           if (String(t.created_by) === userId) return true;
           try { return JSON.parse(t.assignee_ids || '[]').map(String).includes(userId); }
@@ -116,11 +122,33 @@ class TaskController {
 
   // POST /api/ts/tasks
   async create(req, res) {
+    this.notif.tenantSlug = req.currentUser?.tenantSlug || '';
     const { project_id, sprint_id, parent_task_id, title, description, type, priority,
       assignee_id, assignee_ids, story_points, estimated_hours, due_date,
       labels, custom_fields, status } = req.body;
     const tenantId = req.tenantId;
     const userId = req.currentUser.id;
+    const role = req.currentUser.role;
+
+    // project_id is mandatory — backlog and sprint tasks must belong to a project.
+    if (!project_id || String(project_id) === '0') {
+      return ResponseHelper.validationError(res, 'project_id is required');
+    }
+
+    // Non-admin users can only create tasks in projects they are a member of.
+    const isOrgAdmin = role === 'TENANT_ADMIN' || role === 'SUPER_ADMIN';
+    const hasOrgWide = req.currentUser.dataScope === 'ORG_WIDE' || req.currentUser.dataScope === 'SUBORDINATES';
+    if (!isOrgAdmin && !hasOrgWide) {
+      const membership = await this.db.query(
+        `SELECT ROWID FROM ${TABLES.PROJECT_MEMBERS} ` +
+        `WHERE tenant_id = '${tenantId}' ` +
+        `AND project_id = '${DataStoreService.escape(String(project_id))}' ` +
+        `AND user_id = '${userId}' LIMIT 1`
+      );
+      if (membership.length === 0) {
+        return ResponseHelper.forbidden(res, 'You are not a member of this project');
+      }
+    }
 
     if (!title) return ResponseHelper.validationError(res, 'title is required');
     // Defence in depth — the frontend already marks Due Date as mandatory, but
@@ -209,6 +237,7 @@ class TaskController {
             dueDate:     due_date || '',
             projectName,
             assignedBy:  creatorName,
+            taskId:      row.ROWID,
           });
           await this.notif.sendInApp({ tenantId, userId: assigneeId, title: 'Task Assigned', message: `"${title}" has been assigned to you`, type: NOTIFICATION_TYPE.TASK_ASSIGNED, entityType: 'TASK', entityId: row.ROWID });
         }
@@ -452,9 +481,26 @@ class TaskController {
   async getBacklog(req, res) {
     const { project_id } = req.query;
     if (!project_id) return ResponseHelper.validationError(res, 'project_id is required');
-    const tasks = await this.db.findWhere(TABLES.TASKS, req.tenantId,
+
+    const userId     = req.currentUser.id;
+    const role       = req.currentUser.role;
+    const hasViewAll = Array.isArray(req.currentUser.permissions) &&
+      req.currentUser.permissions.includes('PROJECT_DATA_VIEW_ALL');
+
+    let tasks = await this.db.findWhere(TABLES.TASKS, req.tenantId,
       `project_id = '${DataStoreService.escape(project_id)}' AND sprint_id = 0 AND parent_task_id = 0 AND status != 'DONE' AND status != 'CANCELLED'`,
       { orderBy: 'CREATEDTIME DESC', limit: 200 });
+
+    // TEAM_MEMBER: restrict to tasks they created or are assigned to.
+    // PROJECT_DATA_VIEW_ALL holders bypass this — they see the full backlog.
+    if (role === 'TEAM_MEMBER' && !hasViewAll) {
+      tasks = tasks.filter((t) => {
+        if (String(t.created_by) === userId) return true;
+        try { return JSON.parse(t.assignee_ids || '[]').map(String).includes(userId); }
+        catch { return false; }
+      });
+    }
+
     return ResponseHelper.success(res, tasks);
   }
 

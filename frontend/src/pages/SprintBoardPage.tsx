@@ -33,6 +33,7 @@ import EmptyState from '../components/ui/EmptyState';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import UserAvatar from '../components/ui/UserAvatar';
 import MarkdownText from '../components/ui/MarkdownText';
+import { useConfirm } from '../components/ui/ConfirmDialog';
 import {
   useSprints,
   useSprintBoard,
@@ -115,25 +116,25 @@ const fmtH = (h: number | string): string => {
 };
 
 const COLUMNS: { key: TaskStatus; label: string; color: string; bg: string }[] = [
-  { key: 'TODO',        label: 'To Do',       color: 'text-slate-500',  bg: 'bg-slate-50' },
-  { key: 'IN_PROGRESS', label: 'In Progress', color: 'text-blue-600',   bg: 'bg-blue-50' },
-  { key: 'IN_REVIEW',   label: 'In Review',   color: 'text-amber-600',  bg: 'bg-amber-50' },
-  { key: 'DONE',        label: 'Done',        color: 'text-emerald-600', bg: 'bg-emerald-50' },
+  { key: 'TODO', label: 'To Do', color: 'text-slate-500', bg: 'bg-slate-50' },
+  { key: 'IN_PROGRESS', label: 'In Progress', color: 'text-blue-600', bg: 'bg-blue-50' },
+  { key: 'IN_REVIEW', label: 'In Review', color: 'text-amber-600', bg: 'bg-amber-50' },
+  { key: 'DONE', label: 'Done', color: 'text-emerald-600', bg: 'bg-emerald-50' },
 ];
 
 const PRIORITY_CONFIG: Record<TaskPriority, { label: string; color: string; icon: string }> = {
-  CRITICAL: { label: 'Critical', color: 'text-red-600 bg-red-50 border-red-200',    icon: '🔴' },
-  HIGH:     { label: 'High',     color: 'text-orange-600 bg-orange-50 border-orange-200', icon: '🟠' },
-  MEDIUM:   { label: 'Medium',   color: 'text-yellow-600 bg-yellow-50 border-yellow-200', icon: '🟡' },
-  LOW:      { label: 'Low',      color: 'text-green-600 bg-green-50 border-green-200',   icon: '🟢' },
+  CRITICAL: { label: 'Critical', color: 'text-red-600 bg-red-50 border-red-200', icon: '🔴' },
+  HIGH: { label: 'High', color: 'text-orange-600 bg-orange-50 border-orange-200', icon: '🟠' },
+  MEDIUM: { label: 'Medium', color: 'text-yellow-600 bg-yellow-50 border-yellow-200', icon: '🟡' },
+  LOW: { label: 'Low', color: 'text-green-600 bg-green-50 border-green-200', icon: '🟢' },
 };
 
 const TYPE_CONFIG: Record<TaskType, { label: string; color: string }> = {
-  TASK:    { label: 'Task',    color: 'bg-blue-100 text-blue-700' },
-  STORY:   { label: 'Story',   color: 'bg-purple-100 text-purple-700' },
-  BUG:     { label: 'Bug',     color: 'bg-red-100 text-red-700' },
-  SUBTASK: { label: 'Subtask', color: 'bg-gray-100 text-gray-700' },
-  EPIC:    { label: 'Epic',    color: 'bg-indigo-100 text-indigo-700' },
+  TASK: { label: 'Task', color: 'bg-blue-100 text-blue-700' },
+  STORY: { label: 'Story', color: 'bg-purple-100 text-purple-700' },
+  BUG: { label: 'Bug', color: 'bg-red-100 text-red-700' },
+  SUBTASK: { label: 'Subtask', color: 'bg-ds-border text-ds-text' },
+  EPIC: { label: 'Epic', color: 'bg-indigo-100 text-indigo-700' },
 };
 
 // ── Multi-user Avatar Stack ───────────────────────────────────────────────────
@@ -154,7 +155,7 @@ function AvatarStack({ userIds, users, max = 3 }: { userIds: string[]; users: un
         );
       })}
       {overflow > 0 && (
-        <div className="w-6 h-6 rounded-full ring-2 ring-white bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-600">
+        <div className="w-6 h-6 rounded-full ring-2 ring-white bg-gray-200 flex items-center justify-center text-[10px] font-bold text-ds-text-muted">
           +{overflow}
         </div>
       )}
@@ -181,7 +182,7 @@ function TaskCard({ task, users, onOpen, isDragOverlay = false }: {
       {...(isDragOverlay ? {} : { ...listeners, ...attributes })}
       onClick={() => onOpen(task)}
       className={[
-        'bg-white rounded-xl border p-3 cursor-pointer group select-none',
+        'bg-ds-surface rounded-xl border border-ds-border p-3 cursor-pointer group select-none',
         'hover:shadow-md hover:border-indigo-200 transition-all duration-150',
         isDragging ? 'opacity-30' : '',
         isDragOverlay ? 'shadow-2xl rotate-2 border-indigo-300 scale-105' : 'shadow-sm',
@@ -194,13 +195,13 @@ function TaskCard({ task, users, onOpen, isDragOverlay = false }: {
       </div>
 
       {/* Title */}
-      <p className="text-sm font-medium text-gray-900 line-clamp-2 mb-2">{task.title}</p>
+      <p className="text-sm font-medium text-ds-text line-clamp-2 mb-2">{task.title}</p>
 
       {/* Labels */}
       {(task.labels ?? []).length > 0 && (
         <div className="flex flex-wrap gap-1 mb-2">
           {(task.labels ?? []).slice(0, 3).map((l) => (
-            <span key={l} className="text-[10px] bg-gray-100 text-gray-600 rounded px-1.5 py-0.5">{l}</span>
+            <span key={l} className="text-[10px] bg-ds-border text-ds-text-muted rounded px-1.5 py-0.5">{l}</span>
           ))}
         </div>
       )}
@@ -217,7 +218,7 @@ function TaskCard({ task, users, onOpen, isDragOverlay = false }: {
             </span>
           )}
           {task.dueDate && !isOverdue && task.status !== 'DONE' && (
-            <span className="text-[10px] text-gray-400 flex items-center gap-0.5">
+            <span className="text-[10px] text-ds-text-muted flex items-center gap-0.5">
               <Calendar size={9} />{format(parseISO(task.dueDate), 'MMM d')}
             </span>
           )}
@@ -227,8 +228,8 @@ function TaskCard({ task, users, onOpen, isDragOverlay = false }: {
         ) : task.assigneeId ? (
           <AvatarStack userIds={[task.assigneeId]} users={users} />
         ) : (
-          <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center">
-            <User size={10} className="text-gray-400" />
+          <div className="w-5 h-5 rounded-full bg-ds-border flex items-center justify-center">
+            <User size={10} className="text-ds-text-muted" />
           </div>
         )}
       </div>
@@ -279,7 +280,7 @@ function KanbanColumn({ col, tasks, users, onAddTask, onOpenTask, canAddTask = t
           <TaskCard key={task.id} task={task} users={users} onOpen={onOpenTask} />
         ))}
         {tasks.length === 0 && (
-          <div className="flex items-center justify-center h-24 rounded-lg border-2 border-dashed border-gray-200 text-gray-400 text-xs">
+          <div className="flex items-center justify-center h-24 rounded-lg border-2 border-dashed border-ds-border text-ds-text-muted text-xs">
             Drop tasks here
           </div>
         )}
@@ -325,7 +326,7 @@ function MultiUserSelect({ value, onChange, users, label }: {
         className="form-input min-h-[38px] cursor-pointer flex flex-wrap gap-1 items-center"
         onClick={() => setOpen((v) => !v)}
       >
-        {value.length === 0 && <span className="text-gray-400 text-sm">Select assignees…</span>}
+        {value.length === 0 && <span className="text-ds-text-muted text-sm">Select assignees…</span>}
         {value.map((id) => {
           const u = getUser(id);
           const name = u?.name ?? u?.email ?? id;
@@ -341,10 +342,10 @@ function MultiUserSelect({ value, onChange, users, label }: {
         })}
       </div>
       {open && (
-        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-xl max-h-56 overflow-auto">
-          <div className="p-2 border-b sticky top-0 bg-white">
+        <div className="absolute z-50 mt-1 w-full bg-ds-surface border border-ds-border rounded-xl shadow-xl max-h-56 overflow-auto">
+          <div className="p-2 border-b border-ds-border sticky top-0 bg-ds-surface">
             <input
-              className="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-indigo-300"
+              className="w-full text-sm border border-ds-border rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-indigo-300"
               placeholder="Search users…"
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -352,7 +353,7 @@ function MultiUserSelect({ value, onChange, users, label }: {
               autoFocus
             />
           </div>
-          {filtered.length === 0 && <p className="text-xs text-gray-400 text-center py-3">No users found</p>}
+          {filtered.length === 0 && <p className="text-xs text-ds-text-muted text-center py-3">No users found</p>}
           {filtered.map((u: any) => {
             const uid = String(u.id ?? u.ROWID);
             const checked = value.includes(uid);
@@ -371,7 +372,7 @@ function MultiUserSelect({ value, onChange, users, label }: {
                 </div>
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-gray-800 truncate">{name}</div>
-                  {u.email && u.name && <div className="text-[10px] text-gray-400 truncate">{u.email}</div>}
+                  {u.email && u.name && <div className="text-[10px] text-ds-text-muted truncate">{u.email}</div>}
                 </div>
               </div>
             );
@@ -415,18 +416,19 @@ interface TaskForm {
 export default function SprintBoardPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const { user } = useAuth();
+  const { confirm } = useConfirm();
   // Split per-capability flags so the right permission gates the right control.
   // The old single `isAdmin` (gated everything on SPRINT_WRITE) was over-broad —
   // it was hiding the task-create flow from users who only had TASK_WRITE, and
   // exposing the time-approval toggle to people who didn't have TIME_APPROVE.
-  const isTenantAdmin     = user?.role === 'TENANT_ADMIN';
-  const canManageSprint   = isTenantAdmin || hasPermission(user, PERMISSIONS.SPRINT_WRITE);    // new / start / complete sprint
-  const canCreateTask     = isTenantAdmin || hasPermission(user, PERMISSIONS.TASK_WRITE);      // + Add Task buttons + delete
+  const isTenantAdmin = user?.role === 'TENANT_ADMIN';
+  const canManageSprint = isTenantAdmin || hasPermission(user, PERMISSIONS.SPRINT_WRITE);    // new / start / complete sprint
+  const canCreateTask = isTenantAdmin || hasPermission(user, PERMISSIONS.TASK_WRITE);      // + Add Task buttons + delete
   const canConfigureApproval = isTenantAdmin || hasPermission(user, PERMISSIONS.TIME_APPROVE); // require-time-entry-approval toggle
   const canAssignToOthers = isTenantAdmin || hasPermission(user, PERMISSIONS.TASK_ASSIGN);
   // Kept for backwards compat with any remaining `isAdmin` reference; aliased
   // to canManageSprint since those are the truly sprint-gated controls.
-  const isAdmin           = canManageSprint;
+  const isAdmin = canManageSprint;
 
   const [activeSprint, setActiveSprint] = useState<Sprint | null>(null);
   const [activeTask, setActiveTask] = useState<Task | null>(null);       // dragging
@@ -534,7 +536,7 @@ export default function SprintBoardPage() {
     if (!timerRunning || !timerStart) return;
     const iv = setInterval(() => {
       const s = Math.floor((Date.now() - timerStart) / 1000);
-      setTimerDisplay(`${String(Math.floor(s / 3600)).padStart(2,'0')}:${String(Math.floor((s % 3600) / 60)).padStart(2,'0')}:${String(s % 60).padStart(2,'0')}`);
+      setTimerDisplay(`${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`);
     }, 1000);
     return () => clearInterval(iv);
   }, [timerRunning, timerStart]);
@@ -587,7 +589,7 @@ export default function SprintBoardPage() {
     }
   };
 
-  const handleDragEnd = (e: DragEndEvent) => {
+  const handleDragEnd = async (e: DragEndEvent) => {
     setActiveTask(null);
     const { active, over } = e;
     if (!over || !activeSprint) return;
@@ -611,15 +613,26 @@ export default function SprintBoardPage() {
       toStatus = found;
     }
 
-    // Find current task status
+    // Find current task status + the moved task itself (for the confirm copy)
     let fromStatus: TaskStatus | undefined;
+    let movedTask: Task | undefined;
     for (const col of COLUMNS) {
-      if ((boardData[col.key] ?? []).find((t) => t.id === String(active.id))) {
-        fromStatus = col.key;
-        break;
-      }
+      const hit = (boardData[col.key] ?? []).find((t) => t.id === String(active.id));
+      if (hit) { fromStatus = col.key; movedTask = hit; break; }
     }
     if (!fromStatus || fromStatus === toStatus) return;
+
+    // Confirm before mutating — moves are not undoable on the board side.
+    const fromLabel = COLUMNS.find((c) => c.key === fromStatus)?.label ?? fromStatus;
+    const toLabel = COLUMNS.find((c) => c.key === toStatus)?.label ?? toStatus;
+    const ok = await confirm({
+      title: 'Move task?',
+      message: `Move "${movedTask?.title ?? 'this task'}" from ${fromLabel} → ${toLabel}? This can't be undone from the board — you'd have to drag it back manually.`,
+      confirmText: `Move to ${toLabel}`,
+      cancelText: 'Cancel',
+      variant: 'warning',
+    });
+    if (!ok) return;
     updateStatus.mutate({ id: String(active.id), data: { status: toStatus } });
   };
 
@@ -676,15 +689,15 @@ export default function SprintBoardPage() {
     setLogTimePending(true);
     try {
       await timeEntriesApi.create({
-        project_id:       detailTask.projectId ?? projectId,
-        task_id:          detailTask.id,
-        entry_date:       logTimeDate,
-        hours:            parseHoursInput(logTimeHours),
-        description:      logTimeDesc || detailTask.title,
-        is_billable:      logTimeBillable,
+        project_id: detailTask.projectId ?? projectId,
+        task_id: detailTask.id,
+        entry_date: logTimeDate,
+        hours: parseHoursInput(logTimeHours),
+        description: logTimeDesc || detailTask.title,
+        is_billable: logTimeBillable,
         require_approval: (detailTask as any).requireApproval === true ? 'true' : 'false',
         ...(logTimeStartTime ? { start_time: logTimeStartTime } : {}),
-        ...(logTimeEndTime   ? { end_time:   logTimeEndTime   } : {}),
+        ...(logTimeEndTime ? { end_time: logTimeEndTime } : {}),
       });
       setLogTimeHours(''); setLogTimeDesc('');
       setLogTimeStartTime(''); setLogTimeEndTime('');
@@ -693,7 +706,7 @@ export default function SprintBoardPage() {
         setTimeEntriesLoading(true);
         timeEntriesApi.list({ task_id: taskDetailId })
           .then((d: unknown) => setTaskTimeEntries(Array.isArray(d) ? d : []))
-          .catch(() => {}).finally(() => setTimeEntriesLoading(false));
+          .catch(() => { }).finally(() => setTimeEntriesLoading(false));
       }
     } finally {
       setLogTimePending(false);
@@ -710,7 +723,7 @@ export default function SprintBoardPage() {
         setTimeEntriesLoading(true);
         timeEntriesApi.list({ task_id: taskDetailId })
           .then((d: unknown) => setTaskTimeEntries(Array.isArray(d) ? d : []))
-          .catch(() => {}).finally(() => setTimeEntriesLoading(false));
+          .catch(() => { }).finally(() => setTimeEntriesLoading(false));
       }
     } catch (err: any) {
       const msg = err?.response?.data?.message ?? err?.message ?? 'Failed to submit entry';
@@ -777,17 +790,17 @@ export default function SprintBoardPage() {
     if (detailTab !== 'ai' || !taskDetailId || !detailTask || aiInsight !== null) return;
     setAiLoading(true);
     aiApi.taskInsight({
-      title:       detailTask.title,
+      title: detailTask.title,
       description: (detailTask as any).description || '',
-      status:      detailTask.status,
-      priority:    detailTask.priority,
-      dueDate:     detailTask.dueDate || undefined,
-      taskId:      detailTask.id,
+      status: detailTask.status,
+      priority: detailTask.priority,
+      dueDate: detailTask.dueDate || undefined,
+      taskId: detailTask.id,
     })
       .then((r: any) => setAiInsight(r?.data?.insight ?? r?.insight ?? 'Insights ready.'))
       .catch(() => setAiInsight('Unable to generate AI insights at this time.'))
       .finally(() => setAiLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detailTab, taskDetailId, detailTask, aiInsight]);
 
   // Edit task form
@@ -872,10 +885,10 @@ export default function SprintBoardPage() {
 
       <div className="flex h-[calc(100vh-130px)] overflow-hidden">
         {/* ── Sprint Sidebar ───────────────────────────────────────────────── */}
-        <div className={`flex-shrink-0 transition-all duration-200 ${sidebarCollapsed ? 'w-12' : 'w-64'} bg-white border-r border-gray-100 flex flex-col overflow-hidden`}>
-          <div className="flex items-center justify-between px-3 py-3 border-b border-gray-100">
-            {!sidebarCollapsed && <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Sprints</span>}
-            <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} className="p-1 rounded hover:bg-gray-100 text-gray-400">
+        <div className={`flex-shrink-0 transition-all duration-200 ${sidebarCollapsed ? 'w-12' : 'w-64'} bg-ds-surface border-r border-ds-border flex flex-col overflow-hidden`}>
+          <div className="flex items-center justify-between px-3 py-3 border-b border-ds-border">
+            {!sidebarCollapsed && <span className="text-xs font-semibold text-ds-text-muted uppercase tracking-wider">Sprints</span>}
+            <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} className="p-1 rounded hover:bg-ds-border text-ds-text-muted">
               {sidebarCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
             </button>
           </div>
@@ -883,14 +896,14 @@ export default function SprintBoardPage() {
           {!sidebarCollapsed && (
             <div className="flex-1 overflow-y-auto py-2 px-2 space-y-1">
               {sprintList.length === 0 ? (
-                <div className="text-center py-6 text-gray-400 text-xs">No sprints yet</div>
+                <div className="text-center py-6 text-ds-text-muted text-xs">No sprints yet</div>
               ) : (
                 sprintList.map((sprint) => {
                   const isActive = activeSprint?.id === sprint.id;
                   const statusColors: Record<string, string> = {
                     PLANNING: 'bg-slate-100 text-slate-600',
-                    ACTIVE:   'bg-green-100 text-green-700',
-                    COMPLETED:'bg-gray-100 text-gray-500',
+                    ACTIVE: 'bg-green-100 text-green-700',
+                    COMPLETED: 'bg-ds-border text-ds-text-muted',
                   };
                   return (
                     <button
@@ -898,11 +911,11 @@ export default function SprintBoardPage() {
                       onClick={() => setActiveSprint(sprint)}
                       className={[
                         'w-full text-left px-3 py-2.5 rounded-xl transition-all',
-                        isActive ? 'bg-indigo-50 border border-indigo-200' : 'hover:bg-gray-50',
+                        isActive ? 'bg-indigo-50 border border-indigo-200' : 'hover:bg-ds-surface-hover',
                       ].join(' ')}
                     >
                       <div className="flex items-center justify-between mb-1">
-                        <span className={`text-xs font-medium truncate ${isActive ? 'text-indigo-700' : 'text-gray-700'}`}>
+                        <span className={`text-xs font-medium truncate ${isActive ? 'text-indigo-700' : 'text-ds-text'}`}>
                           {sprint.name}
                         </span>
                         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ml-1 ${statusColors[sprint.status] ?? statusColors.PLANNING}`}>
@@ -910,13 +923,13 @@ export default function SprintBoardPage() {
                         </span>
                       </div>
                       {sprint.startDate && (
-                        <div className="text-[10px] text-gray-400">
+                        <div className="text-[10px] text-ds-text-muted">
                           {format(parseISO(sprint.startDate), 'MMM d')} →{' '}
                           {sprint.endDate ? format(parseISO(sprint.endDate), 'MMM d') : '?'}
                         </div>
                       )}
                       {sprint.goal && (
-                        <p className="text-[10px] text-gray-500 line-clamp-1 mt-0.5">{sprint.goal}</p>
+                        <p className="text-[10px] text-ds-text-muted line-clamp-1 mt-0.5">{sprint.goal}</p>
                       )}
                     </button>
                   );
@@ -927,8 +940,8 @@ export default function SprintBoardPage() {
 
           {/* Sprint stats */}
           {!sidebarCollapsed && activeSprint && (
-            <div className="border-t border-gray-100 px-3 py-3 bg-gray-50/50">
-              <div className="text-[10px] text-gray-500 font-medium mb-2">SPRINT PROGRESS</div>
+            <div className="border-t border-ds-border px-3 py-3 bg-ds-surface-hover/50">
+              <div className="text-[10px] text-ds-text-muted font-medium mb-2">SPRINT PROGRESS</div>
               <div className="flex items-center gap-2 mb-1.5">
                 <div className="flex-1 bg-gray-200 rounded-full h-1.5">
                   <div
@@ -936,10 +949,10 @@ export default function SprintBoardPage() {
                     style={{ width: totalCount > 0 ? `${(doneCount / totalCount) * 100}%` : '0%' }}
                   />
                 </div>
-                <span className="text-[10px] text-gray-500">{doneCount}/{totalCount}</span>
+                <span className="text-[10px] text-ds-text-muted">{doneCount}/{totalCount}</span>
               </div>
               {activeSprint.endDate && (
-                <div className="text-[10px] text-gray-400">
+                <div className="text-[10px] text-ds-text-muted">
                   {differenceInDays(parseISO(activeSprint.endDate), new Date())} days left
                 </div>
               )}
@@ -948,22 +961,22 @@ export default function SprintBoardPage() {
         </div>
 
         {/* ── Board Area ────────────────────────────────────────────────────── */}
-        <div className="flex-1 flex flex-col overflow-hidden bg-gray-50">
+        <div className="flex-1 flex flex-col overflow-hidden bg-ds-surface-hover">
           {/* Toolbar */}
-          <div className="flex items-center gap-3 px-5 py-3 bg-white border-b border-gray-100 flex-shrink-0">
+          <div className="flex items-center gap-3 px-5 py-3 bg-ds-surface border-b border-ds-border flex-shrink-0">
             <div className="relative flex-1 max-w-xs">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ds-text-muted" />
               <input
-                className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none"
+                className="w-full pl-8 pr-3 py-1.5 text-sm border border-ds-border rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none"
                 placeholder="Search tasks…"
                 value={searchQ}
                 onChange={(e) => setSearchQ(e.target.value)}
               />
             </div>
             <div className="flex items-center gap-2">
-              <Filter size={14} className="text-gray-400" />
+              <Filter size={14} className="text-ds-text-muted" />
               <select
-                className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-indigo-200"
+                className="text-sm border border-ds-border rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-indigo-200"
                 value={filterPriority}
                 onChange={(e) => setFilterPriority(e.target.value)}
               >
@@ -974,7 +987,7 @@ export default function SprintBoardPage() {
                 <option value="LOW">Low</option>
               </select>
               <select
-                className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-indigo-200"
+                className="text-sm border border-ds-border rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-indigo-200"
                 value={filterType}
                 onChange={(e) => setFilterType(e.target.value)}
               >
@@ -1001,9 +1014,9 @@ export default function SprintBoardPage() {
 
           {/* Kanban */}
           {!activeSprint ? (
-            <EmptyState title="No sprint selected" description="Select or create a sprint from the sidebar" icon={<GitBranch size={32} className="text-gray-300" />} />
+            <EmptyState title="No sprint selected" description="Select or create a sprint from the sidebar" icon={<GitBranch size={32} className="text-ds-border" />} />
           ) : boardLoading ? (
-            <div className="flex-1 flex items-center justify-center text-gray-400">Loading board…</div>
+            <div className="flex-1 flex items-center justify-center text-ds-text-muted">Loading board…</div>
           ) : (
             <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
               <div className="flex-1 overflow-x-auto">
@@ -1023,7 +1036,7 @@ export default function SprintBoardPage() {
               </div>
               <DragOverlay>
                 {activeTask && (
-                  <TaskCard task={activeTask} users={users} onOpen={() => {}} isDragOverlay />
+                  <TaskCard task={activeTask} users={users} onOpen={() => { }} isDragOverlay />
                 )}
               </DragOverlay>
             </DndContext>
@@ -1153,14 +1166,14 @@ export default function SprintBoardPage() {
           ) : (
             <div>
               <label className="form-label">Assignees</label>
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-500">
-                <User size={13} className="text-gray-400" />
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-ds-border bg-ds-surface-hover text-sm text-ds-text-muted">
+                <User size={13} className="text-ds-text-muted" />
                 <span>Assigned to you — contact your lead to reassign</span>
               </div>
             </div>
           )}
           <div>
-            <label className="form-label">Labels <span className="text-gray-400 font-normal">(comma separated)</span></label>
+            <label className="form-label">Labels <span className="text-ds-text-muted font-normal">(comma separated)</span></label>
             <input className="form-input" placeholder="frontend, urgent, blocked" {...taskForm.register('labels')} />
           </div>
           <div>
@@ -1208,18 +1221,18 @@ export default function SprintBoardPage() {
         {detailTask && (
           <div className="-mt-2">
             {/* ── Header ── */}
-            <div className="flex items-start gap-3 mb-5 pb-4 border-b border-gray-100">
-              <span className={`mt-1 text-[11px] px-2 py-0.5 rounded-md font-semibold shrink-0 ${TYPE_CONFIG[detailTask.type]?.color ?? 'bg-gray-100 text-gray-700'}`}>
+            <div className="flex items-start gap-3 mb-5 pb-4 border-b border-ds-border">
+              <span className={`mt-1 text-[11px] px-2 py-0.5 rounded-md font-semibold shrink-0 ${TYPE_CONFIG[detailTask.type]?.color ?? 'bg-ds-border text-ds-text'}`}>
                 {TYPE_CONFIG[detailTask.type]?.label}
               </span>
               <div className="flex-1 min-w-0">
-                <h2 className="text-xl font-bold text-gray-900 leading-snug mb-2">{detailTask.title}</h2>
+                <h2 className="text-xl font-bold text-ds-text leading-snug mb-2">{detailTask.title}</h2>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${PRIORITY_CONFIG[detailTask.priority]?.color ?? ''}`}>
                     {PRIORITY_CONFIG[detailTask.priority]?.icon} {PRIORITY_CONFIG[detailTask.priority]?.label}
                   </span>
                   {detailTask.dueDate && (
-                    <span className={`text-xs flex items-center gap-1 font-medium ${isPast(parseISO(detailTask.dueDate)) && detailTask.status !== 'DONE' ? 'text-red-600' : 'text-gray-500'}`}>
+                    <span className={`text-xs flex items-center gap-1 font-medium ${isPast(parseISO(detailTask.dueDate)) && detailTask.status !== 'DONE' ? 'text-red-600' : 'text-ds-text-muted'}`}>
                       <Calendar size={11} /> {format(parseISO(detailTask.dueDate), 'MMM d, yyyy')}
                     </span>
                   )}
@@ -1244,7 +1257,7 @@ export default function SprintBoardPage() {
                 )}
                 <button
                   onClick={() => { setTaskDetailId(null); setCommentText(''); setDetailTab('activity'); setAiInsight(null); }}
-                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors ml-1"
+                  className="p-1.5 rounded-lg text-ds-text-muted hover:text-ds-text hover:bg-ds-border transition-colors ml-1"
                 >
                   <X size={18} />
                 </button>
@@ -1257,36 +1270,36 @@ export default function SprintBoardPage() {
               <div className="flex-1 min-w-0 space-y-5">
 
                 {/* Description */}
-                <div className="bg-gray-50 rounded-xl p-4">
-                  <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Description</div>
+                <div className="bg-ds-surface-hover rounded-xl p-4">
+                  <div className="text-[11px] font-bold text-ds-text-muted uppercase tracking-wider mb-2">Description</div>
                   {(detailTask as any).description
-                    ? <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{(detailTask as any).description}</p>
-                    : <p className="text-sm text-gray-400 italic">No description provided.</p>}
+                    ? <p className="text-sm text-ds-text whitespace-pre-wrap leading-relaxed">{(detailTask as any).description}</p>
+                    : <p className="text-sm text-ds-text-muted italic">No description provided.</p>}
                 </div>
 
                 {/* Assignees — user profile cards */}
                 <div>
-                  <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <div className="text-[11px] font-bold text-ds-text-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
                     <Users size={11} /> Assigned To
                   </div>
                   {((fullTask as any)?.assigneeIds?.length ?? detailTask.assigneeIds?.length ?? 0) > 0 ? (
                     <div className="grid grid-cols-2 gap-2">
                       {((fullTask as any)?.assigneeIds ?? detailTask.assigneeIds ?? []).map((uid: string) => {
                         const u = (users as any[]).find((x: any) => String(x.id ?? x.ROWID) === String(uid));
-                        const name  = u?.name  ?? 'Unknown';
+                        const name = u?.name ?? 'Unknown';
                         const email = u?.email ?? '';
-                        const role  = u?.role  ?? '';
+                        const role = u?.role ?? '';
                         const avatar = u?.avatarUrl ?? '';
                         return (
-                          <div key={uid} className="flex items-center gap-2.5 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-100 rounded-xl px-3 py-2.5">
+                          <div key={uid} className="flex items-center gap-2.5 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-gray-800 dark:to-gray-900 border border-indigo-100 rounded-xl px-3 py-2.5">
                             <div className="w-9 h-9 rounded-xl bg-indigo-200 flex items-center justify-center text-sm font-bold text-indigo-800 shrink-0 overflow-hidden">
                               {avatar
                                 ? <img src={avatar} alt={name} className="w-9 h-9 object-cover rounded-xl" />
                                 : name[0]?.toUpperCase()}
                             </div>
                             <div className="min-w-0">
-                              <div className="text-xs font-bold text-gray-800 truncate">{name}</div>
-                              {email && <div className="text-[10px] text-gray-500 truncate">{email}</div>}
+                              <div className="text-xs font-bold text-gray-800 dark:text-white truncate">{name}</div>
+                              {email && <div className="text-[10px] text-ds-text-muted truncate">{email}</div>}
                               {role && <div className="text-[10px] text-indigo-500 font-medium">{role.replace(/_/g, ' ')}</div>}
                             </div>
                           </div>
@@ -1294,8 +1307,8 @@ export default function SprintBoardPage() {
                       })}
                     </div>
                   ) : (
-                    <div className="flex items-center gap-2 text-xs text-gray-400 bg-gray-50 rounded-xl px-3 py-2.5">
-                      <User size={13} className="text-gray-300" /> No one assigned yet
+                    <div className="flex items-center gap-2 text-xs text-ds-text-muted bg-ds-surface-hover rounded-xl px-3 py-2.5">
+                      <User size={13} className="text-ds-border" /> No one assigned yet
                     </div>
                   )}
                 </div>
@@ -1303,19 +1316,19 @@ export default function SprintBoardPage() {
                 {/* Attachments */}
                 {((fullTask as any)?.attachments?.length ?? 0) > 0 && (
                   <div>
-                    <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <div className="text-[11px] font-bold text-ds-text-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
                       <Paperclip size={11} /> Attachments
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       {((fullTask as any).attachments as any[]).map((a: any) => (
                         <a key={a.ROWID ?? a.id ?? a.file_url} href={a.file_url} target="_blank" rel="noopener noreferrer"
-                          className="flex items-center gap-2.5 text-xs bg-white border border-gray-200 rounded-xl px-3 py-2.5 hover:border-indigo-300 hover:bg-indigo-50 transition-all group">
+                          className="flex items-center gap-2.5 text-xs bg-ds-surface border border-ds-border rounded-xl px-3 py-2.5 hover:border-indigo-300 hover:bg-indigo-50 transition-all group">
                           <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0">
                             <Paperclip size={13} className="text-indigo-500" />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="truncate font-semibold text-gray-700 group-hover:text-indigo-600">{a.file_name}</div>
-                            <div className="text-[10px] text-gray-400 mt-0.5">{a.file_size_kb ? `${a.file_size_kb} KB` : 'File'}</div>
+                            <div className="truncate font-semibold text-ds-text group-hover:text-indigo-600">{a.file_name}</div>
+                            <div className="text-[10px] text-ds-text-muted mt-0.5">{a.file_size_kb ? `${a.file_size_kb} KB` : 'File'}</div>
                           </div>
                         </a>
                       ))}
@@ -1325,10 +1338,10 @@ export default function SprintBoardPage() {
 
                 {/* ── Tabs: Activity | Time Logs | AI ── */}
                 <div>
-                  <div className="flex border-b border-gray-200 mb-4 -mx-0">
+                  <div className="flex border-b border-ds-border mb-4 -mx-0">
                     {(['activity', 'time', 'ai'] as const).map((tab) => (
                       <button key={tab} onClick={() => setDetailTab(tab)}
-                        className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors -mb-px ${detailTab === tab ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-400 hover:text-gray-600 hover:border-gray-200'}`}>
+                        className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors -mb-px ${detailTab === tab ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-ds-text-muted hover:text-ds-text-muted hover:border-ds-border'}`}>
                         {tab === 'activity' && <><MessageSquare size={12} />Activity</>}
                         {tab === 'time' && <><Clock size={12} />Time Logs</>}
                         {tab === 'ai' && <><Zap size={12} />AI Insights</>}
@@ -1342,15 +1355,15 @@ export default function SprintBoardPage() {
                       <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                         {/* Status history items */}
                         {((fullTask as any)?.history ?? []).map((h: any, i: number) => (
-                          <div key={`h-${h.ROWID ?? i}`} className="flex items-center gap-2 text-xs py-1.5 px-3 bg-gray-50 rounded-lg">
+                          <div key={`h-${h.ROWID ?? i}`} className="flex items-center gap-2 text-xs py-1.5 px-3 bg-ds-surface-hover rounded-lg">
                             <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
                               <ArrowRight size={9} className="text-amber-600" />
                             </div>
-                            <span className="text-gray-500">Status: </span>
-                            <span className="px-1.5 py-0.5 bg-gray-200 rounded text-gray-600 text-[11px] font-medium">{h.from_status || '—'}</span>
-                            <ArrowRight size={9} className="text-gray-400 shrink-0" />
+                            <span className="text-ds-text-muted">Status: </span>
+                            <span className="px-1.5 py-0.5 bg-gray-200 rounded text-ds-text-muted text-[11px] font-medium">{h.from_status || '—'}</span>
+                            <ArrowRight size={9} className="text-ds-text-muted shrink-0" />
                             <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded text-[11px] font-semibold">{h.to_status}</span>
-                            <span className="ml-auto text-[10px] text-gray-400 shrink-0">{h.CREATEDTIME ? format(new Date(h.CREATEDTIME), 'MMM d, h:mm a') : ''}</span>
+                            <span className="ml-auto text-[10px] text-ds-text-muted shrink-0">{h.CREATEDTIME ? format(new Date(h.CREATEDTIME), 'MMM d, h:mm a') : ''}</span>
                           </div>
                         ))}
                         {/* Comments */}
@@ -1362,31 +1375,31 @@ export default function SprintBoardPage() {
                               <div className="w-7 h-7 rounded-full bg-indigo-500 flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0 mt-0.5">
                                 {name[0]?.toUpperCase()}
                               </div>
-                              <div className="flex-1 bg-white border border-gray-100 rounded-xl px-3 py-2.5 shadow-sm">
+                              <div className="flex-1 bg-ds-surface border border-ds-border rounded-xl px-3 py-2.5 shadow-sm">
                                 <div className="flex items-center justify-between mb-1">
                                   <span className="text-xs font-semibold text-gray-800">{name}</span>
-                                  <span className="text-[10px] text-gray-400">{c.createdAt ? format(new Date(c.createdAt), 'MMM d, h:mm a') : ''}</span>
+                                  <span className="text-[10px] text-ds-text-muted">{c.createdAt ? format(new Date(c.createdAt), 'MMM d, h:mm a') : ''}</span>
                                 </div>
-                                <p className="text-sm text-gray-700 leading-snug">{c.content}</p>
+                                <p className="text-sm text-ds-text leading-snug">{c.content}</p>
                               </div>
                             </div>
                           );
                         })}
                         {((fullTask as any)?.history ?? []).length === 0 && (Array.isArray(comments) ? comments : []).length === 0 && (
-                          <div className="text-center py-8 text-gray-400">
+                          <div className="text-center py-8 text-ds-text-muted">
                             <MessageSquare size={20} className="mx-auto mb-2 opacity-40" />
                             <p className="text-xs">No activity yet.</p>
                           </div>
                         )}
                       </div>
                       {/* Add comment */}
-                      <div className="flex gap-2.5 pt-2 border-t border-gray-100">
+                      <div className="flex gap-2.5 pt-2 border-t border-ds-border">
                         <div className="w-7 h-7 rounded-full bg-indigo-500 flex items-center justify-center text-[10px] font-bold text-white shrink-0">
                           {(user?.name ?? user?.email ?? 'U')[0]?.toUpperCase()}
                         </div>
                         <div className="flex-1 flex gap-2">
                           <input
-                            className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-200 outline-none bg-gray-50 focus:bg-white transition-colors"
+                            className="flex-1 text-sm border border-ds-border rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-200 outline-none bg-ds-surface-hover focus:bg-white transition-colors"
                             placeholder="Write a comment… (Enter to post)"
                             value={commentText}
                             onChange={(e) => setCommentText(e.target.value)}
@@ -1415,7 +1428,7 @@ export default function SprintBoardPage() {
 
                       {/* Entries list */}
                       {timeEntriesLoading ? (
-                        <div className="flex items-center justify-center py-6 text-gray-400 text-xs gap-2">
+                        <div className="flex items-center justify-center py-6 text-ds-text-muted text-xs gap-2">
                           <Clock size={14} className="animate-spin" /> Loading entries…
                         </div>
                       ) : taskTimeEntries.length > 0 ? (
@@ -1430,13 +1443,13 @@ export default function SprintBoardPage() {
                             const statusColor = status === 'APPROVED'
                               ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
                               : status === 'SUBMITTED'
-                              ? 'bg-amber-100 text-amber-700 border-amber-200'
-                              : status === 'REJECTED'
-                              ? 'bg-red-100 text-red-600 border-red-200'
-                              : 'bg-slate-100 text-slate-500 border-slate-200';
+                                ? 'bg-amber-100 text-amber-700 border-amber-200'
+                                : status === 'REJECTED'
+                                  ? 'bg-red-100 text-red-600 border-red-200'
+                                  : 'bg-slate-100 text-slate-500 border-slate-200';
                             const statusDot = status === 'APPROVED' ? 'bg-emerald-500' : status === 'SUBMITTED' ? 'bg-amber-500' : status === 'REJECTED' ? 'bg-red-500' : 'bg-slate-400';
                             return (
-                              <div key={entryId} className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
+                              <div key={entryId} className="bg-ds-surface border border-ds-border rounded-2xl shadow-sm overflow-hidden">
                                 {/* Top row */}
                                 <div className="flex items-center gap-3 px-3.5 pt-3 pb-2">
                                   {/* Hours pill */}
@@ -1447,10 +1460,10 @@ export default function SprintBoardPage() {
                                   {/* Description + date */}
                                   <div className="flex-1 min-w-0">
                                     <p className="text-xs font-semibold text-gray-800 truncate leading-tight">{e.description || 'No description'}</p>
-                                    <p className="text-[10px] text-gray-400 mt-0.5">{e.entry_date ? format(parseISO(e.entry_date), 'MMM d, yyyy') : ''}</p>
+                                    <p className="text-[10px] text-ds-text-muted mt-0.5">{e.entry_date ? format(parseISO(e.entry_date), 'MMM d, yyyy') : ''}</p>
                                   </div>
                                   {/* Billable badge */}
-                                  <span className={`shrink-0 flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-lg border ${isBillable ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>
+                                  <span className={`shrink-0 flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-lg border ${isBillable ? 'bg-green-50 text-green-700 border-green-200' : 'bg-ds-surface-hover text-ds-text-muted border-ds-border'}`}>
                                     {isBillable ? <DollarSign size={9} /> : <Ban size={9} />}
                                     {isBillable ? 'Billable' : 'Non-billable'}
                                   </span>
@@ -1487,7 +1500,7 @@ export default function SprintBoardPage() {
                           })}
                         </div>
                       ) : (
-                        <div className="text-center py-6 text-gray-400">
+                        <div className="text-center py-6 text-ds-text-muted">
                           <Timer size={20} className="mx-auto mb-2 opacity-40" />
                           <p className="text-xs">No time logged yet. Use the timer or log below.</p>
                         </div>
@@ -1507,11 +1520,11 @@ export default function SprintBoardPage() {
                         {/* Start / End first — drives Hours auto-fill */}
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <label className="text-[11px] text-gray-500 font-medium block mb-1">Start Time <span className="text-gray-400 font-normal">(optional)</span></label>
+                            <label className="text-[11px] text-ds-text-muted font-medium block mb-1">Start Time <span className="text-ds-text-muted font-normal">(optional)</span></label>
                             <input type="time" className="form-input text-sm" value={logTimeStartTime} onChange={(e) => setLogTimeStartTime(e.target.value)} />
                           </div>
                           <div>
-                            <label className="text-[11px] text-gray-500 font-medium block mb-1">End Time <span className="text-gray-400 font-normal">(optional)</span></label>
+                            <label className="text-[11px] text-ds-text-muted font-medium block mb-1">End Time <span className="text-ds-text-muted font-normal">(optional)</span></label>
                             <input type="time" className="form-input text-sm" value={logTimeEndTime} onChange={(e) => setLogTimeEndTime(e.target.value)} />
                           </div>
                         </div>
@@ -1541,7 +1554,7 @@ export default function SprintBoardPage() {
                         })()}
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <label className="text-[11px] text-gray-500 font-medium block mb-1">
+                            <label className="text-[11px] text-ds-text-muted font-medium block mb-1">
                               Hours *
                               {logTimeStartTime && logTimeEndTime && (
                                 <span className="ml-1.5 text-[9px] font-bold text-indigo-600 bg-indigo-100 px-1.5 py-0.5 rounded uppercase">auto</span>
@@ -1552,22 +1565,22 @@ export default function SprintBoardPage() {
                               placeholder="1:30" value={logTimeHours} onChange={(e) => setLogTimeHours(e.target.value)} />
                           </div>
                           <div>
-                            <label className="text-[11px] text-gray-500 font-medium block mb-1">Date *</label>
+                            <label className="text-[11px] text-ds-text-muted font-medium block mb-1">Date *</label>
                             <input type="date" className="form-input text-sm" value={logTimeDate} onChange={(e) => setLogTimeDate(e.target.value)} />
                           </div>
                         </div>
                         <div>
-                          <label className="text-[11px] text-gray-500 font-medium block mb-1">Description</label>
+                          <label className="text-[11px] text-ds-text-muted font-medium block mb-1">Description</label>
                           <input className="form-input text-sm" placeholder="What did you work on?"
                             value={logTimeDesc} onChange={(e) => setLogTimeDesc(e.target.value)} />
                         </div>
                         {/* Billable toggle */}
                         <div className="flex gap-3">
-                          <label className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl border-2 cursor-pointer transition-all text-xs font-semibold ${logTimeBillable ? 'border-green-400 bg-green-50 text-green-700' : 'border-gray-200 bg-white text-gray-400'}`}>
+                          <label className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl border-2 cursor-pointer transition-all text-xs font-semibold ${logTimeBillable ? 'border-green-400 bg-green-50 text-green-700' : 'border-ds-border bg-ds-surface text-ds-text-muted'}`}>
                             <input type="radio" name="detail_billable" checked={logTimeBillable} onChange={() => setLogTimeBillable(true)} className="hidden" />
                             💰 Billable
                           </label>
-                          <label className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl border-2 cursor-pointer transition-all text-xs font-semibold ${!logTimeBillable ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-gray-200 bg-white text-gray-400'}`}>
+                          <label className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl border-2 cursor-pointer transition-all text-xs font-semibold ${!logTimeBillable ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-ds-border bg-ds-surface text-ds-text-muted'}`}>
                             <input type="radio" name="detail_billable" checked={!logTimeBillable} onChange={() => setLogTimeBillable(false)} className="hidden" />
                             🔧 Non-billable
                           </label>
@@ -1590,7 +1603,7 @@ export default function SprintBoardPage() {
                   {detailTab === 'ai' && (
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
-                        <p className="text-xs text-gray-400">AI-powered analysis, risk assessment & next-step suggestions</p>
+                        <p className="text-xs text-ds-text-muted">AI-powered analysis, risk assessment & next-step suggestions</p>
                         <Button size="sm" variant="secondary" icon={<Zap size={11} />} loading={aiLoading}
                           onClick={() => { setAiInsight(null); }}>
                           Regenerate
@@ -1599,26 +1612,26 @@ export default function SprintBoardPage() {
                       {aiLoading ? (
                         <div className="space-y-3 p-4">
                           {[90, 75, 60, 80].map((w, i) => (
-                            <div key={i} className="h-3 bg-indigo-100 rounded-full animate-pulse" style={{ width: `${w}%` }} />
+                            <div key={i} className="h-3 bg-indigo-100 dark:bg-indigo-900/40 rounded-full animate-pulse" style={{ width: `${w}%` }} />
                           ))}
                         </div>
                       ) : aiInsight ? (
-                        <div className="bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 rounded-2xl p-5 border border-indigo-100">
+                        <div className="bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 dark:from-indigo-950/40 dark:via-purple-950/40 dark:to-pink-950/40 rounded-2xl p-5 border border-indigo-100 dark:border-indigo-900/50">
                           <div className="flex items-center gap-2 mb-3">
                             <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center">
                               <Zap size={14} className="text-white" />
                             </div>
-                            <span className="text-sm font-bold text-indigo-800">AI Analysis</span>
+                            <span className="text-sm font-bold text-indigo-800 dark:text-indigo-200">AI Analysis</span>
                           </div>
-                          <MarkdownText text={aiInsight} className="text-sm text-gray-700" accent="indigo" />
+                          <MarkdownText text={aiInsight} className="text-sm text-ds-text" accent="indigo" />
                         </div>
                       ) : (
                         <div className="text-center py-10">
-                          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center mx-auto mb-3">
+                          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-100 to-purple-100 dark:from-indigo-900/40 dark:to-purple-900/40 flex items-center justify-center mx-auto mb-3">
                             <Zap size={24} className="text-indigo-400" />
                           </div>
-                          <p className="text-sm font-semibold text-gray-600 mb-1">AI Task Insights</p>
-                          <p className="text-xs text-gray-400 mb-4">Get smart suggestions, risk analysis & next steps</p>
+                          <p className="text-sm font-semibold text-ds-text mb-1">AI Task Insights</p>
+                          <p className="text-xs text-ds-text-muted mb-4">Get smart suggestions, risk analysis & next steps</p>
                           <Button variant="primary" icon={<Zap size={13} />} loading={aiLoading}
                             onClick={() => { setAiLoading(true); aiApi.taskInsight({ title: detailTask.title, description: (detailTask as any).description || '', status: detailTask.status, priority: detailTask.priority, dueDate: detailTask.dueDate || undefined, taskId: detailTask.id }).then((r: any) => setAiInsight(r?.data?.insight ?? r?.insight ?? 'Insights ready.')).catch(() => setAiInsight('Unable to generate AI insights at this time.')).finally(() => setAiLoading(false)); }}>
                             Generate AI Insights
@@ -1634,16 +1647,32 @@ export default function SprintBoardPage() {
               <div className="w-60 flex-shrink-0 space-y-4">
                 {/* Status */}
                 <div>
-                  <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Status</div>
-                  <select className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-200 outline-none"
+                  <div className="text-[11px] font-bold text-ds-text-muted uppercase tracking-wider mb-1.5">Status</div>
+                  <select className="w-full text-sm border border-ds-border rounded-xl px-3 py-2 bg-ds-surface text-ds-text focus:ring-2 focus:ring-indigo-200 outline-none"
                     value={detailTask.status}
-                    onChange={(e) => updateStatus.mutate({ id: detailTask.id, data: { status: e.target.value } })}>
+                    onChange={async (e) => {
+                      const next = e.target.value as TaskStatus;
+                      if (next === detailTask.status) return;
+                      const fromLabel = COLUMNS.find((c) => c.key === detailTask.status)?.label ?? detailTask.status;
+                      const toLabel = COLUMNS.find((c) => c.key === next)?.label ?? next;
+                      const ok = await confirm({
+                        title: 'Change status?',
+                        message: `Move "${detailTask.title}" from ${fromLabel} → ${toLabel}? This can't be undone.`,
+                        confirmText: `Move to ${toLabel}`,
+                        cancelText: 'Cancel',
+                        variant: 'warning',
+                      });
+                      // Reset the <select> back to the real value if the user cancelled —
+                      // otherwise the dropdown shows the un-saved option.
+                      if (!ok) { e.target.value = detailTask.status; return; }
+                      updateStatus.mutate({ id: detailTask.id, data: { status: next } });
+                    }}>
                     {COLUMNS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
                   </select>
                 </div>
 
                 {/* Meta card */}
-                <div className="bg-gray-50 rounded-2xl p-4 space-y-3 border border-gray-100">
+                <div className="bg-ds-surface-hover rounded-2xl p-4 space-y-3 border border-ds-border">
                   <MetaRow label="Priority">
                     <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${PRIORITY_CONFIG[detailTask.priority]?.color ?? ''}`}>
                       {PRIORITY_CONFIG[detailTask.priority]?.icon} {PRIORITY_CONFIG[detailTask.priority]?.label}
@@ -1661,14 +1690,14 @@ export default function SprintBoardPage() {
                   )}
                   {detailTask.dueDate && (
                     <MetaRow label="Due Date">
-                      <span className={`text-xs font-medium ${isPast(parseISO(detailTask.dueDate)) && detailTask.status !== 'DONE' ? 'text-red-600' : 'text-gray-700'}`}>
+                      <span className={`text-xs font-medium ${isPast(parseISO(detailTask.dueDate)) && detailTask.status !== 'DONE' ? 'text-red-600' : 'text-ds-text'}`}>
                         {format(parseISO(detailTask.dueDate), 'MMM d, yyyy')}
                       </span>
                     </MetaRow>
                   )}
                   {((detailTask as any).estimatedHours ?? 0) > 0 && (
                     <MetaRow label="Est. Hours">
-                      <span className="text-xs text-gray-600">{(detailTask as any).estimatedHours}h estimated</span>
+                      <span className="text-xs text-ds-text-muted">{(detailTask as any).estimatedHours}h estimated</span>
                     </MetaRow>
                   )}
                   {(detailTask.labels ?? []).length > 0 && (
@@ -1683,11 +1712,11 @@ export default function SprintBoardPage() {
                 </div>
 
                 {/* ── Work Timer ── */}
-                <div className={`rounded-2xl p-4 border transition-all ${timerRunning ? 'bg-gradient-to-br from-emerald-50 to-teal-50 border-emerald-200' : 'bg-gray-50 border-gray-100'}`}>
-                  <div className={`text-[11px] font-bold uppercase tracking-wider mb-3 flex items-center gap-1.5 ${timerRunning ? 'text-emerald-700' : 'text-gray-400'}`}>
+                <div className={`rounded-2xl p-4 border transition-all ${timerRunning ? 'bg-gradient-to-br from-emerald-50 to-teal-50 border-emerald-200' : 'bg-ds-surface-hover border-ds-border'}`}>
+                  <div className={`text-[11px] font-bold uppercase tracking-wider mb-3 flex items-center gap-1.5 ${timerRunning ? 'text-emerald-700' : 'text-ds-text-muted'}`}>
                     <Timer size={11} /> Work Timer
                   </div>
-                  <div className={`text-3xl font-mono font-black text-center py-2 tracking-widest ${timerRunning ? 'text-emerald-600' : 'text-gray-300'}`}>
+                  <div className={`text-3xl font-mono font-black text-center py-2 tracking-widest ${timerRunning ? 'text-emerald-600' : 'text-ds-border'}`}>
                     {timerDisplay}
                   </div>
                   {!timerRunning ? (
@@ -1773,14 +1802,14 @@ export default function SprintBoardPage() {
             ) : (
               <div>
                 <label className="form-label">Assignees</label>
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-500">
-                  <User size={13} className="text-gray-400" />
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-ds-border bg-ds-surface-hover text-sm text-ds-text-muted">
+                  <User size={13} className="text-ds-text-muted" />
                   <span>Assigned to you — contact your lead to reassign</span>
                 </div>
               </div>
             )}
             <div>
-              <label className="form-label">Labels <span className="text-gray-400 font-normal">(comma separated)</span></label>
+              <label className="form-label">Labels <span className="text-ds-text-muted font-normal">(comma separated)</span></label>
               <input className="form-input" placeholder="frontend, urgent" {...editForm.register('labels')} />
             </div>
             {canConfigureApproval && (
@@ -1827,7 +1856,7 @@ export default function SprintBoardPage() {
 function MetaRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">{label}</div>
+      <div className="text-[10px] font-semibold text-ds-text-muted uppercase tracking-wide mb-1">{label}</div>
       <div>{children}</div>
     </div>
   );

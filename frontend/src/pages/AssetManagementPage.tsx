@@ -85,6 +85,7 @@ interface Asset {
   requestStatus?: string | null;
   returnAt?: string | null;
   returnReason?: string | null;
+  qrToken?: string | null;
 }
 
 interface OpsAssignee { id: string; name: string; email: string; avatarUrl?: string; }
@@ -941,6 +942,9 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
   const [returnTarget, setReturnTarget] = useState<{ requestId: string; assetName?: string } | null>(null);
   const [returnNotes, setReturnNotes]   = useState('');
   const [returnError, setReturnError]   = useState('');
+  // QR sticker — the per-assignment token surfaced by the backend so the
+  // owner can re-print the sticker without having to dig into the request.
+  const [qrTarget, setQrTarget] = useState<{ token: string; assetName?: string; assetTag?: string | null } | null>(null);
 
   React.useEffect(() => {
     if (returnTarget) { setReturnNotes(''); setReturnError(''); }
@@ -1112,10 +1116,26 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
                   </p>
                 )}
 
+                <div className="mt-auto space-y-2">
+                  {asset.qrToken && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full"
+                      icon={<QrCode size={14} />}
+                      onClick={() => setQrTarget({
+                        token: asset.qrToken!,
+                        assetName: asset.assetName,
+                        assetTag: asset.assetTag ?? null,
+                      })}
+                    >
+                      Show QR
+                    </Button>
+                  )}
+
                 <Button
                   size="sm"
                   variant="outline"
-                  className="mt-auto"
                   icon={<RotateCcw size={14} />}
                   disabled={!asset.requestId || returnPending}
                   title={
@@ -1129,6 +1149,7 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
                 >
                   {returnPending ? 'Return Pending' : 'Return Asset'}
                 </Button>
+                </div>
               </div>
             </div>
             );
@@ -1142,6 +1163,45 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
         categories={categories}
         availableAssets={availableAssets}
       />
+
+      {/* Printable QR sticker for the asset the user currently holds. */}
+      <Modal open={qrTarget !== null} onClose={() => setQrTarget(null)} title="Asset QR Sticker" size="sm">
+        {qrTarget && (
+          <div className="space-y-3 flex flex-col items-center">
+            <div className="bg-white p-3 rounded-lg border border-gray-200">
+              <QRCodeCanvas
+                id={`my-asset-qr-${qrTarget.token}`}
+                value={`dsync://asset-scan/${qrTarget.token}`}
+                size={208}
+                level="M"
+                includeMargin={false}
+              />
+            </div>
+            <p className="text-sm font-semibold text-gray-900 text-center">{qrTarget.assetName ?? '—'}</p>
+            {qrTarget.assetTag && (
+              <p className="text-xs text-gray-500 font-mono">{qrTarget.assetTag}</p>
+            )}
+            <p className="text-xs text-gray-500 text-center leading-snug">
+              Print and stick this on the device. Authorised users scan it to look up asset details.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              icon={<Upload size={14} className="rotate-180" />}
+              onClick={() => {
+                const canvas = document.getElementById(`my-asset-qr-${qrTarget.token}`) as HTMLCanvasElement | null;
+                if (!canvas) return;
+                const link = document.createElement('a');
+                link.href = canvas.toDataURL('image/png');
+                link.download = `asset-qr-${qrTarget.assetTag || qrTarget.token}.png`;
+                link.click();
+              }}
+            >
+              Download PNG
+            </Button>
+          </div>
+        )}
+      </Modal>
 
       {/* Return confirm modal — initiates the return so ops can verify. */}
       <Modal open={returnTarget !== null} onClose={() => setReturnTarget(null)} title="Return Asset" size="md">
@@ -2311,6 +2371,10 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
 
   const isRequester = currentUserId && req.requestedBy && String(req.requestedBy) === String(currentUserId);
   const isOpsUser   = req.opsAssignees?.some((id) => String(id) === String(currentUserId));
+  // The user who approved this request can see the QR sticker too — they may
+  // need to re-print or share it with the requester. Device credentials remain
+  // gated more tightly (requester / ops only) below.
+  const isApprover  = currentUserId && req.approvedBy && String(req.approvedBy) === String(currentUserId);
   const hasDeviceCreds = req.deviceId || req.deviceUsername || req.devicePassword;
 
   // Status timeline entries
@@ -2442,7 +2506,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
               {/* Asset QR — printed on a sticker and applied to the physical device.
                   A new token is generated on every handover, so the previous QR
                   stops resolving as soon as the return is verified. */}
-              {req.qrToken && req.status === 'HANDED_OVER' && (isRequester || isOpsUser || canAssign) && (
+              {req.qrToken && req.status === 'HANDED_OVER' && (isRequester || isOpsUser || canAssign || isApprover) && (
                 <div className="mt-3 border-t border-teal-200 pt-3">
                   <p className="text-xs font-semibold text-teal-700 uppercase tracking-wide mb-2 flex items-center gap-1.5">
                     <QrCode size={12} /> Asset QR Sticker
@@ -2717,19 +2781,25 @@ interface RequestsTabProps {
 }
 
 const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availableAssets }: RequestsTabProps) => {
-  const [viewMode, setViewMode]             = useState<'all' | 'mine'>(canApprove ? 'all' : 'mine');
+  type ViewMode = 'all' | 'mine' | 'approved';
+  const [viewMode, setViewMode]             = useState<ViewMode>(canApprove ? 'all' : 'mine');
   const [filterStatus, setFilterStatus]     = useState('');
   const [detailReq, setDetailReq]           = useState<AssetRequest | null>(null);
   const [requestModalOpen, setRequestModalOpen] = useState(false);
   const [editRequest, setEditRequest]       = useState<AssetRequest | null>(null);
 
-  const isMyView = !canApprove || viewMode === 'mine';
+  const isMyView       = !canApprove || viewMode === 'mine';
+  const isApprovedView = viewMode === 'approved';
 
+  // `mode=approved` is a server-side scope — it bypasses the default
+  // own + reportees + ops-queue scoping and returns ONLY requests this
+  // user has approved (approved_by = me.id).
   const params = useMemo<Record<string, string>>(() => {
     const p: Record<string, string> = {};
     if (filterStatus) p.status = filterStatus;
+    if (isApprovedView) p.mode = 'approved';
     return p;
-  }, [filterStatus]);
+  }, [filterStatus, isApprovedView]);
 
   const { data: requests = [], isLoading, error, refetch } = useAssetRequests(params);
 
@@ -2758,7 +2828,7 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
       {/* Sub-tabs for approvers */}
       {canApprove && (
         <div className="flex gap-1 border-b border-gray-200">
-          {(['all', 'mine'] as const).map((mode) => (
+          {(['all', 'mine', 'approved'] as const).map((mode) => (
             <button
               key={mode}
               onClick={() => { setViewMode(mode); setFilterStatus(''); }}
@@ -2768,7 +2838,7 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
-              {mode === 'all' ? 'All Requests' : 'My Requests'}
+              {mode === 'all' ? 'All Requests' : mode === 'mine' ? 'My Requests' : 'Approved by Me'}
             </button>
           ))}
         </div>
@@ -2792,7 +2862,7 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-900">
-            {isMyView ? 'My Requests' : 'All Asset Requests'}
+            {isMyView ? 'My Requests' : isApprovedView ? 'Requests I Approved' : 'All Asset Requests'}
           </h3>
           <span className="text-xs text-gray-400">{reqList.length} request{reqList.length !== 1 ? 's' : ''}</span>
         </div>
@@ -2801,7 +2871,7 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
           <EmptyState
             icon={<Package size={36} />}
             title="No requests"
-            description={isMyView ? 'You have not submitted any asset requests.' : 'No asset requests match the current filter.'}
+            description={isMyView ? 'You have not submitted any asset requests.' : isApprovedView ? 'You have not approved any requests yet.' : 'No asset requests match the current filter.'}
             action={
               isMyView ? (
                 <Button size="sm" icon={<Plus size={14} />} onClick={() => setRequestModalOpen(true)}>

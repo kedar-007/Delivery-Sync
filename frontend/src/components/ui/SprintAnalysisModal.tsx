@@ -42,7 +42,7 @@ function StarRating({ rating }: { rating: number }) {
         <Star
           key={n}
           size={22}
-          className={n <= rating ? 'text-amber-400' : 'text-gray-200'}
+          className={n <= rating ? 'text-amber-400' : 'text-ds-border'}
           fill={n <= rating ? 'currentColor' : 'none'}
         />
       ))}
@@ -71,7 +71,7 @@ function ScoreRing({ score }: { score: number }) {
           style={{ transition: 'stroke-dasharray 0.8s ease' }}
         />
       </svg>
-      <span className="absolute text-xl font-bold text-gray-900">{score}</span>
+      <span className="absolute text-xl font-bold text-ds-text">{score}</span>
     </div>
   );
 }
@@ -85,8 +85,8 @@ function LoadingState() {
         <Sparkles size={20} className="absolute inset-0 m-auto text-indigo-400" />
       </div>
       <div className="text-center space-y-1">
-        <p className="text-sm font-semibold text-gray-700">Analysing sprint data…</p>
-        <p className="text-xs text-gray-400">AI is reviewing performance across all sprint activities</p>
+        <p className="text-sm font-semibold text-ds-text">Analysing sprint data…</p>
+        <p className="text-xs text-ds-text-muted">AI is reviewing performance across all sprint activities</p>
       </div>
       <div className="flex flex-wrap justify-center gap-2">
         {modules.map((m) => (
@@ -127,10 +127,10 @@ export default function SprintAnalysisModal({
   const result: SprintAnalysisResult | null = raw ?? null;
 
   const healthColor =
-    result?.sprintHealth === 'Healthy' ? 'text-emerald-600 bg-emerald-50' :
-    result?.sprintHealth === 'At Risk'  ? 'text-amber-600 bg-amber-50' :
-    result?.sprintHealth === 'Critical' ? 'text-red-600 bg-red-50' :
-    'text-gray-600 bg-gray-50';
+    result?.sprintHealth === 'Healthy' ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/30' :
+    result?.sprintHealth === 'At Risk'  ? 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30' :
+    result?.sprintHealth === 'Critical' ? 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/30' :
+    'text-ds-text-muted bg-ds-surface-hover';
 
   return (
     <Modal open={open} onClose={onClose} title={title} size="xl">
@@ -139,10 +139,10 @@ export default function SprintAnalysisModal({
       ) : error ? (
         <div className="py-8 text-center space-y-2">
           <AlertCircle size={32} className="text-red-400 mx-auto" />
-          <p className="text-sm text-gray-600">Failed to analyse sprint. Please try again.</p>
+          <p className="text-sm text-ds-text-muted">Failed to analyse sprint. Please try again.</p>
           <button
             onClick={onRetry}
-            className="text-xs text-blue-600 hover:underline"
+            className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
           >
             Retry
           </button>
@@ -150,7 +150,7 @@ export default function SprintAnalysisModal({
       ) : result ? (
         <div className="space-y-5">
           {/* Score header */}
-          <div className="flex items-start gap-5 p-4 bg-gradient-to-br from-indigo-50 to-blue-50 rounded-2xl">
+          <div className="flex items-start gap-5 p-4 bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-950/40 dark:to-blue-950/40 rounded-2xl">
             <ScoreRing score={result.score} />
             <div className="flex-1 space-y-1">
               <div className="flex items-center gap-2 flex-wrap">
@@ -161,52 +161,52 @@ export default function SprintAnalysisModal({
                   </span>
                 )}
               </div>
-              <MarkdownText text={result.sprintSummary ?? ''} className="text-sm text-gray-700" />
+              <MarkdownText text={result.sprintSummary ?? ''} className="text-sm text-ds-text" />
             </div>
           </div>
 
           {/* Metrics row */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="bg-white border border-gray-100 rounded-xl p-3 flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
+            <div className="bg-ds-surface border border-ds-border rounded-xl p-3 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 flex items-center justify-center">
                 <CheckCircle2 size={16} className="text-emerald-500" />
               </div>
               <div>
-                <p className="text-lg font-bold text-gray-900">{result.completionRate}%</p>
-                <p className="text-xs text-gray-500">Completion Rate</p>
+                <p className="text-lg font-bold text-ds-text">{result.completionRate}%</p>
+                <p className="text-xs text-ds-text-muted">Completion Rate</p>
               </div>
             </div>
-            <div className="bg-white border border-gray-100 rounded-xl p-3 flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+            <div className="bg-ds-surface border border-ds-border rounded-xl p-3 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center">
                 <Zap size={16} className="text-blue-500" />
               </div>
               <div>
-                <p className="text-lg font-bold text-gray-900">{result.velocityScore}</p>
-                <p className="text-xs text-gray-500">Velocity Score</p>
+                <p className="text-lg font-bold text-ds-text">{result.velocityScore}</p>
+                <p className="text-xs text-ds-text-muted">Velocity Score</p>
               </div>
             </div>
           </div>
 
           {/* Insights */}
           {result.insights && (
-            <div className="bg-blue-50 rounded-xl p-4">
+            <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/50 rounded-xl p-4">
               <div className="flex items-center gap-2 mb-1.5">
-                <TrendingUp size={14} className="text-blue-600" />
-                <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Insights</span>
+                <TrendingUp size={14} className="text-blue-600 dark:text-blue-400" />
+                <span className="text-xs font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wider">Insights</span>
               </div>
-              <MarkdownText text={result.insights ?? ''} className="text-sm text-gray-700" accent="blue" />
+              <MarkdownText text={result.insights ?? ''} className="text-sm text-ds-text" accent="blue" />
             </div>
           )}
 
           {/* Risks */}
           {result.risks?.length > 0 && (
             <div>
-              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <h4 className="text-xs font-semibold text-ds-text-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
                 <AlertCircle size={12} className="text-red-400" /> Risks
               </h4>
               <ul className="space-y-1.5">
                 {result.risks.map((r, i) => (
-                  <li key={i} className="text-sm text-gray-700 flex items-start gap-2">
+                  <li key={i} className="text-sm text-ds-text flex items-start gap-2">
                     <span className="text-red-400 mt-0.5 shrink-0">•</span>
                     {r}
                   </li>
@@ -218,12 +218,12 @@ export default function SprintAnalysisModal({
           {/* Recommendations */}
           {result.recommendations?.length > 0 && (
             <div>
-              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <h4 className="text-xs font-semibold text-ds-text-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
                 <BarChart3 size={12} className="text-indigo-400" /> Recommendations
               </h4>
               <ul className="space-y-1.5">
                 {result.recommendations.map((r, i) => (
-                  <li key={i} className="text-sm text-gray-700 flex items-start gap-2">
+                  <li key={i} className="text-sm text-ds-text flex items-start gap-2">
                     <span className="text-indigo-400 mt-0.5 shrink-0">→</span>
                     {r}
                   </li>
@@ -235,19 +235,19 @@ export default function SprintAnalysisModal({
           {/* Member Highlights */}
           {result.memberHighlights?.length > 0 && (
             <div>
-              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <Users size={12} className="text-gray-400" /> Team Highlights
+              <h4 className="text-xs font-semibold text-ds-text-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <Users size={12} className="text-ds-text-muted" /> Team Highlights
               </h4>
               <div className="space-y-2">
                 {result.memberHighlights.map((m, i) => (
-                  <div key={i} className="flex items-start gap-3 p-3 bg-gray-50 rounded-xl">
-                    <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-bold text-indigo-600 shrink-0">
+                  <div key={i} className="flex items-start gap-3 p-3 bg-ds-surface-hover rounded-xl">
+                    <div className="w-7 h-7 rounded-full bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center text-xs font-bold text-indigo-600 dark:text-indigo-300 shrink-0">
                       {m.name.charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-800">{m.name}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{m.contribution}</p>
-                      <div className="flex items-center gap-3 mt-1 text-[11px] text-gray-400">
+                      <p className="text-sm font-semibold text-ds-text">{m.name}</p>
+                      <p className="text-xs text-ds-text-muted mt-0.5">{m.contribution}</p>
+                      <div className="flex items-center gap-3 mt-1 text-[11px] text-ds-text-muted">
                         {m.tasksCompleted != null && (
                           <span className="flex items-center gap-1">
                             <CheckCircle2 size={10} className="text-emerald-400" />

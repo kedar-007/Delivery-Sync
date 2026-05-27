@@ -179,19 +179,19 @@ class NotificationService {
     });
   }
 
-  async sendLeaveApproved({ toEmail, toName, leaveTypeName, startDate, endDate, daysCount, approverName, approverNotes }) {
+  async sendLeaveApproved({ toEmail, toName, leaveTypeName, startDate, endDate, daysCount, approverName, approverNotes, leaveId }) {
     return this.send({
       toEmail,
       subject: `[Delivery Sync] Leave approved — ${startDate} to ${endDate}`,
-      htmlBody: this._leaveApprovedTemplate(toName, leaveTypeName, startDate, endDate, daysCount, approverName, approverNotes),
+      htmlBody: this._leaveApprovedTemplate(toName, leaveTypeName, startDate, endDate, daysCount, approverName, approverNotes, leaveId),
     });
   }
 
-  async sendLeaveRejected({ toEmail, toName, leaveTypeName, startDate, endDate, daysCount, approverName, reason }) {
+  async sendLeaveRejected({ toEmail, toName, leaveTypeName, startDate, endDate, daysCount, approverName, reason, leaveId }) {
     return this.send({
       toEmail,
       subject: `[Delivery Sync] Leave request not approved — ${startDate} to ${endDate}`,
-      htmlBody: this._leaveRejectedTemplate(toName, leaveTypeName, startDate, endDate, daysCount, approverName, reason),
+      htmlBody: this._leaveRejectedTemplate(toName, leaveTypeName, startDate, endDate, daysCount, approverName, reason, leaveId),
     });
   }
 
@@ -220,6 +220,13 @@ class NotificationService {
   // ─── Shared Template Base ─────────────────────────────────────────────────────
 
   _base({ accentColor, preheader, headerTitle, headerSubtitle, body, ctaUrl, ctaLabel, footerNote = '' }) {
+    const APP_URL = (process.env.APP_URL || 'https://delivery-sync-60040289923.development.catalystserverless.in').replace(/\/$/, '');
+    const slug    = this.tenantSlug ? `/${String(this.tenantSlug).replace(/^\/+|\/+$/g, '')}` : '';
+    const fullCtaUrl = ctaUrl
+      ? (/^https?:\/\//.test(ctaUrl)
+          ? ctaUrl
+          : `${APP_URL}/app/#${slug}${ctaUrl.startsWith('/') ? '' : '/'}${ctaUrl}`)
+      : '';
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -254,7 +261,7 @@ class NotificationService {
             ${body}
             ${ctaUrl && ctaLabel ? `
             <div style="margin-top:28px;">
-              <a href="${ctaUrl}" style="display:inline-block;background:${accentColor};color:#ffffff;font-size:14px;font-weight:600;padding:13px 28px;border-radius:8px;text-decoration:none;letter-spacing:0.3px;">${ctaLabel}</a>
+              <a href="${fullCtaUrl}" style="display:inline-block;background:${accentColor};color:#ffffff;font-size:14px;font-weight:600;padding:13px 28px;border-radius:8px;text-decoration:none;letter-spacing:0.3px;">${ctaLabel}</a>
             </div>` : ''}
           </td>
         </tr>
@@ -703,7 +710,7 @@ class NotificationService {
   }
 
   // Sent to the applicant when the manager approves the request.
-  _leaveApprovedTemplate(applicantName, leaveTypeName, startDate, endDate, daysCount, approverName, approverNotes) {
+  _leaveApprovedTemplate(applicantName, leaveTypeName, startDate, endDate, daysCount, approverName, approverNotes, leaveId) {
     const noteBlock = approverNotes ? `
       <div style="background:#ecfdf5;border-left:4px solid #059669;border-radius:0 6px 6px 0;padding:14px 16px;margin:16px 0;">
         <p style="margin:0 0 4px;font-size:11px;color:#065f46;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Note from approver</p>
@@ -733,7 +740,7 @@ class NotificationService {
       headerTitle: 'Leave Approved',
       headerSubtitle: `${_safe(startDate)} → ${_safe(endDate)}`,
       body,
-      ctaUrl: '/leave',
+      ctaUrl: leaveId ? `/leave?leaveId=${encodeURIComponent(leaveId)}` : '/leave',
       ctaLabel: 'View My Leave',
       footerNote: 'Your colleagues see your leave on the team calendar from now on.',
     });
@@ -741,7 +748,7 @@ class NotificationService {
 
   // Sent to the applicant when the manager rejects the request.
   // Reason field is mandatory upstream so it's always populated.
-  _leaveRejectedTemplate(applicantName, leaveTypeName, startDate, endDate, daysCount, approverName, reason) {
+  _leaveRejectedTemplate(applicantName, leaveTypeName, startDate, endDate, daysCount, approverName, reason, leaveId) {
     const body = `
       <p style="font-size:15px;color:#374151;margin:0 0 20px;">Hi <strong>${_safe(applicantName)}</strong>,</p>
       <p style="font-size:14px;color:#6b7280;margin:0 0 8px;">
@@ -769,7 +776,7 @@ class NotificationService {
       headerTitle: 'Leave Not Approved',
       headerSubtitle: `${_safe(startDate)} → ${_safe(endDate)}`,
       body,
-      ctaUrl: '/leave',
+      ctaUrl: leaveId ? `/leave?leaveId=${encodeURIComponent(leaveId)}` : '/leave',
       ctaLabel: 'Open My Leave',
       footerNote: 'Need to discuss? Reach out to your manager or HR directly.',
     });

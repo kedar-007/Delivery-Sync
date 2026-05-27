@@ -444,6 +444,7 @@ class LeaveController {
   }
 
   async approveRequest(req, res) {
+    this.notif.tenantSlug = req.currentUser?.tenantSlug || '';
     const leave = await this.db.findById(TABLES.LEAVE_REQUESTS, req.params.requestId, req.tenantId);
     if (!leave) return ResponseHelper.notFound(res, 'Leave request not found');
     if (leave.status !== LEAVE_STATUS.PENDING) return ResponseHelper.validationError(res, 'Only PENDING requests can be approved');
@@ -522,6 +523,7 @@ class LeaveController {
         daysCount:     parseFloat(leave.days_count) || 0,
         approverName:  req.currentUser.name,
         approverNotes: req.body.notes || '',
+        leaveId:       req.params.requestId,
       });
       await this.notif.sendInApp({ tenantId: req.tenantId, userId: leave.user_id, title: 'Leave Approved', message: `Your leave from ${leave.start_date} to ${leave.end_date} was approved`, type: NOTIFICATION_TYPE.LEAVE_APPROVED, entityType: 'LEAVE', entityId: req.params.requestId });
     }
@@ -531,6 +533,7 @@ class LeaveController {
   }
 
   async rejectRequest(req, res) {
+    this.notif.tenantSlug = req.currentUser?.tenantSlug || '';
     const { notes } = req.body;
     if (!notes) return ResponseHelper.validationError(res, 'Rejection reason (notes) is required');
 
@@ -573,6 +576,7 @@ class LeaveController {
         daysCount:    parseFloat(leave.days_count) || 0,
         approverName: req.currentUser.name,
         reason:       notes,
+        leaveId:      req.params.requestId,
       });
       await this.notif.sendInApp({ tenantId: req.tenantId, userId: leave.user_id, title: 'Leave Rejected', message: `Your leave was rejected: ${notes}`, type: NOTIFICATION_TYPE.LEAVE_REJECTED, entityType: 'LEAVE', entityId: req.params.requestId });
     }

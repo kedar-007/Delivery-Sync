@@ -4,8 +4,7 @@
     "stack": "node20",
     "type": "advancedio",
     "env_variables": {
-      "NODE_ENV": "development",
-      "FROM_EMAIL": "catalystadmin@dsv360.ai"
+     
     }
   },
   "execution": {
