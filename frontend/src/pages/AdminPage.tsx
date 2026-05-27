@@ -67,7 +67,7 @@ const OrgRoleCard = ({
   const parent = allRoles.find((r) => r.id === role.parentRoleId);
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+    <div className="bg-ds-surface rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
       {/* colour bar */}
       <div className="h-1.5 w-full" style={{ background: role.color }} />
       <div className="p-4">
@@ -284,8 +284,8 @@ const ROLE_PRESETS: Record<string, {
       'ACTION_READ','ACTION_WRITE','BLOCKER_READ','BLOCKER_WRITE',
       'RAID_READ','RAID_WRITE','DECISION_READ','DECISION_WRITE',
       'STANDUP_SUBMIT','STANDUP_READ','EOD_SUBMIT','EOD_READ',
-      'TIME_READ','TIME_WRITE','TIME_APPROVE',
-      'ATTENDANCE_READ','ATTENDANCE_WRITE','LEAVE_READ','LEAVE_WRITE',
+      'TIME_READ','TIME_WRITE','TIME_APPROVE','TIME_TEAM_VIEW',
+      'ATTENDANCE_READ','ATTENDANCE_WRITE','LEAVE_READ','LEAVE_WRITE','LEAVE_TEAM_VIEW',
       'ASSET_READ','BADGE_READ','PROFILE_READ',
       'ANNOUNCEMENT_READ','NOTIFICATION_READ',
       'REPORT_READ','REPORT_WRITE','DASHBOARD_READ',
@@ -299,8 +299,8 @@ const ROLE_PRESETS: Record<string, {
     permissions: [
       'PROJECT_READ','MILESTONE_READ',
       'STANDUP_READ','EOD_READ','TIME_READ','TIME_APPROVE',
-      'ATTENDANCE_READ','ATTENDANCE_WRITE','ATTENDANCE_ADMIN','IP_CONFIG_WRITE',
-      'LEAVE_READ','LEAVE_WRITE','LEAVE_APPROVE','LEAVE_ADMIN',
+      'ATTENDANCE_READ','ATTENDANCE_WRITE','ATTENDANCE_ADMIN','ATTENDANCE_TEAM_VIEW','IP_CONFIG_WRITE',
+      'LEAVE_READ','LEAVE_WRITE','LEAVE_APPROVE','LEAVE_ADMIN','LEAVE_TEAM_VIEW',
       'ASSET_READ','BADGE_READ','BADGE_WRITE','BADGE_AWARD',
       'PROFILE_READ','PROFILE_WRITE',
       'ANNOUNCEMENT_READ','ANNOUNCEMENT_WRITE',
@@ -319,7 +319,7 @@ const ROLE_PRESETS: Record<string, {
       'ACTION_READ','ACTION_WRITE','BLOCKER_READ','BLOCKER_WRITE',
       'RAID_READ','RAID_WRITE','DECISION_READ','DECISION_WRITE',
       'STANDUP_READ','EOD_READ','TIME_READ','TIME_APPROVE',
-      'ATTENDANCE_READ','ATTENDANCE_WRITE','LEAVE_READ','LEAVE_WRITE','LEAVE_APPROVE',
+      'ATTENDANCE_READ','ATTENDANCE_WRITE','LEAVE_READ','LEAVE_WRITE','LEAVE_APPROVE','LEAVE_TEAM_VIEW',
       'ASSET_READ','BADGE_READ','BADGE_AWARD',
       'PROFILE_READ','ANNOUNCEMENT_READ','NOTIFICATION_READ','INVITE_USER',
       'REPORT_READ','REPORT_WRITE','DASHBOARD_READ',
@@ -426,10 +426,12 @@ const PERM_INFO: Record<string, { label: string; desc: string; risk: 'low' | 'me
   ATTENDANCE_TEAM_VIEW: { label: 'View Team Records', desc: 'See peers\' attendance — live view, records, export', risk: 'medium' },
   ATTENDANCE_ADMIN:     { label: 'Attendance Admin',  desc: 'Override records, view all tenants, export CSV',    risk: 'high' },
   IP_CONFIG_WRITE:    { label: 'Configure',          desc: 'People Settings: IP/Geo/Zone restrictions & work shifts', risk: 'high' },
-  LEAVE_READ:         { label: 'View Leave',         desc: 'See own leave requests and balance',             risk: 'low' },
-  LEAVE_WRITE:        { label: 'Request Leave',      desc: 'Submit leave applications',                      risk: 'low' },
-  LEAVE_APPROVE:      { label: 'Approve Leave',      desc: 'Approve or reject team leave',                  risk: 'medium' },
-  LEAVE_ADMIN:        { label: 'Configure',          desc: 'People Settings: leave types, balances & company calendar', risk: 'high' },
+  LEAVE_READ:         { label: 'View Leave',         desc: 'See own leave requests and balance',                           risk: 'low' },
+  LEAVE_WRITE:        { label: 'Request Leave',      desc: 'Submit leave applications',                                    risk: 'low' },
+  LEAVE_APPROVE:      { label: 'Approve Leave',      desc: 'Approve or reject team leave',                                 risk: 'medium' },
+  LEAVE_ADMIN:        { label: 'Configure',          desc: 'People Settings: leave types, balances & company calendar',    risk: 'high' },
+  LEAVE_TEAM_VIEW:    { label: 'Team Calendar',      desc: 'View team-scoped leave calendar to plan around absences',      risk: 'medium' },
+  LEAVE_ORG_VIEW:     { label: 'Org Leaves',         desc: 'View org-wide leave calendar — all employees across the org',  risk: 'medium' },
   LOCATION_ADMIN:     { label: 'Configure',          desc: 'People Settings: create/edit office locations & assign users', risk: 'medium' },
   TEAM_READ:          { label: 'View Teams',         desc: 'See team structure and members',                 risk: 'low' },
   TEAM_WRITE:         { label: 'Manage Teams',       desc: 'Create and edit teams',                         risk: 'medium' },
@@ -504,7 +506,8 @@ const CRUD_MODULES: CrudSection[] = [
     rows: [
       { name: 'Time Tracking', view: 'TIME_READ',       write: 'TIME_WRITE',       approve: 'TIME_APPROVE', admin: 'TIME_ANALYTICS', team: 'TIME_TEAM_VIEW' },
       { name: 'Attendance',    view: 'ATTENDANCE_READ',  write: 'ATTENDANCE_WRITE', approve: 'ATTENDANCE_TEAM_VIEW', admin: 'ATTENDANCE_ADMIN' },
-      { name: 'Leave',         view: 'LEAVE_READ',       write: 'LEAVE_WRITE',      approve: 'LEAVE_APPROVE', admin: 'LEAVE_ADMIN' },
+      { name: 'Leave',         view: 'LEAVE_READ',       write: 'LEAVE_WRITE',      approve: 'LEAVE_APPROVE', admin: 'LEAVE_ADMIN',  team: 'LEAVE_TEAM_VIEW' },
+      { name: 'Leave (Org)',   view: 'LEAVE_ORG_VIEW' },
     ],
   },
   {
@@ -593,7 +596,18 @@ const RolePermissionsModal = ({
 
   React.useEffect(() => {
     if (open) {
-      setSelected(new Set(role?.permissions ?? []));
+      const initial = new Set(role?.permissions ?? []);
+      // Auto-include LEAVE_TEAM_VIEW for roles that already have leave management
+      // capabilities — this backfills the permission for existing roles that were
+      // created before LEAVE_TEAM_VIEW was added, so admins see it pre-checked
+      // when they next open the modal and save.
+      if ((initial.has('LEAVE_APPROVE') || initial.has('LEAVE_ADMIN')) && !initial.has('LEAVE_TEAM_VIEW')) {
+        initial.add('LEAVE_TEAM_VIEW');
+      }
+      if ((initial.has('LEAVE_APPROVE') || initial.has('LEAVE_ADMIN')) && !initial.has('LEAVE_ORG_VIEW')) {
+        initial.add('LEAVE_ORG_VIEW');
+      }
+      setSelected(initial);
       setDisabledModules(new Set((role as any)?.moduleAccess ?? []));
       setPermTab('modules');
       setPermSearch('');
@@ -677,11 +691,11 @@ const RolePermissionsModal = ({
       </div>
 
       {/* ── Tab bar ── */}
-      <div className="flex gap-1 mb-4 bg-gray-100 rounded-lg p-1 shrink-0">
+      <div className="flex gap-1 mb-4 bg-gray-100 dark:bg-gray-700/50 rounded-lg p-1 shrink-0">
         {(['modules', 'permissions'] as const).map((t) => (
           <button key={t} onClick={() => setPermTab(t)}
             className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
-              permTab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              permTab === t ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
             }`}>
             {t === 'modules' ? 'Module Access' : `Permissions (${selected.size})`}
           </button>
@@ -704,7 +718,7 @@ const RolePermissionsModal = ({
                 return (
                   <button key={mod.key} onClick={() => toggleModule(mod)}
                     className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all ${
-                      on ? 'border-indigo-300 bg-indigo-50 ring-1 ring-indigo-100' : 'border-gray-200 bg-white hover:bg-gray-50 opacity-60'
+                      on ? 'border-indigo-300 bg-indigo-50 dark:bg-indigo-900/30 dark:border-indigo-700 ring-1 ring-indigo-100 dark:ring-indigo-800' : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-ds-surface hover:bg-gray-50 dark:hover:bg-gray-700 opacity-60'
                     }`}>
                     <div className={`p-2 rounded-lg shrink-0 ${on ? 'bg-indigo-100' : 'bg-gray-100'}`}>
                       <Icon size={15} className={on ? 'text-indigo-600' : 'text-gray-400'} />
@@ -779,7 +793,7 @@ const RolePermissionsModal = ({
                     </div>
 
                     {/* Module rows */}
-                    <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+                    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-ds-surface overflow-hidden">
                       {rows.map((row, i) => {
                         const cols = [
                           { perm: row.view,    activeClass: 'bg-blue-500 text-white',   hoverClass: 'hover:bg-blue-50' },
@@ -807,7 +821,7 @@ const RolePermissionsModal = ({
                                       className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all border ${
                                         isOn
                                           ? `${activeClass} border-transparent shadow-sm`
-                                          : `bg-white border-gray-200 text-gray-400 ${hoverClass}`
+                                          : `bg-ds-surface border-gray-200 dark:border-gray-600 text-gray-400 dark:text-gray-500 ${hoverClass}`
                                       }`}
                                     >
                                       {isOn
@@ -1202,7 +1216,7 @@ const OrgChartView = () => {
           width: ORG_NODE_W,
         }}
         className={[
-          'flex flex-col items-center gap-1.5 p-3 rounded-2xl border bg-white',
+          'flex flex-col items-center gap-1.5 p-3 rounded-2xl border bg-ds-surface',
           'cursor-grab active:cursor-grabbing select-none text-center',
           'transition-all duration-150',
           isDragging ? 'opacity-30 scale-95' : '',
@@ -1326,7 +1340,7 @@ const OrgChartView = () => {
         <div className="space-y-2">
           {filtered.map((node) => (
             <div key={node.id}
-              className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-200 shadow-sm">
+              className="flex items-center gap-3 p-3 bg-ds-surface rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
               <div className="w-1.5 self-stretch rounded-full shrink-0" style={{ background: node.color }} />
               <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                 style={{ background: node.color + '20' }}>
@@ -1456,14 +1470,14 @@ const OrgCanvas = ({
       {/* ── Zoom controls ── */}
       <div className="absolute top-3 right-3 z-20 flex flex-col gap-1">
         <button onClick={() => zoom(0.15)}
-          className="w-8 h-8 rounded-lg bg-white border border-gray-200 shadow-sm flex items-center justify-center text-gray-600 hover:bg-gray-50 font-bold text-lg leading-none">+</button>
-        <div className="w-8 h-7 rounded-lg bg-white border border-gray-200 shadow-sm flex items-center justify-center">
-          <span className="text-xs font-medium text-gray-500">{Math.round(scale * 100)}%</span>
+          className="w-8 h-8 rounded-lg bg-ds-surface border border-gray-200 dark:border-gray-600 shadow-sm flex items-center justify-center text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 font-bold text-lg leading-none">+</button>
+        <div className="w-8 h-7 rounded-lg bg-ds-surface border border-gray-200 dark:border-gray-600 shadow-sm flex items-center justify-center">
+          <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{Math.round(scale * 100)}%</span>
         </div>
         <button onClick={() => zoom(-0.15)}
-          className="w-8 h-8 rounded-lg bg-white border border-gray-200 shadow-sm flex items-center justify-center text-gray-600 hover:bg-gray-50 font-bold text-lg leading-none">−</button>
+          className="w-8 h-8 rounded-lg bg-ds-surface border border-gray-200 dark:border-gray-600 shadow-sm flex items-center justify-center text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 font-bold text-lg leading-none">−</button>
         <button onClick={fit} title="Fit to screen"
-          className="w-8 h-8 rounded-lg bg-white border border-gray-200 shadow-sm flex items-center justify-center text-gray-400 hover:bg-gray-50 hover:text-gray-600">
+          className="w-8 h-8 rounded-lg bg-ds-surface border border-gray-200 dark:border-gray-600 shadow-sm flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-300">
           <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6">
             <path d="M1 6V1h5M10 1h5v5M15 10v5h-5M6 15H1v-5"/>
           </svg>

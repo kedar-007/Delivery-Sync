@@ -135,7 +135,7 @@ function StatCard({
   icon, label, value, sub, color,
 }: { icon: React.ReactNode; label: string; value: string; sub?: string; color: string }) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-start gap-4">
+    <div className="bg-ds-surface rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 flex items-start gap-4">
       <div className={`p-3 rounded-xl ${color} shrink-0`}>{icon}</div>
       <div>
         <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">{label}</p>
@@ -185,7 +185,7 @@ function TeamPicker({
         className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-sm font-medium transition-colors ${
           selected
             ? 'border-violet-300 bg-violet-50 text-violet-700'
-            : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+            : 'border-gray-200 dark:border-gray-600 bg-ds-surface text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
         }`}
       >
         {selected ? (
@@ -213,7 +213,7 @@ function TeamPicker({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-2xl shadow-lg z-20 overflow-hidden">
+        <div className="absolute right-0 top-full mt-1 w-56 bg-ds-surface border border-gray-200 dark:border-gray-600 rounded-2xl shadow-lg z-20 overflow-hidden">
           <div className="p-2 border-b border-gray-100">
             <div className="relative">
               <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
@@ -301,7 +301,7 @@ function UserPicker({
         className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-sm font-medium transition-colors ${
           selected
             ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
-            : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+            : 'border-gray-200 dark:border-gray-600 bg-ds-surface text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
         }`}
       >
         {selected ? (
@@ -326,7 +326,7 @@ function UserPicker({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-2xl shadow-lg z-20 overflow-hidden">
+        <div className="absolute right-0 top-full mt-1 w-64 bg-ds-surface border border-gray-200 dark:border-gray-600 rounded-2xl shadow-lg z-20 overflow-hidden">
           <div className="p-2 border-b border-gray-100">
             <div className="relative">
               <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />

@@ -366,6 +366,11 @@ const Paginator = ({
   </div>
 );
 
+// Static option lists — populated from known constants, not from loaded data,
+// so dropdowns are complete regardless of pagination page.
+const ACTION_OPTIONS = Object.keys(ACTION_STYLES);
+const ENTITY_OPTIONS = Object.keys(ENTITY_META);
+
 // ── Main page ──────────────────────────────────────────────────────────────────
 
 const AuditLogsPage = () => {
@@ -377,18 +382,24 @@ const AuditLogsPage = () => {
   const [filterFrom, setFilterFrom]     = useState('');
   const [filterTo, setFilterTo]         = useState('');
 
+  // All server-side filter params, including page/pageSize for true server pagination.
   const params = useMemo(() => {
-    const p: Record<string, string> = { limit: '200' };
-    if (filterUser)   p.performedBy  = filterUser;
-    if (filterAction) p.action       = filterAction;
-    if (filterEntity) p.entityType   = filterEntity;
-    if (filterFrom)   p.dateFrom     = filterFrom;
-    if (filterTo)     p.dateTo       = filterTo;
+    const p: Record<string, string> = { page: String(page), pageSize: String(PAGE_SIZE) };
+    if (filterUser)   p.performedBy = filterUser;
+    if (filterAction) p.action      = filterAction;
+    if (filterEntity) p.entityType  = filterEntity;
+    if (filterFrom)   p.dateFrom    = filterFrom;
+    if (filterTo)     p.dateTo      = filterTo;
     return p;
-  }, [filterUser, filterAction, filterEntity, filterFrom, filterTo]);
+  }, [page, filterUser, filterAction, filterEntity, filterFrom, filterTo]);
 
-  const { data: rawLogs = [], isLoading, refetch } = useAuditLogs(params);
+  const { data, isLoading, refetch } = useAuditLogs(params);
   const { data: users = [] } = useAdminUsers();
+
+  // Unwrap paginated response — total is the real DB COUNT, not the page size.
+  const rawLogs    = (data as any)?.logs     ?? [] as AuditLog[];
+  const total      = (data as any)?.total    ?? 0;
+  const totalPages = (data as any)?.totalPages ?? 1;
 
   const avatarMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -396,6 +407,7 @@ const AuditLogsPage = () => {
     return m;
   }, [users]);
 
+  // Client-side text search within the current page only.
   const logs = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return rawLogs as AuditLog[];
@@ -409,8 +421,10 @@ const AuditLogsPage = () => {
     );
   }, [rawLogs, search]);
 
-  const totalPages = Math.max(1, Math.ceil(logs.length / PAGE_SIZE));
-  const pagedLogs  = logs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  // User dropdown options from the full users list (independent of current page).
+  const userOptions = useMemo(() => {
+    return (users as any[]).map(u => [String(u.id), u.name || u.email || u.id] as [string, string]);
+  }, [users]);
 
   const hasFilters = !!(search || filterUser || filterAction || filterEntity || filterFrom || filterTo);
   const clearFilters = () => {
@@ -419,30 +433,19 @@ const AuditLogsPage = () => {
     setPage(1);
   };
 
-  // Options derived from loaded logs
-  const actionOptions = useMemo(() => Array.from(new Set((rawLogs as AuditLog[]).map(l => l.action).filter(Boolean))).sort(), [rawLogs]);
-  const entityOptions = useMemo(() => Array.from(new Set((rawLogs as AuditLog[]).map(l => l.entityType).filter((v): v is string => !!v))).sort(), [rawLogs]);
-  const userOptions   = useMemo(() => {
-    const m = new Map<string, string>();
-    (rawLogs as AuditLog[]).forEach(l => {
-      if (l.performedById) m.set(l.performedById, l.performedByName || l.performedByEmail || l.performedById);
-    });
-    return Array.from(m.entries());
-  }, [rawLogs]);
-
-  // Stats
+  // Stats — total comes from the real DB COUNT; today/week/users are from the current page.
   const now = new Date();
   const todayStr  = now.toISOString().slice(0, 10);
   const weekStart = new Date(now); weekStart.setDate(now.getDate() - 7);
   const stats = useMemo(() => {
     const all = rawLogs as AuditLog[];
-    const today = all.filter(l => l.createdAt?.startsWith(todayStr)).length;
-    const week  = all.filter(l => l.createdAt && new Date(l.createdAt) >= weekStart).length;
-    const users = new Set(all.map(l => l.performedById).filter(Boolean)).size;
-    return { today, week, total: all.length, users };
+    const today     = all.filter(l => l.createdAt?.startsWith(todayStr)).length;
+    const week      = all.filter(l => l.createdAt && new Date(l.createdAt) >= weekStart).length;
+    const activeUsers = new Set(all.map(l => l.performedById).filter(Boolean)).size;
+    return { today, week, activeUsers };
   }, [rawLogs]);
 
-  // Export CSV
+  // Export CSV (current page only when filters active, or remind user to use date filters for larger exports).
   const exportCsv = () => {
     const rows = [
       ['When', 'Who', 'Email', 'Action', 'Module', 'Entity ID', 'Summary'],
@@ -475,10 +478,10 @@ const AuditLogsPage = () => {
         {/* Stats row */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: 'Today',        value: stats.today,  color: 'text-blue-600',    bg: 'bg-blue-50',    icon: <Clock size={14} className="text-blue-400" /> },
-            { label: 'Last 7 days',  value: stats.week,   color: 'text-indigo-600',  bg: 'bg-indigo-50',  icon: <CalendarDays size={14} className="text-indigo-400" /> },
-            { label: 'Total loaded', value: stats.total,  color: 'text-gray-700',    bg: 'bg-gray-50',    icon: <FileText size={14} className="text-gray-400" /> },
-            { label: 'Active users', value: stats.users,  color: 'text-emerald-600', bg: 'bg-emerald-50', icon: <Users size={14} className="text-emerald-400" /> },
+            { label: 'Today (this page)',   value: stats.today,       color: 'text-blue-600',    bg: 'bg-blue-50',    icon: <Clock size={14} className="text-blue-400" /> },
+            { label: 'Last 7 days (page)',  value: stats.week,        color: 'text-indigo-600',  bg: 'bg-indigo-50',  icon: <CalendarDays size={14} className="text-indigo-400" /> },
+            { label: 'Total events',        value: total,             color: 'text-gray-700',    bg: 'bg-gray-50',    icon: <FileText size={14} className="text-gray-400" /> },
+            { label: 'Users (this page)',   value: stats.activeUsers, color: 'text-emerald-600', bg: 'bg-emerald-50', icon: <Users size={14} className="text-emerald-400" /> },
           ].map(s => (
             <div key={s.label} className={`${s.bg} rounded-xl border border-gray-100 px-4 py-3 flex items-center gap-3`}>
               {s.icon}
@@ -510,18 +513,18 @@ const AuditLogsPage = () => {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-            {/* Search */}
+            {/* Search — filters within the current page */}
             <div className="lg:col-span-2 relative">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
               <input
                 className="w-full pl-8 pr-3 py-2 text-xs border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-300/40 focus:border-blue-400"
-                placeholder="Search name, action, module…"
+                placeholder="Search within page…"
                 value={search}
-                onChange={e => { setSearch(e.target.value); setPage(1); }}
+                onChange={e => setSearch(e.target.value)}
               />
             </div>
 
-            {/* Who */}
+            {/* Who — populated from full user list, not just current page */}
             <div className="relative">
               <User size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
               <select
@@ -534,7 +537,7 @@ const AuditLogsPage = () => {
               </select>
             </div>
 
-            {/* Action */}
+            {/* Action — static list from known constants */}
             <div className="relative">
               <Tag size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
               <select
@@ -543,13 +546,13 @@ const AuditLogsPage = () => {
                 onChange={e => { setFilterAction(e.target.value); setPage(1); }}
               >
                 <option value="">All actions</option>
-                {actionOptions.map(a => (
+                {ACTION_OPTIONS.map(a => (
                   <option key={a} value={a}>{a.replace(/_/g, ' ')}</option>
                 ))}
               </select>
             </div>
 
-            {/* Module / entity */}
+            {/* Module / entity — static list from known constants */}
             <div className="relative">
               <Layers size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
               <select
@@ -558,7 +561,7 @@ const AuditLogsPage = () => {
                 onChange={e => { setFilterEntity(e.target.value); setPage(1); }}
               >
                 <option value="">All modules</option>
-                {entityOptions.map(e => (
+                {ENTITY_OPTIONS.map(e => (
                   <option key={e} value={e}>{entityMeta(e).label}</option>
                 ))}
               </select>
@@ -591,7 +594,9 @@ const AuditLogsPage = () => {
         {/* Result count */}
         <div className="flex items-center justify-between">
           <p className="text-xs text-gray-500">
-            {isLoading ? 'Loading…' : `${logs.length} event${logs.length !== 1 ? 's' : ''}${hasFilters ? ' matching filters' : ''}`}
+            {isLoading
+              ? 'Loading…'
+              : `${total} event${total !== 1 ? 's' : ''}${hasFilters ? ' matching filters' : ''} — page ${page} of ${totalPages}`}
           </p>
         </div>
 
@@ -619,7 +624,7 @@ const AuditLogsPage = () => {
         ) : (
           <>
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-              {pagedLogs.map(log => (
+              {logs.map(log => (
                 <LogRow
                   key={log.id}
                   log={log}
@@ -628,7 +633,7 @@ const AuditLogsPage = () => {
               ))}
             </div>
             <Paginator
-              page={page} totalPages={totalPages} total={logs.length}
+              page={page} totalPages={totalPages} total={total}
               perPage={PAGE_SIZE} label="events"
               onPrev={() => setPage(p => Math.max(1, p - 1))}
               onNext={() => setPage(p => Math.min(totalPages, p + 1))}

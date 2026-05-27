@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Sidebar from './Sidebar';
+import Footer from './Footer';
 import { Menu } from 'lucide-react';
 import { useSidebar } from '../../contexts/SidebarContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -87,6 +88,7 @@ const Layout = ({ children }: LayoutProps) => {
           <div className="flex-1 overflow-y-auto">
             {children}
           </div>
+          <Footer />
         </main>
       </div>
     </FestivalProvider>

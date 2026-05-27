@@ -39,18 +39,18 @@ export const THEME_PRESETS: ThemePreset[] = [
     vars: {
       '--ds-primary':         '96 165 250',   // blue-400
       '--ds-primary-hover':   '59 130 246',   // blue-500
-      '--ds-bg':              '17 24 39',     // gray-900
-      '--ds-surface':         '31 41 55',     // gray-800
-      '--ds-surface-hover':   '55 65 81',     // gray-700
-      '--ds-border':          '55 65 81',     // gray-700
-      '--ds-text':            '243 244 246',  // gray-100
-      '--ds-text-muted':      '156 163 175',  // gray-400
-      '--ds-text-inverse':    '17 24 39',
-      '--ds-sidebar-bg':      '15 23 42',     // slate-900
-      '--ds-sidebar-hover':   '30 41 59',     // slate-800
+      '--ds-bg':              '13 18 30',     // deep navy-gray
+      '--ds-surface':         '22 30 46',     // elevated surface
+      '--ds-surface-hover':   '33 43 63',     // hover surface
+      '--ds-border':          '44 56 80',     // subtle border
+      '--ds-text':            '220 225 235',  // softer than gray-100 — easy on eyes
+      '--ds-text-muted':      '140 150 170',  // readable muted
+      '--ds-text-inverse':    '13 18 30',
+      '--ds-sidebar-bg':      '9 13 22',      // deepest sidebar
+      '--ds-sidebar-hover':   '22 30 46',
       '--ds-sidebar-active':  '37 99 235',    // blue-600
-      '--ds-sidebar-border':  '30 41 59',
-      '--ds-sidebar-text':    '226 232 240',  // slate-200
+      '--ds-sidebar-border':  '22 30 46',
+      '--ds-sidebar-text':    '200 210 228',  // readable sidebar text
       '--ds-accent':          '167 139 250',  // violet-400
     },
   },
@@ -131,18 +131,18 @@ export const THEME_PRESETS: ThemePreset[] = [
     vars: {
       '--ds-primary':         '167 139 250',  // violet-400
       '--ds-primary-hover':   '139 92 246',   // violet-500
-      '--ds-bg':              '15 10 40',
-      '--ds-surface':         '26 20 60',
-      '--ds-surface-hover':   '40 32 80',
-      '--ds-border':          '55 48 100',
-      '--ds-text':            '237 233 254',  // violet-100
-      '--ds-text-muted':      '167 139 250',  // violet-400
-      '--ds-text-inverse':    '15 10 40',
-      '--ds-sidebar-bg':      '10 7 28',
-      '--ds-sidebar-hover':   '26 20 60',
+      '--ds-bg':              '12 8 32',
+      '--ds-surface':         '22 16 52',
+      '--ds-surface-hover':   '34 27 68',
+      '--ds-border':          '50 42 90',
+      '--ds-text':            '218 212 240',  // soft violet-tinted white
+      '--ds-text-muted':      '155 132 230',  // readable muted violet
+      '--ds-text-inverse':    '12 8 32',
+      '--ds-sidebar-bg':      '8 5 22',
+      '--ds-sidebar-hover':   '22 16 52',
       '--ds-sidebar-active':  '109 40 217',   // violet-700
-      '--ds-sidebar-border':  '40 32 80',
-      '--ds-sidebar-text':    '221 214 254',  // violet-200
+      '--ds-sidebar-border':  '34 27 68',
+      '--ds-sidebar-text':    '200 190 235',  // readable sidebar text
       '--ds-accent':          '236 72 153',   // pink-500
     },
   },
@@ -200,18 +200,18 @@ export const THEME_PRESETS: ThemePreset[] = [
     vars: {
       '--ds-primary':         '52 211 153',   // emerald-400
       '--ds-primary-hover':   '16 185 129',   // emerald-500
-      '--ds-bg':              '2 8 23',
-      '--ds-surface':         '6 18 41',
-      '--ds-surface-hover':   '13 32 64',
-      '--ds-border':          '25 52 88',
-      '--ds-text':            '209 250 229',  // emerald-100
-      '--ds-text-muted':      '110 231 183',  // emerald-300
-      '--ds-text-inverse':    '2 8 23',
-      '--ds-sidebar-bg':      '1 5 15',
-      '--ds-sidebar-hover':   '6 18 41',
+      '--ds-bg':              '2 7 18',
+      '--ds-surface':         '5 16 36',
+      '--ds-surface-hover':   '10 28 56',
+      '--ds-border':          '18 46 78',
+      '--ds-text':            '190 230 215',  // soft emerald-tinted white
+      '--ds-text-muted':      '100 190 160',  // readable muted emerald
+      '--ds-text-inverse':    '2 7 18',
+      '--ds-sidebar-bg':      '1 4 12',
+      '--ds-sidebar-hover':   '5 16 36',
       '--ds-sidebar-active':  '5 150 105',    // emerald-600
-      '--ds-sidebar-border':  '13 32 64',
-      '--ds-sidebar-text':    '167 243 208',  // emerald-200
+      '--ds-sidebar-border':  '10 28 56',
+      '--ds-sidebar-text':    '160 215 195',  // readable sidebar text
       '--ds-accent':          '99 102 241',   // indigo-500
     },
   },

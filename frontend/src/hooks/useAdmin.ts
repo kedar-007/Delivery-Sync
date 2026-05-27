@@ -57,7 +57,7 @@ export const useTenant = () =>
 export const useAuditLogs = (params?: Record<string, string>, enabled = true) =>
   useQuery({
     queryKey: ['audit-logs', params],
-    queryFn: () => adminApi.getAuditLogs(params).then((d) => d.logs ?? []),
+    queryFn: () => adminApi.getAuditLogs(params),
     enabled,
     staleTime: 30 * 1000,
   });

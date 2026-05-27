@@ -19,7 +19,7 @@ const Stat = ({ label, value, sub, color = 'blue' }: {
     red: 'text-red-600', amber: 'text-amber-600', purple: 'text-purple-600',
   };
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-col gap-1">
+    <div className="bg-ds-surface rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 flex flex-col gap-1">
       <p className={`text-3xl font-bold ${colors[color] ?? colors.blue}`}>{value}</p>
       <p className="text-sm font-medium text-gray-700">{label}</p>
       {sub && <p className="text-xs text-gray-400">{sub}</p>}
@@ -29,7 +29,7 @@ const Stat = ({ label, value, sub, color = 'blue' }: {
 
 // ── Section header ────────────────────────────────────────────────────────────
 const Section = ({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) => (
-  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+  <div className="bg-ds-surface rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
     <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100 bg-gray-50/60">
       <span className="text-gray-500">{icon}</span>
       <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">{title}</h3>
@@ -87,7 +87,7 @@ const ReportDetailPage = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Top bar */}
-      <div className="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm">
+      <div className="sticky top-0 z-20 bg-ds-surface border-b border-gray-200 dark:border-gray-700 shadow-sm">
         <div className="max-w-5xl mx-auto px-6 py-3 flex items-center gap-4">
           <Link to={`/${tenantSlug}/reports`}
             className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors">

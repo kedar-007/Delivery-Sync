@@ -83,6 +83,59 @@ class AuditService {
     });
   }
 
+  /**
+   * Server-side paginated audit logs with real COUNT for KPI accuracy.
+   * Returns { logs, total, page, pageSize, totalPages }.
+   */
+  async getFilteredLogsPaginated(tenantId, { action, entityType, performedBy, dateFrom, dateTo, page = 1, pageSize = 25 } = {}) {
+    const conditions = [];
+    if (action) conditions.push(`action = '${DataStoreService.escape(action)}'`);
+    if (entityType) conditions.push(`entity_type = '${DataStoreService.escape(entityType)}'`);
+    if (performedBy) conditions.push(`performed_by = '${DataStoreService.escape(performedBy)}'`);
+    if (dateFrom) conditions.push(`CREATEDTIME >= '${DataStoreService.escape(dateFrom)}'`);
+    if (dateTo) conditions.push(`CREATEDTIME <= '${DataStoreService.escape(dateTo)}'`);
+
+    const whereExtra = conditions.length > 0 ? conditions.join(' AND ') : null;
+
+    const { rows, total, totalPages } = await this.db.findPaginated(
+      TABLES.AUDIT_LOGS, tenantId, whereExtra,
+      { page, pageSize, orderBy: 'CREATEDTIME DESC' }
+    );
+
+    if (rows.length === 0) return { logs: [], total, page, pageSize, totalPages };
+
+    // Enrich with performer name/email from users table
+    const performerIds = [...new Set(rows.map(l => l.performed_by).filter(Boolean))];
+    let userMap = {};
+    if (performerIds.length > 0) {
+      const inClause = performerIds.map(id => `'${id}'`).join(',');
+      const users = await this.db.query(
+        `SELECT ROWID, name, email FROM ${TABLES.USERS} WHERE ROWID IN (${inClause}) LIMIT 200`
+      );
+      users.forEach(u => {
+        userMap[String(u.ROWID)] = { name: u.name || '', email: u.email || '' };
+      });
+    }
+
+    const logs = rows.map(l => {
+      const performer = userMap[String(l.performed_by)] || {};
+      return {
+        id: String(l.ROWID),
+        action: l.action,
+        entityType: l.entity_type,
+        entityId: l.entity_id,
+        performedById: l.performed_by,
+        performedByName: performer.name || l.performed_by,
+        performedByEmail: performer.email || '',
+        oldValue: l.old_value || '',
+        newValue: l.new_value || '',
+        createdAt: l.CREATEDTIME,
+      };
+    });
+
+    return { logs, total, page, pageSize, totalPages };
+  }
+
   async getLogsForEntity(tenantId, entityType) {
     return this.getFilteredLogs(tenantId, { entityType, limit: 100 });
   }

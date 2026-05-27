@@ -109,7 +109,7 @@ const TeamCard = ({
 
   return (
     <div
-      className="relative bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-blue-200 transition-all duration-200 cursor-pointer group overflow-hidden"
+      className="relative bg-ds-surface rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md hover:border-blue-200 dark:hover:border-blue-700 transition-all duration-200 cursor-pointer group overflow-hidden"
       onClick={() => onView(team)}
     >
       {/* Left accent bar */}

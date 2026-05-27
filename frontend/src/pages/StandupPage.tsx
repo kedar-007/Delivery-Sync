@@ -90,9 +90,9 @@ const ProjectSection = ({
       </button>
 
       {!collapsed && (
-        <div className="divide-y divide-gray-100">
+        <div className="divide-y divide-gray-100 dark:divide-gray-700">
           {entries.map((entry) => (
-            <div key={entry.id} className="px-4 py-3 bg-white group">
+            <div key={entry.id} className="px-4 py-3 bg-ds-surface group">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0 space-y-2">
                   <div className="flex items-center gap-2">
@@ -639,7 +639,7 @@ const StandupPage = () => {
               /* Flat list in search mode (entries from different projects mixed) */
               <div className="space-y-3">
                 {(visibleStandups as StandupEntry[]).map((entry) => (
-                  <div key={entry.id} className="rounded-xl border border-gray-200 bg-white px-4 py-3 group">
+                  <div key={entry.id} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-ds-surface px-4 py-3 group">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0 space-y-2">
                         <div className="flex items-center gap-2 flex-wrap">
@@ -705,9 +705,9 @@ const StandupPage = () => {
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${
                     rollupProjectId === p.id
                       ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:text-blue-600'
+                      : 'bg-ds-surface text-gray-600 border-gray-200 dark:border-gray-600 hover:border-blue-300 hover:text-blue-600'
                   }`}>
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${rollupProjectId === p.id ? 'bg-white' : PROJECT_COLORS[i % PROJECT_COLORS.length]}`} />
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${rollupProjectId === p.id ? 'bg-white/80 dark:bg-white/60' : PROJECT_COLORS[i % PROJECT_COLORS.length]}`} />
                   {p.name}
                 </button>
               ))}
@@ -724,21 +724,19 @@ const StandupPage = () => {
                     id: string; userName: string; yesterday: string; today: string; blockers?: string;
                   }>;
                 }) => (
-                  <div key={day.date} className="rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-                    {/* Day header — DSV-008: deeper indigo background + white
-                        text so the date is clearly visible. The previous soft
-                        blue gradient was too light to read against. */}
-                    <div className="flex items-center justify-between px-4 py-3 bg-indigo-600 text-white">
+                  <div key={day.date} className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
+                    {/* Day header */}
+                    <div className="flex items-center justify-between px-4 py-3 bg-indigo-600 dark:bg-indigo-800 text-white">
                       <h3 className="text-sm font-bold tracking-wide">
                         {format(new Date(day.date + 'T00:00:00'), 'EEEE, d MMMM yyyy')}
                       </h3>
-                      <span className="text-xs font-semibold text-indigo-700 bg-white/95 px-2.5 py-0.5 rounded-full">
+                      <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-200 bg-white/95 dark:bg-indigo-300/20 px-2.5 py-0.5 rounded-full">
                         {day.entryCount} update{day.entryCount !== 1 ? 's' : ''}
                       </span>
                     </div>
 
                     {/* Entries */}
-                    <div className="divide-y divide-gray-100 bg-white">
+                    <div className="divide-y divide-gray-100 dark:divide-gray-700 bg-ds-surface">
                       {day.entries.map((entry) => (
                         <div key={entry.id} className="px-4 py-3">
                           <p className="text-xs font-bold text-blue-600 mb-2">{entry.userName}</p>
@@ -884,7 +882,7 @@ const StandupPage = () => {
             ) : (
               <div className="space-y-3">
                 {(teamStandups as StandupEntry[]).map((entry) => (
-                  <div key={entry.id} className="rounded-xl border border-gray-200 bg-white px-4 py-4 shadow-sm hover:shadow-md transition-shadow">
+                  <div key={entry.id} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-ds-surface px-4 py-4 shadow-sm hover:shadow-md transition-shadow">
                     {/* Header — avatar + name + project + date */}
                     <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
                       <div className="flex items-center gap-3 min-w-0">
