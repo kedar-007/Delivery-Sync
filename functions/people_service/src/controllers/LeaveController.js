@@ -4,9 +4,59 @@ const DataStoreService = require('../services/DataStoreService');
 const AuditService = require('../services/AuditService');
 const NotificationService = require('../services/NotificationService');
 const ResponseHelper = require('../utils/ResponseHelper');
-const { TABLES, LEAVE_STATUS, AUDIT_ACTION, NOTIFICATION_TYPE } = require('../utils/Constants');
+const TeamScopeService = require('../services/TeamScopeService');
+const { TABLES, LEAVE_STATUS, AUDIT_ACTION, NOTIFICATION_TYPE, PERMISSIONS } = require('../utils/Constants');
 
 const fmtDT = (d) => DataStoreService.fmtDT(d);
+
+// ── Working-day helpers ────────────────────────────────────────────────────────
+
+function getNthSaturday(year, month, date) {
+  let count = 0;
+  for (let d = 1; d <= date; d++) {
+    if (new Date(year, month, d).getDay() === 6) count++;
+  }
+  return count;
+}
+
+// Returns true when the given dayOfWeek (0=Sun,6=Sat) is a non-working day
+// under the supplied weekend policy string.
+function isDayOff(dayOfWeek, year, month, date, policy) {
+  if (policy === 'all_on') return false;
+  if (dayOfWeek === 0) return true; // Sunday always off (except all_on)
+  if (dayOfWeek !== 6) return false;
+  // Saturday logic
+  if (policy === 'all_off') return true;
+  const nth = getNthSaturday(year, month, date);
+  if (policy === '1st_3rd_off')     return nth === 1 || nth === 3;
+  if (policy === '2nd_4th_off')     return nth === 2 || nth === 4;
+  if (policy === '2nd_4th_5th_off') return nth === 2 || nth === 4 || nth === 5;
+  if (policy === 'alternate_off')   return nth % 2 === 1;
+  if (policy === '5th_sat_working') return nth !== 5;
+  return true; // default: treat as all_off
+}
+
+// Count calendar days between two ISO date strings, excluding weekends (per
+// policy) and any dates in the holidaySet.  Half-days must be handled
+// by the caller before invoking this function.
+function calcWorkingDays(startDate, endDate, policy, holidaySet) {
+  const start = new Date(startDate);
+  const end   = new Date(endDate);
+  let count = 0;
+  const cur = new Date(start);
+  while (cur <= end) {
+    const dow  = cur.getDay();
+    const yr   = cur.getFullYear();
+    const mo   = cur.getMonth();
+    const d    = cur.getDate();
+    const ds   = `${yr}-${String(mo + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    if (!isDayOff(dow, yr, mo, d, policy) && !(holidaySet && holidaySet.has(ds))) {
+      count++;
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  return count;
+}
 
 class LeaveController {
   constructor(catalystApp, adminCatalystApp) {
@@ -306,10 +356,50 @@ class LeaveController {
       if (overlap.length > 0)
         return ResponseHelper.conflict(res, 'Leave dates overlap with an existing request');
 
-      // ── Days calculation ───────────────────────────────────────────────────
-      const ms = new Date(end_date) - new Date(start_date);
-      let days_count = Math.round(ms / 86400000) + 1;
-      if (is_half_day) days_count = 0.5;
+      // ── Days calculation (working days only — excludes weekends + holidays) ──
+      let days_count;
+      if (is_half_day) {
+        days_count = 0.5;
+      } else {
+        // Resolve weekend policy for the applicant's office location
+        let policy = 'all_off';
+        let holidaySet = new Set();
+        try {
+          const tenantRows = await this.db.query(
+            `SELECT settings FROM ${TABLES.TENANTS} WHERE ROWID = '${tenantId}' LIMIT 1`
+          );
+          if (tenantRows.length > 0) {
+            const settings = JSON.parse(tenantRows[0].settings || '{}');
+            const wp = settings.weekendPolicy || { default: 'all_off', perLocation: {} };
+            const locId = req.currentUser.officeLocationId;
+            policy = (locId && wp.perLocation?.[locId]) ? wp.perLocation[locId] : (wp.default || 'all_off');
+
+            // Collect non-optional public holidays within the date range
+            const startYr = new Date(start_date).getFullYear();
+            const endYr   = new Date(end_date).getFullYear();
+            const yearsToFetch = [...new Set([String(startYr), String(endYr)])];
+            for (const yr of yearsToFetch) {
+              const dbHols = await this.db.findWhere(TABLES.LEAVE_CALENDAR, tenantId,
+                `year = '${yr}' AND is_optional = 'false'`, { limit: 200 });
+              dbHols.forEach(h => { if (h.holiday_date) holidaySet.add(h.holiday_date); });
+            }
+
+            // Location-specific non-optional holidays
+            if (locId && settings.locationCalendar?.[locId]) {
+              const locCal = settings.locationCalendar[locId];
+              for (const yr of yearsToFetch) {
+                (locCal[yr] || []).forEach(h => {
+                  if (h.holiday_date && !h.is_optional) holidaySet.add(h.holiday_date);
+                });
+              }
+            }
+          }
+        } catch (_) { /* calendar config unavailable — fall back to policy=all_off */ }
+
+        days_count = calcWorkingDays(start_date, end_date, policy, holidaySet);
+        if (days_count === 0)
+          return ResponseHelper.validationError(res, 'Selected date range has no working days (all days are weekends or public holidays)');
+      }
 
       // ── Balance check + auto-create if missing ────────────────────────────
       // Always use quoted string IDs — Catalyst BigInt IDs exceed JS Number.MAX_SAFE_INTEGER
@@ -585,17 +675,37 @@ class LeaveController {
     return ResponseHelper.success(res, { message: 'Leave rejected' });
   }
 
-  // GET /api/people/leave/calendar
+  // GET /api/people/leave/calendar?scope=team|org&date_from=&date_to=
+  // scope=team (default): leaves for the caller + their team peers only
+  // scope=org:            all org leaves — requires LEAVE_ORG_VIEW permission
   async calendar(req, res) {
-    const { date_from, date_to } = req.query;
+    const { date_from, date_to, scope } = req.query;
     const from = date_from || DataStoreService.today();
-    const to = date_to || DataStoreService.daysAgo(-30);
-    const approved = await this.db.findWhere(TABLES.LEAVE_REQUESTS, req.tenantId,
+    const to   = date_to   || DataStoreService.daysAgo(-30);
+
+    let approved = await this.db.findWhere(TABLES.LEAVE_REQUESTS, req.tenantId,
       `status = 'APPROVED' AND start_date <= '${DataStoreService.escape(to)}' AND end_date >= '${DataStoreService.escape(from)}'`,
-      { limit: 200 });
+      { limit: 300 });
+
+    if (scope === 'org') {
+      // Org-wide: verify the caller has LEAVE_ORG_VIEW
+      const perms = req.currentUser.permissions || [];
+      const isSuperAdmin  = req.currentUser.role === 'SUPER_ADMIN';
+      const isTenantAdmin = req.currentUser.role === 'TENANT_ADMIN';
+      if (!isSuperAdmin && !isTenantAdmin && !perms.includes(PERMISSIONS.LEAVE_ORG_VIEW)) {
+        return ResponseHelper.forbidden(res, 'LEAVE_ORG_VIEW permission required for org-wide calendar');
+      }
+      // No additional filtering — return all approved leaves
+    } else {
+      // Default team scope: only the caller's own team peers
+      const teamScope = new TeamScopeService(this.db);
+      const peerIds   = await teamScope.getTeamPeerUserIds(req.tenantId, req.currentUser.id);
+      const peerSet   = new Set(peerIds.map(String));
+      approved = approved.filter(r => peerSet.has(String(r.user_id)));
+    }
 
     // Enrich with user and leave type info
-    const users = await this.db.findAll(TABLES.USERS, { tenant_id: req.tenantId }, { limit: 200 });
+    const users = await this.db.findAll(TABLES.USERS, { tenant_id: req.tenantId }, { limit: 300 });
     const types = await this.db.findWhere(TABLES.LEAVE_TYPES, req.tenantId, '', { limit: 50 });
     const userMap = {};
     users.forEach(u => { userMap[String(u.ROWID)] = u; });

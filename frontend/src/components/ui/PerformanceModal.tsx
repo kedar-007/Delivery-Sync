@@ -309,7 +309,7 @@ export function MemberCard({ member, defaultOpen, teamMedians }: {
       {/* Header row — always visible */}
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-4 px-5 py-4 bg-gradient-to-r from-white via-white to-indigo-50/30 hover:from-indigo-50/30 hover:to-purple-50/30 transition-all"
+        className="w-full flex items-center gap-4 px-5 py-4 bg-gradient-to-r from-white via-white to-indigo-50/30 dark:from-gray-800/60 dark:via-gray-800/40 dark:to-indigo-900/20 hover:from-indigo-50/30 hover:to-purple-50/30 dark:hover:from-indigo-900/30 dark:hover:to-purple-900/20 transition-all"
       >
         {/* Score ring */}
         <ScoreRing score={member.score} />
@@ -338,7 +338,7 @@ export function MemberCard({ member, defaultOpen, teamMedians }: {
 
       {/* Expandable detail */}
       {open && (
-        <div className="px-5 pb-5 bg-gradient-to-b from-white to-indigo-50/30 border-t border-gray-50">
+        <div className="px-5 pb-5 bg-gradient-to-b from-white to-indigo-50/30 dark:from-gray-800/30 dark:to-indigo-900/10 border-t border-gray-50 dark:border-gray-700">
           {/* Tabs */}
           <div className="flex items-center gap-1 pt-3 pb-4 border-b border-gray-100">
             {([
@@ -620,14 +620,14 @@ export function TeamOverview({ summary, morale, topPerformer, agg }: {
                           'text-ds-text-muted bg-ds-surface-hover';
 
   return (
-    <div className="rounded-3xl overflow-hidden border border-indigo-100 bg-gradient-to-br from-indigo-50 via-purple-50/60 to-pink-50/40 shadow-sm">
+    <div className="rounded-3xl overflow-hidden border border-indigo-100 dark:border-indigo-900/50 bg-gradient-to-br from-indigo-50 via-purple-50/60 to-pink-50/40 dark:from-indigo-950/40 dark:via-purple-950/30 dark:to-pink-950/20 shadow-sm">
       {/* Hero strip — avg score + headline stats */}
       <div className="px-5 pt-5 pb-4 flex items-center gap-5">
         <ScoreRing score={agg.avgScore} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">Team Overview</span>
-            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white border border-indigo-100 text-indigo-700">
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white dark:bg-indigo-900/40 border border-indigo-100 dark:border-indigo-700/50 text-indigo-700 dark:text-indigo-300">
               {agg.memberCount} members
             </span>
             {morale && (
@@ -975,9 +975,9 @@ export function AnalysisLoading({ expedited = false, subjectName, subjectAvatarU
                 animation: 'spin-slow 2.5s linear infinite',
               }}
             >
-              <div className="w-full h-full rounded-full bg-white" />
+              <div className="w-full h-full rounded-full bg-white dark:bg-gray-900" />
             </div>
-            <div className="absolute inset-1.5 rounded-full bg-gradient-to-br from-white to-indigo-50 flex items-center justify-center overflow-hidden shadow-inner">
+            <div className="absolute inset-1.5 rounded-full bg-gradient-to-br from-white to-indigo-50 dark:from-gray-800 dark:to-indigo-950 flex items-center justify-center overflow-hidden shadow-inner">
               {subjectAvatarUrl ? (
                 // eslint-disable-next-line jsx-a11y/img-redundant-alt
                 <img src={subjectAvatarUrl} alt="avatar" className="w-full h-full object-cover" />
@@ -1240,7 +1240,7 @@ export default function PerformanceModal({
                   className={[
                     'px-3 py-1 rounded-lg text-xs font-semibold transition-all whitespace-nowrap',
                     days === d
-                      ? 'bg-white text-indigo-600 shadow-sm'
+                      ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-300 shadow-sm'
                       : 'text-ds-text-muted hover:text-ds-text',
                   ].join(' ')}
                 >
@@ -1262,7 +1262,7 @@ export default function PerformanceModal({
                   className={[
                     'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all',
                     mode === 'all-teams'
-                      ? 'bg-white text-indigo-600 shadow-sm'
+                      ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-300 shadow-sm'
                       : 'text-ds-text-muted hover:text-ds-text',
                   ].join(' ')}
                 >
@@ -1276,7 +1276,7 @@ export default function PerformanceModal({
                 className={[
                   'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all',
                   mode === 'team'
-                    ? 'bg-white text-indigo-600 shadow-sm'
+                    ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-300 shadow-sm'
                     : visibleTeams.length === 0 && !isAdmin
                       ? 'text-ds-border cursor-not-allowed'
                       : 'text-ds-text-muted hover:text-ds-text',
@@ -1289,7 +1289,7 @@ export default function PerformanceModal({
                 className={[
                   'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all',
                   mode === 'individual'
-                    ? 'bg-white text-indigo-600 shadow-sm'
+                    ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-300 shadow-sm'
                     : 'text-ds-text-muted hover:text-ds-text',
                 ].join(' ')}
               >

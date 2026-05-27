@@ -108,7 +108,7 @@ const ProjectSection = ({
           {entries.map((entry) => {
             const pct = entry.progressPercentage ?? 0;
             return (
-              <div key={entry.id} className="px-4 py-3 bg-white group">
+              <div key={entry.id} className="px-4 py-3 bg-ds-surface group">
                 <div className="flex items-start gap-3">
                   <div className="flex-1 min-w-0 space-y-2">
                     {/* Date + mood + progress */}
@@ -118,7 +118,7 @@ const ProjectSection = ({
                       </span>
                       <span className="text-base leading-none">{moodEmoji(entry.mood)}</span>
                       <div className="flex items-center gap-1.5">
-                        <div className="w-20 bg-gray-200 rounded-full h-1.5">
+                        <div className="w-20 bg-gray-200 dark:bg-gray-600/50 rounded-full h-1.5">
                           <div className={`${progressColor(pct)} h-1.5 rounded-full transition-all`} style={{ width: `${pct}%` }} />
                         </div>
                         <span className="text-xs text-gray-500 font-medium">{pct}%</span>
@@ -696,9 +696,9 @@ const EodPage = () => {
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${
                     rollupProjectId === p.id
                       ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
+                      : 'bg-ds-surface text-gray-600 border-gray-200 dark:border-gray-600 hover:border-indigo-300 hover:text-indigo-600'
                   }`}>
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${rollupProjectId === p.id ? 'bg-white' : PROJECT_COLORS[i % PROJECT_COLORS.length]}`} />
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${rollupProjectId === p.id ? 'bg-white/80 dark:bg-white/60' : PROJECT_COLORS[i % PROJECT_COLORS.length]}`} />
                   {p.name}
                 </button>
               ))}
@@ -716,9 +716,9 @@ const EodPage = () => {
                     plannedTomorrow?: string; blockers?: string; progressPercentage: number; mood: string;
                   }>;
                 }) => (
-                  <div key={day.date} className="rounded-xl border border-gray-200 overflow-hidden">
+                  <div key={day.date} className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
                     {/* Day header */}
-                    <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-indigo-50 to-violet-50 border-b border-gray-200">
+                    <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-indigo-50 to-violet-50 dark:from-indigo-900/30 dark:to-violet-900/30 border-b border-gray-200 dark:border-gray-700">
                       <h3 className="text-sm font-semibold text-gray-900">
                         {format(new Date(day.date + 'T00:00:00'), 'EEEE, d MMMM yyyy')}
                       </h3>
@@ -727,14 +727,14 @@ const EodPage = () => {
                           <TrendingUp size={12} className="text-indigo-400" />
                           Avg <strong className="text-gray-700">{day.avgProgress}%</strong>
                         </div>
-                        <span className="text-xs text-gray-500 bg-white px-2 py-0.5 rounded-full border border-gray-200">
+                        <span className="text-xs text-gray-500 bg-white dark:bg-gray-700/60 dark:text-gray-300 px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-600">
                           {day.entryCount} update{day.entryCount !== 1 ? 's' : ''}
                         </span>
                       </div>
                     </div>
 
                     {/* Entries */}
-                    <div className="divide-y divide-gray-100 bg-white">
+                    <div className="divide-y divide-gray-100 dark:divide-gray-700 bg-ds-surface">
                       {day.entries.map((entry) => {
                         const pct = entry.progressPercentage ?? 0;
                         return (
@@ -889,7 +889,7 @@ const EodPage = () => {
             ) : (
               <div className="space-y-3">
                 {(teamEods as EodEntry[]).map((entry: any) => (
-                  <div key={entry.id} className="rounded-xl border border-gray-200 bg-white px-4 py-4 shadow-sm hover:shadow-md transition-shadow">
+                  <div key={entry.id} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-ds-surface px-4 py-4 shadow-sm hover:shadow-md transition-shadow">
                     <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
                       <div className="flex items-center gap-3 min-w-0">
                         <UserAvatar

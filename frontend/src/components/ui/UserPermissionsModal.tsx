@@ -111,10 +111,12 @@ const PERM_GROUPS: PermGroup[] = [
     color: 'emerald',
     icon: <Eye size={12} />,
     perms: [
-      { key: 'LEAVE_READ',    label: 'View Leave',    desc: 'See own leave requests and balances' },
-      { key: 'LEAVE_WRITE',   label: 'Request Leave', desc: 'Submit leave applications' },
-      { key: 'LEAVE_APPROVE', label: 'Approve Leave', desc: 'Approve or reject team leave requests' },
-      { key: 'LEAVE_ADMIN',   label: 'Manage Leave',  desc: 'Manage leave types, balances, policies and company calendar (holidays, weekend policy)' },
+      { key: 'LEAVE_READ',      label: 'View Leave',      desc: 'See own leave requests and balances' },
+      { key: 'LEAVE_WRITE',     label: 'Request Leave',   desc: 'Submit leave applications' },
+      { key: 'LEAVE_APPROVE',   label: 'Approve Leave',   desc: 'Approve or reject team leave requests' },
+      { key: 'LEAVE_ADMIN',     label: 'Manage Leave',    desc: 'Manage leave types, balances, policies and company calendar (holidays, weekend policy)' },
+      { key: 'LEAVE_TEAM_VIEW', label: 'Team Calendar',   desc: 'View the team-scoped leave calendar (calendar + list) to plan around absences' },
+      { key: 'LEAVE_ORG_VIEW',  label: 'Org Leaves',      desc: 'View org-wide leave calendar — all employees across the entire organisation, including history list and public holidays section' },
     ],
   },
   {
@@ -454,6 +456,20 @@ const AI_GUIDE: Record<string, AiGuide> = {
     risk: 'high',
     tip: 'Restrict to HR administrators only. Incorrect balance changes affect payroll.',
   },
+  LEAVE_TEAM_VIEW: {
+    summary: 'Allows viewing the team-scoped leave calendar to plan project work around absences. Shows approved leaves for the user\'s own teams in a monthly calendar and list view, with impact warnings.',
+    unlocks: ['Leave › Team Calendar tab (calendar view)', 'Leave › Team Calendar tab (list view)', 'Per-member leave filter', 'Absence impact warnings'],
+    defaultRoles: ['TENANT_ADMIN'],
+    risk: 'medium',
+    tip: 'Grant to delivery leads, project managers, and team leads who need to plan around team availability.',
+  },
+  LEAVE_ORG_VIEW: {
+    summary: 'Allows viewing the org-wide leave calendar — all approved leaves across every employee in the organisation. Includes a separate public holidays section. Useful for HR, PMO, and executives planning resource capacity.',
+    unlocks: ['Leave › Org Leaves tab (calendar view)', 'Leave › Org Leaves tab (list view — employee leaves)', 'Leave › Org Leaves tab (list view — public holidays section)', 'Capacity impact warnings (3+ people out)'],
+    defaultRoles: ['TENANT_ADMIN'],
+    risk: 'medium',
+    tip: 'Grant to HR, PMO, and senior leaders who need full org visibility. Does not expose personal leave reasons — only names and leave types.',
+  },
   LOCATION_ADMIN: {
     summary: 'Allows creating and editing office locations, assigning users to locations, and configuring weekend attendance policies per location. Unlocks the Office Locations tab in People Settings.',
     unlocks: ['People Settings › Office Locations tab', 'Add / remove office locations', 'Assign users to locations', 'Configure weekend policy per location', 'Location-specific holiday calendars'],
@@ -748,7 +764,8 @@ const CRUD_MODULES: CrudSection[] = [
     rows: [
       { name: 'Time Tracking', view: 'TIME_READ',       write: 'TIME_WRITE',       approve: 'TIME_APPROVE',          admin: 'TIME_ANALYTICS',          team: 'TIME_TEAM_VIEW' },
       { name: 'Attendance',    view: 'ATTENDANCE_READ',  write: 'ATTENDANCE_WRITE', approve: 'ATTENDANCE_TEAM_VIEW',  admin: 'ATTENDANCE_ADMIN' },
-      { name: 'Leave',         view: 'LEAVE_READ',       write: 'LEAVE_WRITE',      approve: 'LEAVE_APPROVE',         admin: 'LEAVE_ADMIN' },
+      { name: 'Leave',         view: 'LEAVE_READ',       write: 'LEAVE_WRITE',      approve: 'LEAVE_APPROVE',         admin: 'LEAVE_ADMIN',             team: 'LEAVE_TEAM_VIEW' },
+      { name: 'Leave (Org)',   view: 'LEAVE_ORG_VIEW' },
     ],
   },
   {
@@ -1089,6 +1106,14 @@ const UserPermissionsModal = ({ open, onClose, userId, userName, userRole }: Pro
     const revoked = new Set<string>(data.revoked ?? []);
     const effective = new Set<string>([...Array.from(roleSet), ...Array.from(granted)]);
     revoked.forEach((p) => effective.delete(p));
+    // Backfill new leave-visibility permissions for users whose role grants leave
+    // management but was created before these permissions existed.
+    if ((effective.has('LEAVE_APPROVE') || effective.has('LEAVE_ADMIN')) && !effective.has('LEAVE_TEAM_VIEW')) {
+      effective.add('LEAVE_TEAM_VIEW');
+    }
+    if ((effective.has('LEAVE_APPROVE') || effective.has('LEAVE_ADMIN')) && !effective.has('LEAVE_ORG_VIEW')) {
+      effective.add('LEAVE_ORG_VIEW');
+    }
     setEnabled(effective);
     setDisabledModules(new Set<string>((data as any).moduleAccess ?? []));
     setDirty(false);

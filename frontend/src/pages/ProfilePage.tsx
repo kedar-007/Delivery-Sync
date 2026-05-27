@@ -130,6 +130,8 @@ const PERM_GROUPS = [
       { label: 'Apply Leave',        perm: PERMISSIONS.LEAVE_WRITE },
       { label: 'Approve Leave',      perm: PERMISSIONS.LEAVE_APPROVE },
       { label: 'Leave Admin',        perm: PERMISSIONS.LEAVE_ADMIN },
+      { label: 'Team Calendar',      perm: PERMISSIONS.LEAVE_TEAM_VIEW },
+      { label: 'Org Leaves',         perm: PERMISSIONS.LEAVE_ORG_VIEW },
       { label: 'View Teams',         perm: PERMISSIONS.TEAM_READ },
       { label: 'Manage Teams',       perm: PERMISSIONS.TEAM_WRITE },
       { label: 'View Profiles',      perm: PERMISSIONS.PROFILE_READ },
@@ -205,7 +207,7 @@ const Section = ({ title, icon: Icon, children, className = '' }: {
   title: string; icon?: React.ComponentType<{ size?: number; className?: string }>;
   children: React.ReactNode; className?: string;
 }) => (
-  <div className={`bg-white rounded-2xl border border-gray-200 shadow-sm ${className}`}>
+  <div className={`bg-ds-surface rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm ${className}`}>
     <div className="px-6 pt-5 pb-4 border-b border-gray-100">
       <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
         {Icon && <Icon size={15} className="text-gray-400" />}
@@ -346,7 +348,7 @@ const ProfilePage = () => {
       <div className="p-6 max-w-4xl space-y-5">
 
         {/* ── Hero card ─────────────────────────────────────────────────── */}
-        <div className="group bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5 hover:border-gray-300">
+        <div className="group bg-ds-surface rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5 hover:border-gray-300 dark:hover:border-gray-500">
           {/* Banner */}
           <div className={`h-28 bg-gradient-to-r ${gradFor(displayName)} opacity-80 transition-all duration-300 group-hover:opacity-100 group-hover:h-32`} />
           <div className="px-6 pb-6">
@@ -425,9 +427,9 @@ const ProfilePage = () => {
         </Section>
 
         {/* ── Professional details (collapsible) ─────────────────────── */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm">
+        <div className="bg-ds-surface rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
           <button
-            className="w-full px-6 py-5 flex items-center justify-between hover:bg-gray-50 transition-colors rounded-2xl"
+            className="w-full px-6 py-5 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors rounded-2xl"
             onClick={() => setShowExtended(v => !v)}
           >
             <div className="flex items-center gap-2">
@@ -563,8 +565,8 @@ const ProfilePage = () => {
         </Section>
 
         {/* ── Change email ──────────────────────────────────────────────── */}
-        <div className={`rounded-2xl border shadow-sm overflow-hidden transition-colors ${emailConfirmOpen ? 'border-amber-300' : 'border-gray-200 bg-white'}`}>
-          <div className={`px-6 py-5 border-b ${emailConfirmOpen ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-100'}`}>
+        <div className={`rounded-2xl border shadow-sm overflow-hidden transition-colors ${emailConfirmOpen ? 'border-amber-300' : 'border-gray-200 dark:border-gray-700 bg-ds-surface'}`}>
+          <div className={`px-6 py-5 border-b ${emailConfirmOpen ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800' : 'bg-ds-surface border-gray-100 dark:border-gray-700'}`}>
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
                 <Mail size={15} className="text-gray-400" /> Change Email Address
@@ -601,7 +603,7 @@ const ProfilePage = () => {
             </p>
           </div>
 
-          <div className={`px-6 py-5 ${emailConfirmOpen ? 'bg-amber-50' : 'bg-white'}`}>
+          <div className={`px-6 py-5 ${emailConfirmOpen ? 'bg-amber-50 dark:bg-amber-950/30' : 'bg-ds-surface'}`}>
             {/* Network blocked */}
             {ipEnabled && networkAllowed === false && !networkChecking && (
               <div className="flex items-start gap-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
@@ -701,8 +703,8 @@ const ProfilePage = () => {
         )}
 
         {/* ── Permissions ───────────────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm">
-          <div className="px-6 pt-5 pb-4 border-b border-gray-100 flex items-center justify-between">
+        <div className="bg-ds-surface rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+          <div className="px-6 pt-5 pb-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Shield size={15} className="text-gray-400" />
               <h3 className="text-sm font-semibold text-gray-900">My Permissions</h3>

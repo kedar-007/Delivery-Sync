@@ -412,25 +412,26 @@ class AdminController {
   }
 
   /**
-   * GET /api/admin/audit-logs?action=&entityType=&performedBy=&dateFrom=&dateTo=&limit=
-   * Returns enriched audit logs (performer name + email resolved, changes parsed).
+   * GET /api/admin/audit-logs?action=&entityType=&performedBy=&dateFrom=&dateTo=&page=&pageSize=
+   * Returns paginated enriched audit logs with a real COUNT for the KPI total.
    */
   async getAuditLogs(req, res) {
     try {
       const { tenantId } = req.currentUser;
-      const { action, entityType, performedBy, dateFrom, dateTo, limit } = req.query;
+      const { action, entityType, performedBy, dateFrom, dateTo, page, pageSize } = req.query;
 
       const audit = new AuditService(this.db);
-      const logs = await audit.getFilteredLogs(tenantId, {
+      const result = await audit.getFilteredLogsPaginated(tenantId, {
         action: action || null,
         entityType: entityType || null,
         performedBy: performedBy || null,
         dateFrom: dateFrom || null,
         dateTo: dateTo || null,
-        limit: Math.min(Number(limit) || 100, 200),
+        page: Number(page) || 1,
+        pageSize: Math.min(Number(pageSize) || 25, 200),
       });
 
-      return ResponseHelper.success(res, { logs });
+      return ResponseHelper.success(res, result);
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }

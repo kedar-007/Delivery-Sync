@@ -18,11 +18,28 @@ class DecisionController {
    */
   async createDecision(req, res) {
     try {
-      const { tenantId, id: userId } = req.currentUser;
+      const { tenantId, id: userId, role } = req.currentUser;
       const data = Validator.validateCreateDecision(req.body);
 
       const project = await this.db.findById(TABLES.PROJECTS, data.project_id, tenantId);
       if (!project) return ResponseHelper.notFound(res, 'Project not found');
+
+      // Verify caller is a member of the project (admins bypass)
+      const isAdmin = role === 'TENANT_ADMIN' || role === 'SUPER_ADMIN';
+      const hasOrgWide = req.currentUser.dataScope === 'ORG_WIDE' || req.currentUser.dataScope === 'SUBORDINATES';
+      const hasViewAll = Array.isArray(req.currentUser.permissions) &&
+        req.currentUser.permissions.includes('PROJECT_DATA_VIEW_ALL');
+      if (!isAdmin && !hasOrgWide && !hasViewAll) {
+        const membership = await this.db.query(
+          `SELECT ROWID FROM ${TABLES.PROJECT_MEMBERS} ` +
+          `WHERE tenant_id = '${tenantId}' ` +
+          `AND project_id = '${DataStoreService.escape(String(data.project_id))}' ` +
+          `AND user_id = '${userId}' LIMIT 1`
+        );
+        if (membership.length === 0) {
+          return ResponseHelper.forbidden(res, 'You are not a member of this project');
+        }
+      }
 
       const decision = await this.db.insert(TABLES.DECISIONS, {
         tenant_id: tenantId,
@@ -54,11 +71,34 @@ class DecisionController {
    */
   async listDecisions(req, res) {
     try {
-      const { tenantId } = req.currentUser;
+      const { tenantId, id: userId, role, dataScope } = req.currentUser;
       const { projectId, status } = req.query;
 
+      const hasOrgWide = role === 'TENANT_ADMIN' || role === 'SUPER_ADMIN'
+        || dataScope === 'ORG_WIDE' || dataScope === 'SUBORDINATES';
+      const hasViewAll = Array.isArray(req.currentUser.permissions) &&
+        req.currentUser.permissions.includes('PROJECT_DATA_VIEW_ALL');
+      const canViewAllProjects = hasOrgWide || hasViewAll;
+
       const conditions = [];
-      if (projectId) conditions.push(`project_id = '${DataStoreService.escape(projectId)}'`);
+
+      if (projectId) {
+        // Specific project — middleware already verified membership for restricted users
+        conditions.push(`project_id = '${DataStoreService.escape(projectId)}'`);
+      } else if (!canViewAllProjects) {
+        // No project filter: restrict to projects the caller belongs to
+        const memberships = await this.db.findAll(
+          TABLES.PROJECT_MEMBERS,
+          { tenant_id: tenantId, user_id: userId },
+          { limit: 200 }
+        );
+        if (memberships.length === 0) {
+          return ResponseHelper.success(res, { decisions: [] });
+        }
+        const pids = memberships.map((m) => `'${m.project_id}'`).join(',');
+        conditions.push(`project_id IN (${pids})`);
+      }
+
       if (status) conditions.push(`status = '${DataStoreService.escape(status)}'`);
 
       const decisions = await this.db.findWhere(TABLES.DECISIONS, tenantId,

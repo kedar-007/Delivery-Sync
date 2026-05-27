@@ -577,7 +577,7 @@ const LeaderboardTab = () => {
 
       {/* Rest of list */}
       {rest.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+        <div className="bg-ds-surface rounded-xl border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700">
           {rest.map((entry, i) => (
             <div
               key={entry.user_id}
@@ -929,7 +929,7 @@ const BadgesTab = () => {
             </label>
             <select
               {...awardForm.register('user_id', { required: 'Please select an employee' })}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-ds-surface dark:text-ds-text"
             >
               <option value="">Select employee…</option>
               {employees.map((e) => (
@@ -1297,7 +1297,7 @@ const DirectoryPage = () => {
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors -mb-px ${activeTab === tab
-                ? 'text-blue-600 border-b-2 border-blue-600 bg-white'
+                ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400 bg-white dark:bg-transparent'
                 : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
                 }`}
             >

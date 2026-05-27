@@ -87,7 +87,7 @@ const TypeBadge = ({ type }: { type?: string }) => {
 const StatCard = ({ label, value, icon, accent }: {
   label: string; value: number; icon: React.ReactNode; accent: string;
 }) => (
-  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
+  <div className="bg-ds-surface rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5 flex items-center gap-4">
     <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${accent}`}>
       {icon}
     </div>
@@ -518,7 +518,7 @@ const DetailModal = ({ report, isAdmin, open, onClose }: {
               {replyAttachments.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {replyAttachments.map((att) => (
-                    <div key={att.id} className="relative group rounded-lg border border-gray-200 overflow-hidden bg-white">
+                    <div key={att.id} className="relative group rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden bg-ds-surface">
                       {att.fileType === 'IMAGE' && att.preview ? (
                         <img src={att.preview} alt={att.file.name} className="h-16 w-20 object-cover" />
                       ) : (
@@ -688,7 +688,7 @@ const ReportCard = ({ report, isAdmin, onClick }: {
       role="button" tabIndex={0}
       onClick={onClick}
       onKeyDown={(e) => e.key === 'Enter' && onClick()}
-      className="w-full text-left bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-200 transition-all p-4 flex gap-4 group cursor-pointer"
+      className="w-full text-left bg-ds-surface border border-gray-100 dark:border-gray-700 rounded-2xl shadow-sm hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-700 transition-all p-4 flex gap-4 group cursor-pointer"
     >
       {/* Left accent */}
       <div className={`w-1 rounded-full shrink-0 self-stretch ${
@@ -790,7 +790,7 @@ const ConfigPanel = ({ onClose }: { onClose: () => void }) => {
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+    <div className="bg-ds-surface rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm p-5">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Settings size={16} className="text-gray-500" />
@@ -936,11 +936,11 @@ export default function BugReportsPage() {
 
         {/* Tabs (admin only) */}
         {isAdmin && (
-          <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
+          <div className="flex gap-1 bg-gray-100 dark:bg-gray-700/50 rounded-xl p-1 w-fit">
             {(['mine', 'all'] as const).map((t) => (
               <button key={t} onClick={() => setTab(t)}
                 className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                  tab === t ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
+                  tab === t ? 'bg-white dark:bg-gray-600 shadow-sm text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                 }`}>
                 {t === 'mine' ? 'My Reports' : `All Reports${allReports.length ? ` (${allReports.length})` : ''}`}
               </button>
@@ -955,11 +955,11 @@ export default function BugReportsPage() {
             <input
               type="text" placeholder="Search reports…" value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white w-52"
+              className="pl-8 pr-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white dark:bg-ds-surface dark:text-ds-text w-52"
             />
           </div>
           <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
-            className="py-2 pl-3 pr-8 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white text-gray-600">
+            className="py-2 pl-3 pr-8 text-sm border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white dark:bg-ds-surface text-gray-600 dark:text-ds-text">
             <option value="">All Statuses</option>
             <option value="OPEN">Open</option>
             <option value="IN_REVIEW">In Review</option>
@@ -968,7 +968,7 @@ export default function BugReportsPage() {
             <option value="DUPLICATE">Duplicate</option>
           </select>
           <select value={filterType} onChange={(e) => setFilterType(e.target.value)}
-            className="py-2 pl-3 pr-8 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white text-gray-600">
+            className="py-2 pl-3 pr-8 text-sm border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white dark:bg-ds-surface text-gray-600 dark:text-ds-text">
             <option value="">All Types</option>
             <option value="BUG">Bug</option>
             <option value="ISSUE">Issue</option>
@@ -976,7 +976,7 @@ export default function BugReportsPage() {
             <option value="FEATURE_REQUEST">Feature Request</option>
           </select>
           <select value={filterSev} onChange={(e) => setFilterSev(e.target.value)}
-            className="py-2 pl-3 pr-8 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white text-gray-600">
+            className="py-2 pl-3 pr-8 text-sm border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white dark:bg-ds-surface text-gray-600 dark:text-ds-text">
             <option value="">All Severities</option>
             <option value="CRITICAL">Critical</option>
             <option value="HIGH">High</option>
@@ -985,7 +985,7 @@ export default function BugReportsPage() {
           </select>
           {(filterStatus || filterType || filterSev || search) && (
             <button onClick={() => { setSearch(''); setFilterStatus(''); setFilterType(''); setFilterSev(''); }}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-500 hover:text-red-600 border border-gray-200 rounded-lg bg-white transition-colors">
+              className="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-500 dark:text-gray-400 hover:text-red-600 border border-gray-200 dark:border-gray-600 rounded-lg bg-ds-surface transition-colors">
               <X size={12} />Clear
             </button>
           )}

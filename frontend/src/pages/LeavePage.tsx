@@ -2,7 +2,7 @@ import React, { useState ,useEffect} from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Plus, Calendar, CheckCircle, XCircle, Clock, BarChart2, Building2, Trash2, Upload, LayoutGrid, LayoutList, MapPin, Pencil, Users, Save, ChevronDown, ChevronUp, Settings2, AlertTriangle, Info } from 'lucide-react';
 import { useForm } from 'react-hook-form';
-import { format, parseISO, differenceInCalendarDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import { format, parseISO, differenceInCalendarDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, addDays } from 'date-fns';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import { useI18n } from '../contexts/I18nContext';
@@ -92,6 +92,46 @@ interface RejectForm {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// Per-person color palette for calendar chips.
+// Index 0 (blue) is reserved for "You" (own leave) — teammates get indices 1–7.
+const PERSON_PALETTE = [
+  { bg: 'bg-blue-100 dark:bg-blue-900/40',     border: 'border-blue-300 dark:border-blue-700',     text: 'text-blue-800 dark:text-blue-200'     },
+  { bg: 'bg-emerald-100 dark:bg-emerald-900/40', border: 'border-emerald-300 dark:border-emerald-700', text: 'text-emerald-800 dark:text-emerald-200' },
+  { bg: 'bg-violet-100 dark:bg-violet-900/40',  border: 'border-violet-300 dark:border-violet-700',  text: 'text-violet-800 dark:text-violet-200'  },
+  { bg: 'bg-amber-100 dark:bg-amber-900/40',    border: 'border-amber-300 dark:border-amber-700',    text: 'text-amber-800 dark:text-amber-200'    },
+  { bg: 'bg-rose-100 dark:bg-rose-900/40',      border: 'border-rose-300 dark:border-rose-700',      text: 'text-rose-800 dark:text-rose-200'      },
+  { bg: 'bg-cyan-100 dark:bg-cyan-900/40',      border: 'border-cyan-300 dark:border-cyan-700',      text: 'text-cyan-800 dark:text-cyan-200'      },
+  { bg: 'bg-orange-100 dark:bg-orange-900/40',  border: 'border-orange-300 dark:border-orange-700',  text: 'text-orange-800 dark:text-orange-200'  },
+  { bg: 'bg-teal-100 dark:bg-teal-900/40',      border: 'border-teal-300 dark:border-teal-700',      text: 'text-teal-800 dark:text-teal-200'      },
+];
+
+// Counts working days between two ISO date strings, excluding weekends (per
+// the supplied policy) and any dates in the holidaySet.
+function calcWorkingDays(start: string, end: string, policy: string, holidaySet: Set<string>): number {
+  const s = new Date(start);
+  const e = new Date(end);
+  let count = 0;
+  const cur = new Date(s);
+  while (cur <= e) {
+    const dow = cur.getDay();
+    const yr  = cur.getFullYear();
+    const mo  = cur.getMonth();
+    const d   = cur.getDate();
+    const ds  = `${yr}-${String(mo + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    if (!isWeekendOff(dow, yr, mo, d, policy) && !holidaySet.has(ds)) count++;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return count;
+}
+
+function personColor(userId: string, isOwn: boolean) {
+  if (isOwn) return PERSON_PALETTE[0];
+  let h = 0;
+  const s = String(userId || '');
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) & 0xffff;
+  return PERSON_PALETTE[(h % (PERSON_PALETTE.length - 1)) + 1];
+}
+
 const leaveStatusVariant = (status: string): 'warning' | 'success' | 'danger' | 'gray' => {
   const map: Record<string, 'warning' | 'success' | 'danger' | 'gray'> = {
     PENDING: 'warning',
@@ -116,7 +156,7 @@ const calcDays = (start: string, end: string) => {
 };
 
 
-type Tab = 'my' | 'apply' | 'team' | 'who-is-off' | 'calendar' | 'balance' | 'company-calendar' | 'leave-balances';
+type Tab = 'my' | 'apply' | 'team' | 'who-is-off' | 'calendar' | 'planning' | 'balance';
 
 // ── My Leaves Tab ─────────────────────────────────────────────────────────────
 
@@ -257,6 +297,7 @@ const ApplyTab = () => {
   const [submitError, setSubmitError] = useState('');
   const [submitSuccess, setSubmitSuccess] = useState('');
 
+  const { user } = useAuth();
   const { data: typesData } = useLeaveTypes();
   const leaveTypes: LeaveType[] = (typesData as LeaveType[]) ?? [];
 
@@ -270,6 +311,38 @@ const ApplyTab = () => {
 
   const { data: balanceData } = useLeaveBalance();
   const balances: LeaveBalance[] = (balanceData as LeaveBalance[]) ?? [];
+
+  // Load calendar config + holidays for working-day preview
+  const { data: calConfig } = useCalendarConfig();
+  const previewYear = startDate ? startDate.slice(0, 4) : String(new Date().getFullYear());
+  const holidayParams: Record<string, string> = { year: previewYear };
+  if (user?.officeLocationId) holidayParams.locationId = user.officeLocationId;
+  const { data: holidayData } = useCompanyCalendar(holidayParams);
+
+  // Also fetch holidays for end year if the leave spans a year boundary
+  const endYear = endDate ? endDate.slice(0, 4) : previewYear;
+  const endHolidayParams: Record<string, string> = { year: endYear };
+  if (user?.officeLocationId) endHolidayParams.locationId = user.officeLocationId;
+  const { data: endHolidayData } = useCompanyCalendar(endYear !== previewYear ? endHolidayParams : holidayParams);
+
+  const wpConfig: { default: string; perLocation: Record<string, string> } =
+    (calConfig as any)?.weekendPolicy ?? { default: 'all_off', perLocation: {} };
+  const userPolicy = user?.officeLocationId
+    ? (wpConfig.perLocation?.[user.officeLocationId] ?? wpConfig.default)
+    : wpConfig.default;
+
+  // Build holiday set (non-optional holidays only)
+  const holidaySet = React.useMemo(() => {
+    const s = new Set<string>();
+    const allHols: any[] = [
+      ...((holidayData as any[]) ?? []),
+      ...((endYear !== previewYear ? (endHolidayData as any[]) : []) ?? []),
+    ];
+    allHols.forEach((h) => {
+      if (h.holiday_date && h.is_optional !== true && h.is_optional !== 'true') s.add(h.holiday_date);
+    });
+    return s;
+  }, [holidayData, endHolidayData, endYear, previewYear]);
 
   const selectedType = leaveTypes.find((t) => t.id === selectedTypeId);
   const selectedBalance = balances.find(
@@ -304,8 +377,11 @@ const ApplyTab = () => {
     }
   };
 
-  //  Show 0.5 for half day instead of full day count
-  const previewDays = isHalfDay ? 0.5 : (startDate && endDate ? calcDays(startDate, endDate) : 0);
+  // Working days preview (excludes weekends + non-optional public holidays)
+  const calendarDays = startDate && endDate ? calcDays(startDate, endDate) : 0;
+  const workingDays  = startDate && endDate ? calcWorkingDays(startDate, endDate, userPolicy, holidaySet) : 0;
+  const previewDays  = isHalfDay ? 0.5 : workingDays;
+  const skippedDays  = isHalfDay ? 0 : Math.max(0, calendarDays - workingDays);
 
   return (
     <div className="max-w-xl space-y-5">
@@ -370,12 +446,26 @@ const ApplyTab = () => {
 
           {/* Duration Preview */}
           {previewDays > 0 && (
-            <p className="text-xs text-gray-500">
-              Duration:{' '}
-              <span className="font-medium text-gray-700">
-                {previewDays} day{previewDays !== 1 ? 's' : ''}
-              </span>
-            </p>
+            <div className="p-3 bg-gray-50 border border-gray-100 rounded-lg space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">Working days deducted</span>
+                <span className="text-sm font-bold text-gray-900">
+                  {previewDays} day{previewDays !== 1 ? 's' : ''}
+                </span>
+              </div>
+              {!isHalfDay && skippedDays > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-400">Weekends / holidays skipped</span>
+                  <span className="text-xs text-green-600 font-medium">−{skippedDays} day{skippedDays !== 1 ? 's' : ''}</span>
+                </div>
+              )}
+              {!isHalfDay && calendarDays > 0 && (
+                <div className="flex items-center justify-between border-t border-gray-100 pt-1">
+                  <span className="text-xs text-gray-400">Calendar span</span>
+                  <span className="text-xs text-gray-400">{calendarDays} calendar day{calendarDays !== 1 ? 's' : ''}</span>
+                </div>
+              )}
+            </div>
           )}
 
           {/* Half Day */}
@@ -497,7 +587,7 @@ const TeamRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
             onClick={() => setStatusFilter(s)}
             className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${statusFilter === s
               ? 'bg-blue-600 text-white border-blue-600'
-              : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'
+              : 'bg-ds-surface text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-600 hover:border-blue-300'
             }`}
           >
             {s || 'All'}
@@ -600,10 +690,11 @@ const TeamRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
 
 // ── Team On Leave Tab ─────────────────────────────────────────────────────────
 
-const TeamOnLeaveTab = () => {
+const TeamOnLeaveTab = ({ canViewOrg }: { canViewOrg: boolean }) => {
   const now = new Date();
   const todayStr = format(now, 'yyyy-MM-dd');
   const [filter, setFilter] = useState<'today' | 'week' | 'month'>('today');
+  const [scope, setScope] = useState<'team' | 'org'>('team');
 
   const dateFrom =
     filter === 'today' ? todayStr
@@ -614,49 +705,84 @@ const TeamOnLeaveTab = () => {
     : filter === 'week' ? format(endOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd')
     : format(endOfMonth(now), 'yyyy-MM-dd');
 
-  const { data: leaveData, isLoading } = useLeaveCalendar({ date_from: dateFrom, date_to: dateTo });
-  const entries: CalendarEntry[] = (leaveData as CalendarEntry[]) ?? [];
+  const { data: leaveData, isLoading } = useLeaveCalendar({ date_from: dateFrom, date_to: dateTo, scope });
+  const rawEntries: any[] = (leaveData as any[]) ?? [];
 
-  // Group by person → [{ leaveTypeName, dates[] }]
-  const byPerson: Record<string, { leaveTypeName: string; dates: string[] }[]> = {};
-  entries.forEach((e) => {
-    if (!byPerson[e.userName]) byPerson[e.userName] = [];
-    const grp = byPerson[e.userName].find((g) => g.leaveTypeName === e.leaveTypeName);
-    if (grp) { if (!grp.dates.includes(e.date)) grp.dates.push(e.date); }
-    else byPerson[e.userName].push({ leaveTypeName: e.leaveTypeName, dates: [e.date] });
+  // Expand multi-day leaves and group by userId
+  const byUserId: Record<string, { name: string; avatarUrl: string; userId: string; groups: { leaveTypeName: string; dates: string[] }[] }> = {};
+  rawEntries.forEach((e: any) => {
+    const uid = String(e.userId ?? e.user_id ?? e.userName ?? '');
+    const start = parseISO(e.startDate || e.start_date || e.date || '');
+    const end   = parseISO(e.endDate   || e.end_date   || e.date || '');
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return;
+    if (!byUserId[uid]) byUserId[uid] = { name: e.userName ?? '', avatarUrl: e.userAvatarUrl ?? '', userId: uid, groups: [] };
+    const person = byUserId[uid];
+    let cur = start;
+    while (cur <= end) {
+      const ds = format(cur, 'yyyy-MM-dd');
+      const grp = person.groups.find((g) => g.leaveTypeName === e.leaveTypeName);
+      if (grp) { if (!grp.dates.includes(ds)) grp.dates.push(ds); }
+      else person.groups.push({ leaveTypeName: e.leaveTypeName, dates: [ds] });
+      cur = addDays(cur, 1);
+    }
   });
 
-  const people = Object.entries(byPerson).map(([name, groups]) => {
-    const allDates = groups.flatMap((g) => g.dates).sort();
-    return { name, groups, startDate: allDates[0], endDate: allDates[allDates.length - 1], totalDays: allDates.length };
+  const people = Object.values(byUserId).map((p) => {
+    const allDates = p.groups.flatMap((g) => g.dates).sort();
+    return { ...p, startDate: allDates[0], endDate: allDates[allDates.length - 1], totalDays: allDates.length };
   }).sort((a, b) => a.startDate.localeCompare(b.startDate));
 
   const filterLabel = filter === 'today' ? 'today' : filter === 'week' ? 'this week' : 'this month';
+  const scopeLabel  = scope === 'org' ? 'across the org' : 'in your team';
 
   return (
     <div className="space-y-5">
-      {/* Header + filter */}
+      {/* Controls row */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-gray-900">Team on Leave</h3>
+          <h3 className="text-sm font-semibold text-gray-900">
+            {scope === 'org' ? 'Org' : 'Team'} on Leave
+          </h3>
           <p className="text-xs text-gray-500 mt-0.5">
             {isLoading ? 'Loading…' : people.length > 0
-              ? `${people.length} team member${people.length === 1 ? '' : 's'} on leave ${filterLabel}`
-              : `No team members on leave ${filterLabel}`}
+              ? `${people.length} ${scope === 'org' ? 'employee' : 'team member'}${people.length === 1 ? '' : 's'} on leave ${filterLabel}`
+              : `Nobody on leave ${filterLabel} ${scopeLabel}`}
           </p>
         </div>
-        <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-lg">
-          {(['today', 'week', 'month'] as const).map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                filter === f ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {f === 'today' ? 'Today' : f === 'week' ? 'This Week' : 'This Month'}
-            </button>
-          ))}
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Scope toggle — only for users with org-view access */}
+          {canViewOrg && (
+            <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden bg-ds-surface">
+              <button
+                onClick={() => setScope('team')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${scope === 'team' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+              >
+                <Users size={12} /> My Team
+              </button>
+              <button
+                onClick={() => setScope('org')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${scope === 'org' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+              >
+                <Building2 size={12} /> Whole Org
+              </button>
+            </div>
+          )}
+
+          {/* Time filter */}
+          <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700/50 p-1 rounded-lg">
+            {(['today', 'week', 'month'] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  filter === f ? 'bg-white dark:bg-gray-600 shadow-sm text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                }`}
+              >
+                {f === 'today' ? 'Today' : f === 'week' ? 'This Week' : 'This Month'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -668,41 +794,46 @@ const TeamOnLeaveTab = () => {
             <CheckCircle size={26} className="text-green-400" />
           </div>
           <p className="text-sm font-medium text-gray-700">All hands on deck!</p>
-          <p className="text-xs text-gray-400 mt-1">No team members are on leave {filterLabel}.</p>
+          <p className="text-xs text-gray-400 mt-1">
+            Nobody is on leave {filterLabel} {scopeLabel}.
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {people.map((person) => (
-            <div
-              key={person.name}
-              className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow"
-            >
-              <div className="flex items-start gap-3">
-                <UserAvatar name={person.name} size="md" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 truncate">{person.name}</p>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {person.groups.map((g, i) => (
-                      <span key={i} className="inline-flex text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
-                        {g.leaveTypeName}
+          {people.map((person) => {
+            const col = personColor(person.userId, false);
+            return (
+              <div
+                key={person.userId}
+                className="bg-ds-surface border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow"
+              >
+                <div className="flex items-start gap-3">
+                  <UserAvatar name={person.name} avatarUrl={person.avatarUrl} size="md" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{person.name}</p>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {person.groups.map((g, i) => (
+                        <span key={i} className={`inline-flex text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${col.bg} ${col.border} ${col.text}`}>
+                          {g.leaveTypeName}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-2 text-xs text-gray-500">
+                      <Calendar size={11} className="shrink-0" />
+                      <span>
+                        {person.startDate === person.endDate
+                          ? formatDate(person.startDate)
+                          : `${formatDate(person.startDate)} – ${formatDate(person.endDate)}`}
                       </span>
-                    ))}
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-0.5">
+                      {person.totalDays} day{person.totalDays !== 1 ? 's' : ''}
+                    </p>
                   </div>
-                  <div className="flex items-center gap-1.5 mt-2 text-xs text-gray-500">
-                    <Calendar size={11} className="shrink-0" />
-                    <span>
-                      {person.startDate === person.endDate
-                        ? formatDate(person.startDate)
-                        : `${formatDate(person.startDate)} – ${formatDate(person.endDate)}`}
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-gray-400 mt-0.5">
-                    {person.totalDays} day{person.totalDays !== 1 ? 's' : ''}
-                  </p>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -761,9 +892,9 @@ const CalendarTab = () => {
   const dateTo   = `${yrStr}-${moStr}-${String(daysInMonth).padStart(2, '0')}`;
   const todayStr = format(now, 'yyyy-MM-dd');
 
-  const { data: leaveData, isLoading, error } = useLeaveCalendar({ date_from: dateFrom, date_to: dateTo });
+  // scope=team → backend filters to caller + team peers only
+  const { data: leaveData, isLoading, error } = useLeaveCalendar({ date_from: dateFrom, date_to: dateTo, scope: 'team' });
   const { data: calConfig } = useCalendarConfig();
-  // Auto-pass user's office location so backend returns org-wide + location-specific holidays
   const holidayParams: Record<string, string> = { year: yrStr };
   if (user?.officeLocationId) holidayParams.locationId = user.officeLocationId;
   const { data: holidayData } = useCompanyCalendar(holidayParams);
@@ -777,13 +908,20 @@ const CalendarTab = () => {
     ? (weekendPolicy.perLocation?.[user.officeLocationId] ?? weekendPolicy.default)
     : weekendPolicy.default;
 
-  // Map by date
-  const leaveByDate = entries.reduce<Record<string, CalendarEntry[]>>((acc, e) => {
-    const d = e.date ?? '';
-    if (!acc[d]) acc[d] = [];
-    acc[d].push(e);
-    return acc;
-  }, {});
+  // Expand each leave request across every date in its range (start_date → end_date)
+  const leaveByDate: Record<string, (CalendarEntry & { userId?: string; isOwn?: boolean })[]> = {};
+  entries.forEach((e: any) => {
+    const start = parseISO(e.startDate || e.start_date || e.date || '');
+    const end   = parseISO(e.endDate   || e.end_date   || e.date || '');
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return;
+    let cur = start;
+    while (cur <= end) {
+      const ds = format(cur, 'yyyy-MM-dd');
+      if (!leaveByDate[ds]) leaveByDate[ds] = [];
+      leaveByDate[ds].push({ ...e, date: ds, isOwn: String(e.userId ?? e.user_id ?? '') === String(user?.id ?? '') });
+      cur = addDays(cur, 1);
+    }
+  });
 
   const holidayByDate = holidays.reduce<Record<string, string>>((acc, h) => {
     if (h.holiday_date) acc[h.holiday_date] = h.name;
@@ -819,16 +957,16 @@ const CalendarTab = () => {
             <span className="text-gray-600 text-sm leading-none">›</span>
           </button>
         </div>
-        <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-lg">
+        <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700/50 p-1 rounded-lg">
           <button
             onClick={() => setView('calendar')}
-            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${view === 'calendar' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${view === 'calendar' ? 'bg-white dark:bg-gray-600 shadow-sm text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
           >
             Calendar
           </button>
           <button
             onClick={() => setView('list')}
-            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${view === 'list' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${view === 'list' ? 'bg-white dark:bg-gray-600 shadow-sm text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
           >
             List
           </button>
@@ -837,12 +975,20 @@ const CalendarTab = () => {
 
       {/* Legend */}
       <div className="flex items-center flex-wrap gap-4 text-xs text-gray-500">
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-green-200 border border-green-300 inline-block" />Leave</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-blue-100 border border-blue-300 inline-block" />You</span>
+        <span className="flex items-center gap-1.5">
+          <span className="flex gap-0.5">
+            {[PERSON_PALETTE[1], PERSON_PALETTE[2], PERSON_PALETTE[3]].map((p, i) => (
+              <span key={i} className={`w-3 h-3 rounded-sm ${p.bg} ${p.border} inline-block border`} />
+            ))}
+          </span>
+          Team (colour per person)
+        </span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-100 border border-red-200 inline-block" />Holiday</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-blue-100 border border-blue-200 inline-block" />Today</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-blue-50 border border-blue-200 inline-block" />Today</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-rose-100 border border-rose-200 inline-block" />Weekend off</span>
         {userPolicy !== 'all_off' && userPolicy !== 'all_on' && (
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-white border border-orange-300 inline-block" /><span className="text-orange-500">{userPolicy === '5th_sat_working' ? '5th Sat (working)' : 'Working Sat'}</span></span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-white dark:bg-gray-700 border border-orange-300 dark:border-orange-500 inline-block" /><span className="text-orange-500">{userPolicy === '5th_sat_working' ? '5th Sat (working)' : 'Working Sat'}</span></span>
         )}
       </div>
 
@@ -851,7 +997,7 @@ const CalendarTab = () => {
       ) : view === 'calendar' ? (
         <Card padding={false}>
           {/* Day headers */}
-          <div className="grid grid-cols-7 border-b border-gray-100">
+          <div className="grid grid-cols-7 border-b border-gray-100 dark:border-gray-700">
             {WEEK_DAYS.map((d) => (
               <div key={d} className="py-2.5 text-center text-xs font-medium text-gray-500 uppercase tracking-wide">
                 {d}
@@ -859,10 +1005,10 @@ const CalendarTab = () => {
             ))}
           </div>
           {/* Calendar grid */}
-          <div className="grid grid-cols-7 divide-x divide-gray-50">
+          <div className="grid grid-cols-7 divide-x divide-gray-50 dark:divide-gray-700">
             {cells.map((cell, idx) => {
               if (!cell.day || !cell.dateStr) {
-                return <div key={`blank-${idx}`} className="min-h-[80px] bg-gray-50/40" />;
+                return <div key={`blank-${idx}`} className="min-h-[80px] bg-gray-50/40 dark:bg-gray-800/20" />;
               }
               const ds = cell.dateStr;
               const dayOfWeek = (firstDow + cell.day - 1) % 7;
@@ -876,8 +1022,8 @@ const CalendarTab = () => {
               return (
                 <div
                   key={ds}
-                  className={`min-h-[80px] p-1.5 border-b border-gray-100 transition-colors
-                    ${isToday ? 'bg-blue-50' : holiday ? 'bg-red-50/50' : isDayOff ? 'bg-rose-50/70' : 'bg-white'}
+                  className={`min-h-[80px] p-1.5 border-b border-gray-100 dark:border-gray-700 transition-colors
+                    ${isToday ? 'bg-blue-50 dark:bg-blue-950/40' : holiday ? 'bg-red-50/50 dark:bg-red-950/25' : isDayOff ? 'bg-rose-50/70 dark:bg-rose-950/30' : 'bg-white dark:bg-transparent'}
                   `}
                 >
                   {/* Day number */}
@@ -909,14 +1055,23 @@ const CalendarTab = () => {
                   )}
 
                   {/* Leave chips (max 2 + overflow) */}
-                  {leavesOnDay.slice(0, 2).map((e, i) => (
-                    <div key={i} className="flex items-center gap-1 mb-0.5" title={`${e.userName} — ${e.leaveTypeName}`}>
-                      <UserAvatar name={e.userName} size="xs" />
-                      <span className="text-[9px] text-gray-600 truncate leading-tight">{e.userName.split(' ')[0]}</span>
-                    </div>
-                  ))}
+                  {leavesOnDay.slice(0, 2).map((e: any, i) => {
+                    const col = personColor(String(e.userId ?? e.user_id ?? ''), e.isOwn);
+                    return (
+                      <div
+                        key={i}
+                        className={`flex items-center gap-1 mb-0.5 px-1 py-0.5 rounded border ${col.bg} ${col.border}`}
+                        title={`${e.userName}${e.isOwn ? ' (You)' : ''} — ${e.leaveTypeName}`}
+                      >
+                        <UserAvatar name={e.userName} avatarUrl={e.userAvatarUrl} size="xs" />
+                        <span className={`text-[9px] truncate leading-tight font-medium ${col.text}`}>
+                          {e.isOwn ? 'You' : e.userName.split(' ')[0]}
+                        </span>
+                      </div>
+                    );
+                  })}
                   {leavesOnDay.length > 2 && (
-                    <div className="text-[9px] text-blue-600 font-medium">+{leavesOnDay.length - 2} more</div>
+                    <div className="text-[9px] text-gray-500 font-medium">+{leavesOnDay.length - 2} more</div>
                   )}
                 </div>
               );
@@ -951,11 +1106,11 @@ const CalendarTab = () => {
 
           {/* Leave entries */}
           {sortedLeaveDates.length === 0 ? (
-            <EmptyState title="No approved leaves" description="No team leaves in this period." />
+            <EmptyState title="No approved leaves" description="No leaves in this period." />
           ) : (
             <Card>
               <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
-                <CheckCircle size={13} className="text-green-500" /> Team Leaves
+                <CheckCircle size={13} className="text-green-500" /> Leaves
               </h4>
               <div className="space-y-3">
                 {sortedLeaveDates.map((date) => (
@@ -965,14 +1120,19 @@ const CalendarTab = () => {
                       <p className="text-xs text-gray-400">{format(parseISO(date), 'EEEE')}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {leaveByDate[date].map((e, i) => (
-                        <div key={i} className="flex items-center gap-1.5 px-2 py-1 bg-green-50 border border-green-100 rounded-lg text-xs">
-                          <UserAvatar name={e.userName} size="xs" />
-                          <span className="font-medium text-gray-700">{e.userName}</span>
-                          <span className="text-gray-400">·</span>
-                          <span className="text-green-700">{e.leaveTypeName}</span>
-                        </div>
-                      ))}
+                      {leaveByDate[date].map((e: any, i) => {
+                        const col = personColor(String(e.userId ?? e.user_id ?? ''), e.isOwn);
+                        return (
+                          <div key={i} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs border ${col.bg} ${col.border}`}>
+                            <UserAvatar name={e.userName} avatarUrl={e.userAvatarUrl} size="xs" />
+                            <span className={`font-medium ${col.text}`}>
+                              {e.isOwn ? 'You' : e.userName}
+                            </span>
+                            <span className="text-gray-400">·</span>
+                            <span className={col.text}>{e.leaveTypeName}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
@@ -1531,7 +1691,7 @@ export const LeaveBalancesTab = () => {
 
         <div className="flex items-center gap-2">
           {/* Card / List toggle */}
-          <div className="inline-flex rounded-lg border border-gray-200 bg-white overflow-hidden">
+          <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-600 bg-ds-surface overflow-hidden">
             <button
               onClick={() => setViewMode('card')}
               className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors ${
@@ -1571,10 +1731,10 @@ export const LeaveBalancesTab = () => {
             return (
               <div
                 key={userKey}
-                className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm"
+                className="bg-ds-surface rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm"
               >
                 {/* Employee header */}
-                <div className="flex items-center gap-3 px-5 py-4 bg-gradient-to-r from-gray-50 to-white border-b border-gray-100">
+                <div className="flex items-center gap-3 px-5 py-4 bg-gradient-to-r from-gray-50 to-white dark:from-gray-800/60 dark:to-gray-700/30 border-b border-gray-100 dark:border-gray-700">
                   <UserAvatar name={displayName} avatarUrl={avatarUrl} size="md" />
                   <div>
                     <p className="text-sm font-semibold text-gray-900">{displayName}</p>
@@ -1608,7 +1768,7 @@ export const LeaveBalancesTab = () => {
                         </div>
 
                         {/* Usage bar */}
-                        <div className="h-1.5 bg-white rounded-full overflow-hidden border border-gray-200">
+                        <div className="h-1.5 bg-white dark:bg-gray-700/60 rounded-full overflow-hidden border border-gray-200 dark:border-gray-600">
                           <div
                             className={`h-full ${col.bar} rounded-full transition-all`}
                             style={{ width: `${pct}%` }}
@@ -1631,11 +1791,11 @@ export const LeaveBalancesTab = () => {
         </div>
       ) : (
         /* ── List / Table View ─────────────────────────────────────────────── */
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+        <div className="bg-ds-surface rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-100 bg-gray-50">
+                <tr className="border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
                   <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">
                     Employee
                   </th>
@@ -2048,7 +2208,7 @@ export const LeaveAccrualPolicyTab = () => {
                               className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
                                 skipped
                                   ? 'bg-red-50 border-red-200 text-red-700'
-                                  : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+                                  : 'bg-ds-surface border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-gray-300'
                               }`}
                             >
                               {label}
@@ -2117,14 +2277,521 @@ export const LeaveAccrualPolicyTab = () => {
   );
 };
 
+// ── Planning Tab (Team + Org calendar, merged) ────────────────────────────────
+
+const PLAN_PAGE_SIZE = 10;
+
+const PlanningTab = ({ canViewOrg }: { canViewOrg: boolean }) => {
+  const { user } = useAuth();
+  const now = new Date();
+  const [scope, setScope] = useState<'team' | 'org'>('team');
+  const [viewDate, setViewDate] = useState(new Date(now.getFullYear(), now.getMonth(), 1));
+  const [view, setView] = useState<'calendar' | 'list'>('calendar');
+  const [selectedUser, setSelectedUser] = useState<string>('all');
+
+  // List-view sub-state
+  const [listTab, setListTab] = useState<'leaves' | 'holidays'>('leaves');
+  const [listPage, setListPage] = useState(0);
+  const [listFilterUser, setListFilterUser] = useState('all');
+  const [listFilterType, setListFilterType] = useState('all');
+
+  // Reset list filters when switching scope or month
+  useEffect(() => {
+    setSelectedUser('all');
+    setListFilterUser('all');
+    setListFilterType('all');
+    setListPage(0);
+  }, [scope, viewDate]);
+
+  const yr     = viewDate.getFullYear();
+  const mo     = viewDate.getMonth();
+  const moStr  = String(mo + 1).padStart(2, '0');
+  const yrStr  = String(yr);
+  const daysInMonth = new Date(yr, mo + 1, 0).getDate();
+  const firstDow    = new Date(yr, mo, 1).getDay();
+  const dateFrom = `${yrStr}-${moStr}-01`;
+  const dateTo   = `${yrStr}-${moStr}-${String(daysInMonth).padStart(2, '0')}`;
+  const todayStr = format(now, 'yyyy-MM-dd');
+
+  const { data: leaveData, isLoading, error } = useLeaveCalendar({ date_from: dateFrom, date_to: dateTo, scope });
+  const { data: calConfig } = useCalendarConfig();
+  const holidayParams: Record<string, string> = { year: yrStr };
+  if (user?.officeLocationId) holidayParams.locationId = user.officeLocationId;
+  const { data: holidayData } = useCompanyCalendar(holidayParams);
+
+  const rawEntries: any[] = (leaveData as any[]) ?? [];
+  const holidays: Holiday[] = (holidayData as Holiday[]) ?? [];
+
+  const weekendPolicy: { default: string; perLocation: Record<string, string> } =
+    (calConfig as any)?.weekendPolicy ?? { default: 'all_off', perLocation: {} };
+  const userPolicy = user?.officeLocationId
+    ? (weekendPolicy.perLocation?.[user.officeLocationId] ?? weekendPolicy.default)
+    : weekendPolicy.default;
+
+  // Collect unique team members from leave data
+  const teamMembers = Array.from(
+    new Map(rawEntries.map((e: any) => [String(e.userId ?? e.user_id ?? ''), e.userName ?? e.user_name ?? '']))
+      .entries()
+  ).filter(([id, name]) => id && name).map(([id, name]) => ({ id, name }));
+
+  // Expand multi-day leaves into per-date entries, optionally filtered by user
+  const leaveByDate: Record<string, any[]> = {};
+  rawEntries.forEach((e: any) => {
+    if (selectedUser !== 'all' && String(e.userId ?? e.user_id ?? '') !== selectedUser) return;
+    const start = parseISO(e.startDate || e.start_date || e.date || '');
+    const end   = parseISO(e.endDate   || e.end_date   || e.date || '');
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return;
+    let cur = start;
+    while (cur <= end) {
+      const ds = format(cur, 'yyyy-MM-dd');
+      if (!leaveByDate[ds]) leaveByDate[ds] = [];
+      leaveByDate[ds].push({ ...e, date: ds, isOwn: String(e.userId ?? e.user_id ?? '') === String(user?.id ?? '') });
+      cur = addDays(cur, 1);
+    }
+  });
+
+  const holidayByDate = holidays.reduce<Record<string, string>>((acc, h) => {
+    if (h.holiday_date) acc[h.holiday_date] = h.name;
+    return acc;
+  }, {});
+
+  const cells: Array<{ day: number | null; dateStr: string | null }> = [];
+  for (let i = 0; i < firstDow; i++) cells.push({ day: null, dateStr: null });
+  for (let d = 1; d <= daysInMonth; d++) {
+    cells.push({ day: d, dateStr: `${yrStr}-${moStr}-${String(d).padStart(2, '0')}` });
+  }
+
+  const sortedLeaveDates = Object.keys(leaveByDate).sort();
+
+  // Total unique people on leave this month
+  const uniqueOnLeave = new Set(rawEntries.map((e: any) => String(e.userId ?? e.user_id ?? ''))).size;
+
+  // List-view: unique leave types for filter dropdown
+  const uniqueLeaveTypes = Array.from(new Set(rawEntries.map((e: any) => e.leaveTypeName ?? e.leave_type_name ?? '').filter(Boolean)));
+
+  // List-view: filtered + paginated leave records
+  const filteredLeaves = rawEntries
+    .map((e: any) => ({ ...e, isOwn: String(e.userId ?? e.user_id ?? '') === String(user?.id ?? '') }))
+    .filter((e: any) => {
+      if (listFilterUser !== 'all' && String(e.userId ?? e.user_id ?? '') !== listFilterUser) return false;
+      if (listFilterType !== 'all' && (e.leaveTypeName ?? e.leave_type_name ?? '') !== listFilterType) return false;
+      return true;
+    })
+    .sort((a: any, b: any) => (a.startDate || a.start_date || '').localeCompare(b.startDate || b.start_date || ''));
+
+  const totalListPages = Math.max(1, Math.ceil(filteredLeaves.length / PLAN_PAGE_SIZE));
+  const safeListPage   = Math.min(listPage, totalListPages - 1);
+  const pagedLeaves    = filteredLeaves.slice(safeListPage * PLAN_PAGE_SIZE, (safeListPage + 1) * PLAN_PAGE_SIZE);
+
+  return (
+    <div className="space-y-4">
+      {error && <Alert type="error" message={(error as Error).message} />}
+
+      {/* Scope toggle (only visible to users with org view permission) */}
+      {canViewOrg && (
+        <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700/50 p-1 rounded-lg w-fit">
+          <button
+            onClick={() => setScope('team')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${scope === 'team' ? 'bg-white dark:bg-gray-600 shadow-sm text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
+          >
+            <Users size={13} /> Team
+          </button>
+          <button
+            onClick={() => setScope('org')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${scope === 'org' ? 'bg-white dark:bg-gray-600 shadow-sm text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
+          >
+            <Building2 size={13} /> Org-wide
+          </button>
+        </div>
+      )}
+
+      {/* Summary banner */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <Card>
+          <div className="flex items-center gap-3">
+            <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${scope === 'org' ? 'bg-purple-50' : 'bg-blue-50'}`}>
+              <Users size={16} className={scope === 'org' ? 'text-purple-600' : 'text-blue-600'} />
+            </div>
+            <div>
+              <p className="text-xl font-bold text-gray-900">{uniqueOnLeave}</p>
+              <p className="text-xs text-gray-500">{scope === 'org' ? 'People on leave this month' : 'Team members on leave'}</p>
+            </div>
+          </div>
+        </Card>
+        <Card>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-green-50 flex items-center justify-center">
+              <Calendar size={16} className="text-green-600" />
+            </div>
+            <div>
+              <p className="text-xl font-bold text-gray-900">{rawEntries.length}</p>
+              <p className="text-xs text-gray-500">{scope === 'org' ? 'Approved leaves (org-wide)' : 'Approved leaves this month'}</p>
+            </div>
+          </div>
+        </Card>
+        <Card>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-red-50 flex items-center justify-center">
+              <Building2 size={16} className="text-red-500" />
+            </div>
+            <div>
+              <p className="text-xl font-bold text-gray-900">{holidays.length}</p>
+              <p className="text-xs text-gray-500">Public holidays</p>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Controls row */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <button onClick={() => setViewDate(new Date(yr, mo - 1, 1))} className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors">
+            <span className="text-gray-600 text-sm leading-none">‹</span>
+          </button>
+          <h3 className="text-base font-semibold text-gray-900 w-40 text-center">
+            {MONTH_NAMES[mo]} {yr}
+          </h3>
+          <button onClick={() => setViewDate(new Date(yr, mo + 1, 1))} className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors">
+            <span className="text-gray-600 text-sm leading-none">›</span>
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Member filter — only in team scope */}
+          {scope === 'team' && teamMembers.length > 0 && (
+            <select
+              className="form-select text-xs py-1.5 pr-8"
+              value={selectedUser}
+              onChange={(e) => setSelectedUser(e.target.value)}
+            >
+              <option value="all">All members</option>
+              {teamMembers.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          )}
+          {/* View toggle */}
+          <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700/50 p-1 rounded-lg">
+            <button
+              onClick={() => setView('calendar')}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${view === 'calendar' ? 'bg-white dark:bg-gray-600 shadow-sm text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
+            >
+              Calendar
+            </button>
+            <button
+              onClick={() => setView('list')}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${view === 'list' ? 'bg-white dark:bg-gray-600 shadow-sm text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
+            >
+              List
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div className="flex items-center flex-wrap gap-4 text-xs text-gray-500">
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-blue-100 border border-blue-300 inline-block" />You</span>
+        <span className="flex items-center gap-1.5">
+          <span className="flex gap-0.5">
+            {[PERSON_PALETTE[1], PERSON_PALETTE[2], PERSON_PALETTE[3]].map((p, i) => (
+              <span key={i} className={`w-3 h-3 rounded-sm ${p.bg} ${p.border} inline-block border`} />
+            ))}
+          </span>
+          Team (colour per person)
+        </span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-100 border border-red-200 inline-block" />Holiday</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-blue-50 border border-blue-200 inline-block" />Today</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-rose-50 border border-rose-200 inline-block" />Weekend off</span>
+      </div>
+
+      {isLoading ? (
+        <PageSkeleton />
+      ) : view === 'calendar' ? (
+        <Card padding={false}>
+          <div className="grid grid-cols-7 border-b border-gray-100 dark:border-gray-700">
+            {WEEK_DAYS.map((d) => (
+              <div key={d} className="py-2.5 text-center text-xs font-medium text-gray-500 uppercase tracking-wide">{d}</div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 divide-x divide-gray-50 dark:divide-gray-700">
+            {cells.map((cell, idx) => {
+              if (!cell.day || !cell.dateStr) {
+                return <div key={`blank-${idx}`} className="min-h-[80px] bg-gray-50/40 dark:bg-gray-800/20" />;
+              }
+              const ds = cell.dateStr;
+              const dayOfWeek = (firstDow + cell.day - 1) % 7;
+              const isDayOff = isWeekendOff(dayOfWeek, yr, mo, cell.day, userPolicy);
+              const isWorkingSat = dayOfWeek === 6 && !isDayOff;
+              const isQuarterlySat = is5thSatWorking(dayOfWeek, yr, mo, cell.day, userPolicy);
+              const isToday = ds === todayStr;
+              const leavesOnDay = leaveByDate[ds] ?? [];
+              const holiday = holidayByDate[ds];
+              const ownLeaveToday = leavesOnDay.some((e: any) => e.isOwn);
+
+              return (
+                <div
+                  key={ds}
+                  className={`min-h-[80px] p-1.5 border-b border-gray-100 dark:border-gray-700 transition-colors
+                    ${isToday ? 'bg-blue-50 dark:bg-blue-950/40' : holiday ? 'bg-red-50/50 dark:bg-red-950/25' : isDayOff ? 'bg-rose-50/70 dark:bg-rose-950/30' : ownLeaveToday ? 'bg-blue-50/40 dark:bg-blue-950/20' : 'bg-white dark:bg-transparent'}
+                  `}
+                >
+                  <div className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-semibold mb-1
+                    ${isToday ? 'bg-blue-600 text-white' : (isDayOff && !holiday) ? 'text-rose-400' : holiday ? 'text-red-500' : (isWorkingSat || isQuarterlySat) ? 'text-orange-500' : 'text-gray-700'}
+                  `}>
+                    {cell.day}
+                  </div>
+
+                  {isDayOff && !holiday && (
+                    <div className="text-[9px] font-medium text-rose-600 bg-rose-100 border border-rose-200 px-1 py-0.5 rounded truncate mb-0.5">
+                      {dayOfWeek === 0 ? 'Sunday' : 'Saturday'}
+                    </div>
+                  )}
+                  {(isWorkingSat || isQuarterlySat) && !holiday && (
+                    <div className="text-[9px] font-medium text-orange-600 bg-orange-50 border border-orange-200 px-1 py-0.5 rounded truncate mb-0.5">
+                      {isQuarterlySat ? 'Working (5th)' : 'Working'}
+                    </div>
+                  )}
+                  {holiday && (
+                    <div className="text-[9px] font-medium text-red-700 bg-red-100 border border-red-200 px-1 py-0.5 rounded truncate mb-0.5" title={holiday}>
+                      {holiday}
+                    </div>
+                  )}
+
+                  {leavesOnDay.slice(0, 2).map((e: any, i: number) => {
+                    const col = personColor(String(e.userId ?? e.user_id ?? ''), e.isOwn);
+                    return (
+                      <div
+                        key={i}
+                        className={`flex items-center gap-1 mb-0.5 px-1 py-0.5 rounded border ${col.bg} ${col.border}`}
+                        title={`${e.userName}${e.isOwn ? ' (You)' : ''} — ${e.leaveTypeName}`}
+                      >
+                        <UserAvatar name={e.userName} avatarUrl={e.userAvatarUrl} size="xs" />
+                        <span className={`text-[9px] truncate leading-tight font-medium ${col.text}`}>
+                          {e.isOwn ? 'You' : e.userName.split(' ')[0]}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {leavesOnDay.length > 2 && (
+                    <div className="text-[9px] text-gray-500 font-medium">+{leavesOnDay.length - 2} more</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      ) : (
+        /* ── List view — Employee Leaves / Holidays sub-tabs ── */
+        <div className="space-y-3">
+
+          {/* Sub-tab bar */}
+          <div className="flex items-center border-b border-gray-200 dark:border-gray-700">
+            <button
+              onClick={() => { setListTab('leaves'); setListPage(0); }}
+              className={`inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${listTab === 'leaves' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
+            >
+              <Users size={14} />
+              {scope === 'org' ? 'All Employee Leaves' : 'Team Leaves'}
+              {rawEntries.length > 0 && (
+                <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${listTab === 'leaves' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
+                  {rawEntries.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setListTab('holidays')}
+              className={`inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${listTab === 'holidays' ? 'border-red-500 text-red-500' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}
+            >
+              <Building2 size={14} />
+              Public Holidays
+              {holidays.length > 0 && (
+                <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${listTab === 'holidays' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'}`}>
+                  {holidays.length}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {listTab === 'leaves' ? (
+            <Card padding={false}>
+              {/* Filter bar */}
+              <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex flex-wrap items-center gap-2">
+                <select
+                  value={listFilterUser}
+                  onChange={e => { setListFilterUser(e.target.value); setListPage(0); }}
+                  className="form-select text-xs py-1.5 pr-7 min-w-[130px]"
+                >
+                  <option value="all">All people</option>
+                  {teamMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+                <select
+                  value={listFilterType}
+                  onChange={e => { setListFilterType(e.target.value); setListPage(0); }}
+                  className="form-select text-xs py-1.5 pr-7 min-w-[140px]"
+                >
+                  <option value="all">All leave types</option>
+                  {uniqueLeaveTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                {(listFilterUser !== 'all' || listFilterType !== 'all') && (
+                  <button
+                    onClick={() => { setListFilterUser('all'); setListFilterType('all'); setListPage(0); }}
+                    className="text-xs text-gray-400 hover:text-gray-600 underline"
+                  >
+                    Clear filters
+                  </button>
+                )}
+                <span className="ml-auto text-xs text-gray-400">
+                  {filteredLeaves.length} record{filteredLeaves.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+
+              {/* Table */}
+              {isLoading ? (
+                <div className="px-5 py-8"><PageSkeleton /></div>
+              ) : pagedLeaves.length === 0 ? (
+                <div className="px-5 py-8">
+                  <EmptyState
+                    title="No leaves found"
+                    description={listFilterUser !== 'all' || listFilterType !== 'all' ? 'Try adjusting your filters.' : scope === 'org' ? 'No approved leaves across the org this period.' : 'No approved team leaves this period.'}
+                  />
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40">
+                      <tr>
+                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Person</th>
+                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Leave Type</th>
+                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">From</th>
+                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">To</th>
+                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Days</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
+                      {pagedLeaves.map((e: any, i: number) => {
+                        const col = personColor(String(e.userId ?? e.user_id ?? ''), e.isOwn);
+                        const days = calcDays(e.startDate || e.start_date || '', e.endDate || e.end_date || '');
+                        return (
+                          <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <UserAvatar name={e.userName} avatarUrl={e.userAvatarUrl} size="sm" />
+                                <span className={`text-sm font-medium ${col.text}`}>
+                                  {e.isOwn ? `${e.userName} (You)` : e.userName}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{e.leaveTypeName}</td>
+                            <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{formatDate(e.startDate || e.start_date)}</td>
+                            <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{formatDate(e.endDate || e.end_date)}</td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex px-2 py-0.5 rounded text-xs font-semibold ${col.bg} ${col.text} border ${col.border}`}>
+                                {days} day{days !== 1 ? 's' : ''}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Pagination */}
+              {totalListPages > 1 && (
+                <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between flex-wrap gap-2">
+                  <span className="text-xs text-gray-500">
+                    Showing {safeListPage * PLAN_PAGE_SIZE + 1}–{Math.min((safeListPage + 1) * PLAN_PAGE_SIZE, filteredLeaves.length)} of {filteredLeaves.length}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      disabled={safeListPage === 0}
+                      onClick={() => setListPage(p => p - 1)}
+                      className="px-2.5 py-1 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50 transition-colors"
+                    >
+                      ‹ Prev
+                    </button>
+                    {Array.from({ length: Math.min(totalListPages, 7) }, (_, i) => {
+                      const pageNum = totalListPages <= 7 ? i : i; // show max 7 page buttons
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setListPage(pageNum)}
+                          className={`w-7 h-7 text-xs rounded-md border transition-colors ${pageNum === safeListPage ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 hover:bg-gray-50'}`}
+                        >
+                          {pageNum + 1}
+                        </button>
+                      );
+                    })}
+                    <button
+                      disabled={safeListPage === totalListPages - 1}
+                      onClick={() => setListPage(p => p + 1)}
+                      className="px-2.5 py-1 text-xs border border-gray-200 rounded-md disabled:opacity-40 hover:bg-gray-50 transition-colors"
+                    >
+                      Next ›
+                    </button>
+                  </div>
+                </div>
+              )}
+            </Card>
+          ) : (
+            /* ── Holidays sub-tab ── */
+            <Card padding={false}>
+              <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
+                <Building2 size={14} className="text-red-500" />
+                <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Public Holidays — {MONTH_NAMES[mo]} {yr}</h4>
+                <span className="ml-auto text-xs text-gray-400">{holidays.length} holiday{holidays.length !== 1 ? 's' : ''}</span>
+              </div>
+              {holidays.length === 0 ? (
+                <div className="px-5 py-8">
+                  <EmptyState title="No public holidays" description="No holidays have been added for this month." />
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-50 dark:divide-gray-700">
+                  {[...holidays]
+                    .sort((a, b) => (a.holiday_date ?? '').localeCompare(b.holiday_date ?? ''))
+                    .map((h) => (
+                    <div key={h.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
+                      <div className="w-10 h-10 rounded-lg bg-red-50 dark:bg-red-900/30 border border-red-100 dark:border-red-800 flex flex-col items-center justify-center shrink-0">
+                        <span className="text-[9px] font-semibold text-red-600 uppercase leading-none">
+                          {h.holiday_date ? format(parseISO(h.holiday_date), 'MMM') : ''}
+                        </span>
+                        <span className="text-sm font-bold text-red-700 leading-none">
+                          {h.holiday_date ? format(parseISO(h.holiday_date), 'd') : ''}
+                        </span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{h.name}</p>
+                        <p className="text-xs text-gray-400">
+                          {h.holiday_date ? format(parseISO(h.holiday_date), 'EEEE, dd MMMM yyyy') : ''}
+                        </p>
+                      </div>
+                      {(h.is_optional === true || h.is_optional === 'true') && (
+                        <span className="text-xs px-2 py-0.5 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 text-amber-700 dark:text-amber-400 rounded-full shrink-0">
+                          Optional
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 const LeavePage = () => {
   const { t } = useI18n();
   useParams<{ tenantSlug: string }>();
   const { user } = useAuth();
-  const isManager = hasPermission(user, PERMISSIONS.LEAVE_APPROVE);
-  const isAdmin   = hasPermission(user, PERMISSIONS.LEAVE_ADMIN);
+  const isManager        = hasPermission(user, PERMISSIONS.LEAVE_APPROVE);
+  const isAdminRole      = user?.role === 'SUPER_ADMIN' || user?.role === 'TENANT_ADMIN';
+  const canViewOrgLeaves = isAdminRole || hasPermission(user, PERMISSIONS.LEAVE_ORG_VIEW);
 
   // Deep-link support: ?requestId=X (e.g. clicked a leave notification in the
   // bell). Default to the My Leaves tab; if the manager has both manager
@@ -2149,20 +2816,18 @@ const LeavePage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const tabs: { id: Tab; label: string; icon: React.ReactNode; managerOnly?: boolean; adminOnly?: boolean }[] = [
-    { id: 'my',             label: 'My Leaves',       icon: <Clock size={15} /> },
-    { id: 'apply',          label: 'Apply',            icon: <Plus size={15} /> },
-    { id: 'team',           label: 'Team Requests',    icon: <CheckCircle size={15} />, managerOnly: true },
-    { id: 'who-is-off',     label: 'Who\'s Off',       icon: <Users size={15} /> },
-    { id: 'calendar',       label: 'Calendar',         icon: <Calendar size={15} /> },
-    { id: 'balance',        label: 'My Balance',       icon: <BarChart2 size={15} /> },
-    { id: 'company-calendar', label: 'Company Calendar', icon: <Building2 size={15} />, adminOnly: true },
-    { id: 'leave-balances', label: 'Manage Balances',  icon: <Upload size={15} />, adminOnly: true },
+  const tabs: { id: Tab; label: string; icon: React.ReactNode; managerOnly?: boolean }[] = [
+    { id: 'my',          label: 'My Leaves',      icon: <Clock size={15} /> },
+    { id: 'apply',       label: 'Apply',           icon: <Plus size={15} /> },
+    { id: 'team',        label: 'Team Requests',   icon: <CheckCircle size={15} />, managerOnly: true },
+    { id: 'who-is-off',  label: 'Who\'s Off',      icon: <Users size={15} /> },
+    { id: 'calendar',    label: 'Calendar',         icon: <Calendar size={15} /> },
+    { id: 'planning',    label: 'Planning',         icon: <LayoutGrid size={15} /> },
+    { id: 'balance',     label: 'My Balance',       icon: <BarChart2 size={15} /> },
   ];
 
   const visibleTabs = tabs.filter((t) => {
     if (t.managerOnly && !isManager) return false;
-    if (t.adminOnly && !isAdmin) return false;
     return true;
   });
 
@@ -2202,11 +2867,10 @@ const LeavePage = () => {
         {tab === 'my' && <MyLeavesTab highlightId={highlightLeaveId} />}
         {tab === 'apply' && <ApplyTab />}
         {tab === 'team' && isManager && <TeamRequestsTab highlightId={highlightLeaveId} />}
-        {tab === 'who-is-off' && <TeamOnLeaveTab />}
+        {tab === 'who-is-off' && <TeamOnLeaveTab canViewOrg={canViewOrgLeaves} />}
         {tab === 'calendar' && <CalendarTab />}
+        {tab === 'planning' && <PlanningTab canViewOrg={canViewOrgLeaves} />}
         {tab === 'balance' && <BalanceTab />}
-        {tab === 'company-calendar' && isAdmin && <CompanyCalendarTab />}
-        {tab === 'leave-balances' && isAdmin && <LeaveBalancesTab />}
       </div>
     </Layout>
   );

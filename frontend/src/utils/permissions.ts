@@ -49,10 +49,12 @@ export const PERMISSIONS = {
   ATTENDANCE_WRITE:     'ATTENDANCE_WRITE',
   ATTENDANCE_TEAM_VIEW: 'ATTENDANCE_TEAM_VIEW',
   ATTENDANCE_ADMIN:     'ATTENDANCE_ADMIN',
-  LEAVE_READ:    'LEAVE_READ',
-  LEAVE_WRITE:   'LEAVE_WRITE',
-  LEAVE_APPROVE: 'LEAVE_APPROVE',
-  LEAVE_ADMIN:   'LEAVE_ADMIN',
+  LEAVE_READ:      'LEAVE_READ',
+  LEAVE_WRITE:     'LEAVE_WRITE',
+  LEAVE_APPROVE:   'LEAVE_APPROVE',
+  LEAVE_ADMIN:     'LEAVE_ADMIN',
+  LEAVE_TEAM_VIEW: 'LEAVE_TEAM_VIEW',  // View team-scoped leave calendar for planning purposes
+  LEAVE_ORG_VIEW:  'LEAVE_ORG_VIEW',   // View org-wide leave calendar (all employees across the org)
   LOCATION_ADMIN:'LOCATION_ADMIN',
   // ── Assets ────────────────────────────────────────────────────────────────
   ASSET_READ:    'ASSET_READ',

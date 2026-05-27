@@ -10,9 +10,10 @@ const { PERMISSIONS } = require('../utils/Constants');
 const router = express.Router();
 const auth = AuthMiddleware.authenticate;
 const can = RBACMiddleware.require;
+const member = RBACMiddleware.requireProjectMember;
 const ctrl = (req) => new DecisionController(req.catalystApp);
 
-router.post('/', auth, can(PERMISSIONS.DECISION_WRITE), asyncHandler((req, res) => ctrl(req).createDecision(req, res)));
+router.post('/', auth, can(PERMISSIONS.DECISION_WRITE), member(), asyncHandler((req, res) => ctrl(req).createDecision(req, res)));
 router.get('/', auth, can(PERMISSIONS.DECISION_READ), asyncHandler((req, res) => ctrl(req).listDecisions(req, res)));
 router.put('/:decisionId', auth, can(PERMISSIONS.DECISION_WRITE), asyncHandler((req, res) => ctrl(req).updateDecision(req, res)));
 router.delete('/:decisionId', auth, can(PERMISSIONS.DECISION_WRITE), asyncHandler((req, res) => ctrl(req).deleteDecision(req, res)));

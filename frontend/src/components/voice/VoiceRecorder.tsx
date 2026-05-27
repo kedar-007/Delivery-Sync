@@ -456,7 +456,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onProcess, isProcessing =
           {mode !== 'transcribing' && (
             <select value={lang} onChange={e => setLang(e.target.value)}
               disabled={isActive}
-              className={`text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-300 max-w-[160px] ${
+              className={`text-xs border border-gray-200 dark:border-gray-600 rounded-md px-2 py-1 bg-ds-surface text-ds-text-muted focus:outline-none focus:ring-1 focus:ring-blue-300 max-w-[160px] ${
                 isActive ? 'invisible' : ''
               }`}>
               {LANGUAGES.map(l => (
@@ -516,15 +516,15 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onProcess, isProcessing =
         {mode === 'recording' && (
           <div className={`rounded-lg border-2 transition-colors duration-150 min-h-[56px] px-3 py-2.5 ${
             liveText
-              ? 'border-blue-400 bg-white'
+              ? 'border-blue-400 bg-ds-surface'
               : tooNoisy
-                ? 'border-rose-300 bg-rose-50/60'
+                ? 'border-rose-300 bg-rose-50/60 dark:bg-rose-900/20'
                 : lowVolume
-                  ? 'border-amber-300 bg-amber-50/60'
-                  : 'border-dashed border-blue-200 bg-blue-50/60'
+                  ? 'border-amber-300 bg-amber-50/60 dark:bg-amber-900/20'
+                  : 'border-dashed border-blue-200 dark:border-blue-700 bg-blue-50/60 dark:bg-blue-900/20'
           }`}>
             {liveText ? (
-              <p className="text-sm text-blue-700 font-medium leading-snug whitespace-pre-wrap">
+              <p className="text-sm text-blue-600 dark:text-blue-400 font-medium leading-snug whitespace-pre-wrap">
                 {liveText}
                 <span className="inline-block w-0.5 h-4 bg-blue-500 ml-0.5 animate-pulse align-middle" />
               </p>
@@ -592,20 +592,20 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onProcess, isProcessing =
 
       {/* ── Transcribing fallback indicator ── */}
       {mode === 'transcribing' && (
-        <div className="flex items-center gap-2 px-3 py-2.5 bg-violet-50 border border-violet-200 rounded-lg">
-          <Loader2 size={14} className="text-violet-500 animate-spin shrink-0" />
+        <div className="flex items-center gap-2 px-3 py-2.5 bg-violet-50 dark:bg-violet-900/25 border border-violet-200 dark:border-violet-700/50 rounded-lg">
+          <Loader2 size={14} className="text-violet-500 dark:text-violet-400 animate-spin shrink-0" />
           <div>
-            <p className="text-xs text-violet-700 font-medium">Enhancing with amplified audio…</p>
-            <p className="text-[10px] text-violet-500">Processing the boosted recording for better accuracy</p>
+            <p className="text-xs text-violet-700 dark:text-violet-300 font-medium">Enhancing with amplified audio…</p>
+            <p className="text-[10px] text-violet-500 dark:text-violet-400">Processing the boosted recording for better accuracy</p>
           </div>
         </div>
       )}
 
       {/* ── Accumulated final transcript ── */}
       {finalText && mode !== 'transcribing' && (
-        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 max-h-36 overflow-y-auto">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Captured</p>
-          <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{finalText}</p>
+        <div className="rounded-lg border border-gray-200 dark:border-gray-600 bg-ds-surface px-3 py-2.5 max-h-36 overflow-y-auto">
+          <p className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">Captured</p>
+          <p className="text-sm text-ds-text leading-relaxed whitespace-pre-wrap">{finalText}</p>
         </div>
       )}
 
@@ -634,7 +634,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({ onProcess, isProcessing =
       {mode === 'manual' && (
         <div className="space-y-2">
           <textarea autoFocus rows={4}
-            className="w-full text-sm border border-gray-200 rounded-lg p-3 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white"
+            className="w-full text-sm border border-gray-200 dark:border-gray-600 rounded-lg p-3 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300 bg-ds-surface text-ds-text placeholder:text-gray-400 dark:placeholder:text-gray-500"
             placeholder="Type your update (e.g. yesterday I finished X, today working on Y, no blockers)…"
             value={manualText}
             onChange={e => setManualText(e.target.value)}
