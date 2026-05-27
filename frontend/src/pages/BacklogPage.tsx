@@ -22,6 +22,7 @@ import {
   useUpdateTask,
   useDeleteTask,
 } from '../hooks/useTaskSprint';
+import { useProjects } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useI18n } from '../contexts/I18nContext';
 
@@ -111,6 +112,10 @@ const BacklogPage = () => {
   const { user } = useAuth();
   const canManageApproval = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TIME_APPROVE);
 
+  // When accessed via /projects/:projectId/backlog the project is fixed from the URL.
+  // When accessed via /backlog (no context) the user must select a project first.
+  const [selectedProjectId, setSelectedProjectId] = useState(projectId);
+
   // Filters
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<'' | TaskStatus>('');
@@ -133,8 +138,9 @@ const BacklogPage = () => {
   const [moveError, setMoveError] = useState('');
 
   // Data
-  const { data: backlogTasks = [], isLoading, error } = useBacklog(projectId);
-  const { data: sprints = [] } = useSprints(projectId);
+  const { data: allProjects = [] } = useProjects();
+  const { data: backlogTasks = [], isLoading, error } = useBacklog(selectedProjectId);
+  const { data: sprints = [] } = useSprints(selectedProjectId);
   const { data: users = [] } = useUsers();
 
   const createTask = useCreateTask();
@@ -173,6 +179,10 @@ const BacklogPage = () => {
   const onCreateTask = async (data: TaskForm) => {
     try {
       setCreateError('');
+      if (!selectedProjectId) {
+        setCreateError('Please select a project first');
+        return;
+      }
       await createTask.mutateAsync({
         title: data.title,
         description: data.description,
@@ -180,7 +190,7 @@ const BacklogPage = () => {
         assignee_id: data.assignee_id || undefined,
         story_points: data.story_points ? Number(data.story_points) : undefined,
         due_date: data.due_date || undefined,
-        project_id: projectId,
+        project_id: selectedProjectId,
         status: 'TODO',
         sprint_id: null,
         require_approval: createRequireApproval ? 'true' : 'false',
@@ -274,9 +284,13 @@ const BacklogPage = () => {
     <Layout>
       <Header
         title={t('nav.backlog')}
-        subtitle={`${(backlogTasks as Task[]).length} task${(backlogTasks as Task[]).length !== 1 ? 's' : ''} not in a sprint`}
+        subtitle={
+          selectedProjectId
+            ? `${(backlogTasks as Task[]).length} task${(backlogTasks as Task[]).length !== 1 ? 's' : ''} not in a sprint`
+            : 'Select a project to view its backlog'
+        }
         actions={
-          <Button onClick={() => setShowCreate(true)}>
+          <Button onClick={() => setShowCreate(true)} disabled={!selectedProjectId}>
             New Task
           </Button>
         }
@@ -284,6 +298,25 @@ const BacklogPage = () => {
 
       <div className="p-6 space-y-5">
         {error && <Alert type="error" message={(error as Error).message} />}
+
+        {/* Project picker — shown when not locked to a URL-based project */}
+        {!projectId && (
+          <div className="flex items-center gap-2">
+            <select
+              className="form-select w-64"
+              value={selectedProjectId}
+              onChange={(e) => setSelectedProjectId(e.target.value)}
+            >
+              <option value="">Select project…</option>
+              {(allProjects as { id: string; name: string }[]).map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            {!selectedProjectId && (
+              <span className="text-sm text-amber-600">Select a project to load its backlog</span>
+            )}
+          </div>
+        )}
 
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-3">
@@ -464,6 +497,29 @@ const BacklogPage = () => {
       >
         <form onSubmit={createForm.handleSubmit(onCreateTask)} className="space-y-4">
           {createError && <Alert type="error" message={createError} />}
+
+          {/* Project selection is mandatory; locked to URL project when available */}
+          <div>
+            <label className="form-label">Project *</label>
+            {projectId ? (
+              <div className="form-input bg-gray-50 text-gray-600 cursor-not-allowed">
+                {(allProjects as { id: string; name: string }[]).find((p) => p.id === projectId)?.name ?? projectId}
+              </div>
+            ) : (
+              <select
+                className="form-select"
+                value={selectedProjectId}
+                onChange={(e) => setSelectedProjectId(e.target.value)}
+                required
+              >
+                <option value="">Select project…</option>
+                {(allProjects as { id: string; name: string }[]).map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+
           <div>
             <label className="form-label">Title *</label>
             <input

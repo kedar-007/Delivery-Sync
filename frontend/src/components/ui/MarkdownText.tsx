@@ -22,6 +22,11 @@ type Props = {
   accent?: Accent;
 };
 
+// Dark-mode-aware accent palette. Each text/background colour pairs the
+// light shade with a `dark:` variant so AI content renders correctly in both
+// themes (the `dark` class is toggled on <html> by ThemeContext). `strong`
+// resolves to the theme's primary text token so emphasised text matches body
+// text in either mode.
 const ACCENT: Record<Accent, {
   headingText: string;
   headingBar:  string;
@@ -33,54 +38,54 @@ const ACCENT: Record<Accent, {
   strong:      string;
 }> = {
   indigo: {
-    headingText: 'text-indigo-700',
+    headingText: 'text-indigo-700 dark:text-indigo-300',
     headingBar:  'from-indigo-500 to-purple-500',
     bullet:      'bg-indigo-500',
     numberBg:    'bg-gradient-to-br from-indigo-500 to-purple-500',
     numberText:  'text-white',
-    italic:      'text-indigo-600',
-    code:        'bg-indigo-50 text-indigo-700 border-indigo-100',
-    strong:      'text-gray-900',
+    italic:      'text-indigo-600 dark:text-indigo-300',
+    code:        'bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-200 border-indigo-100 dark:border-indigo-800',
+    strong:      'text-ds-text',
   },
   violet: {
-    headingText: 'text-violet-700',
+    headingText: 'text-violet-700 dark:text-violet-300',
     headingBar:  'from-violet-500 to-fuchsia-500',
     bullet:      'bg-violet-500',
     numberBg:    'bg-gradient-to-br from-violet-500 to-fuchsia-500',
     numberText:  'text-white',
-    italic:      'text-violet-600',
-    code:        'bg-violet-50 text-violet-700 border-violet-100',
-    strong:      'text-gray-900',
+    italic:      'text-violet-600 dark:text-violet-300',
+    code:        'bg-violet-50 dark:bg-violet-900/40 text-violet-700 dark:text-violet-200 border-violet-100 dark:border-violet-800',
+    strong:      'text-ds-text',
   },
   blue: {
-    headingText: 'text-blue-700',
+    headingText: 'text-blue-700 dark:text-blue-300',
     headingBar:  'from-blue-500 to-cyan-500',
     bullet:      'bg-blue-500',
     numberBg:    'bg-gradient-to-br from-blue-500 to-cyan-500',
     numberText:  'text-white',
-    italic:      'text-blue-600',
-    code:        'bg-blue-50 text-blue-700 border-blue-100',
-    strong:      'text-gray-900',
+    italic:      'text-blue-600 dark:text-blue-300',
+    code:        'bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-200 border-blue-100 dark:border-blue-800',
+    strong:      'text-ds-text',
   },
   amber: {
-    headingText: 'text-amber-700',
+    headingText: 'text-amber-700 dark:text-amber-300',
     headingBar:  'from-amber-500 to-orange-500',
     bullet:      'bg-amber-500',
     numberBg:    'bg-gradient-to-br from-amber-500 to-orange-500',
     numberText:  'text-white',
-    italic:      'text-amber-700',
-    code:        'bg-amber-50 text-amber-700 border-amber-100',
-    strong:      'text-amber-900',
+    italic:      'text-amber-700 dark:text-amber-300',
+    code:        'bg-amber-50 dark:bg-amber-900/40 text-amber-700 dark:text-amber-200 border-amber-100 dark:border-amber-800',
+    strong:      'text-amber-900 dark:text-amber-200',
   },
   emerald: {
-    headingText: 'text-emerald-700',
+    headingText: 'text-emerald-700 dark:text-emerald-300',
     headingBar:  'from-emerald-500 to-teal-500',
     bullet:      'bg-emerald-500',
     numberBg:    'bg-gradient-to-br from-emerald-500 to-teal-500',
     numberText:  'text-white',
-    italic:      'text-emerald-700',
-    code:        'bg-emerald-50 text-emerald-700 border-emerald-100',
-    strong:      'text-gray-900',
+    italic:      'text-emerald-700 dark:text-emerald-300',
+    code:        'bg-emerald-50 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-200 border-emerald-100 dark:border-emerald-800',
+    strong:      'text-ds-text',
   },
 };
 

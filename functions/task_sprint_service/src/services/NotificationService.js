@@ -97,11 +97,11 @@ class NotificationService {
   }
 
   // Task (Sprint Board / My Tasks) assignment — distinct from Action assignment above.
-  async sendTaskAssigned({ toEmail, toName, taskTitle, taskType, priority, dueDate, projectName, assignedBy }) {
+  async sendTaskAssigned({ toEmail, toName, taskTitle, taskType, priority, dueDate, projectName, assignedBy, taskId }) {
     return this.send({
       toEmail,
       subject: `[Delivery Sync] Task assigned – ${taskTitle}`,
-      htmlBody: this._taskAssignedTemplate(toName, taskTitle, taskType, priority, dueDate, projectName, assignedBy),
+      htmlBody: this._taskAssignedTemplate(toName, taskTitle, taskType, priority, dueDate, projectName, assignedBy, taskId),
     });
   }
 
@@ -202,6 +202,13 @@ class NotificationService {
   // ─── Shared Template Base ─────────────────────────────────────────────────────
 
   _base({ accentColor, preheader, headerTitle, headerSubtitle, body, ctaUrl, ctaLabel, footerNote = '' }) {
+    const APP_URL = (process.env.APP_URL || 'https://delivery-sync-60040289923.development.catalystserverless.in').replace(/\/$/, '');
+    const slug    = this.tenantSlug ? `/${String(this.tenantSlug).replace(/^\/+|\/+$/g, '')}` : '';
+    const fullCtaUrl = ctaUrl
+      ? (/^https?:\/\//.test(ctaUrl)
+          ? ctaUrl
+          : `${APP_URL}/app/#${slug}${ctaUrl.startsWith('/') ? '' : '/'}${ctaUrl}`)
+      : '';
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -236,7 +243,7 @@ class NotificationService {
             ${body}
             ${ctaUrl && ctaLabel ? `
             <div style="margin-top:28px;">
-              <a href="${ctaUrl}" style="display:inline-block;background:${accentColor};color:#ffffff;font-size:14px;font-weight:600;padding:13px 28px;border-radius:8px;text-decoration:none;letter-spacing:0.3px;">${ctaLabel}</a>
+              <a href="${fullCtaUrl}" style="display:inline-block;background:${accentColor};color:#ffffff;font-size:14px;font-weight:600;padding:13px 28px;border-radius:8px;text-decoration:none;letter-spacing:0.3px;">${ctaLabel}</a>
             </div>` : ''}
           </td>
         </tr>
@@ -306,7 +313,7 @@ class NotificationService {
   // Task (sprint/board) assignment — visually consistent with the action template
   // but tailored to the task fields. Priority is colour-coded so the recipient
   // gets a visual sense of urgency without reading the value.
-  _taskAssignedTemplate(name, taskTitle, taskType, priority, dueDate, projectName, assignedBy) {
+  _taskAssignedTemplate(name, taskTitle, taskType, priority, dueDate, projectName, assignedBy, taskId) {
     const priorityColors = {
       URGENT:   '#dc2626',
       HIGH:     '#ea580c',
@@ -345,8 +352,11 @@ class NotificationService {
       headerTitle:   'New Task Assigned',
       headerSubtitle: projectName ? `On project: ${projectName}` : 'Open in My Tasks to start',
       body,
-      ctaUrl:   '/my-tasks',
-      ctaLabel: 'Open My Tasks',
+      // Deep-link: when the user clicks the CTA, the My Tasks page can read
+      // `?taskId=<id>` and scroll/open that task directly. Falls back to the
+      // list view when frontend doesn't yet handle the param.
+      ctaUrl:   taskId ? `/my-tasks?taskId=${encodeURIComponent(taskId)}` : '/my-tasks',
+      ctaLabel: 'Open Task',
     });
   }
 

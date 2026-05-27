@@ -6,11 +6,11 @@ interface SkeletonProps {
 }
 
 export const Skeleton = ({ className }: SkeletonProps) => (
-  <div className={clsx('animate-pulse bg-gray-200 rounded', className)} />
+  <div className={clsx('animate-pulse bg-ds-border rounded', className)} />
 );
 
 export const SkeletonCard = () => (
-  <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+  <div className="bg-ds-surface rounded-xl border border-ds-border p-5 space-y-3">
     <Skeleton className="h-4 w-1/3" />
     <Skeleton className="h-3 w-2/3" />
     <Skeleton className="h-3 w-1/2" />
@@ -18,7 +18,7 @@ export const SkeletonCard = () => (
 );
 
 export const SkeletonTable = ({ rows = 5 }: { rows?: number }) => (
-  <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+  <div className="bg-ds-surface rounded-xl border border-ds-border divide-y divide-ds-border">
     {Array.from({ length: rows }).map((_, i) => (
       <div key={i} className="px-5 py-4 flex items-center gap-4">
         <Skeleton className="h-4 w-1/4" />
@@ -40,7 +40,7 @@ export const PageSkeleton = () => (
     </div>
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="bg-white rounded-xl border border-gray-200 p-5 space-y-2">
+        <div key={i} className="bg-ds-surface rounded-xl border border-ds-border p-5 space-y-2">
           <Skeleton className="h-3 w-20" />
           <Skeleton className="h-8 w-16" />
         </div>

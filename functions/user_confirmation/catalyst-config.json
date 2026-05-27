@@ -3,7 +3,9 @@
 		"name": "user_confirmation",
 		"stack": "node20",
 		"type": "event",
-		"env_variables": {}
+		"env_variables": {
+			
+		}
 	},
 	"execution": {
 		"main": "index.js"

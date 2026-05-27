@@ -52,6 +52,10 @@ const PERMISSIONS = Object.freeze({
   ORG_READ: 'ORG_READ', ORG_WRITE: 'ORG_WRITE',
   CONFIG_READ: 'CONFIG_READ', CONFIG_WRITE: 'CONFIG_WRITE',
   ORG_ROLE_READ: 'ORG_ROLE_READ', ORG_ROLE_WRITE: 'ORG_ROLE_WRITE',
+  // Cross-project data visibility — see all milestones / blockers / tasks
+  // regardless of project membership. Not in any default role; must be granted
+  // explicitly via org roles or per-user permission overrides.
+  PROJECT_DATA_VIEW_ALL: 'PROJECT_DATA_VIEW_ALL',
 });
 
 // ─── Role → Permission Matrix ─────────────────────────────────────────────────

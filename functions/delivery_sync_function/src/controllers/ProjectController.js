@@ -115,9 +115,12 @@ class ProjectController {
       );
 
       // RBAC: non-admins see only projects they're members of
+      const hasViewAll = Array.isArray(req.currentUser.permissions) &&
+        req.currentUser.permissions.includes('PROJECT_DATA_VIEW_ALL');
       const hasOrgWideAccess = role === 'TENANT_ADMIN'
         || req.currentUser.dataScope === 'ORG_WIDE'
-        || req.currentUser.dataScope === 'SUBORDINATES';
+        || req.currentUser.dataScope === 'SUBORDINATES'
+        || hasViewAll;
 
       if (!hasOrgWideAccess) {
         const memberships = await this.db.findAll(TABLES.PROJECT_MEMBERS,
@@ -157,9 +160,12 @@ class ProjectController {
       // Only grant org-wide project visibility to TENANT_ADMIN unconditionally.
       // All other roles rely on their dataScope from org sharing rules — if no rule is set,
       // dataScope is null and they fall through to the membership-based filter below.
+      const hasViewAll = Array.isArray(req.currentUser.permissions) &&
+        req.currentUser.permissions.includes('PROJECT_DATA_VIEW_ALL');
       const hasOrgWideAccess = role === 'TENANT_ADMIN'
         || req.currentUser.dataScope === 'ORG_WIDE'
-        || req.currentUser.dataScope === 'SUBORDINATES';
+        || req.currentUser.dataScope === 'SUBORDINATES'
+        || hasViewAll;
 
       if (hasOrgWideAccess) {
         paged = await this.db.findPaginated(

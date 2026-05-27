@@ -116,18 +116,18 @@ const ToastItem: React.FC<{ toast: Toast; onDismiss: (id: string) => void }> = (
   return (
     <div
       role="alert"
-      className={`relative flex items-start gap-3 w-80 bg-white border border-gray-200 rounded-xl shadow-lg px-4 py-3 overflow-hidden transition-all duration-300 ${
+      className={`relative flex items-start gap-3 w-80 bg-ds-surface border border-ds-border rounded-xl shadow-lg px-4 py-3 overflow-hidden transition-all duration-300 ${
         visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
       }`}
     >
       {/* Colored left accent bar */}
       <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-xl ${BAR_COLOR[toast.type]}`} />
       <div className="pl-1">{ICONS[toast.type]}</div>
-      <p className="flex-1 text-sm text-gray-800 leading-snug pt-0.5">{toast.message}</p>
+      <p className="flex-1 text-sm text-ds-text leading-snug pt-0.5">{toast.message}</p>
       {toast.type !== 'loading' && (
         <button
           onClick={() => onDismiss(toast.id)}
-          className="shrink-0 text-gray-400 hover:text-gray-600 transition-colors mt-0.5"
+          className="shrink-0 text-ds-text-muted hover:text-ds-text transition-colors mt-0.5"
           aria-label="Dismiss"
         >
           <X size={13} />

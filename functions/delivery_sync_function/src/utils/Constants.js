@@ -118,6 +118,14 @@ const PERMISSIONS = Object.freeze({
   AI_PERFORMANCE_SELF: 'AI_PERFORMANCE_SELF',
   AI_PERFORMANCE:      'AI_PERFORMANCE',
   AI_TEAM_ANALYSIS:    'AI_TEAM_ANALYSIS',
+  // ── Cross-project data visibility ────────────────────────────────────────────
+  // Grants read access to milestones, blockers, and tasks/backlog across ALL
+  // projects regardless of project membership. Not assigned to any default role —
+  // must be explicitly granted via org roles or per-user overrides (e.g. PMO,
+  // exec reviewer). Within a project, regular membership + MILESTONE_READ /
+  // BLOCKER_READ / TASK_READ is sufficient — this permission is only needed for
+  // cross-project visibility.
+  PROJECT_DATA_VIEW_ALL: 'PROJECT_DATA_VIEW_ALL',
 });
 
 // ─── Role → Permission Matrix ─────────────────────────────────────────────────

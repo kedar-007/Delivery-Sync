@@ -149,7 +149,7 @@ function StarRating({ rating, size = 24 }: { rating: number; size?: number }) {
         <Star
           key={n}
           size={size}
-          className={n <= rating ? 'text-amber-400' : 'text-gray-200'}
+          className={n <= rating ? 'text-amber-400' : 'text-ds-border'}
           fill={n <= rating ? 'currentColor' : 'none'}
         />
       ))}
@@ -201,7 +201,7 @@ function ScoreRing({ score }: { score: number }) {
           strokeLinecap="round"
         />
       </svg>
-      <span className="absolute text-xl font-bold text-gray-900">
+      <span className="absolute text-xl font-bold text-ds-text">
         <CountUp value={score} />
       </span>
     </div>
@@ -226,22 +226,22 @@ function FactorCard({ factor }: { factor: PerformanceFactor }) {
     pct >= 30 ? 'bg-amber-500' : 'bg-red-500';
 
   return (
-    <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+    <div className="bg-ds-surface-hover rounded-xl p-3 space-y-2">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-700">
-          <span className="text-gray-400">{FACTOR_ICONS[factor.name] ?? <BarChart3 size={14} />}</span>
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-ds-text">
+          <span className="text-ds-text-muted">{FACTOR_ICONS[factor.name] ?? <BarChart3 size={14} />}</span>
           {factor.name}
         </div>
-        <span className="text-xs font-bold text-gray-600">{pct}/100</span>
+        <span className="text-xs font-bold text-ds-text-muted">{pct}/100</span>
       </div>
-      <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+      <div className="h-1.5 bg-ds-border rounded-full overflow-hidden">
         <div
           className={`h-full ${barColor} rounded-full transition-all duration-700`}
           style={{ width: `${pct}%` }}
         />
       </div>
       {factor.detail && (
-        <p className="text-[11px] text-gray-500 leading-snug">{factor.detail}</p>
+        <p className="text-[11px] text-ds-text-muted leading-snug">{factor.detail}</p>
       )}
     </div>
   );
@@ -263,12 +263,12 @@ function IssueCard({ issue }: { issue: PerformanceIssue }) {
       <AlertTriangle size={13} className={`mt-0.5 shrink-0 ${styles.icon}`} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-          <span className="text-xs font-semibold text-gray-800">{issue.problem}</span>
+          <span className="text-xs font-semibold text-ds-text">{issue.problem}</span>
           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase ${styles.badge}`}>
             {issue.severity}
           </span>
         </div>
-        <p className="text-[11px] text-gray-600 leading-snug">{issue.evidence}</p>
+        <p className="text-[11px] text-ds-text-muted leading-snug">{issue.evidence}</p>
       </div>
     </div>
   );
@@ -305,7 +305,7 @@ export function MemberCard({ member, defaultOpen, teamMedians }: {
   ] : [];
 
   return (
-    <div className="border border-gray-100 rounded-2xl overflow-hidden bg-white">
+    <div className="border border-ds-border rounded-2xl overflow-hidden bg-ds-surface">
       {/* Header row — always visible */}
       <button
         onClick={() => setOpen((v) => !v)}
@@ -317,7 +317,7 @@ export function MemberCard({ member, defaultOpen, teamMedians }: {
         {/* Name + summary */}
         <div className="flex-1 min-w-0 text-left">
           <div className="flex items-center gap-2 flex-wrap mb-1">
-            <span className="font-semibold text-gray-900 text-sm">{member.name}</span>
+            <span className="font-semibold text-ds-text text-sm">{member.name}</span>
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${scoreColor}`}>
               {member.score >= 90 ? 'Exceptional' :
                member.score >= 75 ? 'Good' :
@@ -326,12 +326,12 @@ export function MemberCard({ member, defaultOpen, teamMedians }: {
             </span>
           </div>
           <StarRating rating={member.starRating} size={16} />
-          <p className="text-xs text-gray-500 mt-1.5 line-clamp-2 leading-relaxed">
+          <p className="text-xs text-ds-text-muted mt-1.5 line-clamp-2 leading-relaxed">
             {member.performanceSummary}
           </p>
         </div>
 
-        <span className="text-gray-300 shrink-0">
+        <span className="text-ds-border shrink-0">
           {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </span>
       </button>
@@ -358,8 +358,8 @@ export function MemberCard({ member, defaultOpen, teamMedians }: {
                     active
                       ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-md shadow-indigo-200'
                       : disabled
-                        ? 'text-gray-300 cursor-not-allowed'
-                        : 'text-gray-500 hover:text-indigo-600 hover:bg-indigo-50',
+                        ? 'text-ds-border cursor-not-allowed'
+                        : 'text-ds-text-muted hover:text-indigo-600 hover:bg-indigo-50',
                   ].join(' ')}
                 >
                   {t.icon}{t.label}
@@ -403,7 +403,7 @@ export function MemberCard({ member, defaultOpen, teamMedians }: {
               {/* Factor bars (kept for narrative detail under the radar) */}
               {member.factors.length > 0 && (
                 <div>
-                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                  <p className="text-[10px] font-semibold text-ds-text-muted uppercase tracking-wider mb-2">
                     Performance Factors
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -441,7 +441,7 @@ export function MemberCard({ member, defaultOpen, teamMedians }: {
                     </p>
                     <ul className="space-y-1">
                       {member.strengths.map((s, i) => (
-                        <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
+                        <li key={i} className="text-xs text-ds-text flex items-start gap-1.5">
                           <span className="text-emerald-500 mt-0.5 shrink-0">✓</span>{s}
                         </li>
                       ))}
@@ -455,7 +455,7 @@ export function MemberCard({ member, defaultOpen, teamMedians }: {
                     </p>
                     <ul className="space-y-1">
                       {member.areasOfImprovement.map((a, i) => (
-                        <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
+                        <li key={i} className="text-xs text-ds-text flex items-start gap-1.5">
                           <span className="text-amber-500 mt-0.5 shrink-0">→</span>{a}
                         </li>
                       ))}
@@ -518,11 +518,11 @@ export function MemberCard({ member, defaultOpen, teamMedians }: {
                   const delta = b.you - b.median;
                   const better = delta >= 0;
                   return (
-                    <div key={b.metric} className="bg-white border border-gray-100 rounded-xl p-3">
-                      <p className="text-[10px] text-gray-400 uppercase tracking-wide">{b.metric}</p>
+                    <div key={b.metric} className="bg-ds-surface border border-ds-border rounded-xl p-3">
+                      <p className="text-[10px] text-ds-text-muted uppercase tracking-wide">{b.metric}</p>
                       <div className="flex items-baseline gap-1 mt-0.5">
-                        <span className="text-sm font-bold text-gray-900">{b.you}{b.suffix ?? ''}</span>
-                        <span className="text-[10px] text-gray-400">vs {b.median}{b.suffix ?? ''}</span>
+                        <span className="text-sm font-bold text-ds-text">{b.you}{b.suffix ?? ''}</span>
+                        <span className="text-[10px] text-ds-text-muted">vs {b.median}{b.suffix ?? ''}</span>
                       </div>
                       <div className={`mt-1 inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
                         better ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
@@ -558,12 +558,12 @@ function StatChip({ label, value, decimals = 0, accent, icon }: {
 }) {
   const s = CHIP_STYLES[accent];
   return (
-    <div className="relative overflow-hidden rounded-xl border border-gray-100 bg-white p-2.5">
+    <div className="relative overflow-hidden rounded-xl border border-ds-border bg-ds-surface p-2.5">
       <div className={`absolute -right-3 -top-3 w-12 h-12 rounded-full bg-gradient-to-br ${s.grad} opacity-10`} />
-      <div className="flex items-center gap-1 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
+      <div className="flex items-center gap-1 text-[10px] font-semibold text-ds-text-muted uppercase tracking-wider">
         <span className={s.icon}>{icon}</span> {label}
       </div>
-      <p className="text-base font-bold text-gray-900 mt-0.5">
+      <p className="text-base font-bold text-ds-text mt-0.5">
         <CountUp value={value} decimals={decimals} />
       </p>
     </div>
@@ -574,10 +574,10 @@ function StatChip({ label, value, decimals = 0, accent, icon }: {
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
+    <div className="bg-ds-surface border border-ds-border rounded-2xl p-3 shadow-sm">
       <div className="flex items-baseline justify-between mb-2 px-1">
-        <span className="text-[11px] font-bold text-gray-700 uppercase tracking-wider">{title}</span>
-        {subtitle && <span className="text-[10px] text-gray-400">{subtitle}</span>}
+        <span className="text-[11px] font-bold text-ds-text uppercase tracking-wider">{title}</span>
+        {subtitle && <span className="text-[10px] text-ds-text-muted">{subtitle}</span>}
       </div>
       {children}
     </div>
@@ -617,7 +617,7 @@ export function TeamOverview({ summary, morale, topPerformer, agg }: {
     morale === 'High'   ? 'text-emerald-600 bg-emerald-50' :
     morale === 'Medium' ? 'text-amber-600 bg-amber-50' :
     morale === 'Low'    ? 'text-red-600 bg-red-50' :
-                          'text-gray-500 bg-gray-50';
+                          'text-ds-text-muted bg-ds-surface-hover';
 
   return (
     <div className="rounded-3xl overflow-hidden border border-indigo-100 bg-gradient-to-br from-indigo-50 via-purple-50/60 to-pink-50/40 shadow-sm">
@@ -636,12 +636,12 @@ export function TeamOverview({ summary, morale, topPerformer, agg }: {
               </span>
             )}
           </div>
-          {summary && <MarkdownText text={summary} className="text-sm text-gray-700 mt-1.5" />}
+          {summary && <MarkdownText text={summary} className="text-sm text-ds-text mt-1.5" />}
           {topPerformer && (
             <div className="flex items-center gap-1.5 mt-2">
               <Star size={13} className="text-amber-400" fill="currentColor" />
-              <span className="text-xs text-gray-600">
-                Top performer: <span className="font-semibold text-gray-800">{topPerformer}</span>
+              <span className="text-xs text-ds-text-muted">
+                Top performer: <span className="font-semibold text-ds-text">{topPerformer}</span>
               </span>
             </div>
           )}
@@ -692,15 +692,15 @@ export function TeamOverview({ summary, morale, topPerformer, agg }: {
                 const barPct  = Math.max(2, Math.min(100, r.score));
                 return (
                   <div key={r.name + i} className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-gray-400 w-5">#{i + 1}</span>
-                    <span className="text-xs font-medium text-gray-700 truncate w-32 shrink-0">{r.name}</span>
-                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <span className="text-[10px] font-bold text-ds-text-muted w-5">#{i + 1}</span>
+                    <span className="text-xs font-medium text-ds-text truncate w-32 shrink-0">{r.name}</span>
+                    <div className="flex-1 h-2 bg-ds-border rounded-full overflow-hidden">
                       <div
                         className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-700"
                         style={{ width: `${barPct}%` }}
                       />
                     </div>
-                    <span className="text-xs font-semibold text-gray-700 w-9 text-right">{r.score}</span>
+                    <span className="text-xs font-semibold text-ds-text w-9 text-right">{r.score}</span>
                     <span className={`text-[10px] font-semibold w-12 text-right ${better ? 'text-emerald-600' : 'text-amber-600'}`}>
                       {better ? '+' : ''}{Math.round(r.delta)}
                     </span>
@@ -722,12 +722,12 @@ function TotalChip({ label, value, decimals = 0, accent, icon }: {
 }) {
   const s = CHIP_STYLES[accent];
   return (
-    <div className="relative overflow-hidden rounded-xl bg-white p-2.5 border border-white shadow-sm">
+    <div className="relative overflow-hidden rounded-xl bg-ds-surface p-2.5 border border-ds-border shadow-sm">
       <div className={`absolute -right-3 -top-3 w-14 h-14 rounded-full bg-gradient-to-br ${s.grad} opacity-15`} />
-      <div className="flex items-center gap-1 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
+      <div className="flex items-center gap-1 text-[10px] font-semibold text-ds-text-muted uppercase tracking-wider">
         <span className={s.icon}>{icon}</span> {label}
       </div>
-      <p className="text-base font-bold text-gray-900 mt-0.5">
+      <p className="text-base font-bold text-ds-text mt-0.5">
         <CountUp value={value} decimals={decimals} />
       </p>
     </div>
@@ -991,9 +991,9 @@ export function AnalysisLoading({ expedited = false, subjectName, subjectAvatarU
         </div>
 
         {subjectName && (
-          <p className="mt-3 text-sm font-semibold text-gray-700">{subjectName}</p>
+          <p className="mt-3 text-sm font-semibold text-ds-text">{subjectName}</p>
         )}
-        <p className="text-[11px] text-gray-400 mt-0.5">{stage.label}…</p>
+        <p className="text-[11px] text-ds-text-muted mt-0.5">{stage.label}…</p>
       </div>
 
       {/* Big percentage + progress bar */}
@@ -1034,7 +1034,7 @@ export function AnalysisLoading({ expedited = false, subjectName, subjectAvatarU
                 'flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium transition-all',
                 done   ? 'bg-emerald-50 text-emerald-600' :
                 active ? 'bg-indigo-100 text-indigo-700 shadow-sm scale-105' :
-                          'bg-gray-50 text-gray-400',
+                          'bg-ds-surface-hover text-ds-text-muted',
               ].join(' ')}
             >
               {done ? <CheckCircle2 size={10} /> : active ? <Activity size={10} className="animate-pulse" /> : null}
@@ -1203,10 +1203,10 @@ export default function PerformanceModal({
               </div>
             )}
             <div>
-              <h2 className="text-base font-bold text-gray-900">
+              <h2 className="text-base font-bold text-ds-text">
                 {displayName} Performance Analysis
               </h2>
-              <p className="text-xs text-gray-400">AI-powered holistic review across all modules</p>
+              <p className="text-xs text-ds-text-muted">AI-powered holistic review across all modules</p>
             </div>
           </div>
 
@@ -1226,13 +1226,13 @@ export default function PerformanceModal({
               onClick={() => triggerAnalysis(true)}
               disabled={analyze.isPending}
               title="Recompute (bypass cache)"
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-40 transition-all"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-ds-text-muted hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-40 transition-all"
             >
               <RefreshCw size={12} className={analyze.isPending ? 'animate-spin' : ''} />
             </button>
 
             {/* Time range selector */}
-            <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
+            <div className="flex items-center gap-1 bg-ds-border rounded-xl p-1">
               {([7, 30, 90] as const).map((d) => (
                 <button
                   key={d}
@@ -1241,7 +1241,7 @@ export default function PerformanceModal({
                     'px-3 py-1 rounded-lg text-xs font-semibold transition-all whitespace-nowrap',
                     days === d
                       ? 'bg-white text-indigo-600 shadow-sm'
-                      : 'text-gray-500 hover:text-gray-700',
+                      : 'text-ds-text-muted hover:text-ds-text',
                   ].join(' ')}
                 >
                   {RANGE_LABELS[d]}
@@ -1255,7 +1255,7 @@ export default function PerformanceModal({
         {!targetUserId && (isAdmin || canTeam) && (
           <div className="flex flex-wrap items-center gap-3 mb-4">
             {/* Mode segmented control */}
-            <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
+            <div className="flex items-center gap-1 bg-ds-border rounded-xl p-1">
               {isAdmin && (
                 <button
                   onClick={() => setMode('all-teams')}
@@ -1263,7 +1263,7 @@ export default function PerformanceModal({
                     'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all',
                     mode === 'all-teams'
                       ? 'bg-white text-indigo-600 shadow-sm'
-                      : 'text-gray-500 hover:text-gray-700',
+                      : 'text-ds-text-muted hover:text-ds-text',
                   ].join(' ')}
                 >
                   <Sparkles size={13} /> All Teams
@@ -1278,8 +1278,8 @@ export default function PerformanceModal({
                   mode === 'team'
                     ? 'bg-white text-indigo-600 shadow-sm'
                     : visibleTeams.length === 0 && !isAdmin
-                      ? 'text-gray-300 cursor-not-allowed'
-                      : 'text-gray-500 hover:text-gray-700',
+                      ? 'text-ds-border cursor-not-allowed'
+                      : 'text-ds-text-muted hover:text-ds-text',
                 ].join(' ')}
               >
                 <Users size={13} /> Team
@@ -1290,7 +1290,7 @@ export default function PerformanceModal({
                   'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all',
                   mode === 'individual'
                     ? 'bg-white text-indigo-600 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700',
+                    : 'text-ds-text-muted hover:text-ds-text',
                 ].join(' ')}
               >
                 <User size={13} /> Individual
@@ -1303,7 +1303,7 @@ export default function PerformanceModal({
                 <select
                   value={selectedTeamId}
                   onChange={(e) => setSelectedTeamId(e.target.value)}
-                  className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 pr-8 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 appearance-none"
+                  className="w-full text-xs border border-ds-border rounded-xl px-3 py-2 pr-8 bg-ds-surface text-ds-text focus:outline-none focus:ring-2 focus:ring-indigo-300 appearance-none"
                 >
                   {visibleTeams.length === 0 ? (
                     <option value="">— No teams available —</option>
@@ -1319,7 +1319,7 @@ export default function PerformanceModal({
                     </>
                   )}
                 </select>
-                <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-ds-text-muted pointer-events-none" />
               </div>
             )}
 
@@ -1329,14 +1329,14 @@ export default function PerformanceModal({
                 <select
                   value={selectedUserId}
                   onChange={(e) => setSelectedUserId(e.target.value)}
-                  className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 pr-8 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 appearance-none"
+                  className="w-full text-xs border border-ds-border rounded-xl px-3 py-2 pr-8 bg-ds-surface text-ds-text focus:outline-none focus:ring-2 focus:ring-indigo-300 appearance-none"
                 >
                   <option value="">— Select a team member —</option>
                   {users.map((u) => (
                     <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
                   ))}
                 </select>
-                <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-ds-text-muted pointer-events-none" />
               </div>
             )}
           </div>
@@ -1349,10 +1349,10 @@ export default function PerformanceModal({
               <Users size={26} className="text-indigo-400" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-gray-700">
+              <p className="text-sm font-semibold text-ds-text">
                 {visibleTeams.length === 0 ? 'No teams available' : 'Pick a team to analyse'}
               </p>
-              <p className="text-xs text-gray-400 mt-1 max-w-xs">
+              <p className="text-xs text-ds-text-muted mt-1 max-w-xs">
                 {visibleTeams.length === 0
                   ? isAdmin
                     ? 'No teams exist yet in this tenant. Create one in Admin → Teams.'
@@ -1381,12 +1381,12 @@ export default function PerformanceModal({
 
         {result && !analyze.isPending && result.members.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
-            <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
-              <Users size={22} className="text-gray-400" />
+            <div className="w-12 h-12 rounded-full bg-ds-border flex items-center justify-center">
+              <Users size={22} className="text-ds-text-muted" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-gray-700">No performance data found</p>
-              <p className="text-xs text-gray-400 mt-1 max-w-xs">
+              <p className="text-sm font-semibold text-ds-text">No performance data found</p>
+              <p className="text-xs text-ds-text-muted mt-1 max-w-xs">
                 {result.teamSummary && result.teamSummary !== 'No member data found for the selected period.'
                   ? result.teamSummary
                   : `No active team members with activity in the last ${days} days. Try a longer time range.`}
@@ -1443,7 +1443,7 @@ export default function PerformanceModal({
             </div>
 
             {/* Footer */}
-            <p className="text-[10px] text-gray-400 text-center pt-1">
+            <p className="text-[10px] text-ds-text-muted text-center pt-1">
               Analysis based on last {days} days · Powered by AI — use as guidance, not as sole evaluation
             </p>
           </div>

@@ -34,43 +34,57 @@ class AssetRequestController {
   //                      see returns and can't verify them.
   async list(req, res) {
     const me = req.currentUser;
-    const { status } = req.query;
+    const { status, mode } = req.query;
 
-    const ownClause = `requested_by = '${me.id}' OR ops_assignees LIKE '%"${me.id}"%'`;
-    const clauses   = [`(${ownClause})`];
+    let visWhere;
 
-    if (this._hasPerm(me, PERMISSIONS.ASSET_APPROVE)) {
-      // ZCQL caps LIMIT at 300, which is also a sane upper bound on direct
-      // reports for any single manager.
-      const reporteeProfiles = await this.db.findWhere(
-        TABLES.USER_PROFILES, req.tenantId,
-        `reporting_manager_id = '${me.id}'`, { limit: 300 },
-      );
-      const reporteeIds = reporteeProfiles
-        .map((p) => p.user_id)
-        .filter(Boolean)
-        .map((id) => `'${String(id)}'`);
-      if (reporteeIds.length) {
-        clauses.push(`requested_by IN (${reporteeIds.join(',')})`);
+    // `mode=approved` short-circuits to "requests I have personally approved".
+    // Bypasses reportee/ops scoping — an approver might want to audit their
+    // approvals without being limited to current reportees. ASSET_APPROVE
+    // required because non-approvers can't have approved anything.
+    if (mode === 'approved') {
+      if (!this._hasPerm(me, PERMISSIONS.ASSET_APPROVE)) {
+        return ResponseHelper.success(res, []);
       }
+      visWhere = `approved_by = '${me.id}'`;
+    } else {
+      const ownClause = `requested_by = '${me.id}' OR ops_assignees LIKE '%"${me.id}"%'`;
+      const clauses   = [`(${ownClause})`];
+
+      if (this._hasPerm(me, PERMISSIONS.ASSET_APPROVE)) {
+        // ZCQL caps LIMIT at 300, which is also a sane upper bound on direct
+        // reports for any single manager.
+        const reporteeProfiles = await this.db.findWhere(
+          TABLES.USER_PROFILES, req.tenantId,
+          `reporting_manager_id = '${me.id}'`, { limit: 300 },
+        );
+        const reporteeIds = reporteeProfiles
+          .map((p) => p.user_id)
+          .filter(Boolean)
+          .map((id) => `'${String(id)}'`);
+        if (reporteeIds.length) {
+          clauses.push(`requested_by IN (${reporteeIds.join(',')})`);
+        }
+      }
+
+      if (this._hasPerm(me, PERMISSIONS.ASSET_ASSIGN)) {
+        // Ops queue: every request that's been approved and hasn't been finished
+        // or cancelled. Lets ops users find returns even when they weren't
+        // pre-named as ops_assignees.
+        const opsStatuses = [
+          ASSET_REQ_STATUS.APPROVED,
+          ASSET_REQ_STATUS.ASSIGNED_TO_OPS,
+          ASSET_REQ_STATUS.PROCESSING,
+          ASSET_REQ_STATUS.HANDED_OVER,
+          ASSET_REQ_STATUS.RETURNED,
+          ASSET_REQ_STATUS.RETURN_VERIFIED,
+        ].map((s) => `'${s}'`).join(',');
+        clauses.push(`status IN (${opsStatuses})`);
+      }
+
+      visWhere = clauses.length === 1 ? clauses[0] : `(${clauses.join(' OR ')})`;
     }
 
-    if (this._hasPerm(me, PERMISSIONS.ASSET_ASSIGN)) {
-      // Ops queue: every request that's been approved and hasn't been finished
-      // or cancelled. Lets ops users find returns even when they weren't
-      // pre-named as ops_assignees.
-      const opsStatuses = [
-        ASSET_REQ_STATUS.APPROVED,
-        ASSET_REQ_STATUS.ASSIGNED_TO_OPS,
-        ASSET_REQ_STATUS.PROCESSING,
-        ASSET_REQ_STATUS.HANDED_OVER,
-        ASSET_REQ_STATUS.RETURNED,
-        ASSET_REQ_STATUS.RETURN_VERIFIED,
-      ].map((s) => `'${s}'`).join(',');
-      clauses.push(`status IN (${opsStatuses})`);
-    }
-
-    let visWhere = clauses.length === 1 ? clauses[0] : `(${clauses.join(' OR ')})`;
     let where = visWhere;
     if (status) where += (where ? ' AND ' : '') + `status = '${DataStoreService.escape(status)}'`;
 
@@ -259,6 +273,7 @@ class AssetRequestController {
   // ── PATCH /requests/:id/approve ───────────────────────────────────────────────
   // Body: { ops_user_ids?: string[], ops_role_ids?: string[], approval_message?: string }
   async approve(req, res) {
+    this.notif.tenantSlug = req.currentUser?.tenantSlug || '';
     const { ops_user_ids = [], ops_role_ids = [], approval_message = '' } = req.body ?? {};
     const req_ = await this.db.findById(TABLES.ASSET_REQUESTS, req.params.requestId, req.tenantId);
     if (!req_) return ResponseHelper.notFound(res, 'Request not found');
@@ -306,7 +321,7 @@ class AssetRequestController {
       await this.notif.send({
         toEmail: requesterRows[0].email,
         subject: '[Delivery Sync] Your asset request has been approved',
-        htmlBody: this.notif._assetApprovedTemplate(requesterRows[0].name, approverName, categoryName, approval_message),
+        htmlBody: this.notif._assetApprovedTemplate(requesterRows[0].name, approverName, categoryName, approval_message, req.params.requestId),
       });
     }
 
@@ -325,7 +340,7 @@ class AssetRequestController {
         await this.notif.send({
           toEmail: opsUser.email,
           subject: `[Delivery Sync] Asset request assigned — ${categoryName}`,
-          htmlBody: this.notif._assetOpsAssignedTemplate(opsUser.name, approverName, requesterName, categoryName, approval_message),
+          htmlBody: this.notif._assetOpsAssignedTemplate(opsUser.name, approverName, requesterName, categoryName, approval_message, req.params.requestId),
         });
       }
     }
@@ -373,6 +388,7 @@ class AssetRequestController {
   // ── PATCH /requests/:id/assign-ops ────────────────────────────────────────────
   // Explicitly assign ops after approval (when not done at approve time)
   async assignOps(req, res) {
+    this.notif.tenantSlug = req.currentUser?.tenantSlug || '';
     const req_ = await this.db.findById(TABLES.ASSET_REQUESTS, req.params.requestId, req.tenantId);
     if (!req_) return ResponseHelper.notFound(res, 'Request not found');
     if (req_.status !== ASSET_REQ_STATUS.APPROVED)
@@ -417,7 +433,7 @@ class AssetRequestController {
       await this.notif.send({
         toEmail: opsUser.email,
         subject: `[Delivery Sync] Asset request assigned — ${categoryName}`,
-        htmlBody: this.notif._assetOpsAssignedTemplate(opsUser.name, assignerName, requesterName, categoryName, message),
+        htmlBody: this.notif._assetOpsAssignedTemplate(opsUser.name, assignerName, requesterName, categoryName, message, req.params.requestId),
       });
     }
 
@@ -454,6 +470,7 @@ class AssetRequestController {
   // Ops team hands over the asset (creates assignment, notifies requester + approver)
   // Body: { asset_id?, device_id?, device_username?, device_password?, notes? }
   async handover(req, res) {
+    this.notif.tenantSlug = req.currentUser?.tenantSlug || '';
     const { asset_id, device_id, device_username, device_password, notes } = req.body ?? {};
     const req_ = await this.db.findById(TABLES.ASSET_REQUESTS, req.params.requestId, req.tenantId);
     if (!req_) return ResponseHelper.notFound(res, 'Request not found');
@@ -533,7 +550,7 @@ class AssetRequestController {
         subject: `[Delivery Sync] Your asset "${asset.name}" is ready for pickup`,
         htmlBody: this.notif._assetHandoverTemplate(
           requesterRows[0].name, handoverName, asset.name,
-          device_id, device_username, device_password, notes,
+          device_id, device_username, device_password, notes, req.params.requestId,
         ),
       });
     }
@@ -550,7 +567,7 @@ class AssetRequestController {
         toEmail: approverRows[0].email,
         subject: `[Delivery Sync] Asset handed over to ${requesterName}`,
         htmlBody: this.notif._assetHandoverManagerTemplate(
-          approverRows[0].name, handoverName, requesterName, asset.name, notes,
+          approverRows[0].name, handoverName, requesterName, asset.name, notes, req.params.requestId,
         ),
       });
     }
