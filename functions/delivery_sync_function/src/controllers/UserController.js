@@ -1,8 +1,9 @@
 'use strict';
 
 const DataStoreService = require('../services/DataStoreService');
+const CacheService = require('../services/CacheService');
 const ResponseHelper = require('../utils/ResponseHelper');
-const { TABLES, USER_STATUS, AUDIT_ACTION} = require('../utils/Constants');
+const { TABLES, USER_STATUS, AUDIT_ACTION, PERMISSIONS } = require('../utils/Constants');
 const { buildEmailUpdateHtml } = require('../utils/EmailTemplates.js');
 const AuditService = require('../services/AuditService');
 
@@ -73,8 +74,14 @@ class UserController {
   // ─────────────────────────────────────────────────────────────────────────────
   async updateEmail(req, res) {
     try {
-      const { id: userId, tenantId, tenantName } = req.currentUser;
+      const { id: userId, tenantId, tenantName, role: callerRole, permissions = [] } = req.currentUser;
       console.log('[updateEmail] STEP 1 — Request received | userId:', userId, '| tenantId:', tenantId, '| body:', JSON.stringify(req.body));
+
+      // Only admins and users explicitly granted PROFILE_EMAIL_CHANGE may change email.
+      const isAdmin = callerRole === 'SUPER_ADMIN' || callerRole === 'TENANT_ADMIN';
+      if (!isAdmin && !permissions.includes(PERMISSIONS.PROFILE_EMAIL_CHANGE)) {
+        return ResponseHelper.forbidden(res, 'You do not have permission to change your email address. Contact your administrator.');
+      }
 
       const data = req.body;
 
@@ -215,6 +222,39 @@ class UserController {
         console.log('[updateEmail] STEP 7 OK — Audit log written');
       } catch (auditErr) {
         console.warn('[updateEmail] STEP 7 WARN — Audit log failed (non-fatal):', auditErr.message);
+      }
+
+      // ── 8. Auto-revoke PROFILE_EMAIL_CHANGE (non-fatal) ──────────────────────
+      // Email change is intentionally a one-time action. Admins must re-grant
+      // the permission if the user needs to change again.
+      try {
+        const overrideRows = await this.db.query(
+          `SELECT ROWID, permissions FROM ${TABLES.PERMISSION_OVERRIDES} WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = 'true' LIMIT 1`
+        );
+        if (overrideRows.length > 0) {
+          const parsed = JSON.parse(overrideRows[0].permissions || '{}');
+          parsed.granted = (parsed.granted || []).filter((p) => p !== PERMISSIONS.PROFILE_EMAIL_CHANGE);
+          await this.db.update(TABLES.PERMISSION_OVERRIDES, {
+            ROWID: String(overrideRows[0].ROWID),
+            permissions: JSON.stringify(parsed),
+          });
+          // Bust all service caches so the revoke is immediate
+          const cache = new CacheService(this.catalystApp);
+          const uid = String(userId);
+          await Promise.allSettled([
+            cache.invalidate(`authCtx:v1:${uid}`),
+            cache.invalidate(`authCtx:people:v1:${uid}`),
+            cache.invalidate(`authCtx:tasks:v1:${uid}`),
+            cache.invalidate(`authCtx:assets:v1:${uid}`),
+            cache.invalidate(`authCtx:reports:v1:${uid}`),
+            cache.invalidate(`authCtx:badges:v1:${uid}`),
+            cache.invalidate(`authCtx:admin:v1:${uid}`),
+            cache.invalidate(`authCtx:time:v1:${uid}`),
+          ]);
+          console.log('[updateEmail] STEP 8 OK — PROFILE_EMAIL_CHANGE auto-revoked');
+        }
+      } catch (revokeErr) {
+        console.warn('[updateEmail] STEP 8 WARN — Auto-revoke failed (non-fatal):', revokeErr.message);
       }
 
       console.log('[updateEmail] SUCCESS — Email updated from', _maskEmail(oldEmail), '→', _maskEmail(data.email));
@@ -407,8 +447,13 @@ class UserController {
   // ─────────────────────────────────────────────────────────────────────────────
   async updateMyLocation(req, res) {
     try {
-      const { id: userId, tenantId } = req.currentUser;
+      const { id: userId, tenantId, role, permissions = [] } = req.currentUser;
       const { officeLocationId } = req.body;
+
+      const isAdmin = role === 'SUPER_ADMIN' || role === 'TENANT_ADMIN';
+      if (!isAdmin && !permissions.includes(PERMISSIONS.LOCATION_ADMIN)) {
+        return ResponseHelper.forbidden(res, 'You do not have permission to change your office location. Contact your admin.');
+      }
 
       const overrideRows = await this.db.query(
         `SELECT ROWID, permissions FROM ${TABLES.PERMISSION_OVERRIDES} WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = 'true' LIMIT 1`

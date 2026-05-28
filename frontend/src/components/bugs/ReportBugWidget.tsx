@@ -77,22 +77,27 @@ export default function ReportBugWidget({ open: openProp, onOpenChange }: Report
   const [error,      setError]      = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const prevOpenRef  = useRef(false);
   const { mutateAsync: submitReport } = useSubmitBugReport();
+
+  // Reset form state every time the modal transitions from closed → open
+  // so stale type/severity from a previous session never leaks in.
+  React.useEffect(() => {
+    if (isOpen && !prevOpenRef.current) {
+      setTitle(''); setDescription(''); setReportType('BUG'); setSeverity('MEDIUM');
+      setAttachments([]); setSubmitted(false); setError('');
+    }
+    prevOpenRef.current = isOpen;
+  }, [isOpen]);
 
   const handleOpen = () => {
     if (controlled) onOpenChange?.(true);
     else setIsOpenInternal(true);
-    setSubmitted(false);
-    setError('');
   };
 
   const handleClose = () => {
     if (controlled) onOpenChange?.(false);
     else setIsOpenInternal(false);
-    setTimeout(() => {
-      setTitle(''); setDescription(''); setReportType('BUG'); setSeverity('MEDIUM');
-      setAttachments([]); setSubmitted(false); setError('');
-    }, 300);
   };
 
   const handleFiles = useCallback(async (files: FileList | File[]) => {
@@ -289,27 +294,25 @@ export default function ReportBugWidget({ open: openProp, onOpenChange }: Report
                     </div>
                   </div>
 
-                  {/* Severity (only for BUG/ISSUE) */}
-                  {(reportType === 'BUG' || reportType === 'ISSUE') && (
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">
-                        Severity
-                      </label>
-                      <div className="flex gap-2 flex-wrap">
-                        {SEVERITY_OPTIONS.map((s) => (
-                          <button
-                            key={s.value}
-                            onClick={() => setSeverity(s.value)}
-                            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-                              severity === s.value ? s.color : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300'
-                            }`}
-                          >
-                            {s.label}
-                          </button>
-                        ))}
-                      </div>
+                  {/* Priority — shown for all report types */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">
+                      {reportType === 'BUG' || reportType === 'ISSUE' ? 'Severity' : 'Priority'}
+                    </label>
+                    <div className="flex gap-2 flex-wrap">
+                      {SEVERITY_OPTIONS.map((s) => (
+                        <button
+                          key={s.value}
+                          onClick={() => setSeverity(s.value)}
+                          className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+                            severity === s.value ? s.color : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300'
+                          }`}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
                     </div>
-                  )}
+                  </div>
 
                   {/* Title */}
                   <div>

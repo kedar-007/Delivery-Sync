@@ -17,11 +17,13 @@ class LLMService {
   // ─── Token ─────────────────────────────────────────────────────────────────
 
   async getAccessToken() {
-    const env          = process.env.ENVIRONMENT || 'DEVELOPMENT';
+    const env = process.env.ENVIRONMENT || 'DEVELOPMENT';
+    console.log("ENV",env);
     const refreshToken = env === 'PRODUCTION'
       ? process.env.REFRESH_TOKEN_PROD
       : process.env.REFRESH_TOKEN_DEV;
 
+    console.log("refreshtoken",refreshToken);
     if (!refreshToken) throw new Error('Zoho refresh token not configured.');
 
     // Step 1: check shared cache (same key used by ai_service — avoids double token fetches)

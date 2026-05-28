@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
   Shield, Lock, Unlock, Check, Loader, Sparkles, Wifi, ChevronRight,
-  AlertTriangle, Info, Users, Zap, Eye, EyeOff, X,
-  FolderKanban, Clock, Package, BarChart3, LayoutDashboard, Briefcase, Settings,
+  AlertTriangle, Info, Users, Zap, Eye, EyeOff, X, Search,
+  FolderKanban, Clock, Package, BarChart3, LayoutDashboard, Briefcase,
 } from 'lucide-react';
 import Modal, { ModalActions } from './Modal';
 import Button from './Button';
@@ -11,13 +11,13 @@ import { useUserPermissions, useSetUserPermissions } from '../../hooks/useAdmin'
 
 // ─── Sidebar module catalogue (mirrors AdminPage SIDEBAR_MODULES) ─────────────
 const USER_MODULES = [
-  { key: 'projects',   label: 'Projects',     Icon: FolderKanban },
-  { key: 'daily-work', label: 'Daily Work',   Icon: Clock },
-  { key: 'people',     label: 'People',       Icon: Users },
-  { key: 'assets',     label: 'Assets',       Icon: Package },
-  { key: 'reports',    label: 'Reports',      Icon: BarChart3 },
-  { key: 'ai',         label: 'AI & Insights',Icon: LayoutDashboard },
-  { key: 'executive',  label: 'Executive',    Icon: Briefcase },
+  { key: 'projects',   label: 'Projects',      Icon: FolderKanban,    desc: 'Project management, tasks, sprints, backlogs, RAID' },
+  { key: 'daily-work', label: 'Daily Work',    Icon: Clock,           desc: 'Standups, EOD reports, time tracking' },
+  { key: 'people',     label: 'People',        Icon: Users,           desc: 'Attendance, leave, teams, org chart, announcements' },
+  { key: 'assets',     label: 'Assets',        Icon: Package,         desc: 'Asset management and allocation' },
+  { key: 'reports',    label: 'Reports',       Icon: BarChart3,       desc: 'Reports and dashboards' },
+  { key: 'ai',         label: 'AI & Insights', Icon: LayoutDashboard, desc: 'AI-powered performance, team and org analysis' },
+  { key: 'executive',  label: 'Executive',     Icon: Briefcase,       desc: 'CEO/CTO dashboards, portfolio view' },
 ] as const;
 
 // ─── Permission catalogue ─────────────────────────────────────────────────────
@@ -130,8 +130,9 @@ const PERM_GROUPS: PermGroup[] = [
       { key: 'ORG_WRITE',          label: 'Edit Org Chart',     desc: 'Update org structure' },
       { key: 'ORG_ROLE_READ',      label: 'View Org Roles',     desc: 'See org roles and their permissions' },
       { key: 'ORG_ROLE_WRITE',     label: 'Manage Org Roles',   desc: 'Create, edit and assign org roles' },
-      { key: 'PROFILE_READ',       label: 'View Profiles',      desc: 'See user profiles and directories' },
-      { key: 'PROFILE_WRITE',      label: 'Edit Profiles',      desc: 'Update profile information' },
+      { key: 'PROFILE_READ',         label: 'View Profiles',      desc: 'See user profiles and directories' },
+      { key: 'PROFILE_WRITE',        label: 'Edit Profiles',      desc: 'Update profile information' },
+      { key: 'PROFILE_EMAIL_CHANGE', label: 'Change Email',       desc: 'Allows the user to change their own login email address — not granted to any role by default' },
       { key: 'ANNOUNCEMENT_READ',  label: 'View Announcements', desc: 'Read company announcements' },
       { key: 'ANNOUNCEMENT_WRITE', label: 'Post Announcements', desc: 'Create and publish announcements' },
       { key: 'NOTIFICATION_READ',  label: 'Notifications',      desc: 'Receive in-app notifications' },
@@ -773,6 +774,7 @@ const CRUD_MODULES: CrudSection[] = [
     rows: [
       { name: 'Teams',         view: 'TEAM_READ',         write: 'TEAM_WRITE' },
       { name: 'Profiles',      view: 'PROFILE_READ',      write: 'PROFILE_WRITE' },
+      { name: 'Change Email',  write: 'PROFILE_EMAIL_CHANGE' },
       { name: 'Org Chart',     view: 'ORG_READ',          write: 'ORG_WRITE' },
       { name: 'Org Roles',     view: 'ORG_ROLE_READ',     write: 'ORG_ROLE_WRITE' },
       { name: 'Announcements', view: 'ANNOUNCEMENT_READ', write: 'ANNOUNCEMENT_WRITE' },
@@ -864,8 +866,9 @@ const PERM_INFO: Record<string, { label: string; desc: string }> = {
   ORG_WRITE:          { label: 'Edit',              desc: 'Reassign managers, edit hierarchy' },
   ORG_ROLE_READ:      { label: 'View',              desc: 'See roles and their permissions' },
   ORG_ROLE_WRITE:     { label: 'Manage',            desc: 'Create, edit, assign org roles' },
-  PROFILE_READ:       { label: 'View',              desc: 'See user profiles and directory' },
-  PROFILE_WRITE:      { label: 'Edit',              desc: 'Update own profile information' },
+  PROFILE_READ:         { label: 'View',              desc: 'See user profiles and directory' },
+  PROFILE_WRITE:        { label: 'Edit',              desc: 'Update own profile information' },
+  PROFILE_EMAIL_CHANGE: { label: 'Change',            desc: 'Change own login email address — not a role default, must be explicitly granted' },
   ANNOUNCEMENT_READ:  { label: 'View',              desc: 'Read company announcements' },
   ANNOUNCEMENT_WRITE: { label: 'Post',              desc: 'Create and publish announcements' },
   NOTIFICATION_READ:  { label: 'View',              desc: 'Receive in-app notifications' },
@@ -1095,9 +1098,8 @@ const UserPermissionsModal = ({ open, onClose, userId, userName, userRole }: Pro
   const [disabledModules, setDisabledModules] = useState<Set<string>>(new Set());
   const [dirty, setDirty] = useState(false);
   const [saveError, setSaveError] = useState('');
-  const [selectedPerm, setSelectedPerm] = useState<string | null>(null);
-  const [selectedLabel, setSelectedLabel] = useState('');
   const [search, setSearch] = useState('');
+  const [activeTab, setActiveTab] = useState<'modules' | 'permissions'>('modules');
 
   useEffect(() => {
     if (!data) return;
@@ -1111,17 +1113,15 @@ const UserPermissionsModal = ({ open, onClose, userId, userName, userRole }: Pro
     if ((effective.has('LEAVE_APPROVE') || effective.has('LEAVE_ADMIN')) && !effective.has('LEAVE_TEAM_VIEW')) {
       effective.add('LEAVE_TEAM_VIEW');
     }
-    if ((effective.has('LEAVE_APPROVE') || effective.has('LEAVE_ADMIN')) && !effective.has('LEAVE_ORG_VIEW')) {
-      effective.add('LEAVE_ORG_VIEW');
-    }
     setEnabled(effective);
     setDisabledModules(new Set<string>((data as any).moduleAccess ?? []));
     setDirty(false);
+    setActiveTab('modules');
+    setSearch('');
   }, [data]);
 
   const roleSet = new Set<string>(data?.rolePermissions ?? []);
   const allPerms = PERM_GROUPS.flatMap((g) => g.perms);
-  const totalCount = allPerms.length;
   const enabledCount = allPerms.filter((p) => enabled.has(p.key)).length;
   const extraCount = allPerms.filter((p) => enabled.has(p.key) && !roleSet.has(p.key)).length;
   const revokedCount = allPerms.filter((p) => !enabled.has(p.key) && roleSet.has(p.key)).length;
@@ -1221,20 +1221,32 @@ const UserPermissionsModal = ({ open, onClose, userId, userName, userRole }: Pro
 
           {saveError && <Alert type="error" message={saveError} className="mb-4" />}
 
-          {/* ── Two-column layout ── */}
-          <div className="flex gap-5" style={{ height: '62vh' }}>
+          {/* ── Tab bar ── */}
+          <div className="flex gap-1 mb-4 bg-gray-100 rounded-lg p-1 shrink-0">
+            {(['modules', 'permissions'] as const).map((t) => (
+              <button key={t} onClick={() => setActiveTab(t)}
+                className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
+                  activeTab === t
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}>
+                {t === 'modules' ? 'Module Access' : `Permissions (${enabledCount})`}
+              </button>
+            ))}
+          </div>
 
-            {/* Left: CRUD permission matrix */}
-            <div className="flex-1 min-w-0 flex flex-col">
+          {/* ── Content area ── */}
+          <div className="flex flex-col" style={{ height: '62vh' }}>
 
-              {/* ── Module Access section ── */}
-              <div className="mb-3 shrink-0">
-                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">
-                  Module Access (user-level override)
+            {/* ── Modules tab ── */}
+            {activeTab === 'modules' && (
+              <div className="flex flex-col flex-1 min-h-0">
+                <p className="text-xs text-gray-400 mb-3 shrink-0">
+                  Toggle sidebar sections for this user only. Disabled modules are hidden from their sidebar, regardless of role settings.
                 </p>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {USER_MODULES.map(({ key, label, Icon }) => {
-                    const isDisabled = disabledModules.has(key);
+                <div className="overflow-y-auto flex-1 grid grid-cols-2 gap-2 content-start pr-1">
+                  {USER_MODULES.map(({ key, label, Icon, desc }) => {
+                    const on = !disabledModules.has(key);
                     return (
                       <button
                         key={key}
@@ -1243,189 +1255,170 @@ const UserPermissionsModal = ({ open, onClose, userId, userName, userRole }: Pro
                           setDisabledModules((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
                           setDirty(true);
                         }}
-                        className={`flex flex-col items-center gap-1 px-2 py-2 rounded-lg border text-center transition-all ${
-                          isDisabled
-                            ? 'border-red-200 bg-red-50 opacity-70'
-                            : 'border-indigo-200 bg-indigo-50'
+                        className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all ${
+                          on
+                            ? 'border-indigo-300 bg-indigo-50 ring-1 ring-indigo-100'
+                            : 'border-gray-200 bg-white hover:bg-gray-50 opacity-60'
                         }`}
                       >
-                        <Icon size={13} className={isDisabled ? 'text-red-400' : 'text-indigo-500'} />
-                        <span className={`text-[9px] font-semibold leading-tight ${isDisabled ? 'text-red-500' : 'text-indigo-700'}`}>
-                          {isDisabled ? '✕ ' : ''}{label}
-                        </span>
+                        <div className={`p-2 rounded-lg shrink-0 ${on ? 'bg-indigo-100' : 'bg-gray-100'}`}>
+                          <Icon size={15} className={on ? 'text-indigo-600' : 'text-gray-400'} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-sm font-semibold ${on ? 'text-gray-900' : 'text-gray-500'}`}>{label}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${on ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400'}`}>
+                              {on ? 'On' : 'Off'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-400 mt-0.5 truncate">{desc}</p>
+                        </div>
+                        <div className={`w-9 h-5 rounded-full transition-colors shrink-0 flex items-center ${on ? 'bg-indigo-600' : 'bg-gray-200'}`}>
+                          <span className={`w-4 h-4 bg-white rounded-full shadow transition-transform mx-0.5 ${on ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </div>
                       </button>
                     );
                   })}
                 </div>
-                <p className="text-[10px] text-gray-400 mt-1.5">
-                  Disabled modules are hidden from this user's sidebar, regardless of role settings.
-                </p>
               </div>
+            )}
 
-              {/* Search */}
-              <div className="relative mb-3 shrink-0">
-                <input
-                  type="text"
-                  placeholder="Search modules or permissions…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full text-sm pl-9 pr-3 py-2 border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent"
-                />
-                <Eye size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              </div>
+            {/* ── Permissions tab ── */}
+            {activeTab === 'permissions' && (
+              <div className="flex flex-col flex-1 min-h-0">
 
-              {/* Column headers */}
-              <div className="grid shrink-0 mb-1 px-3" style={{ gridTemplateColumns: '1fr 68px 100px 90px 72px 80px' }}>
-                <span className="text-xs font-semibold text-gray-400">Module</span>
-                <span className="text-xs font-bold text-blue-500 text-center">View</span>
-                <span className="text-xs font-bold text-indigo-500 text-center">Create / Edit</span>
-                <span className="text-xs font-bold text-amber-500 text-center">Approve</span>
-                <span className="text-xs font-bold text-red-500 text-center">Admin</span>
-                <span className="text-xs font-bold text-teal-500 text-center">Team View</span>
-              </div>
-              <div className="h-px bg-gray-200 mb-3 shrink-0" />
+                {/* Search */}
+                <div className="relative mb-3 shrink-0">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Search modules or permissions…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-full text-sm pl-9 pr-3 py-2 border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent"
+                  />
+                </div>
 
-              {/* Matrix */}
-              <div className="overflow-y-auto flex-1 space-y-4 pr-1">
-                {filteredCrudModules.length === 0 ? (
-                  <p className="text-sm text-gray-400 text-center py-8">No modules match "{search}"</p>
-                ) : filteredCrudModules.map(({ section, rows }) => {
-                  const allPerms = Array.from(new Set(rows.flatMap((r) =>
-                    ([r.view, r.write, r.approve, r.admin, r.team] as (string | undefined)[]).filter(Boolean) as string[]
-                  )));
-                  const allOn  = allPerms.length > 0 && allPerms.every((p) => enabled.has(p));
-                  const someOn = !allOn && allPerms.some((p) => enabled.has(p));
-                  return (
-                    <div key={section}>
-                      {/* Section header */}
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <input type="checkbox" checked={allOn}
-                          ref={(el) => { if (el) el.indeterminate = someOn; }}
-                          onChange={() => setEnabled((prev) => {
-                            const n = new Set(prev);
-                            allOn ? allPerms.forEach((p) => n.delete(p)) : allPerms.forEach((p) => n.add(p));
-                            setDirty(true);
-                            return n;
-                          })}
-                          className="w-3.5 h-3.5 rounded text-indigo-600 cursor-pointer accent-indigo-600" />
-                        <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">{section}</span>
-                        <span className="ml-auto text-xs text-gray-400 font-medium">
-                          {allPerms.filter((p) => enabled.has(p)).length} / {allPerms.length}
-                        </span>
-                      </div>
+                {/* Column headers */}
+                <div className="grid shrink-0 mb-2 px-3" style={{ gridTemplateColumns: '1fr 90px 110px 100px 90px 90px' }}>
+                  <span className="text-xs font-semibold text-gray-400">Module</span>
+                  <span className="text-xs font-bold text-blue-500 text-center">View</span>
+                  <span className="text-xs font-bold text-indigo-500 text-center">Create / Edit</span>
+                  <span className="text-xs font-bold text-amber-500 text-center">Approve</span>
+                  <span className="text-xs font-bold text-teal-500 text-center">Team View</span>
+                  <span className="text-xs font-bold text-red-500 text-center">Admin</span>
+                </div>
+                <div className="h-px bg-gray-200 mb-3 shrink-0" />
 
-                      {/* Module rows */}
-                      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-                        {rows.map((row, i) => {
-                          const COLS = [
-                            { perm: row.view,    activeClass: 'bg-blue-500 text-white',   hoverClass: 'hover:bg-blue-50' },
-                            { perm: row.write,   activeClass: 'bg-indigo-500 text-white', hoverClass: 'hover:bg-indigo-50' },
-                            { perm: row.approve, activeClass: 'bg-amber-500 text-white',  hoverClass: 'hover:bg-amber-50' },
-                            { perm: row.admin,   activeClass: 'bg-red-500 text-white',    hoverClass: 'hover:bg-red-50' },
-                            { perm: row.team,    activeClass: 'bg-teal-500 text-white',   hoverClass: 'hover:bg-teal-50' },
-                          ];
-                          return (
-                            <div key={row.name}
-                              className={`grid items-center px-3 py-2.5 ${i > 0 ? 'border-t border-gray-100' : ''}`}
-                              style={{ gridTemplateColumns: '1fr 68px 100px 90px 72px 80px' }}
-                            >
-                              <span className="text-sm font-medium text-gray-800 truncate pr-2">{row.name}</span>
-                              {COLS.map(({ perm, activeClass, hoverClass }, ci) => (
-                                <div key={ci} className="flex justify-center items-center">
-                                  {perm ? (() => {
-                                    const isOn      = enabled.has(perm);
-                                    const fromRole  = roleSet.has(perm);
-                                    const isExtra   = isOn && !fromRole;
-                                    const isRevoked = !isOn && fromRole;
-                                    const info      = PERM_INFO[perm];
-                                    const cellLabel = info?.label ?? perm;
-                                    const fullLabel = info?.desc ?? cellLabel;
-                                    return (
-                                      <div className="flex flex-col items-center gap-0.5">
+                {/* Matrix */}
+                <div className="overflow-y-auto flex-1 space-y-4 pr-1">
+                  {filteredCrudModules.length === 0 ? (
+                    <p className="text-sm text-gray-400 text-center py-8">No modules match "{search}"</p>
+                  ) : filteredCrudModules.map(({ section, rows }) => {
+                    const allPerms = Array.from(new Set(rows.flatMap((r) =>
+                      ([r.view, r.write, r.approve, r.admin, r.team] as (string | undefined)[]).filter(Boolean) as string[]
+                    )));
+                    const allOn  = allPerms.length > 0 && allPerms.every((p) => enabled.has(p));
+                    const someOn = !allOn && allPerms.some((p) => enabled.has(p));
+                    return (
+                      <div key={section}>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <input type="checkbox" checked={allOn}
+                            ref={(el) => { if (el) el.indeterminate = someOn; }}
+                            onChange={() => setEnabled((prev) => {
+                              const n = new Set(prev);
+                              allOn ? allPerms.forEach((p) => n.delete(p)) : allPerms.forEach((p) => n.add(p));
+                              setDirty(true);
+                              return n;
+                            })}
+                            className="w-3.5 h-3.5 rounded text-indigo-600 cursor-pointer accent-indigo-600" />
+                          <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">{section}</span>
+                          <span className="ml-auto text-xs text-gray-400 font-medium">
+                            {allPerms.filter((p) => enabled.has(p)).length} / {allPerms.length}
+                          </span>
+                        </div>
+
+                        <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+                          {rows.map((row, i) => {
+                            const COLS = [
+                              { perm: row.view,    activeClass: 'bg-blue-500 text-white',   hoverClass: 'hover:bg-blue-50' },
+                              { perm: row.write,   activeClass: 'bg-indigo-500 text-white', hoverClass: 'hover:bg-indigo-50' },
+                              { perm: row.approve, activeClass: 'bg-amber-500 text-white',  hoverClass: 'hover:bg-amber-50' },
+                              { perm: row.team,    activeClass: 'bg-teal-500 text-white',   hoverClass: 'hover:bg-teal-50' },
+                              { perm: row.admin,   activeClass: 'bg-red-500 text-white',    hoverClass: 'hover:bg-red-50' },
+                            ];
+                            return (
+                              <div key={row.name}
+                                className={`grid items-center px-3 py-3 ${i > 0 ? 'border-t border-gray-100' : ''}`}
+                                style={{ gridTemplateColumns: '1fr 90px 110px 100px 90px 90px' }}
+                              >
+                                <span className="text-sm font-medium text-gray-800 truncate pr-2">{row.name}</span>
+                                {COLS.map(({ perm, activeClass, hoverClass }, ci) => (
+                                  <div key={ci} className="flex justify-center items-center">
+                                    {perm ? (() => {
+                                      const isOn      = enabled.has(perm);
+                                      const fromRole  = roleSet.has(perm);
+                                      const isExtra   = isOn && !fromRole;
+                                      const isRevoked = !isOn && fromRole;
+                                      const info      = PERM_INFO[perm];
+                                      const btnLabel  = info?.label?.split(' ')[0] ?? perm.split('_')[0];
+                                      const fullLabel = `${info?.label ?? perm}: ${info?.desc ?? ''}`;
+                                      return (
                                         <button
                                           type="button"
                                           title={fullLabel}
-                                          onClick={() => { toggle(perm); setSelectedPerm(perm); setSelectedLabel(fullLabel); }}
-                                          onMouseEnter={() => { setSelectedPerm(perm); setSelectedLabel(fullLabel); }}
+                                          onClick={() => toggle(perm)}
                                           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all border ${
                                             isOn
                                               ? isExtra
                                                 ? 'bg-emerald-500 text-white border-transparent shadow-sm'
                                                 : `${activeClass} border-transparent shadow-sm`
                                               : isRevoked
-                                                ? 'bg-red-50 border-red-200 text-red-400 hover:bg-red-100'
+                                                ? 'bg-red-50 border-dashed border-red-300 text-red-400 hover:bg-red-100'
                                                 : `bg-white border-gray-200 text-gray-400 ${hoverClass}`
                                           }`}
                                         >
-                                          {isOn && <Check size={10} strokeWidth={3} />}
-                                          {!isOn && isRevoked && <Lock size={10} />}
-                                          {!isOn && !isRevoked && <span className="w-2 h-2 rounded-full border border-current opacity-40" />}
-                                          {cellLabel}
+                                          {isOn
+                                            ? <Check size={11} strokeWidth={3} />
+                                            : isRevoked
+                                              ? <Lock size={10} />
+                                              : <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block" />}
+                                          {btnLabel}
                                         </button>
-                                        {/* Status tag */}
-                                        {(isExtra || isRevoked || (isOn && fromRole)) && (
-                                          <span className={`text-[8px] font-bold px-1 py-0.5 rounded leading-none ${
-                                            isRevoked ? 'bg-red-100 text-red-500'
-                                            : isExtra ? 'bg-emerald-100 text-emerald-700'
-                                            : 'bg-indigo-100 text-indigo-600'
-                                          }`}>
-                                            {isRevoked ? 'revoked' : isExtra ? 'extra' : 'role'}
-                                          </span>
-                                        )}
-                                      </div>
-                                    );
-                                  })() : (
-                                    <span className="text-gray-200 text-lg leading-none text-center w-full">—</span>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        })}
+                                      );
+                                    })() : (
+                                      <span className="text-gray-200 text-sm select-none">—</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
+
+                {/* Legend */}
+                <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-4 flex-wrap text-xs text-gray-400 shrink-0">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded bg-indigo-500 inline-block" /> From role
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded bg-emerald-500 inline-block" />
+                    <Unlock size={9} className="text-emerald-600" /> Extra grant
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded border border-dashed border-red-300 bg-red-50 inline-block" />
+                    <Lock size={9} className="text-red-400" /> Revoked
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block" /> Inactive
+                  </span>
+                </div>
               </div>
-            </div>
-
-            {/* Right: AI Advisor */}
-            <div className="w-64 shrink-0 flex flex-col bg-gradient-to-b from-purple-50/80 to-violet-50/50 rounded-xl border border-purple-100 p-4 overflow-y-auto">
-              <AiAdvisorPanel
-                selectedPerm={selectedPerm}
-                selectedLabel={selectedLabel}
-                enabledCount={enabledCount}
-                totalCount={totalCount}
-                extraCount={extraCount}
-                revokedCount={revokedCount}
-              />
-            </div>
-          </div>
-
-          {/* ── Legend ── */}
-          <div className="mt-4 flex items-center gap-4 flex-wrap text-xs text-gray-400 px-0.5">
-            <span className="flex items-center gap-1">
-              <span className="w-3 h-3 rounded bg-indigo-600 inline-block" />
-              Enabled
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-600 rounded text-[10px] font-semibold">role</span>
-              From role
-            </span>
-            <span className="flex items-center gap-1">
-              <Unlock size={10} className="text-emerald-600" />
-              <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[10px] font-semibold">extra</span>
-              Granted beyond role
-            </span>
-            <span className="flex items-center gap-1">
-              <Lock size={10} className="text-red-500" />
-              <span className="px-1.5 py-0.5 bg-red-100 text-red-600 rounded text-[10px] font-semibold">revoked</span>
-              Removed from role defaults
-            </span>
-            <span className="flex items-center gap-1">
-              <EyeOff size={10} className="text-gray-400" />
-              Greyed = inactive
-            </span>
+            )}
           </div>
         </>
       )}

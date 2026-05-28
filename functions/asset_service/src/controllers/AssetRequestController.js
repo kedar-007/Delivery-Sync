@@ -111,7 +111,7 @@ class AssetRequestController {
 
     const [users, categories, assets] = await Promise.all([
       userIds.length
-        ? this.db.query(`SELECT ROWID, name, email, avatar_url FROM ${TABLES.USERS} WHERE ROWID IN (${userIds.map((id) => `'${id}'`).join(',')}) LIMIT 300`)
+        ? _fetchByIds(this.db, TABLES.USERS, 'ROWID, name, email, avatar_url', userIds)
         : [],
       categoryIds.length
         ? this.db.query(`SELECT ROWID, name FROM ${TABLES.ASSET_CATEGORIES} WHERE ROWID IN (${categoryIds.map((id) => `'${id}'`).join(',')}) LIMIT 100`)
@@ -283,8 +283,9 @@ class AssetRequestController {
     // Expand org roles → user IDs
     const opsIds = [...ops_user_ids.map(String)];
     if (ops_role_ids.length) {
-      const roleUsers = await this.db.query(
-        `SELECT user_id FROM ${TABLES.USER_ORG_ROLES} WHERE org_role_id IN (${ops_role_ids.map((id) => `'${id}'`).join(',')}) AND tenant_id = '${req.tenantId}' AND is_active = 'true' LIMIT 300`,
+      const roleUsers = await this.db.fetchAll(
+        TABLES.USER_ORG_ROLES, req.tenantId,
+        `org_role_id IN (${ops_role_ids.map((id) => `'${id}'`).join(',')}) AND is_active = 'true'`
       );
       opsIds.push(...roleUsers.map((u) => String(u.user_id)));
     }
@@ -397,8 +398,9 @@ class AssetRequestController {
     const { ops_user_ids = [], ops_role_ids = [], message = '' } = req.body ?? {};
     const opsIds = [...ops_user_ids.map(String)];
     if (ops_role_ids.length) {
-      const roleUsers = await this.db.query(
-        `SELECT user_id FROM ${TABLES.USER_ORG_ROLES} WHERE org_role_id IN (${ops_role_ids.map((id) => `'${id}'`).join(',')}) AND tenant_id = '${req.tenantId}' AND is_active = 'true' LIMIT 300`,
+      const roleUsers = await this.db.fetchAll(
+        TABLES.USER_ORG_ROLES, req.tenantId,
+        `org_role_id IN (${ops_role_ids.map((id) => `'${id}'`).join(',')}) AND is_active = 'true'`
       );
       opsIds.push(...roleUsers.map((u) => String(u.user_id)));
     }
@@ -909,8 +911,8 @@ class AssetRequestController {
 
   // ── GET /requests/assignable-users ────────────────────────────────────────────
   async listAssignableUsers(req, res) {
-    const users = await this.db.query(
-      `SELECT ROWID, name, email, avatar_url FROM ${TABLES.USERS} WHERE tenant_id = '${req.tenantId}' AND status = 'ACTIVE' ORDER BY name ASC LIMIT 300`,
+    const users = await this.db.fetchAll(
+      TABLES.USERS, req.tenantId, `status = 'ACTIVE'`, { orderBy: 'name ASC' }
     );
     return ResponseHelper.success(res, users.map((u) => ({
       id: String(u.ROWID), name: u.name, email: u.email, avatarUrl: u.avatar_url,
@@ -926,6 +928,24 @@ class AssetRequestController {
       id: String(r.ROWID), name: r.name, description: r.description,
     })));
   }
+}
+
+// Fetch rows by a set of IDs, paginating in 200-row batches to avoid the
+// ZCQL LIMIT 300 cap. Safe for large orgs with many distinct user IDs.
+async function _fetchByIds(db, table, columns, ids) {
+  if (!ids.length) return [];
+  const inClause = ids.map((id) => `'${id}'`).join(',');
+  const rows = [];
+  let offset = 0;
+  while (true) {
+    const page = await db.query(
+      `SELECT ${columns} FROM ${table} WHERE ROWID IN (${inClause}) LIMIT 200 OFFSET ${offset}`
+    );
+    rows.push(...page);
+    if (page.length < 200) break;
+    offset += 200;
+  }
+  return rows;
 }
 
 module.exports = AssetRequestController;

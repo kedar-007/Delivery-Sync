@@ -277,10 +277,12 @@ class LeaveController {
     }
 
     if (status) where += (where ? ' AND ' : '') + `status = '${DataStoreService.escape(status)}'`;
-    const requests = await this.db.findWhere(TABLES.LEAVE_REQUESTS, req.tenantId, where, { orderBy: 'CREATEDTIME DESC', limit: 100 });
+    const requests = await this.db.fetchAll(
+      TABLES.LEAVE_REQUESTS, req.tenantId, where || null, { orderBy: 'CREATEDTIME DESC' }
+    );
 
     // Enrich with user and leave type info
-    const users = await this.db.findAll(TABLES.USERS, { tenant_id: req.tenantId }, { limit: 200 });
+    const users = await this.db.fetchAll(TABLES.USERS, req.tenantId, null);
     const types = await this.db.findWhere(TABLES.LEAVE_TYPES, req.tenantId, '', { limit: 50 });
     const userMap = {};
     users.forEach(u => { userMap[String(u.ROWID)] = u; });

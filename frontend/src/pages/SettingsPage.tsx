@@ -9,7 +9,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   Check, RotateCcw, Eye, EyeOff, Sun, Moon, GripVertical, Palette, Globe,
-  LayoutDashboard, Type, Layers, MapPin,
+  LayoutDashboard, MapPin, Lock,
 } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
@@ -20,7 +20,6 @@ import { ACCENT_COLORS } from '../lib/themes';
 import type { DensityLevel, FontSizeLevel } from '../lib/themes';
 import { useAuth } from '../contexts/AuthContext';
 import { useOfficeLocations } from '../hooks/useAdmin';
-import { useUpdateMyLocation } from '../hooks/useUsers';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -78,7 +77,7 @@ const Pill = ({ active, onClick, children }: {
 
 // ─── Theme card ───────────────────────────────────────────────────────────────
 
-const ThemeCard = ({ id, name, emoji, isDark, active, onSelect }: {
+const ThemeCard = ({ name, emoji, isDark, active, onSelect }: {
   id: string; name: string; emoji: string; isDark: boolean;
   active: boolean; onSelect: () => void;
 }) => (
@@ -260,9 +259,8 @@ export const SettingsContent = () => {
   } = useTheme();
   const { locale, setLocale, t } = useI18n();
   const { collapsed, setCollapsed, items, toggleItem, reorderItems, resetItems } = useSidebar();
-  const { user, refetch: refetchUser } = useAuth();
+  const { user } = useAuth();
   const { data: officeLocations = [] } = useOfficeLocations();
-  const updateMyLocation = useUpdateMyLocation();
 
   const [saved, setSaved] = useState(false);
   const flash = () => { setSaved(true); setTimeout(() => setSaved(false), 2000); };
@@ -411,34 +409,49 @@ export const SettingsContent = () => {
       </Section>
 
       {/* ── Office Location ──────────────────────────────────────────────────── */}
-      <Section icon={MapPin} title="Office Location" subtitle="Your assigned seating location — shown on your profile and used for the holiday calendar">
+      <Section
+        icon={MapPin}
+        title="Office Location"
+        subtitle="Your assigned seating location — shown on your profile and used for the holiday calendar"
+      >
         {(officeLocations as any[]).length === 0 ? (
-          <p className="text-sm" style={{ color: `rgb(var(--ds-text-muted))` }}>No office locations configured yet. Ask your admin to set them up.</p>
+          <p className="text-sm" style={{ color: `rgb(var(--ds-text-muted))` }}>
+            No office locations configured yet. Ask your admin to set them up.
+          </p>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {(officeLocations as any[]).map((loc: any) => {
-              const isActive = user?.officeLocationId === loc.id;
-              return (
-                <button key={loc.id} onClick={() => updateMyLocation.mutate(loc.id, { onSuccess: () => refetchUser() })}
-                  className="flex items-start gap-2.5 p-3 rounded-xl border-2 text-left transition-all focus:outline-none"
-                  style={{
-                    borderColor: isActive ? `rgb(var(--ds-primary))` : `rgb(var(--ds-border))`,
-                    backgroundColor: isActive ? `rgb(var(--ds-primary) / 0.07)` : `rgb(var(--ds-surface-hover))`,
-                  }}>
-                  <MapPin size={14} className="mt-0.5 shrink-0" style={{ color: isActive ? `rgb(var(--ds-primary))` : `rgb(var(--ds-text-muted))` }} />
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold truncate" style={{ color: `rgb(var(--ds-text))` }}>{loc.name}</p>
-                    {loc.country && <p className="text-xs" style={{ color: `rgb(var(--ds-text-muted))` }}>{loc.country}</p>}
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {(officeLocations as any[]).map((loc: any) => {
+                const isActive = user?.officeLocationId === loc.id;
+                return (
+                  <div
+                    key={loc.id}
+                    className="flex items-start gap-2.5 p-3 rounded-xl border-2 select-none"
+                    style={{
+                      borderColor: isActive ? `rgb(var(--ds-primary))` : `rgb(var(--ds-border))`,
+                      backgroundColor: isActive ? `rgb(var(--ds-primary) / 0.07)` : `rgb(var(--ds-surface))`,
+                      opacity: isActive ? 1 : 0.45,
+                    }}
+                  >
+                    <MapPin size={14} className="mt-0.5 shrink-0" style={{ color: isActive ? `rgb(var(--ds-primary))` : `rgb(var(--ds-text-muted))` }} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold truncate" style={{ color: `rgb(var(--ds-text))` }}>{loc.name}</p>
+                      {loc.country && <p className="text-xs" style={{ color: `rgb(var(--ds-text-muted))` }}>{loc.country}</p>}
+                    </div>
+                    {isActive && <Check size={13} className="shrink-0 mt-0.5" style={{ color: `rgb(var(--ds-primary))` }} />}
                   </div>
-                  {isActive && <Check size={13} className="ml-auto shrink-0 mt-0.5" style={{ color: `rgb(var(--ds-primary))` }} />}
-                </button>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+            <div className="mt-3 flex items-center gap-2 px-3 py-2.5 rounded-lg border"
+              style={{ borderColor: `rgb(var(--ds-border))`, backgroundColor: `rgb(var(--ds-surface-hover))` }}>
+              <Lock size={13} style={{ color: `rgb(var(--ds-text-muted))` }} className="shrink-0" />
+              <p className="text-xs" style={{ color: `rgb(var(--ds-text-muted))` }}>
+                Location is assigned by your admin. Contact them to change it.
+              </p>
+            </div>
+          </>
         )}
-        <p className="text-xs mt-3" style={{ color: `rgb(var(--ds-text-muted))` }}>
-          Your selection is saved automatically. Your admin can also assign your location from User Management.
-        </p>
       </Section>
 
     </div>

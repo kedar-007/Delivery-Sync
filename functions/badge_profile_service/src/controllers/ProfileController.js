@@ -49,6 +49,8 @@ class ProfileController {
       name:       (u && u.name)       || p.name  || '',
       email:      (u && u.email)      || p.email || '',
       avatar_url: (u && u.avatar_url) || p.photo_url || '',
+      phone:      p.phone      || '',
+      birth_date: p.birth_date || '',
       skills:         this._parse(p.skills, []),
       experience:     this._parse(p.experience, []),
       certifications: this._parse(p.certifications, []),
@@ -117,6 +119,8 @@ class ProfileController {
           email:             (u && u.email)      || p.email      || '',
           avatar_url:        (u && u.avatar_url) || p.photo_url  || '',
           skills:            this._parse(p.skills, []),
+          phone:      p.phone      || '',
+          birth_date: p.birth_date || '',
           // Manager info
           manager_name:      mgr ? mgr.name      : null,
           manager_avatar_url: mgr ? mgr.avatar_url : null,

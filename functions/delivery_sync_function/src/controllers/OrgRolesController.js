@@ -168,10 +168,10 @@ class OrgRolesController {
       // Soft-delete
       await this.db.update(TABLES.ORG_ROLES, { ROWID: roleId, is_active: 'false' });
 
-      // Un-assign all users from this role
-      const assignments = await this.db.query(
-        `SELECT ROWID FROM ${TABLES.USER_ORG_ROLES} WHERE tenant_id = '${tenantId}' ` +
-        `AND org_role_id = '${roleId}' AND is_active = 'true' LIMIT 300`
+      // Un-assign all users from this role (fetchAll so 300+ members are not skipped)
+      const assignments = await this.db.fetchAll(
+        TABLES.USER_ORG_ROLES, tenantId,
+        `org_role_id = '${roleId}' AND is_active = 'true'`
       );
       for (const a of assignments) {
         await this.db.update(TABLES.USER_ORG_ROLES, { ROWID: String(a.ROWID), is_active: false });
@@ -522,16 +522,15 @@ class OrgRolesController {
 
   async _fetchRoles(tenantId) {
     try {
-      let rows = await this.db.query(
-        `SELECT * FROM ${TABLES.ORG_ROLES} WHERE tenant_id = '${tenantId}' ORDER BY level ASC, ROWID ASC LIMIT 300`
+      let rows = await this.db.fetchAll(
+        TABLES.ORG_ROLES, tenantId, null, { orderBy: 'level ASC, ROWID ASC' }
       );
       // Recovery: old records were inserted with Number(tenantId) which rounds 17-digit IDs.
-      // If nothing found with the exact string, try the Number()-rounded value.
       if (rows.length === 0) {
         const rounded = String(Number(tenantId));
         if (rounded !== tenantId) {
-          rows = await this.db.query(
-            `SELECT * FROM ${TABLES.ORG_ROLES} WHERE tenant_id = '${rounded}' ORDER BY level ASC, ROWID ASC LIMIT 300`
+          rows = await this.db.fetchAll(
+            TABLES.ORG_ROLES, rounded, null, { orderBy: 'level ASC, ROWID ASC' }
           );
         }
       }
@@ -547,11 +546,18 @@ class OrgRolesController {
     try {
       const inClause = roleIds.map((id) => `'${id}'`).join(',');
       // No tenant_id filter — role IDs are already specific; avoids missing records
-      // stored with Number()-rounded tenant_id
-      const rows = await this.db.query(
-        `SELECT org_role_id, permissions FROM ${TABLES.ORG_ROLE_PERMISSIONS} ` +
-        `WHERE org_role_id IN (${inClause}) LIMIT 300`
-      );
+      // stored with Number()-rounded tenant_id. Paginate in 200-row pages.
+      const rows = [];
+      let offset = 0;
+      while (true) {
+        const page = await this.db.query(
+          `SELECT org_role_id, permissions FROM ${TABLES.ORG_ROLE_PERMISSIONS} ` +
+          `WHERE org_role_id IN (${inClause}) LIMIT 200 OFFSET ${offset}`
+        );
+        rows.push(...page);
+        if (page.length < 200) break;
+        offset += 200;
+      }
       const map = {};
       rows.forEach((r) => {
         const parsed = this._parsePermsColumn(r.permissions);
@@ -563,14 +569,15 @@ class OrgRolesController {
 
   async _fetchUserCountMap(tenantId) {
     try {
-      let rows = await this.db.query(
-        `SELECT org_role_id FROM ${TABLES.USER_ORG_ROLES} WHERE tenant_id = '${tenantId}' AND is_active != 'false' LIMIT 300`
+      let rows = await this.db.fetchAll(
+        TABLES.USER_ORG_ROLES, tenantId, "is_active != 'false'"
       );
+      // Recovery for records stored with Number()-rounded tenant_id
       if (rows.length === 0) {
         const rounded = String(Number(tenantId));
         if (rounded !== tenantId) {
-          rows = await this.db.query(
-            `SELECT org_role_id FROM ${TABLES.USER_ORG_ROLES} WHERE tenant_id = '${rounded}' AND is_active != 'false' LIMIT 300`
+          rows = await this.db.fetchAll(
+            TABLES.USER_ORG_ROLES, rounded, "is_active != 'false'"
           );
         }
       }
@@ -588,18 +595,32 @@ class OrgRolesController {
     try {
       const inClause = roleIds.map((id) => `'${id}'`).join(',');
       // No tenant_id filter — avoids precision-loss mismatch on records created with Number(tenantId).
-      // LIMIT capped at 300 because ZCQL rejects queries with LIMIT > 300.
-      const assignments = await this.db.query(
-        `SELECT user_id, org_role_id FROM ${TABLES.USER_ORG_ROLES} ` +
-        `WHERE org_role_id IN (${inClause}) AND is_active != 'false' LIMIT 300`
-      );
+      // Paginate in 200-row pages to handle orgs with 200+ role assignments.
+      const assignments = [];
+      let aOffset = 0;
+      while (true) {
+        const page = await this.db.query(
+          `SELECT user_id, org_role_id FROM ${TABLES.USER_ORG_ROLES} ` +
+          `WHERE org_role_id IN (${inClause}) AND is_active != 'false' LIMIT 200 OFFSET ${aOffset}`
+        );
+        assignments.push(...page);
+        if (page.length < 200) break;
+        aOffset += 200;
+      }
       if (!assignments.length) return {};
 
       const userIds = [...new Set(assignments.map((a) => String(a.user_id)))];
       const userInClause = userIds.map((id) => `'${id}'`).join(',');
-      const users = await this.db.query(
-        `SELECT ROWID, name, avatar_url FROM ${TABLES.USERS} WHERE ROWID IN (${userInClause}) LIMIT 300`
-      );
+      const users = [];
+      let uOffset = 0;
+      while (true) {
+        const page = await this.db.query(
+          `SELECT ROWID, name, avatar_url FROM ${TABLES.USERS} WHERE ROWID IN (${userInClause}) LIMIT 200 OFFSET ${uOffset}`
+        );
+        users.push(...page);
+        if (page.length < 200) break;
+        uOffset += 200;
+      }
       const userMap = {};
       users.forEach((u) => { userMap[String(u.ROWID)] = u; });
 

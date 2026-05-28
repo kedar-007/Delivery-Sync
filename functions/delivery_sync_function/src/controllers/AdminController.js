@@ -707,12 +707,24 @@ class AdminController {
         });
       }
 
-      // Invalidate this user's unified auth-context cache so the new
-      // grants/revokes take effect on their next request instead of waiting
-      // for TTL.
+      // Invalidate this user's auth-context cache across ALL microservices so
+      // the new grants/revokes take effect immediately. Each service maintains
+      // its own scoped key (authCtx:<service>:v1:<userId>); failing to bust
+      // them all causes the service to serve stale permissions from its own
+      // cache even after delivery_sync_function's cache is cleared.
       try {
         const cache = new CacheService(req.catalystApp);
-        await cache.invalidate(`authCtx:v1:${String(userId)}`);
+        const uid = String(userId);
+        await Promise.allSettled([
+          cache.invalidate(`authCtx:v1:${uid}`),           // delivery_sync_function
+          cache.invalidate(`authCtx:people:v1:${uid}`),    // people_service (leave, attendance)
+          cache.invalidate(`authCtx:tasks:v1:${uid}`),     // task_sprint_service
+          cache.invalidate(`authCtx:assets:v1:${uid}`),    // asset_service
+          cache.invalidate(`authCtx:reports:v1:${uid}`),   // reporting_service
+          cache.invalidate(`authCtx:badges:v1:${uid}`),    // badge_profile_service
+          cache.invalidate(`authCtx:admin:v1:${uid}`),     // admin_config_service
+          cache.invalidate(`authCtx:time:v1:${uid}`),      // time_tracking_service
+        ]);
       } catch (_) {}
 
       await this.audit.log({
