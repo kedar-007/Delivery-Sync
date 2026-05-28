@@ -565,15 +565,22 @@ const ProfilePage = () => {
         </Section>
 
         {/* ── Change email ──────────────────────────────────────────────── */}
-        <div className={`rounded-2xl border shadow-sm overflow-hidden transition-colors ${emailConfirmOpen ? 'border-amber-300' : 'border-gray-200 dark:border-gray-700 bg-ds-surface'}`}>
+        {(() => {
+          const canChangeEmail = (authUser?.role === 'SUPER_ADMIN' || authUser?.role === 'TENANT_ADMIN') || hasPermission(authUser, PERMISSIONS.PROFILE_EMAIL_CHANGE);
+          return (
+        <div className={`rounded-2xl border shadow-sm overflow-hidden transition-colors ${
+          !canChangeEmail ? 'border-gray-200 dark:border-gray-700 bg-ds-surface opacity-80'
+            : emailConfirmOpen ? 'border-amber-300' : 'border-gray-200 dark:border-gray-700 bg-ds-surface'
+        }`}>
           <div className={`px-6 py-5 border-b ${emailConfirmOpen ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800' : 'bg-ds-surface border-gray-100 dark:border-gray-700'}`}>
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                <Mail size={15} className="text-gray-400" /> Change Email Address
+              <h3 className={`text-sm font-semibold flex items-center gap-2 ${canChangeEmail ? 'text-gray-900' : 'text-gray-400'}`}>
+                {canChangeEmail ? <Mail size={15} className="text-gray-400" /> : <Lock size={15} className="text-gray-300" />}
+                Change Email Address
               </h3>
               <div className="flex items-center gap-3">
-                {/* Network status badge */}
-                {ipEnabled && (
+                {/* Network status badge — only shown when permitted */}
+                {canChangeEmail && ipEnabled && (
                   networkChecking ? (
                     <span className="flex items-center gap-1.5 text-xs text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full">
                       <div className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" />
@@ -589,7 +596,7 @@ const ProfilePage = () => {
                     </span>
                   )
                 )}
-                {networkAllowed !== false && (
+                {canChangeEmail && networkAllowed !== false && (
                   <button type="button"
                     onClick={() => { setEmailConfirmOpen(!emailConfirmOpen); setEmailError(''); resetEmail(); }}
                     className="text-xs text-blue-600 hover:underline font-medium">
@@ -599,13 +606,24 @@ const ProfilePage = () => {
               </div>
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Current email: <span className="font-semibold text-gray-800">{displayEmail}</span>
+              Current email: <span className={`font-semibold ${canChangeEmail ? 'text-gray-800' : 'text-gray-400'}`}>{displayEmail}</span>
             </p>
           </div>
 
           <div className={`px-6 py-5 ${emailConfirmOpen ? 'bg-amber-50 dark:bg-amber-950/30' : 'bg-ds-surface'}`}>
+            {/* Locked — no permission */}
+            {!canChangeEmail && (
+              <div className="flex items-center gap-3 text-sm text-gray-400 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
+                <Lock size={14} className="shrink-0 text-gray-300" />
+                <div>
+                  <p className="font-medium text-gray-500">Email change is locked</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Contact your administrator to request an email change.</p>
+                </div>
+              </div>
+            )}
+
             {/* Network blocked */}
-            {ipEnabled && networkAllowed === false && !networkChecking && (
+            {canChangeEmail && ipEnabled && networkAllowed === false && !networkChecking && (
               <div className="flex items-start gap-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
                 <Lock size={14} className="shrink-0 mt-0.5" />
                 <div>
@@ -618,7 +636,7 @@ const ProfilePage = () => {
             )}
 
             {/* Warning (collapsed) */}
-            {!emailConfirmOpen && networkAllowed !== false && (
+            {canChangeEmail && !emailConfirmOpen && networkAllowed !== false && (
               <div className="flex items-start gap-2.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
                 <AlertTriangle size={13} className="shrink-0 mt-0.5" />
                 <span>Changing your email will <strong>log you out immediately</strong>. You will need to sign in with your new email address.</span>
@@ -626,7 +644,7 @@ const ProfilePage = () => {
             )}
 
             {/* Form (expanded) */}
-            {emailConfirmOpen && networkAllowed !== false && (
+            {canChangeEmail && emailConfirmOpen && networkAllowed !== false && (
               <form onSubmit={handleEmailSubmit(onEmailUpdate)} className="space-y-4">
                 <div className="flex items-start gap-2.5 text-xs text-amber-800 bg-amber-100 border border-amber-300 rounded-xl px-4 py-3">
                   <AlertTriangle size={13} className="shrink-0 mt-0.5" />
@@ -663,6 +681,8 @@ const ProfilePage = () => {
             )}
           </div>
         </div>
+          );
+        })()}
 
         {/* ── Account details ───────────────────────────────────────────── */}
         <Section title="Account Details" icon={Info}>

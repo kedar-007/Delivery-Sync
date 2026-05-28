@@ -14,8 +14,8 @@ class OrgController {
   // GET /api/people/org/hierarchy — flat list enriched with manager info
   async hierarchy(req, res) {
     try {
-      const users    = await this.db.findAll(TABLES.USERS, { tenant_id: req.tenantId }, { limit: 200 });
-      const profiles = await this.db.findWhere(TABLES.USER_PROFILES, req.tenantId, '', { limit: 200 });
+      const users    = await this.db.fetchAll(TABLES.USERS, req.tenantId, null);
+      const profiles = await this.db.fetchAll(TABLES.USER_PROFILES, req.tenantId, null);
 
       const profileMap = {};
       profiles.forEach(p => { profileMap[String(p.user_id)] = p; });
@@ -49,9 +49,9 @@ class OrgController {
   async directReports(req, res) {
     try {
       const { userId } = req.params;
-      const reports = await this.db.findWhere(TABLES.USER_PROFILES, req.tenantId,
-        `reporting_manager_id = '${DataStoreService.escape(userId)}'`, { limit: 100 });
-      const users = await this.db.findAll(TABLES.USERS, { tenant_id: req.tenantId }, { limit: 200 });
+      const reports = await this.db.fetchAll(TABLES.USER_PROFILES, req.tenantId,
+        `reporting_manager_id = '${DataStoreService.escape(userId)}'`);
+      const users = await this.db.fetchAll(TABLES.USERS, req.tenantId, null);
       const userMap = {};
       users.forEach(u => { userMap[String(u.ROWID)] = u; });
       return ResponseHelper.success(res, reports.map(p => ({ ...p, user: userMap[String(p.user_id)] || null })));

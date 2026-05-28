@@ -33,8 +33,8 @@ class SprintController {
       }
 
       if (!isOrgWide) {
-        const memberships = await this.db.findWhere(TABLES.SPRINT_MEMBERS, tenantId,
-          `user_id = '${DataStoreService.escape(userId)}'`, { limit: 300 });
+        const memberships = await this.db.fetchAll(TABLES.SPRINT_MEMBERS, tenantId,
+          `user_id = '${DataStoreService.escape(userId)}'`);
         if (memberships.length === 0) {
           return ResponseHelper.success(res, []);
         }
@@ -43,7 +43,7 @@ class SprintController {
         where = where ? `${where} AND ${memberFilter}` : memberFilter;
       }
 
-      const sprints = await this.db.findWhere(TABLES.SPRINTS, tenantId, where, { orderBy: 'CREATEDTIME DESC', limit: 300 });
+      const sprints = await this.db.fetchAll(TABLES.SPRINTS, tenantId, where, { orderBy: 'CREATEDTIME DESC' });
 
       if (sprints.length > 0) {
         // Batch fetch task counts in 2 queries instead of N*2 sequential queries

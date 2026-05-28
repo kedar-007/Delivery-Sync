@@ -439,8 +439,9 @@ const PERM_INFO: Record<string, { label: string; desc: string; risk: 'low' | 'me
   ORG_WRITE:          { label: 'Edit Org Chart',     desc: 'Reassign managers, edit hierarchy',             risk: 'high' },
   ORG_ROLE_READ:      { label: 'View Org Roles',     desc: 'See roles and their permissions',               risk: 'low' },
   ORG_ROLE_WRITE:     { label: 'Manage Org Roles',   desc: 'Create, edit, assign org roles',                risk: 'high' },
-  PROFILE_READ:       { label: 'View Profiles',      desc: 'See user profiles and directory',               risk: 'low' },
-  PROFILE_WRITE:      { label: 'Edit Profiles',      desc: 'Update own profile information',                risk: 'low' },
+  PROFILE_READ:         { label: 'View Profiles',      desc: 'See user profiles and directory',                                         risk: 'low' },
+  PROFILE_WRITE:        { label: 'Edit Profiles',      desc: 'Update own profile information',                                           risk: 'low' },
+  PROFILE_EMAIL_CHANGE: { label: 'Change Email',       desc: 'Allow user to change their own login email — not a role default, must be explicitly granted', risk: 'high' },
   ANNOUNCEMENT_READ:  { label: 'View Announcements', desc: 'Read company announcements',                    risk: 'low' },
   ANNOUNCEMENT_WRITE: { label: 'Post Announcements', desc: 'Create and publish announcements',              risk: 'medium' },
   NOTIFICATION_READ:  { label: 'Notifications',      desc: 'Receive in-app notifications',                  risk: 'low' },
@@ -515,6 +516,7 @@ const CRUD_MODULES: CrudSection[] = [
     rows: [
       { name: 'Teams',         view: 'TEAM_READ',         write: 'TEAM_WRITE' },
       { name: 'Profiles',      view: 'PROFILE_READ',      write: 'PROFILE_WRITE' },
+      { name: 'Change Email',  write: 'PROFILE_EMAIL_CHANGE' },
       { name: 'Org Chart',     view: 'ORG_READ',          write: 'ORG_WRITE' },
       { name: 'Org Roles',     view: 'ORG_ROLE_READ',     write: 'ORG_ROLE_WRITE' },
       { name: 'Announcements', view: 'ANNOUNCEMENT_READ', write: 'ANNOUNCEMENT_WRITE' },
@@ -603,9 +605,6 @@ const RolePermissionsModal = ({
       // when they next open the modal and save.
       if ((initial.has('LEAVE_APPROVE') || initial.has('LEAVE_ADMIN')) && !initial.has('LEAVE_TEAM_VIEW')) {
         initial.add('LEAVE_TEAM_VIEW');
-      }
-      if ((initial.has('LEAVE_APPROVE') || initial.has('LEAVE_ADMIN')) && !initial.has('LEAVE_ORG_VIEW')) {
-        initial.add('LEAVE_ORG_VIEW');
       }
       setSelected(initial);
       setDisabledModules(new Set((role as any)?.moduleAccess ?? []));
@@ -760,8 +759,8 @@ const RolePermissionsModal = ({
               <span className="text-xs font-bold text-blue-500 text-center">View</span>
               <span className="text-xs font-bold text-indigo-500 text-center">Create / Edit</span>
               <span className="text-xs font-bold text-amber-500 text-center">Approve</span>
-              <span className="text-xs font-bold text-red-500 text-center">Admin</span>
               <span className="text-xs font-bold text-teal-500 text-center">Team View</span>
+              <span className="text-xs font-bold text-red-500 text-center">Admin</span>
             </div>
             <div className="h-px bg-gray-200 mb-3 shrink-0" />
 
@@ -799,8 +798,8 @@ const RolePermissionsModal = ({
                           { perm: row.view,    activeClass: 'bg-blue-500 text-white',   hoverClass: 'hover:bg-blue-50' },
                           { perm: row.write,   activeClass: 'bg-indigo-500 text-white', hoverClass: 'hover:bg-indigo-50' },
                           { perm: row.approve, activeClass: 'bg-amber-500 text-white',  hoverClass: 'hover:bg-amber-50' },
-                          { perm: row.admin,   activeClass: 'bg-red-500 text-white',    hoverClass: 'hover:bg-red-50' },
                           { perm: row.team,    activeClass: 'bg-teal-500 text-white',   hoverClass: 'hover:bg-teal-50' },
+                          { perm: row.admin,   activeClass: 'bg-red-500 text-white',    hoverClass: 'hover:bg-red-50' },
                         ];
                         return (
                           <div key={row.name}

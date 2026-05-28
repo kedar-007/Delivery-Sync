@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import {
   Search, Trophy, Plus, Award, User, Briefcase, Link as LinkIcon,
   ChevronRight, Edit2, X, Upload, FileText, Camera, BarChart2,
+  Phone, Calendar, Mail,
 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
@@ -36,11 +37,14 @@ import { useI18n } from '../contexts/I18nContext';
 interface DirectoryProfile {
   user_id: string;
   name: string;
+  email?: string;
   designation?: string;
   department?: string;
   avatar_url?: string;
   skills?: string;
   bio?: string;
+  phone?: string;
+  birth_date?: string;
   experience?: ExperienceEntry[];
   social_links?: Record<string, string>;
   badges?: AwardedBadge[];
@@ -108,6 +112,8 @@ interface UpdateProfileForm {
   bio: string;
   designation: string;
   department: string;
+  phone: string;
+  birth_date: string;
   skills_raw: string;
 }
 
@@ -218,6 +224,45 @@ const ProfileDetailModal = ({
               )}
             </div>
           </div>
+
+          {/* Contact info */}
+          {(profile.email || profile.phone || profile.birth_date) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100">
+              {profile.email && (
+                <div className="flex items-center gap-2">
+                  <Mail size={13} className="text-gray-400 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Email</p>
+                    <a href={`mailto:${profile.email}`} className="text-sm text-gray-800 hover:text-blue-600 truncate block">
+                      {profile.email}
+                    </a>
+                  </div>
+                </div>
+              )}
+              {profile.phone && (
+                <div className="flex items-center gap-2">
+                  <Phone size={13} className="text-gray-400 shrink-0" />
+                  <div>
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Phone / Mobile</p>
+                    <a href={`tel:${profile.phone}`} className="text-sm text-gray-800 hover:text-blue-600">
+                      {profile.phone}
+                    </a>
+                  </div>
+                </div>
+              )}
+              {profile.birth_date && (
+                <div className="flex items-center gap-2">
+                  <Calendar size={13} className="text-gray-400 shrink-0" />
+                  <div>
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Date of Birth</p>
+                    <p className="text-sm text-gray-800">
+                      {new Date(profile.birth_date).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Bio */}
           {profile.bio && (
@@ -414,6 +459,16 @@ const DirectoryTab = () => {
                     {profile.designation && (
                       <p className="text-xs text-gray-500 mt-0.5">{profile.designation}</p>
                     )}
+                    {profile.email && (
+                      <a
+                        href={`mailto:${profile.email}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex items-center justify-center gap-1 text-xs text-gray-400 hover:text-blue-600 mt-0.5"
+                      >
+                        <Mail size={10} />
+                        <span className="truncate max-w-[140px]">{profile.email}</span>
+                      </a>
+                    )}
                     {profile.department && (
                       <Badge variant="gray" className="mt-1.5">
                         {profile.department}
@@ -436,6 +491,16 @@ const DirectoryTab = () => {
                         </span>
                       </div>
                     </div>
+                  )}
+                  {profile.phone && (
+                    <a
+                      href={`tel:${profile.phone}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600"
+                    >
+                      <Phone size={11} />
+                      <span>{profile.phone}</span>
+                    </a>
                   )}
                   {skills.length > 0 && (
                     <div className="flex flex-wrap justify-center gap-1">
@@ -1015,6 +1080,8 @@ const MyProfileTab = () => {
         bio: profile.bio ?? '',
         designation: profile.designation ?? '',
         department: profile.department ?? '',
+        phone: (profile as any).phone ?? '',
+        birth_date: (profile as any).birth_date ?? '',
         skills_raw: '',
       });
     }
@@ -1039,6 +1106,8 @@ const MyProfileTab = () => {
         bio: data.bio,
         designation: data.designation,
         department: data.department,
+        phone: data.phone,
+        birth_date: data.birth_date,
         skills: JSON.stringify(skills),
       });
       setSaveSuccess(true);
@@ -1132,6 +1201,45 @@ const MyProfileTab = () => {
             </Button>
           </div>
 
+          {/* Contact details */}
+          {((profile as any)?.email || (profile as any)?.phone || (profile as any)?.birth_date) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 p-3 bg-gray-50 rounded-xl border border-gray-100">
+              {(profile as any).email && (
+                <div className="flex items-center gap-2">
+                  <Mail size={13} className="text-gray-400 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Email</p>
+                    <a href={`mailto:${(profile as any).email}`} className="text-sm text-gray-800 hover:text-blue-600 truncate block">
+                      {(profile as any).email}
+                    </a>
+                  </div>
+                </div>
+              )}
+              {(profile as any).phone && (
+                <div className="flex items-center gap-2">
+                  <Phone size={13} className="text-gray-400 shrink-0" />
+                  <div>
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Phone / Mobile</p>
+                    <a href={`tel:${(profile as any).phone}`} className="text-sm text-gray-800 hover:text-blue-600">
+                      {(profile as any).phone}
+                    </a>
+                  </div>
+                </div>
+              )}
+              {(profile as any).birth_date && (
+                <div className="flex items-center gap-2">
+                  <Calendar size={13} className="text-gray-400 shrink-0" />
+                  <div>
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Date of Birth</p>
+                    <p className="text-sm text-gray-800">
+                      {new Date((profile as any).birth_date).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {profile?.bio ? (
             <div className="mb-4">
               <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
@@ -1183,6 +1291,29 @@ const MyProfileTab = () => {
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                <span className="flex items-center gap-1"><Phone size={12} /> Phone / Mobile</span>
+              </label>
+              <input
+                {...register('phone')}
+                type="tel"
+                placeholder="e.g. +971 50 123 4567"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                <span className="flex items-center gap-1"><Calendar size={12} /> Date of Birth</span>
+              </label>
+              <input
+                {...register('birth_date')}
+                type="date"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
 
             <div>

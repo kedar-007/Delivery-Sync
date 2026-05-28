@@ -97,6 +97,27 @@ class DataStoreService {
   }
 
   /**
+   * Fetch ALL rows by auto-paginating in 200-row pages.
+   * Use instead of findWhere/findAll when the result set could exceed 200 rows.
+   */
+  async fetchAll(tableName, tenantId, whereExtra, options = {}) {
+    const tenantClause = `tenant_id = '${tenantId}'`;
+    const fullWhere = whereExtra ? `${tenantClause} AND ${whereExtra}` : tenantClause;
+    const orderStr = options.orderBy ? `ORDER BY ${options.orderBy}` : 'ORDER BY CREATEDTIME DESC';
+    const all = [];
+    let offset = 0;
+    while (true) {
+      const page = await this.query(
+        `SELECT * FROM ${tableName} WHERE ${fullWhere} ${orderStr} LIMIT 200 OFFSET ${offset}`
+      );
+      all.push(...page);
+      if (page.length < 200) break;
+      offset += 200;
+    }
+    return all;
+  }
+
+  /**
    * Count rows matching filters.
    */
   async count(tableName, filters = {}) {

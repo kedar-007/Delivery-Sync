@@ -82,6 +82,9 @@ const PERMISSIONS = Object.freeze({
   BADGE_AWARD: 'BADGE_AWARD',
   PROFILE_READ: 'PROFILE_READ',
   PROFILE_WRITE: 'PROFILE_WRITE',
+  // Explicit grant required — not assigned to any role by default.
+  // Without this, users can view their profile but cannot change their login email.
+  PROFILE_EMAIL_CHANGE: 'PROFILE_EMAIL_CHANGE',
   // ── Announcement & Org permissions ──────────────────────────────────────────
   ANNOUNCEMENT_READ: 'ANNOUNCEMENT_READ',
   ANNOUNCEMENT_WRITE: 'ANNOUNCEMENT_WRITE',
