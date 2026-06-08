@@ -18,5 +18,6 @@ router.get('/', auth, can(PERMISSIONS.EOD_READ), asyncHandler((req, res) => ctrl
 router.get('/rollup', auth, can(PERMISSIONS.EOD_READ), asyncHandler((req, res) => ctrl(req).getEodRollup(req, res)));
 router.get('/my-today', auth, asyncHandler((req, res) => ctrl(req).getMyTodayEod(req, res)));
 router.put('/:id', auth, can(PERMISSIONS.EOD_SUBMIT), asyncHandler((req, res) => ctrl(req).updateEod(req, res)));
+router.delete('/:id', auth, can(PERMISSIONS.EOD_SUBMIT), asyncHandler((req, res) => ctrl(req).deleteEod(req, res)));
 
 module.exports = router;

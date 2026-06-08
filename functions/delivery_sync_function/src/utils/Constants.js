@@ -107,6 +107,16 @@ const PERMISSIONS = Object.freeze({
   // ── Standup / EOD team view (see submissions from team peers) ───────────────
   STANDUP_TEAM_VIEW: 'STANDUP_TEAM_VIEW',
   EOD_TEAM_VIEW:     'EOD_TEAM_VIEW',
+  // ── Elevated delete permissions ───────────────────────────────────────────
+  // Owners can always delete their own entries; these grant deletion of ANY entry.
+  STANDUP_DELETE:      'STANDUP_DELETE',
+  EOD_DELETE:          'EOD_DELETE',
+  TASK_COMMENT_DELETE: 'TASK_COMMENT_DELETE',
+  // ── Team management ───────────────────────────────────────────────────────
+  TEAM_MANAGE: 'TEAM_MANAGE',
+  // ── Bug reports ───────────────────────────────────────────────────────────
+  BUG_REPORT_READ_ALL: 'BUG_REPORT_READ_ALL',
+  BUG_REPORT_CONFIG:   'BUG_REPORT_CONFIG',
   // ── Executive dashboards ──────────────────────────────────────────────────────
   CEO_DASHBOARD: 'CEO_DASHBOARD',
   CTO_DASHBOARD: 'CTO_DASHBOARD',

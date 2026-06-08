@@ -427,6 +427,37 @@ class StandupController {
       return ResponseHelper.serverError(res, err.message);
     }
   }
+
+  /**
+   * DELETE /api/standups/:id
+   * Owner can always delete their own. Elevated roles or STANDUP_DELETE perm
+   * are required to delete someone else's entry.
+   */
+  async deleteStandup(req, res) {
+    try {
+      const { id } = req.params;
+      const { tenantId, id: userId, role, permissions: perms = [] } = req.currentUser;
+
+      const rows = await this.db.query(
+        `SELECT ROWID, user_id FROM ${TABLES.STANDUP_ENTRIES} WHERE ROWID = '${id}' AND tenant_id = '${tenantId}' LIMIT 1`
+      );
+      if (!rows[0]) return ResponseHelper.notFound(res, 'Standup not found');
+
+      const row = rows[0][TABLES.STANDUP_ENTRIES] || rows[0];
+      const isOwner = String(row.user_id) === String(userId);
+      const canDeleteAny = role === 'TENANT_ADMIN' || role === 'SUPER_ADMIN' || perms.includes(PERMISSIONS.STANDUP_DELETE);
+
+      if (!isOwner && !canDeleteAny) {
+        return ResponseHelper.forbidden(res, 'You can only delete your own standup');
+      }
+
+      await this.db.delete(TABLES.STANDUP_ENTRIES, id);
+      return ResponseHelper.success(res, null, 'Standup deleted');
+    } catch (err) {
+      console.error('[StandupController.deleteStandup]', err.message);
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
 }
 
 // Returns an error string if the given date is outside the allowed entry

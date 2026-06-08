@@ -18,5 +18,6 @@ router.get('/', auth, can(PERMISSIONS.STANDUP_READ), asyncHandler((req, res) => 
 router.get('/rollup', auth, can(PERMISSIONS.STANDUP_READ), asyncHandler((req, res) => ctrl(req).getStandupRollup(req, res)));
 router.get('/my-today', auth, asyncHandler((req, res) => ctrl(req).getMyTodayStandup(req, res)));
 router.put('/:id', auth, can(PERMISSIONS.STANDUP_SUBMIT), asyncHandler((req, res) => ctrl(req).updateStandup(req, res)));
+router.delete('/:id', auth, can(PERMISSIONS.STANDUP_SUBMIT), asyncHandler((req, res) => ctrl(req).deleteStandup(req, res)));
 
 module.exports = router;
