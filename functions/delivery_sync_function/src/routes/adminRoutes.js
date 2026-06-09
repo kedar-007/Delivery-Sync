@@ -12,7 +12,7 @@ const router = express.Router();
 const auth = AuthMiddleware.authenticate;
 const can = RBACMiddleware.require;
 const admin = RBACMiddleware.requireAdmin;
-const ctrl = (req) => new AdminController(req.catalystApp);
+const ctrl = (req) => new AdminController(req.adminCatalystApp || req.catalystApp);
 const orgCtrl = (req) => new OrgRolesController(req.catalystApp);
 
 router.post('/users/invite', auth, can(PERMISSIONS.INVITE_USER), asyncHandler((req, res) => ctrl(req).inviteUserOrg(req, res)));

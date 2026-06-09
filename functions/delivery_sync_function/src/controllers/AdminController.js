@@ -7,6 +7,7 @@ const CacheService = require('../services/CacheService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const Validator = require('../utils/Validator');
 const { TABLES, USER_STATUS, AUDIT_ACTION, ROLES } = require('../utils/Constants');
+const WishCronService = require('../services/WishCronService');
 
 // Catalyst role IDs — each DS role maps to a distinct Catalyst app role.
 // Env-var names use the ROLE_ID_* prefix because Catalyst reserves the
@@ -230,7 +231,7 @@ class AdminController {
       const existing = await this.db.findById(TABLES.USERS, userId, tenantId);
       if (!existing) return ResponseHelper.notFound(res, 'User not found');
 
-      const { role, status, timezone, shift_id } = req.body;
+      const { role, status, timezone, shift_id, date_of_joining } = req.body;
 
       if (role && !Object.values(ROLES).includes(role)) {
         return ResponseHelper.validationError(res, `Invalid role: ${role}`);
@@ -244,24 +245,51 @@ class AdminController {
         await this.db.update(TABLES.USERS, updatePayload);
       }
 
-      // Update timezone / shift_id in user_profiles (separate table)
-      if (timezone !== undefined || shift_id !== undefined) {
+      // Update timezone / shift_id / date_of_joining in user_profiles
+      if (timezone !== undefined || shift_id !== undefined || date_of_joining !== undefined) {
         try {
+          // Fetch existing profile with date columns so we can reschedule wish crons correctly.
           const profiles = await this.db.query(
-            `SELECT ROWID FROM ${TABLES.USER_PROFILES} WHERE user_id = '${userId}' AND tenant_id = '${tenantId}' LIMIT 1`
+            `SELECT ROWID, birth_date, date_of_joining, timezone FROM ${TABLES.USER_PROFILES}` +
+            ` WHERE user_id = '${userId}' AND tenant_id = '${tenantId}' LIMIT 1`
           );
           const profileUpdate = {};
-          if (timezone !== undefined) profileUpdate.timezone = String(timezone || '');
-          if (shift_id !== undefined) profileUpdate.shift_id = shift_id ? String(shift_id) : '';
+          if (timezone !== undefined)       profileUpdate.timezone       = String(timezone || '');
+          if (shift_id !== undefined)       profileUpdate.shift_id       = shift_id ? String(shift_id) : '';
+          if (date_of_joining !== undefined) profileUpdate.date_of_joining = date_of_joining || null;
+
           if (profiles.length > 0) {
             await this.db.update(TABLES.USER_PROFILES, { ROWID: profiles[0].ROWID, ...profileUpdate });
           } else {
             await this.db.insert(TABLES.USER_PROFILES, {
               tenant_id: tenantId, user_id: userId,
-              timezone: String(timezone || ''), shift_id: shift_id ? String(shift_id) : '',
-              bio: '', photo_url: '', skills: '[]', experience: '[]', certifications: '[]',
-              resume_url: '', social_links: '{}', is_profile_public: 'false',
+              bio: '', photo_url: '',
+              ...profileUpdate,
             });
+          }
+
+          // Reschedule wish crons when date_of_joining or timezone changes.
+          if (date_of_joining !== undefined || timezone !== undefined) {
+            const existing  = profiles.length ? profiles[0] : {};
+            const finalDoj  = date_of_joining !== undefined ? date_of_joining  : existing.date_of_joining;
+            const finalDob  = existing.birth_date || null;
+            const finalTz   = timezone !== undefined ? timezone : (existing.timezone || 'UTC');
+            const wishCrons = new WishCronService(this.catalystApp);
+
+            // Anniversary cron: re-schedule whenever doj or timezone changes
+            if (finalDoj) {
+              wishCrons.upsert(userId, tenantId, 'ANNIVERSARY', finalDoj, finalTz)
+                .catch(e => console.error('[AdminController] anniversary cron upsert failed:', e.message));
+            } else if (date_of_joining !== undefined) {
+              wishCrons.delete(userId, 'ANNIVERSARY')
+                .catch(e => console.error('[AdminController] anniversary cron delete failed:', e.message));
+            }
+
+            // Birthday cron: re-schedule when timezone changes (dob stays the same)
+            if (timezone !== undefined && finalDob) {
+              wishCrons.upsert(userId, tenantId, 'BIRTHDAY', finalDob, finalTz)
+                .catch(e => console.error('[AdminController] birthday cron reschedule failed:', e.message));
+            }
           }
         } catch (profileErr) {
           console.warn('[AdminController.updateUser] profile update failed:', profileErr.message);
@@ -371,6 +399,10 @@ class AdminController {
       if (!existing) return ResponseHelper.notFound(res, 'User not found');
 
       await this.db.update(TABLES.USERS, { ROWID: userId, status: USER_STATUS.INACTIVE });
+
+      // Clean up annual wish crons so they don't fire for an inactive user
+      new WishCronService(this.catalystApp).deleteAll(userId)
+        .catch(e => console.error('[AdminController] wish cron cleanup failed:', e.message));
 
       await this.audit.log({
         tenantId, entityType: 'user', entityId: userId,

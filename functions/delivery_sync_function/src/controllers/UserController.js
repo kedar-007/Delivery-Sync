@@ -5,6 +5,7 @@ const DataStoreService = require('../services/DataStoreService');
 const CacheService = require('../services/CacheService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const { TABLES, USER_STATUS, AUDIT_ACTION, PERMISSIONS } = require('../utils/Constants');
+const WishCronService = require('../services/WishCronService');
 const { buildEmailUpdateHtml } = require('../utils/EmailTemplates.js');
 const AuditService = require('../services/AuditService');
 
@@ -306,28 +307,34 @@ class UserController {
 
   // ─────────────────────────────────────────────────────────────────────────────
   // PATCH /api/users/me
-  // Body: { name?: string, phone?: string, designation?: string }
+  // Body: { name?, phone?, designation?, birth_date?, timezone? }
   // ─────────────────────────────────────────────────────────────────────────────
   async updateProfile(req, res) {
     try {
       const { id: userId, tenantId } = req.currentUser;
-      const { name, phone, designation } = req.body;
+      const { name, phone, designation, birth_date, timezone } = req.body;
 
       if (!name || typeof name !== 'string' || !name.trim()) {
         return ResponseHelper.validationError(res, 'name is required');
       }
 
-      // Update name in users table
       await this.db.update(TABLES.USERS, { ROWID: userId, name: name.trim().slice(0, 100) });
 
-      // Update phone/designation in user_profiles (where those columns live)
-      if (phone !== undefined || designation !== undefined) {
+      const hasProfileUpdates = phone !== undefined || designation !== undefined
+        || birth_date !== undefined || timezone !== undefined;
+
+      if (hasProfileUpdates) {
+        // Fetch existing profile including birth_date + timezone so we can reschedule
+        // the birthday cron with the correct effective values after the update.
         const profiles = await this.db.query(
-          `SELECT ROWID FROM ${TABLES.USER_PROFILES} WHERE user_id = '${userId}' LIMIT 1`
+          `SELECT ROWID, birth_date, timezone FROM ${TABLES.USER_PROFILES}` +
+          ` WHERE user_id = '${userId}' AND tenant_id = '${tenantId}' LIMIT 1`
         );
         const profileUpdates = {};
         if (phone !== undefined)       profileUpdates.phone       = String(phone || '').slice(0, 30);
         if (designation !== undefined) profileUpdates.designation = String(designation || '').slice(0, 200);
+        if (birth_date !== undefined)  profileUpdates.birth_date  = birth_date || null;
+        if (timezone !== undefined)    profileUpdates.timezone    = String(timezone || '');
 
         if (profiles.length > 0) {
           await this.db.update(TABLES.USER_PROFILES, { ROWID: profiles[0].ROWID, ...profileUpdates });
@@ -338,6 +345,22 @@ class UserController {
             resume_url: '', social_links: '{}', is_profile_public: 'false',
             ...profileUpdates,
           });
+        }
+
+        // Reschedule birthday cron when birth_date or timezone changes.
+        // Uses the new value if provided, otherwise falls back to what was in the DB.
+        if (birth_date !== undefined || timezone !== undefined) {
+          const existing  = profiles.length ? profiles[0] : {};
+          const finalDob  = birth_date !== undefined ? birth_date : existing.birth_date;
+          const finalTz   = timezone   !== undefined ? timezone   : (existing.timezone || 'Asia/Kolkata');
+          const wishCrons = new WishCronService(this.catalystApp);
+          if (finalDob) {
+            wishCrons.upsert(userId, tenantId, 'BIRTHDAY', finalDob, finalTz)
+              .catch(e => console.error('[UserController] birthday cron upsert failed:', e.message));
+          } else {
+            wishCrons.delete(userId, 'BIRTHDAY')
+              .catch(e => console.error('[UserController] birthday cron delete failed:', e.message));
+          }
         }
       }
 

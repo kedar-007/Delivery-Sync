@@ -16,7 +16,8 @@
       "automated_checkout",
       "leave_accrual",
       "leave_policy",
-      "team_reminder"
+      "team_reminder",
+      "people_wish"
     ],
     "ignore": [],
     "source": "functions"

@@ -20,7 +20,9 @@
       "ROLE_ID_SUPER_ADMIN": "17682000001011209",
       "INTERNAL_SECRET": "dsv-internal-cron-2024",
       "TEAM_REMINDER_POOL_NAME": "TeamReminder",
-      "TEAM_REMINDER_POOL_ID": "17682000001904407"
+      "TEAM_REMINDER_POOL_ID": "17682000001904407",
+      "WISHES_POOL_NAME": "PeopleWishes",
+      "WISHES_POOL_ID": "17682000001912007"
     }
   },
   "execution": {

@@ -398,6 +398,9 @@ const NOTIFICATION_TYPE = Object.freeze({
   BADGE_AWARDED: 'BADGE_AWARDED',
   // ── Announcements ────────────────────────────────────────────────────────────
   ANNOUNCEMENT_PUBLISHED: 'ANNOUNCEMENT_PUBLISHED',
+  // ── People Milestones ─────────────────────────────────────────────────────────
+  BIRTHDAY_WISH:    'BIRTHDAY_WISH',
+  WORK_ANNIVERSARY: 'WORK_ANNIVERSARY',
 });
 
 // ─── Audit Actions ────────────────────────────────────────────────────────────

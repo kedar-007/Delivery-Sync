@@ -2,21 +2,46 @@
 
 const ZCatalyst = require('zcatalyst-sdk-node');
 
+// ─── Weekend / Holiday helpers ────────────────────────────────────────────────
+
+function getNthSaturday(year, month, date) {
+  let count = 0;
+  for (let d = 1; d <= date; d++) {
+    if (new Date(year, month, d).getDay() === 6) count++;
+  }
+  return count;
+}
+
+// Returns true if the given day is a non-working day under the tenant's
+// weekend policy. Mirrors the logic in people_service LeaveController.
+function isDayOff(dayOfWeek, year, month, date, policy) {
+  if (policy === 'all_on') return false;
+  if (dayOfWeek === 0) return true; // Sunday always off
+  if (dayOfWeek !== 6) return false; // Mon–Fri always on
+  if (policy === 'all_off') return true;
+  const nth = getNthSaturday(year, month, date);
+  if (policy === '1st_3rd_off')     return nth === 1 || nth === 3;
+  if (policy === '2nd_4th_off')     return nth === 2 || nth === 4;
+  if (policy === '2nd_4th_5th_off') return nth === 2 || nth === 4 || nth === 5;
+  if (policy === 'alternate_off')   return nth % 2 === 1;
+  if (policy === '5th_sat_working') return nth !== 5;
+  return true; // unknown policy → treat as all_off
+}
+
 /**
  * Team Reminder Job Function
  *
- * Triggered by dynamic daily CALENDAR crons created from TeamController
- * (one cron per team per schedule type: standup / EOD).
+ * Triggered by dynamic daily CALENDAR crons created from TeamController.
+ * Skips on weekends (per tenant weekend policy) and mandatory public holidays
+ * (non-optional entries in the leave_calendar table for this tenant).
  *
  * Job params (set via job_meta.params in createCron):
  *   team_id   – DataStore ROWID of the team
  *   tenant_id – DataStore ROWID of the tenant
  *   type      – 'STANDUP' | 'EOD'
- *   time      – scheduled time string e.g. '09:00' (used in the notification message)
+ *   time      – scheduled time string e.g. '09:00'
  *   team_name – display name of the team
- *
- * @param {import("./types/job").JobRequest} jobRequest
- * @param {import("./types/job").Context}    context
+ *   timezone  – IANA timezone e.g. 'Asia/Kolkata'
  */
 module.exports = async (jobRequest, context) => {
   const app = ZCatalyst.initialize(context);
@@ -25,7 +50,7 @@ module.exports = async (jobRequest, context) => {
     const params = jobRequest.getAllJobParams();
     console.log('[team_reminder] params:', JSON.stringify(params));
 
-    const { team_id, tenant_id, type, time, team_name } = params;
+    const { team_id, tenant_id, type, time, team_name, timezone } = params;
 
     if (!team_id || !tenant_id || !type) {
       console.error('[team_reminder] Missing required params — aborting');
@@ -33,13 +58,58 @@ module.exports = async (jobRequest, context) => {
       return;
     }
 
+    const tz        = timezone || 'Asia/Kolkata';
     const isStandup = type === 'STANDUP';
     const zcql      = app.zcql();
-    const today     = new Date().toLocaleDateString('en-AU', {
+
+    // ── 1. Resolve today's date in the team's timezone ────────────────────────
+    // Parsing via en-US locale gives a real Date object adjusted to the tz,
+    // from which we can reliably read getDay() / getFullYear() etc.
+    const localNow   = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
+    const localYear  = localNow.getFullYear();
+    const localMonth = localNow.getMonth();    // 0-indexed
+    const localDate  = localNow.getDate();
+    const localDow   = localNow.getDay();      // 0=Sun … 6=Sat
+    const todayStr   = `${localYear}-${String(localMonth + 1).padStart(2, '0')}-${String(localDate).padStart(2, '0')}`;
+    const today      = new Date(localYear, localMonth, localDate).toLocaleDateString('en-AU', {
       day: '2-digit', month: 'short', year: 'numeric',
     });
 
-    // ── 1. Fetch team members (ZCQL cap is 300; 200 is safe) ─────────────────
+    console.log(`[team_reminder] today=${todayStr} dow=${localDow} tz=${tz}`);
+
+    // ── 2. Fetch tenant settings: weekend policy + mandatory holidays ─────────
+    let weekendPolicyObj = { default: 'all_off', perLocation: {} };
+    let isMandatoryHoliday = false;
+    try {
+      const tenantRows = await zcql.executeZCQLQuery(
+        `SELECT settings FROM tenants WHERE ROWID = '${tenant_id}' LIMIT 1`
+      );
+      const settings = JSON.parse(tenantRows?.[0]?.tenants?.settings || '{}');
+      weekendPolicyObj = settings?.weekendPolicy || { default: 'all_off', perLocation: {} };
+    } catch (e) {
+      console.warn('[team_reminder] Could not fetch tenant settings, defaulting to all_off:', e.message);
+    }
+    console.log(`[team_reminder] weekendPolicy default=${weekendPolicyObj.default} perLocation keys=${Object.keys(weekendPolicyObj.perLocation || {}).length}`);
+
+    // ── 3. Check mandatory public holiday (tenant-wide → skip whole team) ────
+    try {
+      const holidayRows = await zcql.executeZCQLQuery(
+        `SELECT ROWID, is_optional FROM leave_calendar` +
+        ` WHERE tenant_id = '${tenant_id}' AND holiday_date = '${todayStr}' LIMIT 10`
+      );
+      isMandatoryHoliday = (Array.isArray(holidayRows) ? holidayRows : [])
+        .map(r => r.leave_calendar)
+        .some(h => h && String(h.is_optional) !== 'true');
+    } catch (e) {
+      console.warn('[team_reminder] Holiday check failed, proceeding anyway:', e.message);
+    }
+    if (isMandatoryHoliday) {
+      console.log(`[team_reminder] SKIPPED — ${todayStr} is a mandatory public holiday`);
+      context.closeWithSuccess();
+      return;
+    }
+
+    // ── 4. Fetch team members (ZCQL cap is 300; 200 is safe) ─────────────────
     const membersRaw = await zcql.executeZCQLQuery(
       `SELECT user_id FROM team_members` +
       ` WHERE tenant_id = '${tenant_id}' AND team_id = '${team_id}' LIMIT 200`
@@ -54,23 +124,38 @@ module.exports = async (jobRequest, context) => {
       return;
     }
 
-    // ── 2. Bulk-fetch user details in one query ───────────────────────────────
-    const idList = members.map(m => `'${m.user_id}'`).join(',');
-    const usersRaw = await zcql.executeZCQLQuery(
-      `SELECT ROWID, name, email FROM users WHERE ROWID IN (${idList}) LIMIT 300`
-    );
+    // ── 5. Bulk-fetch user details + office location overrides ───────────────
+    const idList   = members.map(m => `'${m.user_id}'`).join(',');
+    const [usersRaw, overridesRaw] = await Promise.all([
+      zcql.executeZCQLQuery(
+        `SELECT ROWID, name, email FROM users WHERE ROWID IN (${idList}) LIMIT 300`
+      ),
+      zcql.executeZCQLQuery(
+        `SELECT user_id, permissions FROM permission_overrides` +
+        ` WHERE tenant_id = '${tenant_id}' AND is_active = 'true' LIMIT 300`
+      ).catch(() => []),
+    ]);
+
     const userMap = {};
     (Array.isArray(usersRaw) ? usersRaw : []).forEach(r => {
       const u = r.users;
       if (u && u.ROWID) userMap[String(u.ROWID)] = { name: u.name || '', email: u.email || '' };
     });
 
-    // ── 3. Send in-app + email for each member ─────────────────────────────────
+    // Build userId → officeLocationId map from permission overrides
+    const locationMap = {};
+    (Array.isArray(overridesRaw) ? overridesRaw : []).forEach(r => {
+      const o = r.permission_overrides;
+      if (!o || !o.user_id) return;
+      try {
+        const parsed = JSON.parse(o.permissions || '{}');
+        if (parsed.officeLocationId) locationMap[String(o.user_id)] = String(parsed.officeLocationId);
+      } catch (_) {}
+    });
+
+    // ── 6. Send in-app + email for each member ────────────────────────────────
     const notifTable = app.datastore().table('notifications');
     const fromEmail  = process.env.FROM_EMAIL || 'catalystadmin@dsv360.ai';
-    const envRaw     = String(process.env.ENVIRONMENT || 'development').trim().toLowerCase();
-    const isProd     = envRaw === 'production' || envRaw === 'prod';
-    const envLabel   = isProd ? 'PROD' : envRaw.toUpperCase();
     const label      = team_name || 'your team';
     const notifType  = isStandup ? 'STANDUP_REMINDER' : 'EOD_REMINDER';
 
@@ -79,13 +164,23 @@ module.exports = async (jobRequest, context) => {
       ? `Your standup for ${label} starts at ${time}. Submit your update now!`
       : `Your EOD update for ${label} is due at ${time}. Wrap it up before you sign off!`;
 
-    let emailsSent = 0, notifsSent = 0;
+    let emailsSent = 0, notifsSent = 0, skippedWeekend = 0;
 
     for (const member of members) {
       const userId = String(member.user_id);
       const user   = userMap[userId] || {};
 
-      // In-app notification (insert into notifications table)
+      // Per-user weekend check — apply location-specific policy if available
+      const userLocId    = locationMap[userId];
+      const userPolicy   = (userLocId && weekendPolicyObj.perLocation?.[userLocId])
+        ? weekendPolicyObj.perLocation[userLocId]
+        : (weekendPolicyObj.default || 'all_off');
+      if (isDayOff(localDow, localYear, localMonth, localDate, userPolicy)) {
+        skippedWeekend++;
+        continue;
+      }
+
+      // In-app notification
       try {
         await notifTable.insertRow({
           tenant_id:   tenant_id,
@@ -110,11 +205,11 @@ module.exports = async (jobRequest, context) => {
             from_email: fromEmail,
             to_email:   [user.email],
             subject:    isStandup
-              ? (isProd ? `[Delivery Sync] Standup reminder – ${label}` : `[${envLabel}] [Delivery Sync] Standup reminder – ${label}`)
-              : (isProd ? `[Delivery Sync] EOD update reminder – ${label}` : `[${envLabel}] [Delivery Sync] EOD update reminder – ${label}`),
+              ? `[Delivery Sync] Standup reminder – ${label}`
+              : `[Delivery Sync] EOD update reminder – ${label}`,
             content:    isStandup
-              ? _standupEmailHtml(user.name || 'Team member', label, today, isProd, envLabel)
-              : _eodEmailHtml(user.name || 'Team member', label, today, isProd, envLabel),
+              ? _standupEmailHtml(user.name || 'Team member', label, today)
+              : _eodEmailHtml(user.name || 'Team member', label, today),
             html_mode:  true,
           });
           emailsSent++;
@@ -126,7 +221,7 @@ module.exports = async (jobRequest, context) => {
 
     console.log(
       `[team_reminder] DONE type=${type} team=${team_id} "${label}"` +
-      ` members=${members.length} in-app=${notifsSent} emails=${emailsSent}`
+      ` members=${members.length} skipped_weekend=${skippedWeekend} in-app=${notifsSent} emails=${emailsSent}`
     );
     context.closeWithSuccess();
   } catch (err) {
@@ -137,18 +232,12 @@ module.exports = async (jobRequest, context) => {
 
 // ─── Email templates ──────────────────────────────────────────────────────────
 
-function _standupEmailHtml(name, teamName, date, isProd = true, envLabel = 'PROD') {
-  const envBanner = isProd ? '' : `
-  <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:10px 14px;margin-bottom:12px;text-align:center;">
-    <div style="font-size:12px;font-weight:700;letter-spacing:1.5px;color:#92400e;text-transform:uppercase;">&#9888;&nbsp; ${envLabel} environment &mdash; this is a test message</div>
-  </div>`;
+function _standupEmailHtml(name, teamName, date) {
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
-  <div style="max-width:560px;margin:32px auto;">
-    ${envBanner}
-    <div style="background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);">
+  <div style="max-width:560px;margin:32px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);">
     <div style="background:#1d4ed8;padding:28px 32px;">
       <p style="margin:0;color:#bfdbfe;font-size:12px;letter-spacing:.08em;text-transform:uppercase;">Delivery Sync</p>
       <h1 style="margin:6px 0 0;color:#fff;font-size:20px;font-weight:700;">Standup Reminder</h1>
@@ -175,23 +264,16 @@ function _standupEmailHtml(name, teamName, date, isProd = true, envLabel = 'PROD
       <p style="margin:0;font-size:12px;color:#9ca3af;">Delivery Sync &middot; You're receiving this because your team has daily standups configured.</p>
     </div>
   </div>
-  </div>
 </body>
 </html>`;
 }
 
-function _eodEmailHtml(name, teamName, date, isProd = true, envLabel = 'PROD') {
-  const envBanner = isProd ? '' : `
-  <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:10px 14px;margin-bottom:12px;text-align:center;">
-    <div style="font-size:12px;font-weight:700;letter-spacing:1.5px;color:#92400e;text-transform:uppercase;">&#9888;&nbsp; ${envLabel} environment &mdash; this is a test message</div>
-  </div>`;
+function _eodEmailHtml(name, teamName, date) {
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
-  <div style="max-width:560px;margin:32px auto;">
-    ${envBanner}
-    <div style="background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);">
+  <div style="max-width:560px;margin:32px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);">
     <div style="background:#059669;padding:28px 32px;">
       <p style="margin:0;color:#a7f3d0;font-size:12px;letter-spacing:.08em;text-transform:uppercase;">Delivery Sync</p>
       <h1 style="margin:6px 0 0;color:#fff;font-size:20px;font-weight:700;">EOD Update Reminder</h1>
@@ -217,7 +299,6 @@ function _eodEmailHtml(name, teamName, date, isProd = true, envLabel = 'PROD') {
     <div style="padding:16px 32px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center;">
       <p style="margin:0;font-size:12px;color:#9ca3af;">Delivery Sync &middot; You're receiving this because your team has daily EOD updates configured.</p>
     </div>
-  </div>
   </div>
 </body>
 </html>`;
