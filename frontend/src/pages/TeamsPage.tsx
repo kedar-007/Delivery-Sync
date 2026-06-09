@@ -24,7 +24,7 @@ import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../components/ui/ConfirmDialog';
 import { canDo, PERMISSIONS } from '../utils/permissions';
-import { useForm, Controller } from 'react-hook-form';
+import { useForm, Controller, useWatch } from 'react-hook-form';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -476,20 +476,25 @@ const TeamsPage = () => {
   type CreateForm = {
     name: string; description: string; project_id: string;
     lead_user_id: string; standup_time: string; eod_time: string; timezone: string;
+    reminders_enabled: boolean;
   };
 
   const createForm = useForm<CreateForm>({
     defaultValues: {
       name: '', description: '', project_id: '', lead_user_id: '',
       standup_time: '09:00', eod_time: '17:00', timezone: 'Asia/Kolkata',
+      reminders_enabled: true,
     },
   });
+  const createRemindersEnabled = useWatch({ control: createForm.control, name: 'reminders_enabled' });
 
   type EditForm = {
     name: string; description: string;
     standup_time: string; eod_time: string; timezone: string;
+    reminders_enabled: boolean;
   };
-  const editForm = useForm<EditForm>({ defaultValues: { name: '', description: '', standup_time: '', eod_time: '', timezone: '' } });
+  const editForm = useForm<EditForm>({ defaultValues: { name: '', description: '', standup_time: '', eod_time: '', timezone: '', reminders_enabled: true } });
+  const editRemindersEnabled = useWatch({ control: editForm.control, name: 'reminders_enabled' });
 
   // Reset edit form whenever a different team is opened for editing
   useEffect(() => {
@@ -500,6 +505,7 @@ const TeamsPage = () => {
         standup_time: editTeam.standupTime ?? '09:00',
         eod_time: editTeam.eodTime ?? '17:00',
         timezone: editTeam.timezone ?? 'Asia/Kolkata',
+        reminders_enabled: editTeam.remindersEnabled !== false,
       });
     }
   }, [editTeam?.id]);
@@ -515,6 +521,7 @@ const TeamsPage = () => {
       if (data.standup_time) payload.standup_time = data.standup_time;
       if (data.eod_time) payload.eod_time = data.eod_time;
       if (data.timezone) payload.timezone = data.timezone;
+      payload.reminders_enabled = data.reminders_enabled !== false;
       await createTeam.mutateAsync(payload);
       createForm.reset();
       setShowCreate(false);
@@ -650,10 +657,30 @@ const TeamsPage = () => {
 
           {/* Schedule section */}
           <div className="border-t border-gray-100 pt-4">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
-              <Clock size={12} /> Notification Schedule
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+                <Clock size={12} /> Notification Schedule
+              </p>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <span className="text-xs text-gray-500">{createRemindersEnabled ? 'Enabled' : 'Disabled'}</span>
+                <Controller
+                  control={createForm.control}
+                  name="reminders_enabled"
+                  render={({ field }) => (
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={field.value}
+                      onClick={() => field.onChange(!field.value)}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${field.value ? 'bg-blue-600' : 'bg-gray-300'}`}
+                    >
+                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${field.value ? 'translate-x-4' : 'translate-x-1'}`} />
+                    </button>
+                  )}
+                />
+              </label>
+            </div>
+            <div className={`grid grid-cols-1 sm:grid-cols-3 gap-3 transition-opacity ${createRemindersEnabled ? '' : 'opacity-40 pointer-events-none'}`}>
               <div>
                 <label className="form-label">Standup Time</label>
                 <input type="time" className="form-input" {...createForm.register('standup_time')} />
@@ -696,10 +723,30 @@ const TeamsPage = () => {
               </div>
             </div>
             <div className="border-t border-gray-100 pt-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
-                <Clock size={12} /> Notification Schedule
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+                  <Clock size={12} /> Notification Schedule
+                </p>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <span className="text-xs text-gray-500">{editRemindersEnabled ? 'Enabled' : 'Disabled'}</span>
+                  <Controller
+                    control={editForm.control}
+                    name="reminders_enabled"
+                    render={({ field }) => (
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={field.value}
+                        onClick={() => field.onChange(!field.value)}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${field.value ? 'bg-blue-600' : 'bg-gray-300'}`}
+                      >
+                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${field.value ? 'translate-x-4' : 'translate-x-1'}`} />
+                      </button>
+                    )}
+                  />
+                </label>
+              </div>
+              <div className={`grid grid-cols-1 sm:grid-cols-3 gap-3 transition-opacity ${editRemindersEnabled ? '' : 'opacity-40 pointer-events-none'}`}>
                 <div>
                   <label className="form-label">Standup Time</label>
                   <input type="time" className="form-input" {...editForm.register('standup_time')} />

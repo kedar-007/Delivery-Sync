@@ -252,21 +252,88 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
   const fmt2 = (n: number) => String(Math.max(0, Math.floor(n))).padStart(2, '0');
 
   const clientTime = () => new Date().toLocaleString('sv');
-  const handleBreakStart = (type: 'LUNCH' | 'SHORT') => {
+  const handleBreakStart = async (type: 'LUNCH' | 'SHORT') => {
     setActionError('');
-    breakStart.mutate({ client_time: clientTime(), break_type: type },
+    const coords = await getGpsCoords();
+    const payload = { client_time: clientTime(), break_type: type, ...(coords ?? {}) };
+    console.log('[Location] breakStart payload:', payload);
+    breakStart.mutate(payload,
       { onError: (e: any) => setActionError(e?.message ?? 'Failed to start break') });
   };
-  const handleBreakEnd = () => {
+  const handleBreakEnd = async () => {
     setActionError('');
-    breakEnd.mutate({ client_time: clientTime() },
+    const coords = await getGpsCoords();
+    const payload = { client_time: clientTime(), ...(coords ?? {}) };
+    console.log('[Location] breakEnd payload:', payload);
+    breakEnd.mutate(payload,
       { onError: (e: any) => setActionError(e?.message ?? 'Failed to end break') });
+  };
+
+  const getGpsCoords = (): Promise<{ latitude: number; longitude: number } | null> => {
+    return new Promise((resolve) => {
+      console.group('[Location] GPS request');
+      console.log('  protocol     :', window.location.protocol);
+      console.log('  host         :', window.location.host);
+      console.log('  geolocation  :', !!navigator?.geolocation ? 'available' : 'NOT available');
+
+      if (!navigator?.geolocation) {
+        console.warn('  ✗ navigator.geolocation not available');
+        console.groupEnd();
+        resolve(null);
+        return;
+      }
+
+      if (navigator.permissions) {
+        navigator.permissions.query({ name: 'geolocation' }).then((status) => {
+          console.log('  permission state:', status.state);
+          if (status.state === 'denied') {
+            console.warn('  ✗ DENIED — go to browser Site Settings → Location → Allow for this site');
+          }
+        }).catch(() => {});
+      }
+
+      console.log('  calling getCurrentPosition (timeout=8s, maxAge=60s)…');
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+          console.log('  ✓ GPS obtained:', coords);
+          console.log('    accuracy :', pos.coords.accuracy, 'm');
+          console.log('    cached age:', Date.now() - pos.timestamp, 'ms');
+          console.groupEnd();
+          resolve(coords);
+        },
+        (err) => {
+          const reasons: Record<number, string> = {
+            1: 'PERMISSION_DENIED — user blocked location access',
+            2: 'POSITION_UNAVAILABLE — device cannot determine location',
+            3: 'TIMEOUT — took longer than 8s',
+          };
+          console.warn('  ✗ GPS failed:', reasons[err.code] ?? err.message);
+          console.warn('    error code:', err.code, '| message:', err.message);
+          console.warn('    → proceeding without GPS (server falls back to IP-geo)');
+          console.groupEnd();
+          resolve(null);
+        },
+        { timeout: 8000, maximumAge: 60000, enableHighAccuracy: false },
+      );
+    });
   };
 
   const handleCheckIn = async () => {
     try {
       setActionError('');
-      await checkIn.mutateAsync({ client_time: new Date().toLocaleString('sv') });
+      console.group('[Location] Check In flow');
+      console.log('  step 1: fetching GPS…');
+      const coords = await getGpsCoords();
+      const payload: Record<string, unknown> = { client_time: new Date().toLocaleString('sv'), ...(coords ?? {}) };
+      if (coords) {
+        console.log('  ✓ GPS coords included → server validates zone using real GPS');
+      } else {
+        console.warn('  ✗ no GPS coords → server falls back to IP-geo (unreliable for private IPs like 127.0.0.1)');
+      }
+      console.log('  payload sent to server:', payload);
+      console.groupEnd();
+      await checkIn.mutateAsync(payload);
     } catch (err: unknown) {
       setActionError((err as Error).message);
     }

@@ -23,8 +23,121 @@ const VALID_MEMBER_ROLES = [
  */
 class TeamController {
   constructor(catalystApp) {
+    this.catalystApp = catalystApp;
     this.db = new DataStoreService(catalystApp);
     this.notifier = new NotificationService(catalystApp, this.db);
+  }
+
+  // ─── Reminder Cron Helpers ────────────────────────────────────────────────────
+
+  // Create (or recreate) daily CALENDAR crons for standup and/or EOD.
+  // Targets the `team_reminder` job function via its function job pool.
+  // All strings must match Catalyst's expected uppercase enum values.
+  async _upsertReminderCrons(teamId, tenantId, teamName, standupTime, eodTime, timezone) {
+    const schedules = [];
+    if (standupTime) schedules.push({ type: 'STANDUP', time: standupTime, cronName: `standup_rem_${teamId}` });
+    if (eodTime)     schedules.push({ type: 'EOD',     time: eodTime,     cronName: `eod_rem_${teamId}` });
+
+    if (!schedules.length) {
+      console.log(`[Cron] Team ${teamId}: no schedule times — skipping`);
+      return;
+    }
+
+    let cronApi;
+    try {
+      cronApi = this.catalystApp.jobScheduling().cron();
+    } catch (e) {
+      console.error(`[Cron] Team ${teamId}: jobScheduling().cron() init failed —`, e.message);
+      return;
+    }
+
+    const tz = timezone || 'UTC';
+    console.log(`[Cron] _upsertReminderCrons START team=${teamId} tz=${tz} standup=${standupTime || 'none'} eod=${eodTime || 'none'}`);
+
+    for (const { type, time, cronName } of schedules) {
+      try {
+        const [h, m] = time.split(':').map(Number);
+        let remH = h, remM = m - 15;
+        if (remM < 0) { remM += 60; remH -= 1; }
+        if (remH < 0)  remH += 24;
+        const fireAt = `${String(remH).padStart(2,'0')}:${String(remM).padStart(2,'0')}`;
+        console.log(`[Cron] ${cronName}: scheduled=${time} → reminder fires at ${fireAt} ${tz}`);
+
+        const jobName  = (type === 'STANDUP' ? 's_' : 'e_') + String(teamId).slice(-17);
+        const cronBody = {
+          cron_name:   cronName,
+          cron_status: true,
+          cron_type:   'Calendar',
+          cron_detail: {
+            hour: remH, minute: remM, second: 0,
+            repetition_type: 'daily',
+            timezone: tz,
+          },
+          job_meta: {
+            job_name:    jobName,
+            jobpool_name: 'TeamReminder',
+            jobpool_id:  '17682000001904407',
+            target_type: 'Function',
+            target_name: 'team_reminder',
+            job_config: { number_of_retries: 2, retry_interval: 15 * 60 },
+            params: { team_id: teamId, tenant_id: tenantId, type, time, team_name: teamName },
+          },
+        };
+
+        // Try to update existing cron first; fall back to create if it doesn't exist yet
+        let result;
+        try {
+          result = await cronApi.updateCron(cronName, cronBody);
+          console.log(`[Cron] ${cronName}: UPDATED → id=${result?.cron_id || result?.id || JSON.stringify(result)}`);
+        } catch (updateErr) {
+          console.log(`[Cron] ${cronName}: update failed (${updateErr.message}) — attempting createCron`);
+          result = await cronApi.createCron(cronBody);
+          console.log(`[Cron] ${cronName}: CREATED → id=${result?.cron_id || result?.id || JSON.stringify(result)}`);
+        }
+      } catch (e) {
+        console.error(`[Cron] ${cronName}: FAILED — ${e.message}`);
+      }
+    }
+
+    console.log(`[Cron] _upsertReminderCrons DONE team=${teamId}`);
+  }
+
+  // Pause (disable) both reminder crons without deleting them.
+  async _pauseReminderCrons(teamId) {
+    let cronApi;
+    try {
+      cronApi = this.catalystApp.jobScheduling().cron();
+    } catch (e) {
+      console.error(`[Cron] _pauseReminderCrons team ${teamId}: init failed —`, e.message);
+      return;
+    }
+    for (const cronName of [`standup_rem_${teamId}`, `eod_rem_${teamId}`]) {
+      try {
+        await cronApi.pauseCron(cronName);
+        console.log(`[Cron] ${cronName}: PAUSED (reminders disabled)`);
+      } catch (e) {
+        console.warn(`[Cron] ${cronName}: pause skipped (may not exist) —`, e.message);
+      }
+    }
+  }
+
+  // Delete both reminder crons when a team is deleted.
+  async _deleteReminderCrons(teamId) {
+    let cronApi;
+    try {
+      cronApi = this.catalystApp.jobScheduling().cron();
+    } catch (e) {
+      console.error(`[Cron] _deleteReminderCrons team ${teamId}: jobScheduling().cron() failed —`, e.message);
+      return;
+    }
+    for (const cronName of [`standup_rem_${teamId}`, `eod_rem_${teamId}`]) {
+      try {
+        await cronApi.deleteCron(cronName);
+        console.log(`[Cron] ${cronName}: deleted on team removal`);
+      } catch (e) {
+        console.warn(`[Cron] ${cronName}: delete skipped (may not exist) —`, e.message);
+      }
+    }
   }
 
   /**
@@ -37,7 +150,8 @@ class TeamController {
 
       if (!name) return ResponseHelper.validationError(res, 'Team name is required');
 
-      const { standup_time, eod_time, timezone } = req.body;
+      const { standup_time, eod_time, timezone, reminders_enabled } = req.body;
+      const remindersOn = String(reminders_enabled) !== 'false';
 
       const basePayload = {
         tenant_id: tenantId,
@@ -48,25 +162,25 @@ class TeamController {
       if (description)  basePayload.description = description;
       if (lead_user_id) basePayload.lead_user_id = lead_user_id;
 
-      // Schedule fields require standup_time, eod_time, timezone columns in the teams table.
-      // Try inserting with them first; if Catalyst rejects (columns not yet added), fall back
-      // to inserting without them so team creation never fails.
       const schedulePayload = { ...basePayload };
       if (standup_time) schedulePayload.standup_time = standup_time;
       if (eod_time)     schedulePayload.eod_time = eod_time;
       if (timezone)     schedulePayload.timezone = timezone;
+      schedulePayload.reminders_enabled = remindersOn;
 
       let team;
       try {
         team = await this.db.insert(TABLES.TEAMS, schedulePayload);
       } catch (scheduleErr) {
-        // Column doesn't exist yet — retry without schedule fields
-        console.warn(
-          '[TeamController] Schedule columns missing in teams table, retrying without them.',
-          'Add standup_time (TEXT), eod_time (TEXT), timezone (TEXT) columns to the teams table in Catalyst Console.',
-          'Error:', scheduleErr.message
-        );
+        console.warn('[TeamController] Schedule columns missing, retrying without them.', scheduleErr.message);
         team = await this.db.insert(TABLES.TEAMS, basePayload);
+      }
+
+      // Fire-and-forget: create daily reminder crons only if notifications are enabled
+      if (remindersOn && (standup_time || eod_time)) {
+        this._upsertReminderCrons(
+          String(team.ROWID), tenantId, name.trim(), standup_time, eod_time, timezone
+        ).catch(e => console.error('[TeamController] createTeam cron setup failed:', e.message));
       }
 
       return ResponseHelper.created(res, {
@@ -79,6 +193,7 @@ class TeamController {
           standupTime: standup_time || null,
           eodTime: eod_time || null,
           timezone: timezone || null,
+          remindersEnabled: remindersOn,
           memberCount: 0,
         },
       }, 'Team created');
@@ -155,6 +270,7 @@ class TeamController {
           standupTime: t.standup_time || null,
           eodTime: t.eod_time || null,
           timezone: t.timezone || null,
+          remindersEnabled: String(t.reminders_enabled) !== 'false',
         };
       });
 
@@ -218,6 +334,7 @@ class TeamController {
           standupTime: team.standup_time || null,
           eodTime: team.eod_time || null,
           timezone: team.timezone || null,
+          remindersEnabled: String(team.reminders_enabled) !== 'false',
           members: members.map((m) => {
             const u = userMap[String(m.user_id)] || {};
             return {
@@ -248,7 +365,7 @@ class TeamController {
       const team = await this.db.findById(TABLES.TEAMS, teamId, tenantId);
       if (!team) return ResponseHelper.notFound(res, 'Team not found');
 
-      const { standup_time, eod_time, timezone } = req.body;
+      const { standup_time, eod_time, timezone, reminders_enabled } = req.body;
 
       const baseUpdate = { ROWID: teamId };
       if (name)                       baseUpdate.name = name.trim();
@@ -256,15 +373,36 @@ class TeamController {
       if (lead_user_id !== undefined) baseUpdate.lead_user_id = lead_user_id;
 
       const fullUpdate = { ...baseUpdate };
-      if (standup_time !== undefined) fullUpdate.standup_time = standup_time;
-      if (eod_time !== undefined)     fullUpdate.eod_time = eod_time;
-      if (timezone !== undefined)     fullUpdate.timezone = timezone;
+      if (standup_time !== undefined)     fullUpdate.standup_time = standup_time;
+      if (eod_time !== undefined)         fullUpdate.eod_time = eod_time;
+      if (timezone !== undefined)         fullUpdate.timezone = timezone;
+      if (reminders_enabled !== undefined) fullUpdate.reminders_enabled = String(reminders_enabled) !== 'false';
 
       try {
         await this.db.update(TABLES.TEAMS, fullUpdate);
       } catch (scheduleErr) {
-        console.warn('[TeamController] Schedule columns missing, updating without them. Add standup_time, eod_time, timezone columns to teams table.', scheduleErr.message);
+        console.warn('[TeamController] Schedule columns missing, updating without them.', scheduleErr.message);
         await this.db.update(TABLES.TEAMS, baseUpdate);
+      }
+
+      // Fire-and-forget: handle crons whenever schedule or enabled flag changes
+      const scheduleChanged = standup_time !== undefined || eod_time !== undefined || timezone !== undefined || reminders_enabled !== undefined;
+      if (scheduleChanged) {
+        const remindersOn = reminders_enabled !== undefined
+          ? String(reminders_enabled) !== 'false'
+          : String(team.reminders_enabled) !== 'false';
+
+        if (!remindersOn) {
+          this._pauseReminderCrons(teamId)
+            .catch(e => console.error('[TeamController] updateTeam cron pause failed:', e.message));
+        } else {
+          const effectiveStandup = standup_time !== undefined ? standup_time : (team.standup_time || null);
+          const effectiveEod     = eod_time     !== undefined ? eod_time     : (team.eod_time     || null);
+          const effectiveTz      = timezone     !== undefined ? timezone     : (team.timezone      || 'UTC');
+          this._upsertReminderCrons(
+            teamId, tenantId, team.name, effectiveStandup, effectiveEod, effectiveTz
+          ).catch(e => console.error('[TeamController] updateTeam cron setup failed:', e.message));
+        }
       }
 
       return ResponseHelper.success(res, { teamId }, 'Team updated');
@@ -288,6 +426,10 @@ class TeamController {
       const members = await this.db.findAll(TABLES.TEAM_MEMBERS,
         { tenant_id: tenantId, team_id: teamId }, { limit: 100 });
       await Promise.all(members.map((m) => this.db.delete(TABLES.TEAM_MEMBERS, String(m.ROWID))));
+
+      // Fire-and-forget: clean up daily reminder crons before deleting the team row
+      this._deleteReminderCrons(teamId)
+        .catch(e => console.error('[TeamController] deleteTeam cron cleanup failed:', e.message));
 
       await this.db.delete(TABLES.TEAMS, teamId);
       return ResponseHelper.success(res, null, 'Team deleted');

@@ -6,4 +6,6 @@ router.post('/attendance-anomaly',      CronController.attendanceAnomaly);
 router.post('/leave-approval-reminder', CronController.leaveApprovalReminder);
 router.post('/monthly-accrual',         CronController.monthlyAccrual);
 router.post('/year-end-carry-forward',  CronController.yearEndCarryForward);
+router.post('/send-reminders',          CronController.sendReminders);
+router.post('/send-team-reminder',      CronController.sendTeamReminder);
 module.exports = router;

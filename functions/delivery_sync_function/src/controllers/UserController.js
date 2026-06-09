@@ -1,5 +1,6 @@
 'use strict';
 
+const catalyst = require('zcatalyst-sdk-node');
 const DataStoreService = require('../services/DataStoreService');
 const CacheService = require('../services/CacheService');
 const ResponseHelper = require('../utils/ResponseHelper');
@@ -142,7 +143,10 @@ class UserController {
       console.log('[updateEmail] STEP 4 — Registering new Catalyst user | newEmail:', _maskEmail(data.email));
       let registeredUser;
       try {
-        registeredUser = await this.auth.registerUser(
+        // Use admin-scoped Catalyst so registerUser runs as the service account
+        // and is not subject to the calling user's email-verification status.
+        const adminAuth = catalyst.initialize(req, { scope: 'admin', appName: '__admin_email_update__' }).userManagement();
+        registeredUser = await adminAuth.registerUser(
           {
             ...baseSignupConfig,
             template_details: {

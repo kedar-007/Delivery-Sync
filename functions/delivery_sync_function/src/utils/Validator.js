@@ -70,8 +70,6 @@ class Validator {
       start_date: Joi.string().isoDate(),
       end_date: Joi.string().isoDate(),
       status: Joi.string().valid(...Object.values(PROJECT_STATUS)),
-      standup_enabled: Joi.boolean(),
-      eod_enabled: Joi.boolean(),
     });
     return Validator._validate(schema, data);
   }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Edit2, Users, CheckSquare, AlertTriangle, Milestone, BarChart2, UserPlus, Trash2, ListChecks, Clock, Bell, BellOff } from 'lucide-react';
+import { ArrowLeft, Edit2, Users, CheckSquare, AlertTriangle, Milestone, BarChart2, UserPlus, Trash2, ListChecks, Clock } from 'lucide-react';
 import UserAvatar from '../components/ui/UserAvatar';
 import UserHoverCard from '../components/ui/UserHoverCard';
 import Layout from '../components/layout/Layout';
@@ -31,7 +31,7 @@ const ProjectDetailPage = () => {
   const [showAddMember, setShowAddMember] = useState(false);
   const [memberError, setMemberError] = useState('');
   const [addMode, setAddMode] = useState<'individual' | 'team'>('individual');
-  const [reminderSaving, setReminderSaving] = useState<string | null>(null);
+
 
   const { data, isLoading, error } = useProjectDashboard(projectId!);
   const updateRAG = useUpdateRAG(projectId!);
@@ -44,15 +44,6 @@ const ProjectDetailPage = () => {
   const removeMember = useRemoveMember(projectId!);
 
   const canManageProject = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.PROJECT_WRITE);
-
-  const handleReminderToggle = async (field: 'standup_enabled' | 'eod_enabled', value: boolean) => {
-    setReminderSaving(field);
-    try {
-      await updateProject.mutateAsync({ [field]: value });
-    } catch { /* errors surface via React Query */ } finally {
-      setReminderSaving(null);
-    }
-  };
 
   const { register, handleSubmit, formState: { isSubmitting } } = useForm<{ rag_status: string; reason: string }>();
   const addMemberForm = useForm<{ user_id: string; role: string }>({ defaultValues: { role: 'MEMBER' } });
@@ -211,66 +202,6 @@ const ProjectDetailPage = () => {
           )}
         </Card>
 
-        {/* Reminder Settings — only shown to project managers */}
-        {canManageProject && (
-          <Card>
-            <div className="flex items-center gap-2 mb-4">
-              <Bell size={16} className="text-gray-500" />
-              <h3 className="text-sm font-semibold text-gray-900">Reminder Settings</h3>
-            </div>
-            <div className="space-y-3">
-              {/* Standup toggle */}
-              <div className="flex items-center justify-between py-2 border-b border-gray-50">
-                <div>
-                  <p className="text-sm font-medium text-gray-800">Daily Standup Reminder</p>
-                  <p className="text-xs text-gray-400 mt-0.5">Sent at 09:00 UTC on weekdays to members who haven't submitted</p>
-                </div>
-                <button
-                  onClick={() => handleReminderToggle('standup_enabled', !project.standupEnabled)}
-                  disabled={reminderSaving === 'standup_enabled'}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent
-                    transition-colors duration-200 ease-in-out focus:outline-none
-                    ${project.standupEnabled ? 'bg-blue-600' : 'bg-gray-200'}
-                    ${reminderSaving === 'standup_enabled' ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  title={project.standupEnabled ? 'Disable standup reminders' : 'Enable standup reminders'}
-                >
-                  <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow
-                    transform transition duration-200 ease-in-out
-                    ${project.standupEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
-                </button>
-              </div>
-
-              {/* EOD toggle */}
-              <div className="flex items-center justify-between py-2">
-                <div>
-                  <p className="text-sm font-medium text-gray-800">Daily EOD Reminder</p>
-                  <p className="text-xs text-gray-400 mt-0.5">Sent at 16:30 UTC on weekdays to members who haven't submitted</p>
-                </div>
-                <button
-                  onClick={() => handleReminderToggle('eod_enabled', !project.eodEnabled)}
-                  disabled={reminderSaving === 'eod_enabled'}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent
-                    transition-colors duration-200 ease-in-out focus:outline-none
-                    ${project.eodEnabled ? 'bg-blue-600' : 'bg-gray-200'}
-                    ${reminderSaving === 'eod_enabled' ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  title={project.eodEnabled ? 'Disable EOD reminders' : 'Enable EOD reminders'}
-                >
-                  <span className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow
-                    transform transition duration-200 ease-in-out
-                    ${project.eodEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
-                </button>
-              </div>
-            </div>
-            {(!project.standupEnabled || !project.eodEnabled) && (
-              <div className="mt-3 flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                <BellOff size={12} />
-                <span>
-                  {[!project.standupEnabled && 'Standup', !project.eodEnabled && 'EOD'].filter(Boolean).join(' & ')} reminders are disabled for this project.
-                </span>
-              </div>
-            )}
-          </Card>
-        )}
 
         {/* Bottom panels */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

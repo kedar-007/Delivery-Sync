@@ -95,12 +95,18 @@ class AttendanceController {
       return ResponseHelper.conflict(res, 'Already checked in today');
 
     const ip = extractClientIp(req);
-    const { is_wfh, wfh_reason } = req.body;
+    const { is_wfh, wfh_reason, latitude, longitude } = req.body;
+
+    // Browser GPS coords (if sent) are far more accurate than IP geolocation.
+    const clientCoords = (latitude != null && longitude != null)
+      ? { latitude: parseFloat(latitude), longitude: parseFloat(longitude) }
+      : null;
+    console.log(`[checkIn] clientCoords from body: ${clientCoords ? `lat=${clientCoords.latitude} lon=${clientCoords.longitude}` : 'none (falling back to IP-geo)'}`);
 
     // IP + Geo validation run concurrently before any DB write — prevents orphaned records on rejection
     const [ipCheck, { countryCheck, zoneCheck }] = await Promise.all([
       this._validateIpAllowed(req.tenantId, ip),
-      this._runLocationChecks(req.tenantId, ip),
+      this._runLocationChecks(req.tenantId, ip, clientCoords),
     ]);
     if (is_wfh) {
       const approvedWfh = await this.db.findWhere(TABLES.WFH_REQUESTS, tenantId,
@@ -110,18 +116,36 @@ class AttendanceController {
     }
 
     if (!is_wfh) {
-      if (!ipCheck.allowed) {
-        console.log(`[checkIn] IP blocked: detected="${ip}" headers=${JSON.stringify({ xfwd: req.headers['x-forwarded-for'], xreal: req.headers['x-real-ip'], remote: req.connection?.remoteAddress })}`);
-        return ResponseHelper.forbidden(res, `Check-in not allowed from this network (${ip || 'unknown IP'}). Please use the WFH option if working remotely.`);
-      }
+      console.log(`[checkIn] location-guard: ip="${ip}" ipAllowed=${ipCheck.allowed} ipRestricted=${ipCheck.restricted} | countryAllowed=${countryCheck.allowed} | zoneAllowed=${zoneCheck.allowed} zoneRestricted=${zoneCheck.restricted}`);
+
+      // Country is always an independent blocker
       if (!countryCheck.allowed) {
         console.log(`[checkIn] Country blocked: detected="${countryCheck.country}" (${countryCheck.countryCode}) ip="${ip}"`);
         return ResponseHelper.forbidden(res, `Check-in not allowed from your country (${countryCheck.country || countryCheck.countryCode || 'unknown'}). Please use the WFH option if working remotely.`);
       }
-      if (!zoneCheck.allowed) {
-        const loc = [zoneCheck.city, zoneCheck.regionName].filter(Boolean).join(', ') || 'unknown location';
-        console.log(`[checkIn] Zone blocked: detected="${loc}" ip="${ip}"`);
-        return ResponseHelper.forbidden(res, `Check-in not allowed from your location (${loc}). Please use the WFH option if working remotely.`);
+
+      // IP and Zone are alternative location proofs — when BOTH restrictions are active,
+      // satisfying EITHER is sufficient (OR logic). An office may use IP whitelist, or
+      // geo-zone radius, or both. Only block if ALL active checks fail.
+      const bothLocationActive = ipCheck.restricted && zoneCheck.restricted;
+      console.log(`[checkIn] bothLocationActive=${bothLocationActive}`);
+      if (bothLocationActive) {
+        if (!ipCheck.allowed && !zoneCheck.allowed) {
+          const loc = [zoneCheck.city, zoneCheck.regionName].filter(Boolean).join(', ') || 'unknown location';
+          console.log(`[checkIn] IP+Zone both blocked: ip="${ip}" location="${loc}"`);
+          return ResponseHelper.forbidden(res, `Check-in not allowed: your network (${ip || 'unknown'}) is not in the IP whitelist and your location (${loc}) is outside all allowed zones. Please use the WFH option if working remotely.`);
+        }
+        console.log(`[checkIn] OR gate passed: ipAllowed=${ipCheck.allowed} zoneAllowed=${zoneCheck.allowed}`);
+      } else {
+        if (!ipCheck.allowed) {
+          console.log(`[checkIn] IP blocked (zone not active): detected="${ip}"`);
+          return ResponseHelper.forbidden(res, `Check-in not allowed from this network (${ip || 'unknown IP'}). Please use the WFH option if working remotely.`);
+        }
+        if (!zoneCheck.allowed) {
+          const loc = [zoneCheck.city, zoneCheck.regionName].filter(Boolean).join(', ') || 'unknown location';
+          console.log(`[checkIn] Zone blocked (IP not active): detected="${loc}" ip="${ip}"`);
+          return ResponseHelper.forbidden(res, `Check-in not allowed from your location (${loc}). Please use the WFH option if working remotely.`);
+        }
       }
     }
 
@@ -437,22 +461,35 @@ class AttendanceController {
     const isWfhRecord = existing[0].is_wfh === 'true' || existing[0].is_wfh === true;
     if (!isWfhRecord) {
       const ip = extractClientIp(req);
+      const { latitude: bsLat, longitude: bsLon } = req.body;
+      const bsClientCoords = (bsLat != null && bsLon != null)
+        ? { latitude: parseFloat(bsLat), longitude: parseFloat(bsLon) }
+        : null;
       const [ipCheck, { countryCheck, zoneCheck }] = await Promise.all([
         this._validateIpAllowed(tenantId, ip),
-        this._runLocationChecks(tenantId, ip),
+        this._runLocationChecks(tenantId, ip, bsClientCoords),
       ]);
-      if (!ipCheck.allowed) {
-        console.log(`[breakStart] IP blocked: user=${req.currentUser.email} detected="${ip}" headers=${JSON.stringify({ xfwd: req.headers['x-forwarded-for'], xreal: req.headers['x-real-ip'] })}`);
-        return ResponseHelper.forbidden(res, `Breaks can only be recorded from the office network. Detected IP: ${ip || 'unknown'}`);
-      }
       if (!countryCheck.allowed) {
         console.log(`[breakStart] Country blocked: user=${req.currentUser.email} country="${countryCheck.country}" ip="${ip}"`);
         return ResponseHelper.forbidden(res, `Breaks can only be recorded from an allowed country. Detected: ${countryCheck.country || 'unknown'}`);
       }
-      if (!zoneCheck.allowed) {
-        const loc = [zoneCheck.city, zoneCheck.regionName].filter(Boolean).join(', ') || 'unknown location';
-        console.log(`[breakStart] Zone blocked: user=${req.currentUser.email} location="${loc}" ip="${ip}"`);
-        return ResponseHelper.forbidden(res, `Breaks can only be recorded from an allowed zone. Detected: ${loc}`);
+      const bothLocationActiveBS = ipCheck.restricted && zoneCheck.restricted;
+      if (bothLocationActiveBS) {
+        if (!ipCheck.allowed && !zoneCheck.allowed) {
+          const loc = [zoneCheck.city, zoneCheck.regionName].filter(Boolean).join(', ') || 'unknown location';
+          console.log(`[breakStart] IP+Zone both blocked: user=${req.currentUser.email} ip="${ip}" location="${loc}"`);
+          return ResponseHelper.forbidden(res, `Breaks can only be recorded from the office network or an allowed zone. Network: ${ip || 'unknown'}, Location: ${loc}`);
+        }
+      } else {
+        if (!ipCheck.allowed) {
+          console.log(`[breakStart] IP blocked: user=${req.currentUser.email} detected="${ip}" headers=${JSON.stringify({ xfwd: req.headers['x-forwarded-for'], xreal: req.headers['x-real-ip'] })}`);
+          return ResponseHelper.forbidden(res, `Breaks can only be recorded from the office network. Detected IP: ${ip || 'unknown'}`);
+        }
+        if (!zoneCheck.allowed) {
+          const loc = [zoneCheck.city, zoneCheck.regionName].filter(Boolean).join(', ') || 'unknown location';
+          console.log(`[breakStart] Zone blocked: user=${req.currentUser.email} location="${loc}" ip="${ip}"`);
+          return ResponseHelper.forbidden(res, `Breaks can only be recorded from an allowed zone. Detected: ${loc}`);
+        }
       }
     }
 
@@ -510,22 +547,35 @@ class AttendanceController {
     const isWfhRecord = todayRecord[0]?.is_wfh === 'true' || todayRecord[0]?.is_wfh === true;
     if (!isWfhRecord) {
       const ip = extractClientIp(req);
+      const { latitude: beLat, longitude: beLon } = req.body;
+      const beClientCoords = (beLat != null && beLon != null)
+        ? { latitude: parseFloat(beLat), longitude: parseFloat(beLon) }
+        : null;
       const [ipCheck, { countryCheck, zoneCheck }] = await Promise.all([
         this._validateIpAllowed(tenantId, ip),
-        this._runLocationChecks(tenantId, ip),
+        this._runLocationChecks(tenantId, ip, beClientCoords),
       ]);
-      if (!ipCheck.allowed) {
-        console.log(`[breakEnd] IP blocked: user=${req.currentUser.email} detected="${ip}" headers=${JSON.stringify({ xfwd: req.headers['x-forwarded-for'], xreal: req.headers['x-real-ip'] })}`);
-        return ResponseHelper.forbidden(res, `Breaks can only be ended from the office network. Detected IP: ${ip || 'unknown'}`);
-      }
       if (!countryCheck.allowed) {
         console.log(`[breakEnd] Country blocked: user=${req.currentUser.email} country="${countryCheck.country}" ip="${ip}"`);
         return ResponseHelper.forbidden(res, `Breaks can only be ended from an allowed country. Detected: ${countryCheck.country || 'unknown'}`);
       }
-      if (!zoneCheck.allowed) {
-        const loc = [zoneCheck.city, zoneCheck.regionName].filter(Boolean).join(', ') || 'unknown location';
-        console.log(`[breakEnd] Zone blocked: user=${req.currentUser.email} location="${loc}" ip="${ip}"`);
-        return ResponseHelper.forbidden(res, `Breaks can only be ended from an allowed zone. Detected: ${loc}`);
+      const bothLocationActiveBE = ipCheck.restricted && zoneCheck.restricted;
+      if (bothLocationActiveBE) {
+        if (!ipCheck.allowed && !zoneCheck.allowed) {
+          const loc = [zoneCheck.city, zoneCheck.regionName].filter(Boolean).join(', ') || 'unknown location';
+          console.log(`[breakEnd] IP+Zone both blocked: user=${req.currentUser.email} ip="${ip}" location="${loc}"`);
+          return ResponseHelper.forbidden(res, `Breaks can only be ended from the office network or an allowed zone. Network: ${ip || 'unknown'}, Location: ${loc}`);
+        }
+      } else {
+        if (!ipCheck.allowed) {
+          console.log(`[breakEnd] IP blocked: user=${req.currentUser.email} detected="${ip}" headers=${JSON.stringify({ xfwd: req.headers['x-forwarded-for'], xreal: req.headers['x-real-ip'] })}`);
+          return ResponseHelper.forbidden(res, `Breaks can only be ended from the office network. Detected IP: ${ip || 'unknown'}`);
+        }
+        if (!zoneCheck.allowed) {
+          const loc = [zoneCheck.city, zoneCheck.regionName].filter(Boolean).join(', ') || 'unknown location';
+          console.log(`[breakEnd] Zone blocked: user=${req.currentUser.email} location="${loc}" ip="${ip}"`);
+          return ResponseHelper.forbidden(res, `Breaks can only be ended from an allowed zone. Detected: ${loc}`);
+        }
       }
     }
 
@@ -715,31 +765,37 @@ class AttendanceController {
     return ResponseHelper.success(res, summary);
   }
 
-  // Helper — returns { allowed: true } if IP restrictions disabled, no IPs configured, or IP matches
+  // Helper — returns { allowed, restricted } where restricted=true means the check is active
+  // (enabled + IPs configured). allowed=true when restriction is inactive OR IP matches.
   async _validateIpAllowed(tenantId, clientIp) {
     try {
-      // Check master toggle — if disabled, allow all traffic
       const tenantRows = await this.db.query(
         `SELECT settings FROM ${TABLES.TENANTS} WHERE ROWID = ${tenantId} LIMIT 1`
       );
       if (tenantRows.length > 0) {
         const settings = JSON.parse(tenantRows[0].settings || '{}');
-        if (!settings.ip_restrictions_enabled) return { allowed: true };
+        if (!settings.ip_restrictions_enabled) return { allowed: true, restricted: false };
       } else {
-        return { allowed: true };
+        return { allowed: true, restricted: false };
       }
 
       const rows = await this.db.findWhere(TABLES.IP_WHITELISTS, tenantId, `is_active = 'true'`, { limit: 100 });
-      if (!rows || rows.length === 0) return { allowed: true }; // no IPs configured yet
+      if (!rows || rows.length === 0) {
+        console.log(`[ipCheck] enabled but no IPs configured — treating as unrestricted`);
+        return { allowed: true, restricted: false };
+      }
 
       const normalised = (clientIp || '').split(',')[0].trim().replace(/^::ffff:/, '');
+      const whitelisted = rows.map((r) => (r.ip_address || '').trim());
+      console.log(`[ipCheck] clientIp="${clientIp}" normalised="${normalised}" whitelisted=${JSON.stringify(whitelisted)}`);
       for (const row of rows) {
         const allowed = (row.ip_address || '').trim();
-        if (this._ipMatches(normalised, allowed)) return { allowed: true };
+        if (this._ipMatches(normalised, allowed)) return { allowed: true, restricted: true };
       }
-      return { allowed: false };
-    } catch (_) {
-      return { allowed: true }; // fail open on any error
+      return { allowed: false, restricted: true };
+    } catch (err) {
+      console.log(`[ipCheck] error — failing open: ${err.message}`);
+      return { allowed: true, restricted: false };
     }
   }
 
@@ -880,37 +936,61 @@ class AttendanceController {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
-  // Zone-level (radius) check — accepts pre-fetched geoData.
-  async _validateZoneAllowed(tenantId, geoData) {
+  // Zone-level (radius) check.
+  // clientCoords — browser GPS { latitude, longitude } preferred over IP-geo (much more accurate).
+  // Returns { allowed, restricted } where restricted=true means the check is active (enabled + zones configured).
+  async _validateZoneAllowed(tenantId, geoData, clientCoords = null) {
     try {
       const tenantRows = await this.db.query(
         `SELECT settings FROM ${TABLES.TENANTS} WHERE ROWID = ${tenantId} LIMIT 1`
       );
-      if (!tenantRows.length) return { allowed: true };
+      if (!tenantRows.length) return { allowed: true, restricted: false };
       const settings = JSON.parse(tenantRows[0].settings || '{}');
-      if (!settings.geo_zones_enabled) return { allowed: true };
+      if (!settings.geo_zones_enabled) return { allowed: true, restricted: false };
 
       const zones = await this.db.findWhere(TABLES.GEO_ZONES, tenantId, `is_active = 'true'`, { limit: 100 });
-      if (!zones || zones.length === 0) return { allowed: true };
+      if (!zones || zones.length === 0) return { allowed: true, restricted: false };
 
-      if (!geoData || geoData.lat == null || geoData.lon == null) return { allowed: true }; // fail open if no coords
-
-      for (const zone of zones) {
-        const dist = this._haversineKm(parseFloat(zone.latitude), parseFloat(zone.longitude), geoData.lat, geoData.lon);
-        if (dist <= parseFloat(zone.radius_km)) return { allowed: true, zone: zone.name };
+      // Prefer browser GPS (accurate to meters) over IP geolocation (±25–50 km).
+      // If neither is available (private IP + no browser GPS) fail open but mark restricted
+      // so the IP+Zone OR gate still activates.
+      let coordSource = 'none';
+      let lat, lon;
+      if (clientCoords && clientCoords.latitude != null && clientCoords.longitude != null) {
+        lat = parseFloat(clientCoords.latitude);
+        lon = parseFloat(clientCoords.longitude);
+        coordSource = 'GPS';
+      } else if (geoData && geoData.lat != null && geoData.lon != null) {
+        lat = geoData.lat;
+        lon = geoData.lon;
+        coordSource = 'IP-geo';
       }
-      return { allowed: false, city: geoData.city, regionName: geoData.regionName };
-    } catch (_) {
-      return { allowed: true };
+
+      if (coordSource === 'none') {
+        console.log(`[zone] no coords available (private IP + no browser GPS) — failing open (restricted=true)`);
+        return { allowed: true, restricted: true };
+      }
+
+      console.log(`[zone] using ${coordSource} coords: lat=${lat} lon=${lon}, checking ${zones.length} zone(s)`);
+      for (const zone of zones) {
+        const dist = this._haversineKm(parseFloat(zone.latitude), parseFloat(zone.longitude), lat, lon);
+        console.log(`[zone]   "${zone.name}" centre=(${zone.latitude},${zone.longitude}) radius=${zone.radius_km}km → dist=${dist.toFixed(3)}km → ${dist <= parseFloat(zone.radius_km) ? 'IN ZONE ✓' : 'outside'}`);
+        if (dist <= parseFloat(zone.radius_km)) return { allowed: true, restricted: true, zone: zone.name };
+      }
+      return { allowed: false, restricted: true, city: geoData?.city, regionName: geoData?.regionName };
+    } catch (err) {
+      console.log(`[zone] error — failing open: ${err.message}`);
+      return { allowed: true, restricted: false };
     }
   }
 
   // Run one GeoIP lookup then validate country + zone concurrently. Used by checkIn/breakStart/breakEnd.
-  async _runLocationChecks(tenantId, ip) {
-    const geoData = await this._lookupGeo(ip); // single external API call
+  // clientCoords — optional { latitude, longitude } from browser GPS (preferred over IP-geo for zone checks).
+  async _runLocationChecks(tenantId, ip, clientCoords = null) {
+    const geoData = await this._lookupGeo(ip); // single external API call (used for country check + zone fallback)
     const [countryCheck, zoneCheck] = await Promise.all([
       this._validateGeoAllowed(tenantId, geoData),
-      this._validateZoneAllowed(tenantId, geoData),
+      this._validateZoneAllowed(tenantId, geoData, clientCoords),
     ]);
     return { countryCheck, zoneCheck };
   }

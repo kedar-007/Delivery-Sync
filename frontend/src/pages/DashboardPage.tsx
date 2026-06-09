@@ -895,14 +895,6 @@ const DashboardPage = () => {
       />
       <div className="p-6 space-y-5">
 
-        {/* Standup alert */}
-        {summary?.stats?.missingStandupsCount > 0 && (
-          <Alert
-            type="warning"
-            message={`Missing today's standup for: ${summary.missingStandups?.map((p: { name: string }) => p.name).join(', ')}`}
-          />
-        )}
-
         {/* Role-specific KPI strip */}
         {isPmo && (
           <PmoKpiStrip summary={summary} tenantSlug={slug} tasks={allTasks} />

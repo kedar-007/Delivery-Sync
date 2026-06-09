@@ -4,7 +4,23 @@
     "stack": "node20",
     "type": "advancedio",
     "env_variables": {
-      
+      "NODE_ENV": "development",
+      "FROM_EMAIL": "catalystadmin@dsv360.ai",
+      "APP_BASE_URL": "https://delivery-sync-60040289923.development.catalystserverless.in",
+      "APP_URL": "https://delivery-sync-60040289923.development.catalystserverless.in",
+      "ENVIRONMENT": "development",
+      "STRATUS_BUCKET_NAME": "profiles-users",
+      "STRATUS_USER_AVATARS_URL": "https://profiles-users-development.zohostratus.in",
+      "ROLE_ID_TENANT_ADMIN": "17682000000989450",
+      "ROLE_ID_DELIVERY_LEAD": "17682000000989455",
+      "ROLE_ID_TEAM_MEMBER": "17682000000989460",
+      "ROLE_ID_PMO": "17682000000989465",
+      "ROLE_ID_EXEC": "17682000000989470",
+      "ROLE_ID_CLIENT": "17682000000989475",
+      "ROLE_ID_SUPER_ADMIN": "17682000001011209",
+      "INTERNAL_SECRET": "dsv-internal-cron-2024",
+      "TEAM_REMINDER_POOL_NAME": "TeamReminder",
+      "TEAM_REMINDER_POOL_ID": "17682000001904407"
     }
   },
   "execution": {
