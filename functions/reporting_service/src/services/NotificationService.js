@@ -13,6 +13,10 @@ class NotificationService {
 
   async send({ toEmail, subject, htmlBody }) {
     const fromEmail = process.env.FROM_EMAIL || 'catalystadmin@dsv360.ai';
+    const envRaw = String(process.env.ENVIRONMENT || 'development').trim().toLowerCase();
+    const isProd = envRaw === 'production' || envRaw === 'prod';
+    const envLabel = isProd ? 'PROD' : envRaw.toUpperCase();
+    const finalSubject = isProd ? subject : `[${envLabel}] ${subject}`;
 
     try {
       const mail = this.catalystApp.email();
@@ -20,7 +24,7 @@ class NotificationService {
       const payload = {
         from_email: fromEmail,
         to_email: [toEmail],
-        subject,
+        subject: finalSubject,
         content: htmlBody,
         html_mode: true,
       };
@@ -199,6 +203,17 @@ class NotificationService {
           ? ctaUrl
           : `${APP_URL}/app/#${slug}${ctaUrl.startsWith('/') ? '' : '/'}${ctaUrl}`)
       : '';
+    const envRaw   = String(process.env.ENVIRONMENT || 'development').trim().toLowerCase();
+    const isProd   = envRaw === 'production' || envRaw === 'prod';
+    const envLabel = isProd ? 'PROD' : envRaw.toUpperCase();
+    const envBanner = isProd ? '' : `
+        <!-- Non-prod environment banner -->
+        <tr>
+          <td style="background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:10px 14px;text-align:center;">
+            <div style="font-size:12px;font-weight:700;letter-spacing:1.5px;color:#92400e;text-transform:uppercase;">&#9888;&nbsp; ${envLabel} environment &mdash; this is a test message</div>
+          </td>
+        </tr>
+        <tr><td style="height:12px;line-height:12px;font-size:0;">&nbsp;</td></tr>`;
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -211,7 +226,7 @@ class NotificationService {
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px;">
     <tr><td align="center">
       <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
-
+        ${envBanner}
         <!-- Header -->
         <tr>
           <td style="background:${accentColor};border-radius:12px 12px 0 0;padding:28px 32px;">

@@ -21,5 +21,12 @@ module.exports = (req, res) => {
     // Catalyst init may fail for unauthenticated cron/public routes; handled downstream
     req.catalystApp = null;
   }
+  // Admin-scoped app is needed for job-scheduling management operations
+  // (createCron, deleteCron, getCrons). Falls back to catalystApp on failure.
+  try {
+    req.adminCatalystApp = catalyst.initialize(req, { scope: 'admin' });
+  } catch (err) {
+    req.adminCatalystApp = req.catalystApp;
+  }
   app(req, res);
 };

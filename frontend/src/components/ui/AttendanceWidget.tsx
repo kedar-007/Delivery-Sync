@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { LogIn, LogOut, Coffee, Clock, Home, UtensilsCrossed, AlertTriangle } from 'lucide-react';
 import Modal, { ModalActions } from './Modal';
 import Button from './Button';
@@ -87,10 +87,101 @@ const AttendanceWidget: React.FC = () => {
   // Always send UTC so both backend and timer use the same reference frame
   const clientTime = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
 
-  const handleCheckIn    = () => checkIn.mutate({ client_time: clientTime() });
+  // Request browser GPS coordinates — resolves to { latitude, longitude } or null if denied/unavailable.
+  // Uses cached position (up to 60s old) to avoid blocking the UI.
+  const getGpsCoords = useCallback((): Promise<{ latitude: number; longitude: number } | null> => {
+    return new Promise((resolve) => {
+      console.group('[Location] GPS request');
+      console.log('  protocol     :', window.location.protocol);
+      console.log('  host         :', window.location.host);
+      console.log('  geolocation  :', !!navigator?.geolocation ? 'available' : 'NOT available');
+
+      if (!navigator?.geolocation) {
+        console.warn('  ✗ navigator.geolocation is undefined — browser does not support it or page is not HTTPS');
+        console.groupEnd();
+        resolve(null);
+        return;
+      }
+
+      // Geolocation requires HTTPS (except localhost). Warn if that's the issue.
+      const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      if (!isSecure) {
+        console.warn('  ✗ Page is served over HTTP (not HTTPS) — browser will block geolocation on non-localhost origins');
+      }
+
+      // Check existing permission state if the Permissions API is available
+      if (navigator.permissions) {
+        navigator.permissions.query({ name: 'geolocation' }).then((status) => {
+          console.log('  permission state:', status.state); // 'granted' | 'denied' | 'prompt'
+          if (status.state === 'denied') {
+            console.warn('  ✗ Geolocation permission is DENIED — user must reset it in browser site settings');
+          }
+        }).catch(() => {});
+      }
+
+      console.log('  calling getCurrentPosition (timeout=8s, maxAge=60s)…');
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+          console.log('  ✓ GPS obtained:', coords);
+          console.log('    accuracy :', pos.coords.accuracy, 'm');
+          console.log('    age      :', Date.now() - pos.timestamp, 'ms (cached position if > 0)');
+          console.groupEnd();
+          resolve(coords);
+        },
+        (err) => {
+          const reasons: Record<number, string> = {
+            1: 'PERMISSION_DENIED — user blocked location access',
+            2: 'POSITION_UNAVAILABLE — device cannot determine location',
+            3: 'TIMEOUT — took longer than 8s to get position',
+          };
+          console.warn('  ✗ GPS failed:', reasons[err.code] ?? err.message);
+          console.warn('    error code:', err.code, '| message:', err.message);
+          console.warn('    → proceeding without GPS coords (server will fall back to IP-geo)');
+          console.groupEnd();
+          resolve(null);
+        },
+        { timeout: 8000, maximumAge: 60000, enableHighAccuracy: false },
+      );
+    });
+  }, []);
+
+  const [locPending, setLocPending] = useState(false);
+
+  const handleCheckIn = useCallback(async () => {
+    console.group('[Location] Check In flow');
+    console.log('  step 1: fetching GPS…');
+    setLocPending(true);
+    const coords = await getGpsCoords();
+    setLocPending(false);
+    const payload = { client_time: clientTime(), ...(coords ?? {}) };
+    if (coords) {
+      console.log('  step 2: GPS coords included in payload → server will validate against geo-zones using real GPS');
+    } else {
+      console.warn('  step 2: no GPS coords → server falls back to IP-geo (may be inaccurate or fail for private IPs like 127.0.0.1)');
+    }
+    console.log('  payload sent to server:', payload);
+    console.groupEnd();
+    checkIn.mutate(payload);
+  }, [checkIn, getGpsCoords]);
+
   const handleWfhCheckIn = () => checkIn.mutate({ client_time: clientTime(), is_wfh: true, wfh_reason: todayApprovedWfh?.reason ?? '' });
-  const handleBreakStart = (type: 'LUNCH' | 'SHORT') => breakStart.mutate({ client_time: clientTime(), break_type: type });
-  const handleBreakEnd   = () => breakEnd.mutate({ client_time: clientTime() });
+
+  const handleBreakStart = useCallback(async (type: 'LUNCH' | 'SHORT') => {
+    console.log(`[AttendanceWidget] Break Start (${type}) clicked — fetching GPS…`);
+    const coords = await getGpsCoords();
+    const payload = { client_time: clientTime(), break_type: type, ...(coords ?? {}) };
+    console.log('[AttendanceWidget] breakStart payload:', payload);
+    breakStart.mutate(payload);
+  }, [breakStart, getGpsCoords]);
+
+  const handleBreakEnd = useCallback(async () => {
+    console.log('[AttendanceWidget] Break End clicked — fetching GPS…');
+    const coords = await getGpsCoords();
+    const payload = { client_time: clientTime(), ...(coords ?? {}) };
+    console.log('[AttendanceWidget] breakEnd payload:', payload);
+    breakEnd.mutate(payload);
+  }, [breakEnd, getGpsCoords]);
 
   // ── Check-out confirmation modal ──
   // Check-out is a one-way action — once stamped, the user can't check back in
@@ -200,11 +291,11 @@ const AttendanceWidget: React.FC = () => {
           <>
             <button
               onClick={handleCheckIn}
-              disabled={checkIn.isPending}
+              disabled={checkIn.isPending || locPending}
               className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-medium transition-colors disabled:opacity-60"
             >
               <LogIn size={13} />
-              {checkIn.isPending ? '…' : 'Check In'}
+              {locPending ? 'Locating…' : checkIn.isPending ? '…' : 'Check In'}
             </button>
             {todayApprovedWfh && (
               <button

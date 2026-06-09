@@ -374,7 +374,7 @@ const StandupPage = () => {
   if (projectsLoading) return <Layout><PageLoader /></Layout>;
 
   const submittedProjectIds = new Set(todayStandups.map((s: { projectId: string }) => s.projectId));
-  const standupProjects = (projects as any[]).filter((p) => p.standupEnabled !== false);
+  const standupProjects = projects as any[];
 
   // Group "My Submissions" by project
   const projectColorMap = new Map<string, string>();

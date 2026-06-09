@@ -1,5 +1,6 @@
 'use strict';
 
+const catalyst = require('zcatalyst-sdk-node');
 const DataStoreService = require('../services/DataStoreService');
 const AuditService = require('../services/AuditService');
 const CacheService = require('../services/CacheService');
@@ -65,7 +66,8 @@ class AdminController {
         } catch (_) {}
       }
 
-      // Get the current user's Catalyst org_id — required by registerUser()
+      // Get the current user's Catalyst org_id — required by registerUser().
+      // Uses user-scoped app (this.auth) which needs the calling user's token.
       const currentCatalystUser = await this.auth.getCurrentUser();
       const orgId = currentCatalystUser.org_id || '';
 
@@ -89,8 +91,12 @@ class AdminController {
         org_id:     orgId,
       };
 
-      /** Invite via Catalyst registerUser — fatal if fails, no DB insert */
-      const registeredUser = await this.auth.registerUser(signupConfig, userConfig);
+      // Use admin-scoped Catalyst so registerUser is not subject to the calling
+      // user's email-verification status. The admin ticket from req headers is
+      // used exclusively; the user session is stripped from the outgoing call.
+      const adminApp  = catalyst.initialize(req, { scope: 'admin', appName: '__admin_invite__' });
+      const adminAuth = adminApp.userManagement();
+      const registeredUser = await adminAuth.registerUser(signupConfig, userConfig);
 
       /** DB insert ONLY after successful Catalyst registration */
       const user = await this.db.insert(TABLES.USERS, {

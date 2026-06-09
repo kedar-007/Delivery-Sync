@@ -1,0 +1,13 @@
+{
+	"deployment": {
+		"name": "team_reminder",
+		"stack": "node24",
+		"type": "job",
+		"env_variables": {
+			"FROM_EMAIL": "catalystadmin@dsv360.ai"
+		}
+	},
+	"execution": {
+		"main": "index.js"
+	}
+}

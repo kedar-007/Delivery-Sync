@@ -288,6 +288,176 @@ class CronController {
       errors: errors.slice(0, 20),
     });
   }
+
+  // POST /api/people/cron/send-reminders — runs every minute  (Catalyst Cron: * * * * *)
+  // Checks all teams for standup/EOD times 15 minutes from now and submits a webhook job
+  // to the Job Pool for each match. The Job Pool then calls /cron/send-team-reminder.
+  static async sendReminders(req, res) {
+    if (!CRON_AUTH(req)) return ResponseHelper.forbidden(res, 'Cron only');
+    if (!req.catalystApp) return ResponseHelper.serverError(res, 'catalystApp not initialized');
+
+    const appRef = req.adminCatalystApp || req.catalystApp;
+    const db     = new DataStoreService(appRef);
+    const now    = new Date();
+
+    // The time we want to remind about = now + 15 minutes
+    const target = new Date(now.getTime() + 15 * 60 * 1000);
+
+    let submitted = 0;
+    let skipped   = 0;
+    const errors  = [];
+
+    try {
+      // Fetch all teams across all tenants (paginated; filter in JS to avoid ZCQL OR issues)
+      const teams = [];
+      let offset = 0;
+      while (true) {
+        const page = await db.query(
+          `SELECT ROWID, tenant_id, name, standup_time, eod_time, timezone FROM ${TABLES.TEAMS}` +
+          ` LIMIT 200 OFFSET ${offset}`
+        );
+        teams.push(...page);
+        if (page.length < 200) break;
+        offset += 200;
+      }
+
+      const jobpool = appRef.jobScheduling().jobpool({ name: 'reminders_pool' });
+      const senderUrl = `${process.env.APP_URL}/server/people_service/api/people/cron/send-team-reminder`;
+      const internalHeader = { 'x-delivery-sync-internal': process.env.INTERNAL_SECRET || '' };
+
+      for (const team of teams) {
+        // Skip teams with no schedule at all
+        if (!team.standup_time && !team.eod_time) { skipped++; continue; }
+
+        const teamId   = String(team.ROWID);
+        const tenantId = String(team.tenant_id);
+        const tz       = team.timezone || 'UTC';
+
+        // Format target time in the team's own timezone → "HH:MM"
+        let localHHMM;
+        try {
+          localHHMM = new Intl.DateTimeFormat('en-GB', {
+            hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz,
+          }).format(target);
+        } catch (_) {
+          localHHMM = new Intl.DateTimeFormat('en-GB', {
+            hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC',
+          }).format(target);
+        }
+
+        // Compare stored "HH:MM" against the target time in the team's timezone
+        const standupMatch = team.standup_time && team.standup_time.substring(0, 5) === localHHMM;
+        const eodMatch     = team.eod_time     && team.eod_time.substring(0, 5)     === localHHMM;
+
+        if (!standupMatch && !eodMatch) { skipped++; continue; }
+
+        const toSubmit = [];
+        if (standupMatch) toSubmit.push({ type: 'STANDUP', time: team.standup_time });
+        if (eodMatch)     toSubmit.push({ type: 'EOD',     time: team.eod_time });
+
+        for (const { type, time } of toSubmit) {
+          try {
+            await jobpool.submitJob({
+              job_name:       `reminder_${type.toLowerCase()}_${teamId}_${now.getTime()}`,
+              target_type:    'Webhook',
+              request_method: 'POST',
+              url:            senderUrl,
+              headers:        internalHeader,
+              request_body:   JSON.stringify({ team_id: teamId, tenant_id: tenantId, type, time, team_name: team.name || '' }),
+            });
+            submitted++;
+          } catch (e) {
+            errors.push(`team=${teamId} type=${type}: ${e.message}`);
+          }
+        }
+      }
+
+      return ResponseHelper.success(res, { submitted, skipped, errors: errors.slice(0, 10) });
+    } catch (outerErr) {
+      return ResponseHelper.serverError(res, outerErr.message);
+    }
+  }
+
+  // POST /api/people/cron/send-team-reminder — called by Job Pool webhook
+  // Sends both in-app and email notifications to all members of a team.
+  static async sendTeamReminder(req, res) {
+    if (!CRON_AUTH(req)) return ResponseHelper.forbidden(res, 'Cron only');
+    if (!req.catalystApp) return ResponseHelper.serverError(res, 'catalystApp not initialized');
+
+    const { team_id, tenant_id, type, time, team_name } = req.body || {};
+    if (!team_id || !tenant_id || !type) {
+      return ResponseHelper.serverError(res, 'team_id, tenant_id and type are required');
+    }
+
+    const appRef = req.adminCatalystApp || req.catalystApp;
+    const db     = new DataStoreService(appRef);
+    const notif  = new NotificationService(appRef, db);
+    const today  = DataStoreService.today();
+
+    try {
+      // Fetch all team members (fetchAll auto-paginates in 200-row pages)
+      const members = await db.fetchAll(TABLES.TEAM_MEMBERS, tenant_id, `team_id = '${team_id}'`);
+
+      if (members.length === 0) {
+        return ResponseHelper.success(res, { team_id, type, sent: 0 });
+      }
+
+      // Build userId → { name, email } map for the whole tenant so we can send emails
+      const userMap = {};
+      let uOffset = 0;
+      while (true) {
+        const page = await db.query(
+          `SELECT ROWID, name, email FROM ${TABLES.USERS}` +
+          ` WHERE tenant_id = '${tenant_id}' AND status = 'ACTIVE'` +
+          ` LIMIT 300 OFFSET ${uOffset}`
+        );
+        for (const u of page) userMap[String(u.ROWID)] = { name: u.name || '', email: u.email || '' };
+        if (page.length < 300) break;
+        uOffset += 300;
+      }
+
+      const isStandup = type === 'STANDUP';
+      const typeLabel = isStandup ? 'Standup' : 'End of Day';
+      const label     = team_name || 'Your Team';
+      const title     = `${typeLabel} in 15 minutes`;
+      const message   = `Your ${typeLabel} is starting at ${time || 'the scheduled time'}. Get ready!`;
+      const notifType = isStandup ? NOTIFICATION_TYPE.STANDUP_REMINDER : NOTIFICATION_TYPE.EOD_REMINDER;
+
+      let sent = 0;
+      for (const member of members) {
+        const userId = String(member.user_id);
+        const user   = userMap[userId];
+
+        // In-app / web-push notification
+        await notif.sendInApp({
+          tenantId:   tenant_id,
+          userId,
+          title,
+          message,
+          type:       notifType,
+          entityType: 'TEAM',
+          entityId:   team_id,
+        });
+
+        // Email — only sent when the user record has an email address
+        if (user?.email) {
+          if (isStandup) {
+            await notif.sendStandupReminder({ toEmail: user.email, toName: user.name, projectName: label, date: today });
+          } else {
+            await notif.sendEodReminder({ toEmail: user.email, toName: user.name, projectName: label, date: today });
+          }
+        }
+
+        sent++;
+      }
+
+      console.log(`[CronController] sendTeamReminder | team=${team_id} type=${type} sent=${sent}`);
+      return ResponseHelper.success(res, { team_id, type, sent });
+    } catch (err) {
+      console.error('[CronController] sendTeamReminder error:', err.message);
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
 }
 
 module.exports = CronController;

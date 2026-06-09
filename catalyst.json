@@ -13,7 +13,10 @@
       "user_confirmation",
       "bot_service",
       "bug_service",
-      "automated_checkout"
+      "automated_checkout",
+      "leave_accrual",
+      "leave_policy",
+      "team_reminder"
     ],
     "ignore": [],
     "source": "functions"

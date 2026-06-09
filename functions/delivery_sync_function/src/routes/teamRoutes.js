@@ -10,7 +10,9 @@ const { PERMISSIONS } = require('../utils/Constants');
 const router = express.Router();
 const auth = AuthMiddleware.authenticate;
 const can = RBACMiddleware.require;
-const ctrl = (req) => new TeamController(req.catalystApp);
+// Use admin app for job-scheduling management (cron create/delete).
+// Falls back to regular catalystApp for local dev where adminCatalystApp may not be set.
+const ctrl = (req) => new TeamController(req.adminCatalystApp || req.catalystApp);
 
 // Team CRUD
 router.post('/',    auth, can(PERMISSIONS.TEAM_WRITE), asyncHandler((req, res) => ctrl(req).createTeam(req, res)));

@@ -1,0 +1,9 @@
+{
+	"name": "team_reminder",
+	"version": "1.0.0",
+	"main": "index.js",
+	"author": "catalystadmin@dsv360.ai",
+	"dependencies": {
+		"zcatalyst-sdk-node": "latest"
+	}
+}

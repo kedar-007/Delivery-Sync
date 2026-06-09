@@ -411,7 +411,7 @@ const EodPage = () => {
 
   if (projectsLoading) return <Layout><PageLoader /></Layout>;
 
-  const eodProjects = (projects as any[]).filter((p) => p.eodEnabled !== false);
+  const eodProjects = projects as any[];
 
   return (
     <Layout>

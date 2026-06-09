@@ -1,0 +1,11 @@
+{
+	"deployment": {
+		"name": "leave_policy",
+		"stack": "node24",
+		"type": "job",
+		"env_variables": {}
+	},
+	"execution": {
+		"main": "index.js"
+	}
+}
