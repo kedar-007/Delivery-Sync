@@ -199,6 +199,14 @@ class NotificationService {
     });
   }
 
+  async sendLateCheckIn({ toEmail, toName, employeeName, shiftName, expectedBy, actualCheckIn, lateBy, timezone }) {
+    return this.send({
+      toEmail,
+      subject: `[Delivery Sync] ${employeeName} checked in late — ${lateBy} (${shiftName})`,
+      htmlBody: this._lateCheckInTemplate(toName, employeeName, shiftName, expectedBy, actualCheckIn, lateBy, timezone),
+    });
+  }
+
   async sendDailySummary({ toEmail, toName, date, submitted, missed, projectName }) {
     return this.send({
       toEmail,
@@ -259,9 +267,25 @@ class NotificationService {
         <tr>
           <td style="background:${accentColor};border-radius:12px 12px 0 0;padding:28px 32px;">
             <table width="100%" cellpadding="0" cellspacing="0">
+              <!-- App brand -->
+              <tr>
+                <td style="padding-bottom:20px;">
+                  <table cellpadding="0" cellspacing="0">
+                    <tr>
+                      <td style="background:rgba(255,255,255,0.15);border-radius:10px;width:38px;height:38px;text-align:center;vertical-align:middle;">
+                        <span style="font-size:20px;line-height:38px;">&#128230;</span>
+                      </td>
+                      <td style="padding-left:10px;vertical-align:middle;">
+                        <div style="color:#ffffff;font-size:15px;font-weight:700;letter-spacing:-0.2px;">Delivery Sync</div>
+                        <div style="color:rgba(255,255,255,0.55);font-size:10px;margin-top:1px;letter-spacing:0.3px;">Delivery Intelligence Platform</div>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+              <!-- Title -->
               <tr>
                 <td>
-                  <div style="font-size:11px;font-weight:700;letter-spacing:2px;color:rgba(255,255,255,0.7);text-transform:uppercase;margin-bottom:6px;">Delivery Sync</div>
                   <div style="font-size:22px;font-weight:700;color:#ffffff;line-height:1.3;">${headerTitle}</div>
                   ${headerSubtitle ? `<div style="font-size:14px;color:rgba(255,255,255,0.85);margin-top:6px;">${headerSubtitle}</div>` : ''}
                 </td>
@@ -283,11 +307,23 @@ class NotificationService {
 
         <!-- Footer -->
         <tr>
-          <td style="background:#f9fafb;border-top:1px solid #e5e7eb;border-radius:0 0 12px 12px;padding:20px 32px;text-align:center;">
-            <div style="font-size:12px;color:#9ca3af;line-height:1.6;">
-              This is an automated notification from <strong style="color:#6b7280;">Delivery Sync</strong>.<br />
-              ${footerNote || 'You received this because you are a member of this project.'}
-            </div>
+          <td style="background:#f9fafb;border-top:1px solid #e5e7eb;border-radius:0 0 12px 12px;padding:24px 32px;text-align:center;">
+            <table cellpadding="0" cellspacing="0" style="margin:0 auto;">
+              <tr>
+                <td style="text-align:center;">
+                  <div style="font-size:12px;color:#6b7280;line-height:1.7;">
+                    ${footerNote || 'You received this because you are a member of this project.'}
+                  </div>
+                  <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb;">
+                    <span style="font-size:13px;font-weight:700;color:#374151;">&#128230; Delivery Sync</span>
+                    <span style="font-size:11px;color:#9ca3af;margin-left:6px;">Delivery Intelligence Platform</span>
+                  </div>
+                  <div style="font-size:11px;color:#d1d5db;margin-top:4px;">
+                    &copy; ${new Date().getFullYear()} Delivery Sync &mdash; This is an automated notification.
+                  </div>
+                </td>
+              </tr>
+            </table>
           </td>
         </tr>
 
@@ -678,6 +714,36 @@ class NotificationService {
       ctaUrl: '/reports',
       ctaLabel: 'View Full Report',
       footerNote: 'This summary is sent to project leads each evening.',
+    });
+  }
+
+  _lateCheckInTemplate(reviewerName, employeeName, shiftName, expectedBy, actualCheckIn, lateBy, timezone) {
+    const body = `
+      <p style="font-size:15px;color:#374151;margin:0 0 20px;">Hi <strong>${_safe(reviewerName)}</strong>,</p>
+      <p style="font-size:14px;color:#6b7280;margin:0 0 8px;">
+        <strong style="color:#374151;">${_safe(employeeName)}</strong> checked in late today.
+      </p>
+      ${this._infoCard([
+        ['Shift',          _safe(shiftName)],
+        ['Expected By',    _safe(expectedBy)],
+        ['Actual Check-In', `${_safe(actualCheckIn)} (${_safe(timezone)})`, '#dc2626'],
+        ['Late By',        _safe(lateBy), '#dc2626'],
+      ])}
+      <div style="background:#fff7ed;border-left:4px solid #ea580c;border-radius:0 6px 6px 0;padding:14px 16px;margin:16px 0;">
+        <p style="margin:0;font-size:13px;color:#9a3412;font-weight:500;">
+          &#9888;&nbsp; Please follow up with the team member if this becomes a recurring pattern.
+        </p>
+      </div>`;
+
+    return this._base({
+      accentColor: '#ea580c',
+      preheader: `${_safe(employeeName)} was ${lateBy} late on the ${_safe(shiftName)} shift`,
+      headerTitle: 'Late Check-in Alert',
+      headerSubtitle: `${_safe(employeeName)} · ${lateBy} late`,
+      body,
+      ctaUrl: '/attendance',
+      ctaLabel: 'View Attendance',
+      footerNote: 'You received this because you are the reporting manager.',
     });
   }
 

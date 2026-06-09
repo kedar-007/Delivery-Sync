@@ -1123,21 +1123,23 @@ class AttendanceController {
       const lateFormatted = `${hh}:${mm}:${ss}`;
 
       const userName = req.currentUser.name || req.currentUser.email;
-      const subject  = `[Delivery Sync] ${userName} checked in late — ${lateFormatted} late (${shift.name})`;
-      const htmlBody = `<p>Hi ${rmRows[0].name},</p>
-<p><strong>${userName}</strong> checked in late today.</p>
-<ul>
-  <li><strong>Shift:</strong> ${shift.name}</li>
-  <li><strong>Expected by:</strong> ${shift.start_time} + ${shift.grace_minutes || 15} min grace</li>
-  <li><strong>Actual check-in:</strong> ${checkInLocalTime} (${safeZone})</li>
-  <li><strong>Late by:</strong> ${lateFormatted}</li>
-</ul>`;
+      const shiftName = shift.name || 'Unassigned';
+      const expectedBy = `${shift.start_time} + ${shift.grace_minutes || 15} min grace`;
 
-      await this.notif.send({ toEmail: rmRows[0].email, subject, htmlBody });
+      await this.notif.sendLateCheckIn({
+        toEmail: rmRows[0].email,
+        toName: rmRows[0].name,
+        employeeName: userName,
+        shiftName,
+        expectedBy,
+        actualCheckIn: checkInLocalTime,
+        lateBy: lateFormatted,
+        timezone: safeZone,
+      });
       await this.notif.sendInApp({
         tenantId, userId: rmId,
         title: 'Late Check-in',
-        message: `${userName} checked in ${lateFormatted} late (${shift.name})`,
+        message: `${userName} checked in ${lateFormatted} late (${shiftName})`,
         type: NOTIFICATION_TYPE.GENERAL,
         entityType: 'ATTENDANCE', entityId: record.ROWID,
       });

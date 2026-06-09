@@ -4,14 +4,11 @@
     "stack": "node20",
     "type": "advancedio",
     "env_variables": {
-      "NODE_ENV": "development",
-      "FROM_EMAIL": "catalystadmin@dsv360.ai",
-      "APP_URL": "https://delivery-sync-60040289923.development.catalystserverless.in",
-      "ENVIRONMENT": "development",
-      "INTERNAL_SECRET": "dsv-internal-cron-2024"
+      
     }
   },
   "execution": {
     "main": "index.js"
   }
 }
+
