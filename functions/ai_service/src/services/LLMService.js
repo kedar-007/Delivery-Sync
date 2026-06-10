@@ -22,14 +22,18 @@ const { handleAPIError } = require('../utils/ErrorHelper');
  */
 class LLMService {
   static MAX_RETRIES = 3;
-  static RETRY_DELAY_MS = 1500;
+  static RETRY_DELAY_MS = 1000;
 
   /**
-   * Static promise chain that serialises all LLM calls across concurrent requests.
-   * The Zoho QuickML endpoint struggles with simultaneous requests in the dev
-   * environment, so we queue them rather than fire in parallel.
+   * Bounded concurrency semaphore — allows up to MAX_CONCURRENT LLM calls in
+   * flight simultaneously. This replaces the old fully-serial promise chain that
+   * made every user wait for every other user's call to finish first.
+   * GLM-4.7B handles several parallel requests fine; 4 is a safe ceiling that
+   * prevents token-rate exhaustion while allowing real parallelism.
    */
-  static _llmQueue = Promise.resolve();
+  static MAX_CONCURRENT = 4;
+  static _activeCount   = 0;
+  static _waitQueue     = [];
 
   /**
    * @param {object} catalystApp  – Initialised Catalyst SDK instance (req.catalystApp)
@@ -103,6 +107,26 @@ class LLMService {
     return token;
   }
 
+  // ─── Concurrency helpers ─────────────────────────────────────────────────────
+
+  static async _acquireSlot() {
+    if (LLMService._activeCount < LLMService.MAX_CONCURRENT) {
+      LLMService._activeCount++;
+      return;
+    }
+    // Queue until a slot frees up (FIFO).
+    await new Promise((resolve) => LLMService._waitQueue.push(resolve));
+    LLMService._activeCount++;
+  }
+
+  static _releaseSlot() {
+    LLMService._activeCount--;
+    if (LLMService._waitQueue.length > 0) {
+      const next = LLMService._waitQueue.shift();
+      next();
+    }
+  }
+
   // ─── LLM Call ───────────────────────────────────────────────────────────────
 
   /**
@@ -114,19 +138,11 @@ class LLMService {
    * @returns {Promise<{ response: string, usage: object }>}
    */
   async call(prompt, systemPrompt, options = {}) {
-    // Enqueue this call so at most one LLM request is in-flight at a time.
-    let releaseFn;
-    const slot = new Promise((resolve) => { releaseFn = resolve; });
-    const prevTail = LLMService._llmQueue;
-    LLMService._llmQueue = slot;
-
-    // Wait for all previously queued calls to finish before starting ours.
-    await prevTail;
-
+    await LLMService._acquireSlot();
     try {
       return await this._callWithRetry(prompt, systemPrompt, options, LLMService.MAX_RETRIES);
     } finally {
-      releaseFn(); // Unblock the next queued call regardless of success/failure.
+      LLMService._releaseSlot();
     }
   }
 

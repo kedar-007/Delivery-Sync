@@ -1,30 +1,22 @@
 'use strict';
 
 /**
- * WishCronService — manages annual CALENDAR crons for birthday and work
- * anniversary wishes. Each user gets at most two crons:
- *   bday_${userId}   — fires at 08:00 on birth month/day in their timezone
- *   anniv_${userId}  — fires at 08:00 on join month/day in their timezone
+ * WishCronService — creates/updates/deletes annual CALENDAR crons for birthday
+ * and work anniversary wishes.
+ *   bday_${userId}   fires at 08:00 on birth month/day in the user's timezone
+ *   anniv_${userId}  fires at 08:00 on join month/day in the user's timezone
  *
- * Called from:
- *   UserController.updateProfile  — birthday cron (user sets own birth_date)
- *   AdminController.updateUser    — anniversary cron (admin sets date_of_joining)
- *   AdminController.deactivateUser — cleanup (deleteAll)
+ * Requires an admin-scoped catalystApp for jobScheduling() access.
  */
 class WishCronService {
-  constructor(catalystApp) {
-    this.catalystApp = catalystApp;
+  constructor(adminCatalystApp) {
+    this.catalystApp = adminCatalystApp;
   }
 
   _cronName(userId, type) {
     return type === 'BIRTHDAY' ? `bday_${userId}` : `anniv_${userId}`;
   }
 
-  /**
-   * Create or update an annual cron for the given user + type.
-   * dateStr  – ISO date string from user_profiles (birth_date or date_of_joining)
-   * timezone – IANA timezone string e.g. 'Australia/Sydney' (falls back to 'UTC')
-   */
   async upsert(userId, tenantId, type, dateStr, timezone) {
     if (!dateStr) return;
 
@@ -34,24 +26,22 @@ class WishCronService {
       return;
     }
 
-    // Use UTC accessors so "1990-03-15" (parsed as UTC midnight) always gives day=15
-    // regardless of the Catalyst server's local timezone offset.
-    const day   = d.getUTCDate();        // 1–31
-    const month = d.getUTCMonth() + 1;   // 1–12
+    // UTC accessors so "1990-03-15" (parsed as UTC midnight) always yields day=15.
+    const day   = d.getUTCDate();
+    const month = d.getUTCMonth() + 1;
     const tz    = timezone || 'UTC';
 
     const cronName = this._cronName(userId, type);
     const jobName  = (type === 'BIRTHDAY' ? 'bd_' : 'an_') + String(userId).slice(-15);
 
-    // Read env vars fresh on every call — module-level constants can be stale
-    // if the function cold-started before the new catalyst-config.json was deployed.
+    // Read fresh every call — avoids stale module-level constants on cold starts.
     const poolName = process.env.WISHES_POOL_NAME || 'PeopleWishes';
     const poolId   = process.env.WISHES_POOL_ID   || '';
 
     if (!poolId) {
       console.error(
-        `[WishCronService] WISHES_POOL_ID is not set — skipping cron ${cronName}.` +
-        ` Add WISHES_POOL_ID to delivery_sync_function catalyst-config.json and redeploy.`
+        `[WishCronService] WISHES_POOL_ID not set — skipping cron ${cronName}.` +
+        ` Add WISHES_POOL_ID to badge_profile_service catalyst-config.json and redeploy.`
       );
       return;
     }
@@ -111,9 +101,6 @@ class WishCronService {
     }
   }
 
-  /**
-   * Delete a single wish cron (e.g. when date is cleared).
-   */
   async delete(userId, type) {
     const cronName = this._cronName(userId, type);
     let cronApi;
@@ -127,18 +114,8 @@ class WishCronService {
       await cronApi.deleteCron(cronName);
       console.log(`[WishCronService] ${cronName}: DELETED`);
     } catch (e) {
-      console.warn(`[WishCronService] ${cronName}: delete skipped (may not exist) —`, e.message);
+      console.warn(`[WishCronService] ${cronName}: delete skipped —`, e.message);
     }
-  }
-
-  /**
-   * Delete both birthday and anniversary crons (called on user deactivation).
-   */
-  async deleteAll(userId) {
-    await Promise.all([
-      this.delete(userId, 'BIRTHDAY'),
-      this.delete(userId, 'ANNIVERSARY'),
-    ]);
   }
 }
 

@@ -245,6 +245,13 @@ class AdminController {
         await this.db.update(TABLES.USERS, updatePayload);
       }
 
+      console.log(
+        `[updateUser] START userId=${userId} tenantId=${tenantId}` +
+        ` date_of_joining=${date_of_joining !== undefined ? JSON.stringify(date_of_joining) : '(not sent)'}` +
+        ` timezone=${timezone !== undefined ? JSON.stringify(timezone) : '(not sent)'}` +
+        ` role=${role || '(not sent)'}`
+      );
+
       // Update timezone / shift_id / date_of_joining in user_profiles
       if (timezone !== undefined || shift_id !== undefined || date_of_joining !== undefined) {
         try {
@@ -253,19 +260,28 @@ class AdminController {
             `SELECT ROWID, birth_date, date_of_joining, timezone FROM ${TABLES.USER_PROFILES}` +
             ` WHERE user_id = '${userId}' AND tenant_id = '${tenantId}' LIMIT 1`
           );
+          console.log(
+            `[updateUser] existing profile: found=${profiles.length > 0}` +
+            (profiles.length
+              ? ` date_of_joining=${profiles[0].date_of_joining} birth_date=${profiles[0].birth_date} timezone=${profiles[0].timezone}`
+              : '')
+          );
+
           const profileUpdate = {};
-          if (timezone !== undefined)       profileUpdate.timezone       = String(timezone || '');
-          if (shift_id !== undefined)       profileUpdate.shift_id       = shift_id ? String(shift_id) : '';
+          if (timezone !== undefined)        profileUpdate.timezone        = String(timezone || '');
+          if (shift_id !== undefined)        profileUpdate.shift_id        = shift_id ? String(shift_id) : '';
           if (date_of_joining !== undefined) profileUpdate.date_of_joining = date_of_joining || null;
 
           if (profiles.length > 0) {
             await this.db.update(TABLES.USER_PROFILES, { ROWID: profiles[0].ROWID, ...profileUpdate });
+            console.log(`[updateUser] user_profiles updated ROWID=${profiles[0].ROWID} fields=${Object.keys(profileUpdate).join(',')}`);
           } else {
             await this.db.insert(TABLES.USER_PROFILES, {
               tenant_id: tenantId, user_id: userId,
               bio: '', photo_url: '',
               ...profileUpdate,
             });
+            console.log(`[updateUser] user_profiles inserted (new row) userId=${userId}`);
           }
 
           // Reschedule wish crons when date_of_joining or timezone changes.
@@ -274,25 +290,32 @@ class AdminController {
             const finalDoj  = date_of_joining !== undefined ? date_of_joining  : existing.date_of_joining;
             const finalDob  = existing.birth_date || null;
             const finalTz   = timezone !== undefined ? timezone : (existing.timezone || 'UTC');
+            console.log(
+              `[updateUser] cron trigger: finalDoj=${JSON.stringify(finalDoj)} finalDob=${JSON.stringify(finalDob)} finalTz=${finalTz}` +
+              ` (doj changed=${date_of_joining !== undefined} timezone changed=${timezone !== undefined})`
+            );
             const wishCrons = new WishCronService(this.catalystApp);
 
             // Anniversary cron: re-schedule whenever doj or timezone changes
             if (finalDoj) {
+              console.log(`[updateUser] calling WishCronService.upsert ANNIVERSARY userId=${userId}`);
               wishCrons.upsert(userId, tenantId, 'ANNIVERSARY', finalDoj, finalTz)
-                .catch(e => console.error('[AdminController] anniversary cron upsert failed:', e.message));
+                .catch(e => console.error('[updateUser] anniversary cron upsert failed:', e.message, e.stack));
             } else if (date_of_joining !== undefined) {
+              console.log(`[updateUser] date_of_joining cleared — calling WishCronService.delete ANNIVERSARY userId=${userId}`);
               wishCrons.delete(userId, 'ANNIVERSARY')
-                .catch(e => console.error('[AdminController] anniversary cron delete failed:', e.message));
+                .catch(e => console.error('[updateUser] anniversary cron delete failed:', e.message));
             }
 
             // Birthday cron: re-schedule when timezone changes (dob stays the same)
             if (timezone !== undefined && finalDob) {
+              console.log(`[updateUser] timezone changed — calling WishCronService.upsert BIRTHDAY userId=${userId}`);
               wishCrons.upsert(userId, tenantId, 'BIRTHDAY', finalDob, finalTz)
-                .catch(e => console.error('[AdminController] birthday cron reschedule failed:', e.message));
+                .catch(e => console.error('[updateUser] birthday cron reschedule failed:', e.message, e.stack));
             }
           }
         } catch (profileErr) {
-          console.warn('[AdminController.updateUser] profile update failed:', profileErr.message);
+          console.warn('[updateUser] profile update failed:', profileErr.message, profileErr.stack);
         }
       }
 

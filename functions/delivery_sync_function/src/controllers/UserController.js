@@ -314,11 +314,21 @@ class UserController {
       const { id: userId, tenantId } = req.currentUser;
       const { name, phone, designation, birth_date, timezone } = req.body;
 
+      console.log(
+        `[updateProfile] START userId=${userId} tenantId=${tenantId}` +
+        ` birth_date=${birth_date !== undefined ? JSON.stringify(birth_date) : '(not sent)'}` +
+        ` timezone=${timezone !== undefined ? JSON.stringify(timezone) : '(not sent)'}` +
+        ` phone=${phone !== undefined ? '(sent)' : '(not sent)'}` +
+        ` designation=${designation !== undefined ? '(sent)' : '(not sent)'}`
+      );
+
       if (!name || typeof name !== 'string' || !name.trim()) {
+        console.warn(`[updateProfile] REJECTED — name missing or blank userId=${userId}`);
         return ResponseHelper.validationError(res, 'name is required');
       }
 
       await this.db.update(TABLES.USERS, { ROWID: userId, name: name.trim().slice(0, 100) });
+      console.log(`[updateProfile] users.name updated userId=${userId}`);
 
       const hasProfileUpdates = phone !== undefined || designation !== undefined
         || birth_date !== undefined || timezone !== undefined;
@@ -330,6 +340,11 @@ class UserController {
           `SELECT ROWID, birth_date, timezone FROM ${TABLES.USER_PROFILES}` +
           ` WHERE user_id = '${userId}' AND tenant_id = '${tenantId}' LIMIT 1`
         );
+        console.log(
+          `[updateProfile] existing profile: found=${profiles.length > 0}` +
+          (profiles.length ? ` birth_date=${profiles[0].birth_date} timezone=${profiles[0].timezone}` : '')
+        );
+
         const profileUpdates = {};
         if (phone !== undefined)       profileUpdates.phone       = String(phone || '').slice(0, 30);
         if (designation !== undefined) profileUpdates.designation = String(designation || '').slice(0, 200);
@@ -338,6 +353,7 @@ class UserController {
 
         if (profiles.length > 0) {
           await this.db.update(TABLES.USER_PROFILES, { ROWID: profiles[0].ROWID, ...profileUpdates });
+          console.log(`[updateProfile] user_profiles updated ROWID=${profiles[0].ROWID} fields=${Object.keys(profileUpdates).join(',')}`);
         } else {
           await this.db.insert(TABLES.USER_PROFILES, {
             tenant_id: tenantId, user_id: userId,
@@ -345,6 +361,7 @@ class UserController {
             resume_url: '', social_links: '{}', is_profile_public: 'false',
             ...profileUpdates,
           });
+          console.log(`[updateProfile] user_profiles inserted (new row) userId=${userId}`);
         }
 
         // Reschedule birthday cron when birth_date or timezone changes.
@@ -353,20 +370,29 @@ class UserController {
           const existing  = profiles.length ? profiles[0] : {};
           const finalDob  = birth_date !== undefined ? birth_date : existing.birth_date;
           const finalTz   = timezone   !== undefined ? timezone   : (existing.timezone || 'Asia/Kolkata');
+          console.log(
+            `[updateProfile] cron trigger: finalDob=${JSON.stringify(finalDob)} finalTz=${finalTz}` +
+            ` (birth_date changed=${birth_date !== undefined} timezone changed=${timezone !== undefined})`
+          );
           const wishCrons = new WishCronService(this.catalystApp);
           if (finalDob) {
+            console.log(`[updateProfile] calling WishCronService.upsert BIRTHDAY userId=${userId}`);
             wishCrons.upsert(userId, tenantId, 'BIRTHDAY', finalDob, finalTz)
-              .catch(e => console.error('[UserController] birthday cron upsert failed:', e.message));
+              .catch(e => console.error('[updateProfile] birthday cron upsert failed:', e.message, e.stack));
           } else {
+            console.log(`[updateProfile] birth_date cleared — calling WishCronService.delete BIRTHDAY userId=${userId}`);
             wishCrons.delete(userId, 'BIRTHDAY')
-              .catch(e => console.error('[UserController] birthday cron delete failed:', e.message));
+              .catch(e => console.error('[updateProfile] birthday cron delete failed:', e.message));
           }
         }
+      } else {
+        console.log(`[updateProfile] no profile fields to update — skipping user_profiles userId=${userId}`);
       }
 
+      console.log(`[updateProfile] DONE userId=${userId}`);
       return ResponseHelper.success(res, { updated: true }, 'Profile updated');
     } catch (err) {
-      console.error('[UserController.updateProfile]', err.message);
+      console.error('[updateProfile] UNHANDLED ERROR:', err.message, err.stack);
       return ResponseHelper.serverError(res, err.message);
     }
   }

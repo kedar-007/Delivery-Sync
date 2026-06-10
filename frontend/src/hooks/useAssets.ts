@@ -127,13 +127,17 @@ const normaliseAssignment = (r: any) => ({
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const normaliseMaintenance = (r: any) => ({
   ...r,
-  id:            String(r.ROWID ?? r.id ?? ''),
-  assetId:       r.asset_id       ?? r.assetId,
-  scheduledDate: r.scheduled_date ?? r.scheduledDate,
-  completedDate: r.completed_date ?? r.completedDate ?? null,
-  performedBy:   r.performed_by   ?? r.performedBy  ?? null,
-  createdBy:     r.CREATORID      ?? r.created_by   ?? r.createdBy,
-  createdAt:     r.CREATEDTIME    ?? r.created_at   ?? r.createdAt,
+  id:              String(r.ROWID ?? r.id ?? ''),
+  assetId:         r.asset_id       ?? r.assetId,
+  assetName:       r.asset_name     ?? r.assetName       ?? null,
+  assetTag:        r.asset_tag      ?? r.assetTag        ?? null,
+  maintenanceType: r.type           ?? r.maintenanceType ?? '',
+  notes:           r.description    ?? r.notes           ?? null,
+  scheduledDate:   r.scheduled_date ?? r.scheduledDate,
+  completedDate:   r.completed_date ?? r.completedDate   ?? null,
+  performedBy:     r.performed_by   ?? r.performedBy     ?? null,
+  createdBy:       r.CREATORID      ?? r.created_by      ?? r.createdBy,
+  createdAt:       r.CREATEDTIME    ?? r.created_at      ?? r.createdAt,
 });
 
 const applyNorm = <T>(norm: (r: unknown) => T) =>
@@ -327,5 +331,17 @@ export const useScheduleMaintenance = () => {
   return useMutation({
     mutationFn: (data: unknown) => assetsApi.maintenance.schedule(data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['assets', 'maintenance'] }),
+  });
+};
+
+export const useCompleteMaintenance = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, notes }: { id: string; notes?: string }) =>
+      assetsApi.maintenance.complete(id, notes ? { notes } : undefined),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['assets', 'maintenance'] });
+      qc.invalidateQueries({ queryKey: ['assets', 'inventory'] });
+    },
   });
 };

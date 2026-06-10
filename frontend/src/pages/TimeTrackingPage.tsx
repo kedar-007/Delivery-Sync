@@ -2,8 +2,12 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Clock, Plus, Edit2, Trash2, Send, RotateCcw, CheckCircle2,
-  XCircle, DollarSign, CalendarDays, TrendingUp, Users, AlertCircle, Loader2, X,
+  XCircle, DollarSign, CalendarDays, TrendingUp, Users, AlertCircle, Loader2, X, Hash,
 } from 'lucide-react';
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
+  PieChart, Pie, Legend,
+} from 'recharts';
 import { format, startOfWeek, endOfWeek, subDays, addDays, startOfMonth, endOfMonth, eachDayOfInterval, parseISO, isValid } from 'date-fns';
 import { useForm, useWatch } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
@@ -1145,6 +1149,44 @@ const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
   const maxDayHours = useMemo(() => Math.max(8, ...dayBreakdown.map((d) => d.hours)), [dayBreakdown]);
   const maxProjHours = useMemo(() => Math.max(1, ...byProject.map((p) => p.total)), [byProject]);
 
+  const entryCount = entries.length;
+
+  // Overall-only: monthly hours trend
+  const monthlyTrend = useMemo(() => {
+    if (period !== 'overall') return [];
+    const m: Record<string, { month: string; label: string; hours: number; billable: number; count: number }> = {};
+    for (const e of entries) {
+      const key = (e.date ?? '').substring(0, 7);
+      if (!key) continue;
+      if (!m[key]) m[key] = { month: key, label: '', hours: 0, billable: 0, count: 0 };
+      const h = parseFloat(String(e.hours)) || 0;
+      m[key].hours    += h;
+      m[key].billable += e.isBillable ? h : 0;
+      m[key].count    += 1;
+    }
+    return Object.values(m)
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .map((item) => ({
+        ...item,
+        hours:    Math.round(item.hours * 10) / 10,
+        billable: Math.round(item.billable * 10) / 10,
+        label:    isValid(parseISO(item.month + '-01')) ? format(parseISO(item.month + '-01'), 'MMM yy') : item.month,
+      }));
+  }, [period, entries]);
+
+  // Overall-only: entry counts by approval status
+  const statusBreakdown = useMemo(() => {
+    if (period !== 'overall') return [];
+    const counts: Record<string, number> = {};
+    for (const e of entries) counts[e.status] = (counts[e.status] ?? 0) + 1;
+    return [
+      { name: 'Approved',  value: counts['APPROVED']  ?? 0, color: '#22c55e' },
+      { name: 'Submitted', value: counts['SUBMITTED'] ?? 0, color: '#3b82f6' },
+      { name: 'Draft',     value: counts['DRAFT']     ?? 0, color: '#94a3b8' },
+      { name: 'Rejected',  value: counts['REJECTED']  ?? 0, color: '#ef4444' },
+    ].filter((s) => s.value > 0);
+  }, [period, entries]);
+
   const periodLabel = period === 'week' ? 'This Week' : period === 'month' ? format(now, 'MMMM yyyy') : 'All Time';
 
   // Today's data — always derived from the week snapshot regardless of selected period
@@ -1243,11 +1285,12 @@ const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
       </div>
 
       {/* Summary stat cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <StatCard label="Total Hours"     value={`${Math.round(totalHours * 10) / 10}h`}       icon={<Clock size={20} />}        color="blue"   />
         <StatCard label="Billable"        value={`${Math.round(billableHours * 10) / 10}h`}    icon={<DollarSign size={20} />}   color="green"  />
         <StatCard label="Non-Billable"    value={`${Math.round(nonBillableHours * 10) / 10}h`} icon={<Clock size={20} />}        color="amber"  />
         <StatCard label="Days Logged"     value={daysLogged}                                    icon={<CalendarDays size={20} />} color="purple" />
+        <StatCard label="Time Entries"    value={entryCount}                                    icon={<Hash size={20} />}         color="purple" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
@@ -1347,39 +1390,172 @@ const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
         </Card>
       </div>
 
-      {/* Overall: All entries table summary */}
+      {/* Overall: Analytics charts */}
       {period === 'overall' && entries.length > 0 && (
-        <Card>
-          <h3 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
-            <Users size={15} className="text-indigo-500" /> All My Entries — {entries.length} total
-          </h3>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-100 text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  {['Date', 'Project', 'Description', 'Hours', 'Billable', 'Status'].map((h) => (
-                    <th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {(entries as TimeEntry[]).slice(0, 50).map((e) => (
-                  <tr key={e.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{safeFormat(e.date, 'MMM d, yyyy')}</td>
-                    <td className="px-4 py-2.5 text-gray-700 whitespace-nowrap">{e.projectName || projectMap[e.projectId] || e.projectId}</td>
-                    <td className="px-4 py-2.5 text-gray-600 max-w-xs truncate">{e.description}</td>
-                    <td className="px-4 py-2.5 font-medium text-gray-900">{fmtH(e.hours)}</td>
-                    <td className="px-4 py-2.5 text-center">{e.isBillable ? <CheckCircle2 size={13} className="text-green-600 mx-auto" /> : <XCircle size={13} className="text-gray-300 mx-auto" />}</td>
-                    <td className="px-4 py-2.5"><Badge variant={statusVariant(e.status)}>{statusLabel(e.status)}</Badge></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {entries.length > 50 && (
-              <p className="text-xs text-gray-400 text-center py-3">Showing first 50 of {entries.length} entries. Use filters on My Time Log for full history.</p>
+        <div className="space-y-5">
+          {/* Monthly hours trend */}
+          <Card>
+            <h3 className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2">
+              <TrendingUp size={15} className="text-blue-500" /> Monthly Hours Trend
+            </h3>
+            <p className="text-xs text-gray-400 mb-4">Total vs billable hours per month across all time</p>
+            {monthlyTrend.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-8">No data available</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={monthlyTrend} barCategoryGap="35%" barGap={2}>
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} unit="h" width={36} />
+                  <Tooltip
+                    contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
+                    formatter={(val: number, name: string) => [`${val}h`, name === 'hours' ? 'Total' : 'Billable']}
+                    labelStyle={{ fontWeight: 600, marginBottom: 4 }}
+                  />
+                  <Legend
+                    formatter={(val) => <span style={{ fontSize: 11, color: '#6b7280' }}>{val === 'hours' ? 'Total' : 'Billable'}</span>}
+                    iconSize={8}
+                    iconType="circle"
+                  />
+                  <Bar dataKey="hours"    name="hours"    fill="#bfdbfe" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="billable" name="billable" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             )}
+          </Card>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            {/* Entry status breakdown */}
+            <Card>
+              <h3 className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                <Hash size={15} className="text-indigo-500" /> Entry Status Breakdown
+              </h3>
+              <p className="text-xs text-gray-400 mb-4">How your {entryCount} time entr{entryCount === 1 ? 'y has' : 'ies have'} been processed</p>
+              <div className="flex items-center gap-6">
+                <ResponsiveContainer width={160} height={160}>
+                  <PieChart>
+                    <Pie
+                      data={statusBreakdown}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={48}
+                      outerRadius={72}
+                      dataKey="value"
+                      strokeWidth={2}
+                    >
+                      {statusBreakdown.map((s, i) => (
+                        <Cell key={i} fill={s.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                      formatter={(val: number) => [val, 'entries']}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="flex-1 space-y-2.5">
+                  {statusBreakdown.map((s) => (
+                    <div key={s.name} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
+                        <span className="text-xs text-gray-600">{s.name}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-sm font-semibold text-gray-800">{s.value}</span>
+                        <span className="text-[10px] text-gray-400 ml-1">
+                          ({Math.round((s.value / entryCount) * 100)}%)
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Card>
+
+            {/* Consistency & summary metrics */}
+            <Card>
+              <h3 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <CalendarDays size={15} className="text-purple-500" /> Productivity Insights
+              </h3>
+              <div className="space-y-4">
+                {/* Avg hours per active day */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs text-gray-500">Avg hours / active day</span>
+                    <span className="text-sm font-semibold text-gray-800">
+                      {daysLogged > 0 ? `${Math.round((totalHours / daysLogged) * 10) / 10}h` : '—'}
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-purple-500 rounded-full"
+                      style={{ width: `${daysLogged > 0 ? Math.min((totalHours / daysLogged / 8) * 100, 100) : 0}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-0.5">Target: 8h/day</p>
+                </div>
+
+                {/* Avg entries per active day */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs text-gray-500">Avg entries / active day</span>
+                    <span className="text-sm font-semibold text-gray-800">
+                      {daysLogged > 0 ? Math.round((entryCount / daysLogged) * 10) / 10 : '—'}
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-500 rounded-full"
+                      style={{ width: `${daysLogged > 0 ? Math.min((entryCount / daysLogged / 5) * 100, 100) : 0}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Best month */}
+                {monthlyTrend.length > 0 && (() => {
+                  const best = [...monthlyTrend].sort((a, b) => b.hours - a.hours)[0];
+                  return (
+                    <div className="flex items-center justify-between py-2 border-t border-gray-100">
+                      <div>
+                        <p className="text-xs text-gray-500">Best month</p>
+                        <p className="text-sm font-semibold text-gray-800 mt-0.5">{best.label}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xl font-bold text-purple-600">{best.hours}h</p>
+                        <p className="text-[10px] text-gray-400">{best.count} entr{best.count === 1 ? 'y' : 'ies'}</p>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Billable ratio bar */}
+                {totalHours > 0 && (
+                  <div className="py-2 border-t border-gray-100">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs text-gray-500">Overall billable ratio</span>
+                      <span className="text-sm font-semibold text-green-600">
+                        {Math.round((billableHours / totalHours) * 100)}%
+                      </span>
+                    </div>
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden flex">
+                      <div className="h-full bg-green-500 rounded-l-full" style={{ width: `${(billableHours / totalHours) * 100}%` }} />
+                      <div className="h-full bg-amber-400 rounded-r-full" style={{ width: `${((totalHours - billableHours) / totalHours) * 100}%` }} />
+                    </div>
+                    <div className="flex items-center gap-3 mt-1.5">
+                      <span className="flex items-center gap-1 text-[10px] text-gray-500">
+                        <span className="w-2 h-2 rounded-full bg-green-500" />
+                        {Math.round(billableHours * 10) / 10}h billable
+                      </span>
+                      <span className="flex items-center gap-1 text-[10px] text-gray-500">
+                        <span className="w-2 h-2 rounded-full bg-amber-400" />
+                        {Math.round(nonBillableHours * 10) / 10}h non-billable
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
           </div>
-        </Card>
+        </div>
       )}
     </div>
   );

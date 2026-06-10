@@ -9,5 +9,10 @@ module.exports = (req, res) => {
   } catch (err) {
     req.catalystApp = null;
   }
+  try {
+    req.adminCatalystApp = catalyst.initialize(req, { scope: 'admin' });
+  } catch (err) {
+    req.adminCatalystApp = req.catalystApp;
+  }
   app(req, res);
 };

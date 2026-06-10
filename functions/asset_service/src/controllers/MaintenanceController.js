@@ -18,7 +18,22 @@ class MaintenanceController {
     if (asset_id) where += `asset_id = '${DataStoreService.escape(asset_id)}' AND `;
     if (status)   where += `status = '${DataStoreService.escape(status)}' AND `;
     where = where.replace(/ AND $/, '');
-    const records = await this.db.findWhere(TABLES.ASSET_MAINTENANCE, req.tenantId, where, { orderBy: 'scheduled_date ASC', limit: 100 });
+    const records = await this.db.findWhere(TABLES.ASSET_MAINTENANCE, req.tenantId, where, { orderBy: 'scheduled_date ASC', limit: 200 });
+
+    // Enrich with asset name
+    if (records.length > 0) {
+      const ids = [...new Set(records.map((r) => String(r.asset_id)))];
+      const assetWhere = `ROWID IN (${ids.map((id) => `'${DataStoreService.escape(id)}'`).join(',')})`;
+      const assets = await this.db.findWhere(TABLES.ASSETS, req.tenantId, assetWhere, { limit: 300 });
+      const nameMap = {};
+      assets.forEach((a) => { nameMap[String(a.ROWID)] = { name: a.name, asset_tag: a.asset_tag }; });
+      records.forEach((r) => {
+        const info = nameMap[String(r.asset_id)] || {};
+        r.asset_name = info.name || null;
+        r.asset_tag  = info.asset_tag || null;
+      });
+    }
+
     return ResponseHelper.success(res, records);
   }
 
@@ -28,7 +43,7 @@ class MaintenanceController {
     const asset = await this.db.findById(TABLES.ASSETS, asset_id, req.tenantId);
     if (!asset) return ResponseHelper.notFound(res, 'Asset not found');
     await this.db.update(TABLES.ASSETS, { ROWID: asset_id, status: ASSET_STATUS.MAINTENANCE });
-    const row = await this.db.insert(TABLES.ASSET_MAINTENANCE, { tenant_id: String(req.tenantId), asset_id: String(asset_id), type, description: description || '', scheduled_date, cost: String(cost || 0), performed_by: '0', status: 'SCHEDULED', created_by: String(req.currentUser.id) });
+    const row = await this.db.insert(TABLES.ASSET_MAINTENANCE, { tenant_id: String(req.tenantId), asset_id: String(asset_id), type, description: description || '', scheduled_date, cost: String(cost || 0), status: 'SCHEDULED', created_by: String(req.currentUser.id) });
     await this.audit.log({ tenantId: req.tenantId, entityType: 'ASSET_MAINTENANCE', entityId: row.ROWID, action: AUDIT_ACTION.CREATE, newValue: row, performedBy: req.currentUser.id });
     return ResponseHelper.created(res, row);
   }

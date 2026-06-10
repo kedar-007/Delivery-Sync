@@ -31,6 +31,7 @@ import {
   useUploadProfileFile,
 } from '../hooks/useBadgeProfile';
 import { useI18n } from '../contexts/I18nContext';
+import ResumeViewer from '../components/ui/ResumeViewer';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1159,9 +1160,10 @@ const MyProfileTab = () => {
               <span className="text-xs font-medium text-gray-700">Resume / CV</span>
             </div>
             {(profile as any)?.resume_url && (
-              <a href={(profile as any).resume_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline flex items-center gap-1 mb-2">
-                <FileText size={11} /> View current resume
-              </a>
+              <ResumeViewer
+                proxyUrl={`/server/badge_profile_service/api/bp/profiles/${(profile as any).user_id}/resume`}
+                className="mb-2"
+              />
             )}
             <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-green-50 text-green-700 border border-green-200 rounded-lg hover:bg-green-100 transition-colors">
               <Upload size={12} />
