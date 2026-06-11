@@ -33,8 +33,10 @@ function buildTenantAdminInviteEmailHtml({ firstName, inviterName, orgName }) {
     </ul>
     <div style="margin:28px 0;text-align:center;">
       <a href="%LINK%" style="display:inline-block;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-weight:600;font-size:15px;">Accept Invitation &amp; Get Started</a>
+      <p style="margin:10px 0 0;font-size:12px;color:#94a3b8;">Button not working? Copy and paste this link into your browser:</p>
+      <p style="margin:4px 0 0;font-size:11px;word-break:break-all;"><a href="%LINK%" style="color:#4f46e5;text-decoration:none;">%LINK%</a></p>
     </div>
-    <p style="color:#6b7280;font-size:13px;">This link will guide you through creating your account. Your organisation is already set up and ready to go.</p>
+    <p style="color:#6b7280;font-size:13px;">This link will guide you through creating your account and setting your password. Your organisation is already set up and ready to go.</p>
   </div>
   <div style="padding:16px 40px;background:#f8fafc;border-top:1px solid #e2e8f0;">
     <p style="color:#94a3b8;font-size:12px;margin:0;">DSV OpsPulse · Delivery &amp; Operations Platform</p>

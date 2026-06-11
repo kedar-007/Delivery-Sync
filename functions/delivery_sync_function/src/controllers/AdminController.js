@@ -1048,7 +1048,8 @@ function buildInviteEmailHtml({ firstName, lastName, inviterName, tenantName, or
           </td>
         </tr>
         </table>
-        <p style="margin:8px 0 0;font-size:11px;color:#9ca3af">Button not working? <a href="${ctaUrl}" style="color:#4f46e5;text-decoration:underline">Copy this link</a></p>
+        <p style="margin:8px 0 0;font-size:11px;color:#9ca3af">Button not working? Copy and paste this link into your browser:</p>
+        <p style="margin:4px 0 0;font-size:10px;word-break:break-all;text-align:center"><a href="${ctaUrl}" style="color:#4f46e5;text-decoration:none">${ctaUrl}</a></p>
       </td></tr>
       </table>
 
