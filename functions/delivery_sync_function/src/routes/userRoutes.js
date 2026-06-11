@@ -7,7 +7,7 @@ const UserController = require('../controllers/UserController');
 
 const router = express.Router();
 const auth = AuthMiddleware.authenticate;
-const ctrl = (req) => new UserController(req.catalystApp);
+const ctrl = (req) => new UserController(req.adminCatalystApp || req.catalystApp);
 
 router.get('/me', auth, asyncHandler((req, res) => ctrl(req).getProfile(req, res)));
 router.patch('/me', auth, asyncHandler((req, res) => ctrl(req).updateProfile(req, res)));

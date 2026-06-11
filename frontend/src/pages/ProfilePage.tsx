@@ -24,6 +24,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { PageLoader } from '../components/ui/Spinner';
 import { attendanceApi } from '../lib/api';
 import { useOfficeLocations } from '../hooks/useAdmin';
+import ResumeViewer from '../components/ui/ResumeViewer';
 
 interface ProfileForm { name: string; }
 interface EmailForm { email: string; confirmEmail: string; }
@@ -516,10 +517,10 @@ const ProfilePage = () => {
                       <input ref={resumeInputRef} type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={handleResumeUpload} />
                     </div>
                     {(resumeUrl || extProfile?.resume_url) && (
-                      <a href={resumeUrl ?? extProfile?.resume_url} target="_blank" rel="noopener noreferrer"
-                        className="mt-1 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
-                        <FileText size={11} /> View uploaded resume
-                      </a>
+                      <ResumeViewer
+                        proxyUrl="/server/badge_profile_service/api/bp/profiles/me/resume"
+                        className="mt-2"
+                      />
                     )}
                   </div>
                 </div>

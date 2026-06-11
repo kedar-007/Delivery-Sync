@@ -1333,11 +1333,11 @@ class AttendanceController {
       // Fetch absent/late records AND all today's check-in records in parallel
       const [absentRecords, checkedInRecords, users] = await Promise.all([
         this.db.findWhere(TABLES.ATTENDANCE_RECORDS, req.tenantId,
-          `attendance_date = '${today}' AND (status = 'ABSENT' OR status = 'LATE') AND (check_in_time IS NULL OR check_in_time = '')`,
+          `attendance_date = '${today}' AND (status = 'ABSENT' OR status = 'LATE') AND check_in_time IS NULL`,
           { limit: 100 }),
         // Any record today with a check_in_time means that user is actually present
         this.db.findWhere(TABLES.ATTENDANCE_RECORDS, req.tenantId,
-          `attendance_date = '${today}' AND check_in_time IS NOT NULL AND check_in_time != ''`,
+          `attendance_date = '${today}' AND check_in_time IS NOT NULL`,
           { limit: 200 }),
         this.db.findAll(TABLES.USERS, { tenant_id: req.tenantId }, { limit: 200 }),
       ]);
@@ -1373,7 +1373,7 @@ class AttendanceController {
       const [allUsers, checkedInRecords] = await Promise.all([
         this.db.findAll(TABLES.USERS, { tenant_id: req.tenantId }, { limit: 200 }),
         this.db.findWhere(TABLES.ATTENDANCE_RECORDS, req.tenantId,
-          `attendance_date = '${today}' AND check_in_time IS NOT NULL AND check_in_time != ''`,
+          `attendance_date = '${today}' AND check_in_time IS NOT NULL`,
           { limit: 200 }),
       ]);
       const checkedInUserIds = new Set(checkedInRecords.map(r => String(r.user_id)));

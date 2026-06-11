@@ -263,12 +263,14 @@ const NotificationBell = () => {
   const notifications = data?.notifications ?? [];
   const unread        = data?.unreadCount ?? 0;
 
-  // Chime when new notifications arrive
+  // Chime when new notifications arrive — skip until initial data loads
+  // to avoid chiming on page reload when unread transitions from 0 (default) to actual count.
   useEffect(() => {
+    if (data === undefined) return;
     if (prevUnread.current === null) { prevUnread.current = unread; return; }
     if (unread > prevUnread.current && !muted) playChime();
     prevUnread.current = unread;
-  }, [unread, muted]);
+  }, [data, unread, muted]);
 
   const toggleMute = useCallback(() => {
     setMuted((m) => {

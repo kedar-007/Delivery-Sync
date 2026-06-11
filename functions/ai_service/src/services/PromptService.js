@@ -16,15 +16,22 @@ class PromptService {
 
   static get SYSTEM_PROMPT() {
     return (
-      'You are an AI system for a project management application called "DeliverSync". ' +
-      'Your role is to analyze team activity data and generate intelligent, structured insights. ' +
-      'CRITICAL OUTPUT RULE: Your entire response MUST be a single raw JSON object. ' +
+      'You are an expert engineering performance analyst for "DeliverSync", a project management platform. ' +
+      'Your role is to produce precise, evidence-based performance insights that managers can act on immediately. ' +
+
+      'ANALYSIS RULES: ' +
+      '1. Always cite specific numbers from the data (e.g. "missed 8/20 standups", "3 overdue tasks out of 7"). ' +
+      '2. When team benchmarks are provided, state whether each person is above, at, or below the team median. ' +
+      '3. Every suggestion must be concrete and time-bound (e.g. "Schedule a 30-min backlog review by Friday"). ' +
+      '4. Distinguish between a data gap (no data available) and a genuine performance gap. ' +
+      '5. Never invent numbers or infer effort from missing data — state "insufficient data" instead. ' +
+
+      'OUTPUT RULES: ' +
+      'Your entire response MUST be a single raw JSON object. ' +
       'Do NOT include any text before or after the JSON. ' +
       'Do NOT wrap the JSON in markdown code fences (no ```json or ```). ' +
-      'Do NOT add explanations, preamble, or commentary outside the JSON object. ' +
       'Start your response with { and end with }. ' +
-      'Keep string values concise and actionable. ' +
-      'Base insights only on provided data.'
+      'Keep string values concise (≤ 25 words each) and actionable.'
     );
   }
 
@@ -136,22 +143,25 @@ Return ONLY a JSON object matching this schema:
    * @param {number} ctx.days
    */
   static buildPerformancePrompt({ activityByMember, days }) {
-    const memberSummaries = Object.values(activityByMember).map((m) => {
-      const actionsDone  = m.actions.filter((a) => a.status === 'DONE').length;
-      const actionsOpen  = m.actions.filter((a) => ['OPEN', 'IN_PROGRESS'].includes(a.status)).length;
-      const consistency  = days > 0 ? Math.round((m.standups.length / days) * 100) : 0;
-      const avgMood      = PromptService._avgMood(m.eods);
+    const allMembers = Object.values(activityByMember);
+    const workdays   = Math.round(days * (5 / 7));
 
+    const memberSummaries = allMembers.map((m) => {
+      const actionsDone  = m.actions.filter((a) => a.status === 'DONE').length;
+      const actionsTotal = m.actions.length;
+      const consistency  = days > 0 ? Math.round((m.standups.length / days) * 100) : 0;
       return {
-        name:              m.name,
-        standupCount:      m.standups.length,
-        eodCount:          m.eods.length,
-        consistency:       `${consistency}%`,
+        name:          m.name,
+        standupCount:  m.standups.length,
+        expectedStandups: workdays,
+        consistency:   `${consistency}%`,
+        eodCount:      m.eods.length,
         actionsDone,
-        actionsOpen,
-        blockersRaised:    m.blockersRaised.length,
-        averageMood:       avgMood,
-        hasBlockers:       m.standups.some((s) => s.blockers && s.blockers.trim()),
+        actionsTotal,
+        actionsOpen:   m.actions.filter((a) => ['OPEN', 'IN_PROGRESS'].includes(a.status)).length,
+        blockersRaised: m.blockersRaised.length,
+        averageMood:   PromptService._avgMood(m.eods),
+        reportedBlockers: m.standups.filter((s) => s.blockers && s.blockers.trim()).length,
       };
     });
 
@@ -159,28 +169,42 @@ Return ONLY a JSON object matching this schema:
       memberSummaries.push({ name: 'Team', note: 'No activity data in this period.' });
     }
 
-    return `
-Analyse individual performance for the last ${days} days based on the following activity data.
+    // Team-wide averages as benchmark context
+    const avgStandups = allMembers.length > 0
+      ? Math.round(memberSummaries.reduce((s, m) => s + (m.standupCount || 0), 0) / allMembers.length)
+      : 0;
+    const avgActions  = allMembers.length > 0
+      ? Math.round(memberSummaries.reduce((s, m) => s + (m.actionsDone || 0), 0) / allMembers.length)
+      : 0;
 
-=== TEAM ACTIVITY ===
+    return `
+Analyse individual performance for the last ${days} days (≈${workdays} workdays expected).
+
+=== TEAM BENCHMARKS ===
+Avg standups across team: ${avgStandups} | Avg actions done: ${avgActions}
+
+=== MEMBER DATA ===
 ${JSON.stringify(memberSummaries, null, 2)}
 
-Return ONLY a JSON object matching this schema:
+For each member, compare their standupCount vs expectedStandups and their actionsDone vs actionsTotal.
+Cite specific numbers in every insight (e.g. "submitted 9/15 standups (60%)").
+
+Return ONLY a JSON object:
 {
-  "teamSummary": "2 sentence overall team assessment",
+  "teamSummary": "2 sentence team assessment with specific averages",
   "members": [
     {
       "name": "...",
-      "performanceSummary": "...",
-      "strengths": ["strength 1"],
-      "areasOfImprovement": ["area 1"],
+      "performanceSummary": "2 sentences with ≥3 specific numbers",
+      "strengths": ["specific achievement with number, e.g. '100% standup attendance (15/15)'"],
+      "areasOfImprovement": ["specific gap with number, e.g. '4 open actions, only 1 closed'"],
       "score": 0-100,
       "consistencyRating": "Excellent | Good | Average | Needs Improvement"
     }
   ],
   "topPerformer": "name or null",
   "teamMorale": "High | Medium | Low",
-  "alerts": ["alert if any member has low consistency or many blockers"]
+  "alerts": ["urgent issue with specific evidence"]
 }`.trim();
   }
 
@@ -276,41 +300,43 @@ Return ONLY a JSON object matching this schema:
     const moodDist = PromptService._moodDistribution(moods);
     const projectStatuses = projects.map((p) => ({ name: p.name, rag: p.rag_status || 'UNKNOWN' }));
 
+    const criticalBlockers = openBlockers.filter((b) => b.severity === 'CRITICAL').length;
+    const highBlockers     = openBlockers.filter((b) => b.severity === 'HIGH').length;
+    const highPrioOverdue  = overdueActions.filter((a) => (a.action_priority || a.priority) === 'HIGH').length;
+
     return `
-Analyse the following project data and provide smart, actionable suggestions across three dimensions.
+Analyse the following project data and produce SMART, evidence-based suggestions.
+SMART = Specific, Measurable, Achievable, Relevant, Time-bound. Each suggestion must name WHO does WHAT by WHEN.
 
 === PROJECT STATUS ===
 ${JSON.stringify(projectStatuses, null, 2)}
 
-=== OPEN BLOCKERS (${openBlockers.length}) ===
-Critical: ${openBlockers.filter((b) => b.severity === 'CRITICAL').length}
-High: ${openBlockers.filter((b) => b.severity === 'HIGH').length}
-Medium/Low: ${openBlockers.filter((b) => !['CRITICAL', 'HIGH'].includes(b.severity)).length}
+=== BLOCKERS (${openBlockers.length} open) ===
+Critical: ${criticalBlockers} | High: ${highBlockers} | Med/Low: ${openBlockers.length - criticalBlockers - highBlockers}
+${criticalBlockers + highBlockers > 0 ? 'Top blockers:\n' + openBlockers.filter(b => ['CRITICAL','HIGH'].includes(b.severity)).slice(0,3).map(b => `  - ${b.title} [${b.severity}]`).join('\n') : ''}
 
-=== OVERDUE ACTIONS (${overdueActions.length}) ===
-High priority: ${overdueActions.filter((a) => (a.action_priority || a.priority) === 'HIGH').length}
-${overdueActions.slice(0, 5).map((a) => `- ${a.title}`).join('\n')}
+=== OVERDUE ACTIONS (${overdueActions.length} total, ${highPrioOverdue} HIGH priority) ===
+${overdueActions.slice(0, 5).map((a) => `- ${a.title} [${a.action_priority || 'N/A'}]`).join('\n') || 'None.'}
 
 === DELAYED MILESTONES (${delayedMilestones.length}) ===
 ${delayedMilestones.slice(0, 3).map((m) => `- ${m.title} (due ${m.due_date})`).join('\n') || 'None.'}
 
-=== TEAM METRICS ===
-Team size: ${teamSize}
-Mood distribution (last 14 days): ${JSON.stringify(moodDist)}
+=== TEAM ===
+Size: ${teamSize} | Mood (14d): ${JSON.stringify(moodDist)}
 
-Return ONLY a JSON object matching this schema:
+Return ONLY a JSON object:
 {
   "productivity": [
-    { "suggestion": "...", "priority": "high | medium | low", "impact": "..." }
+    { "suggestion": "SMART action string (who, what, by when)", "priority": "high|medium|low", "impact": "expected outcome", "dueHorizon": "today|this-week|this-sprint" }
   ],
   "riskMitigation": [
-    { "suggestion": "...", "priority": "high | medium | low", "impact": "..." }
+    { "suggestion": "SMART action string", "priority": "high|medium|low", "impact": "expected outcome", "dueHorizon": "today|this-week|this-sprint" }
   ],
   "resourceAllocation": [
-    { "suggestion": "...", "priority": "high | medium | low", "impact": "..." }
+    { "suggestion": "SMART action string", "priority": "high|medium|low", "impact": "expected outcome", "dueHorizon": "today|this-week|this-sprint" }
   ],
-  "overallRiskLevel": "high | medium | low",
-  "immediateActions": ["action 1", "action 2"]
+  "overallRiskLevel": "high|medium|low",
+  "immediateActions": ["action with owner and deadline, e.g. 'Lead to resolve CRITICAL blocker X before EOD'"]
 }`.trim();
   }
 
@@ -457,35 +483,41 @@ Return ONLY a JSON object matching this schema:
       critical: blockers.filter((b) => b.severity === 'CRITICAL').length,
     };
 
+    const engagementRate = days > 0 ? Math.round(((standups.length + eods.length) / (days * 2)) * 100) : 0;
+    const completionRate = actionMetrics.total > 0
+      ? Math.round((actionMetrics.completed / actionMetrics.total) * 100) : 0;
+    const blockerResolutionRate = blockerMetrics.total > 0
+      ? Math.round((blockerMetrics.resolved / blockerMetrics.total) * 100) : 0;
+
     return `
-Analyze the following historical data and identify productivity, engagement, and risk trends.
+Analyse ${days}-day historical data for trend direction and root-cause patterns.
+Projects: ${projects.map((p) => p.name).join(', ')}
 
-=== PERIOD ===
-Last ${days} days | Projects: ${projects.map((p) => p.name).join(', ')}
-
-=== ENGAGEMENT METRICS ===
-Standups submitted: ${standups.length}
-EODs submitted: ${eods.length}
+=== ENGAGEMENT (${days}d) ===
+Standups: ${standups.length} | EODs: ${eods.length} | Combined rate: ${engagementRate}%
 Mood distribution: ${JSON.stringify(moodDist)}
 
-=== ACTION METRICS ===
-${JSON.stringify(actionMetrics, null, 2)}
+=== TASK DELIVERY ===
+Total actions: ${actionMetrics.total} | Completed: ${actionMetrics.completed} (${completionRate}%) | Overdue: ${actionMetrics.overdue}
 
-=== BLOCKER METRICS ===
-${JSON.stringify(blockerMetrics, null, 2)}
+=== BLOCKERS ===
+Total: ${blockerMetrics.total} | Resolved: ${blockerMetrics.resolved} (${blockerResolutionRate}%) | Open: ${blockerMetrics.open} | Critical: ${blockerMetrics.critical}
 
-Return ONLY a JSON object matching this schema:
+For each trend field, reason from the numbers: e.g. engagement rate ${engagementRate}% ${engagementRate >= 70 ? 'is healthy' : 'is low — flag as declining'}.
+For insights, cite the actual rates and what they imply (e.g. "${completionRate}% task completion over ${days} days indicates moderate velocity").
+
+Return ONLY a JSON object:
 {
   "type": "trend_analysis",
   "data": {
-    "productivityTrend": "increasing | decreasing | stable",
-    "engagementTrend": "increasing | decreasing | stable",
-    "moodTrend": "improving | declining | stable",
-    "delayedTaskTrend": "improving | worsening | stable",
-    "recurringBlockers": ["pattern 1", "pattern 2"],
-    "riskAreas": ["area 1", "area 2"],
-    "insights": ["data-driven insight 1", "insight 2", "insight 3"],
-    "recommendations": ["recommendation 1", "recommendation 2"],
+    "productivityTrend": "increasing|decreasing|stable",
+    "engagementTrend": "increasing|decreasing|stable",
+    "moodTrend": "improving|declining|stable",
+    "delayedTaskTrend": "improving|worsening|stable",
+    "recurringBlockers": ["pattern backed by data"],
+    "riskAreas": ["specific area with evidence"],
+    "insights": ["data-backed insight with numbers", "second insight", "third insight"],
+    "recommendations": ["SMART recommendation 1", "SMART recommendation 2"],
     "period": "${days} days"
   }
 }`.trim();
@@ -641,42 +673,72 @@ Return ONLY a JSON object matching this schema:
    * @param {string}  ctx.scope
    */
   static buildHolisticPerformancePrompt({ memberData, days, scope }) {
-    // Cap at 10 members to keep prompt size manageable
     const members = Object.values(memberData).slice(0, 10);
     const isSingleUser = members.length === 1;
+    const workdays = Math.round(days * (5 / 7));
 
-    // Build compact plain-text data lines (avoids embedded JSON which causes LLM 500s)
+    // ── Team benchmarks for comparative insights ─────────────────────────────
+    const median = (arr) => {
+      const xs = arr.filter((v) => v !== null && !isNaN(v)).sort((a, b) => a - b);
+      if (xs.length === 0) return null;
+      const mid = Math.floor(xs.length / 2);
+      return xs.length % 2 ? xs[mid] : Math.round(((xs[mid - 1] + xs[mid]) / 2) * 10) / 10;
+    };
+    const medStandups   = median(members.map((m) => m.standupCount));
+    const medTasksDone  = median(members.map((m) => m.tasksDone));
+    const medHours      = median(members.map((m) => m.hoursLogged));
+    const medAttendance = median(members.map((m) => m.attendanceDays));
+    const medActions    = median(members.map((m) => m.actionsDone));
+
+    const benchmarkLine = members.length > 1
+      ? `TEAM BENCHMARKS (medians over ${days} days): standups=${medStandups}, tasks_done=${medTasksDone}, hours=${medHours}h, attendance_days=${medAttendance}, actions_done=${medActions}`
+      : `PERIOD: last ${days} days (≈${workdays} work days expected)`;
+
+    // ── Per-member compact data lines ────────────────────────────────────────
     const dataLines = members.map((m) => {
-      const moodFreq = PromptService._countFreq(m.moods || []);
-      const moodStr  = Object.entries(moodFreq).map(([k, v]) => `${k}:${v}`).join(',') || 'N/A';
+      const moodFreq  = PromptService._countFreq(m.moods || []);
+      const moodStr   = Object.entries(moodFreq).map(([k, v]) => `${k}:${v}`).join(',') || 'no data';
+      const taskPct   = m.taskCompletionPct !== null ? `${m.taskCompletionPct}%` : 'N/A';
+      const aboveBelow = members.length > 1 ? [
+        medStandups  !== null ? (m.standupCount >= medStandups  ? '▲standups' : '▼standups')  : '',
+        medTasksDone !== null ? (m.tasksDone    >= medTasksDone ? '▲tasks'    : '▼tasks')    : '',
+        medHours     !== null ? (m.hoursLogged  >= medHours     ? '▲hours'    : '▼hours')    : '',
+      ].filter(Boolean).join(' ') : '';
       return [
-        `Member: ${m.name} | Role: ${m.role || 'Team Member'}`,
-        `  Engagement: standups=${m.standupCount}/${days}d (${m.consistencyPct}%), eods=${m.eodCount}, moods=[${moodStr}]`,
-        `  Tasks: total=${m.tasksTotal}, done=${m.tasksDone}, overdue=${m.tasksOverdue}, completion=${m.taskCompletionPct !== null ? m.taskCompletionPct + '%' : 'N/A'}, storyPts=${m.storyPointsDone}`,
-        `  Attendance: days=${m.attendanceDays}, wfh=${m.wfhDays}, avgHours=${m.avgWorkHours}h/day`,
-        `  TimeTracking: hoursLogged=${m.hoursLogged}h`,
-        `  Leave: daysTaken=${m.leaveDaysTaken}`,
-        `  Accountability: actions=${m.actionsDone}/${m.actionsTotal}, blockersRaised=${m.blockersRaised}`,
+        `[${m.name}] Role:${m.role || 'Team Member'} ${aboveBelow}`,
+        `  Engagement: standups=${m.standupCount}/${workdays}expected (${m.consistencyPct}%), eods=${m.eodCount}, moods=[${moodStr}]`,
+        `  Tasks: total=${m.tasksTotal} done=${m.tasksDone} inProgress=${m.tasksInProgress} overdue=${m.tasksOverdue} completion=${taskPct} storyPts=${m.storyPointsDone}`,
+        `  Attendance: recorded=${m.attendanceDays}days wfh=${m.wfhDays} avg=${m.avgWorkHours}h/day`,
+        `  Time: logged=${m.hoursLogged}h billable=${m.billableHours}h nonBillable=${m.nonBillableHours}h utilization=${m.billableUtilization}%`,
+        `  Leave: approved=${m.leaveDaysTaken}days`,
+        `  Accountability: actions=${m.actionsDone}/${m.actionsTotal} done, blockers_raised=${m.blockersRaised}`,
       ].join('\n');
     }).join('\n\n');
 
     return (
-      `Analyse this ${days}-day performance data for ${members.length} team member(s). ` +
-      `Scope: ${scope}.\n\n` +
-      `DATA:\n${dataLines}\n\n` +
-      `SCORING (weights): Engagement 25%, Task Delivery 25%, Attendance 20%, Time Mgmt 15%, Accountability 15%.\n` +
-      `Stars: 90-100=5, 75-89=4, 60-74=3, 40-59=2, 0-39=1.\n\n` +
-      `Return ONLY valid JSON in this exact shape:\n` +
-      `{"teamSummary":"string","members":[{"name":"string","starRating":1,"score":0,` +
-      `"performanceSummary":"string","factors":[{"name":"Engagement","score":0,"detail":"string"},` +
-      `{"name":"Task Delivery","score":0,"detail":"string"},{"name":"Attendance","score":0,"detail":"string"},` +
-      `{"name":"Time Management","score":0,"detail":"string"},{"name":"Accountability","score":0,"detail":"string"}],` +
-      `"issues":[{"problem":"specific problem title","evidence":"exact numbers or facts from the data that confirm this problem","severity":"high|medium|low"}],` +
-      `"strengths":["string"],"areasOfImprovement":["string"],"suggestions":["concrete actionable improvement step"]}],` +
-      `"topPerformer":${isSingleUser ? 'null' : '"string or null"'},"teamMorale":"High","alerts":["string"]}` +
-      `\nFor issues: be specific — cite actual numbers (e.g. "missed 12/30 standups", "3 overdue tasks", "logged only 2h vs expected 8h/day"). ` +
-      `For suggestions: give concrete steps tied directly to each issue (e.g. "Set a daily standup reminder at 9am", "Prioritise task X by EOD Friday"). ` +
-      `No extra text, no markdown. Only the JSON object.`
+      `Analyse ${days}-day holistic performance for ${members.length} member(s). Scope: ${scope}.\n\n` +
+      `${benchmarkLine}\n\n` +
+      `MEMBER DATA:\n${dataLines}\n\n` +
+      `SCORING WEIGHTS: Engagement 25% | Task Delivery 25% | Attendance 20% | Time Management 15% | Accountability 15%\n` +
+      `STAR SCALE: 90-100=5★ | 75-89=4★ | 60-74=3★ | 40-59=2★ | 0-39=1★\n\n` +
+      `REQUIRED ANALYSIS QUALITY:\n` +
+      `- performanceSummary: cite 3+ actual numbers from the data (e.g. "completed 5/8 tasks (63%), submitted 12/20 standups, logged 42h")\n` +
+      `- factors[].detail: include the raw number AND the team benchmark comparison if available (e.g. "12 standups vs team median 16")\n` +
+      `- issues[].evidence: MUST include exact numbers proving the problem exists\n` +
+      `- suggestions: SMART format — specific action, who does it, by when (e.g. "Block 30 min Tues/Thu for backlog grooming to clear 3 overdue tasks this sprint")\n\n` +
+      `Return ONLY valid JSON:\n` +
+      `{"teamSummary":"string citing team avg score and standout trends","members":[{"name":"string","starRating":1,"score":0,` +
+      `"performanceSummary":"string with 3+ specific numbers","factors":[` +
+      `{"name":"Engagement","score":0,"detail":"string with numbers+benchmark"},` +
+      `{"name":"Task Delivery","score":0,"detail":"string with numbers+benchmark"},` +
+      `{"name":"Attendance","score":0,"detail":"string with numbers+benchmark"},` +
+      `{"name":"Time Management","score":0,"detail":"string with numbers+benchmark"},` +
+      `{"name":"Accountability","score":0,"detail":"string with numbers+benchmark"}],` +
+      `"issues":[{"problem":"title","evidence":"exact numbers","severity":"high|medium|low"}],` +
+      `"strengths":["specific achievement with number"],"areasOfImprovement":["specific gap with number"],` +
+      `"suggestions":["SMART action tied to a specific issue"]}],` +
+      `"topPerformer":${isSingleUser ? 'null' : '"name or null"'},"teamMorale":"High|Medium|Low","alerts":["urgent issue string"]}\n` +
+      `No markdown, no extra text. Only the JSON object.`
     );
   }
 
@@ -715,22 +777,27 @@ Return ONLY a JSON object matching this schema:
     ).join('\n');
 
     return (
-      `Analyse this sprint and generate a star-rated performance report.\n\n` +
+      `Analyse this sprint and generate a star-rated, evidence-based report.\n\n` +
       `SPRINT: ${sName} | Status: ${sStatus} | ${sStart} to ${sEnd}\n` +
       `Goal: ${sGoal}\n` +
       `Capacity: ${sCap} pts | Completed: ${sComp} pts\n\n` +
-      `TASKS: total=${taskMetrics.total}, done=${taskMetrics.done}, inProgress=${taskMetrics.inProgress}, ` +
-      `todo=${taskMetrics.todo}, overdue=${taskMetrics.overdue}\n` +
-      `Completion: ${completionRate}% | Story pts: ${taskMetrics.completedStoryPoints}/${taskMetrics.totalStoryPoints}` +
-      (velocityPct !== null ? ` | Velocity: ${velocityPct}%` : '') + '\n\n' +
-      `TEAM: size=${memberSummary.length}, standups=${standupCount}, EODs=${eodCount}\n` +
-      `Member breakdown:\n${memberLines || '  No member data'}\n\n` +
-      `RATING GUIDE: 5=goal met velocity>=90%, 4=mostly met 70-89%, 3=partial 50-69%, 2=gaps 30-49%, 1=failed <30%\n\n` +
+      `TASK METRICS: total=${taskMetrics.total} done=${taskMetrics.done} inProgress=${taskMetrics.inProgress} ` +
+      `todo=${taskMetrics.todo} overdue=${taskMetrics.overdue}\n` +
+      `Completion: ${completionRate}% | Story pts delivered: ${taskMetrics.completedStoryPoints}/${taskMetrics.totalStoryPoints}` +
+      (velocityPct !== null ? ` | Velocity vs capacity: ${velocityPct}%` : '') + '\n\n' +
+      `TEAM ENGAGEMENT: ${memberSummary.length} members | standups=${standupCount} | EODs=${eodCount}\n` +
+      `Per-member:\n${memberLines || '  No member data'}\n\n` +
+      `RATING: 5★=goal met + velocity≥90% | 4★=mostly met 70-89% | 3★=partial 50-69% | 2★=gaps 30-49% | 1★=failed <30%\n\n` +
+      `ANALYSIS QUALITY RULES:\n` +
+      `- sprintSummary: cite completion rate, velocity %, and standout members\n` +
+      `- insights: must include completion rate, velocity, engagement rate (standups vs days)\n` +
+      `- recommendations: SMART format — who does what by when (e.g. "Lead to run mid-sprint check-in by day 5 to address overdue tasks")\n` +
+      `- memberHighlights: name top 3 contributors with task count\n\n` +
       `Return ONLY valid JSON:\n` +
-      `{"starRating":1,"score":0,"sprintSummary":"string","completionRate":${completionRate},` +
-      `"velocityScore":${velocityPct || 0},"insights":"string","risks":["string"],` +
-      `"recommendations":["string"],"memberHighlights":[{"name":"string","contribution":"string","tasksCompleted":0}],` +
-      `"sprintHealth":"On Track"}\nNo markdown, no extra text.`
+      `{"starRating":1,"score":0,"sprintSummary":"string with 3+ numbers","completionRate":${completionRate},` +
+      `"velocityScore":${velocityPct || 0},"insights":"string with rates and percentages","risks":["specific risk with evidence"],` +
+      `"recommendations":["SMART action with owner and timeline"],"memberHighlights":[{"name":"string","contribution":"string","tasksCompleted":0}],` +
+      `"sprintHealth":"On Track|At Risk|Delayed"}\nNo markdown, no extra text.`
     );
   }
 

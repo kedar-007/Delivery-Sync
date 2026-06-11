@@ -251,7 +251,7 @@ class AIController {
       });
 
       const { response: rawText, usage } = await this.llm.call(
-        prompt, PromptService.SYSTEM_PROMPT, { max_tokens: 600 }
+        prompt, PromptService.SYSTEM_PROMPT, { max_tokens: 900 }
       );
 
       const parsed = this._parseJSON(rawText, {
@@ -306,7 +306,7 @@ class AIController {
       });
 
       const { response: rawText, usage } = await this.llm.call(
-        prompt, PromptService.SYSTEM_PROMPT, { max_tokens: 700 }
+        prompt, PromptService.SYSTEM_PROMPT, { max_tokens: 900 }
       );
 
       const parsed = this._parseJSON(rawText, {
@@ -492,7 +492,7 @@ class AIController {
       const prompt = PromptService.buildRetrospectivePrompt({ ...retroData, projects });
 
       const { response: rawText, usage } = await this.llm.call(
-        prompt, PromptService.SYSTEM_PROMPT, { max_tokens: 650 }
+        prompt, PromptService.SYSTEM_PROMPT, { max_tokens: 850 }
       );
 
       const parsed = this._parseJSON(rawText, {
@@ -734,11 +734,11 @@ Keep it under 120 words and practical.`;
         scope: AI_SCOPE[role],
       });
 
-      // Keep output budget modest so input+output stays within the model's
-      // context window. 400 output tokens is enough for a concise JSON payload
-      // per member; the rule-based fallback handles the rest if LLM fails.
+      // Token budget: each member needs ~300 tokens for full factor+issues+suggestions.
+      // Minimum 700 ensures even a solo-user analysis gets a complete JSON payload.
+      // Cap at 2800 to stay comfortably inside GLM-4.7B's output window.
       const memberCount = Object.keys(memberData).length;
-      const maxTokens = Math.min(1200, Math.max(400, memberCount * 150 + 300));
+      const maxTokens = Math.min(2800, Math.max(700, memberCount * 300 + 500));
       console.log(`[AIController.getHolisticPerformance] memberCount=${memberCount} maxTokens=${maxTokens}`);
 
       let parsed;
@@ -811,24 +811,11 @@ Keep it under 120 words and practical.`;
         source,
       };
 
-      // Write to cache. Non-fatal on failure. Verify by reading back so we can
-      // tell silent-rejection (put succeeded but get returns nothing) from
-      // genuine put failures.
+      // Write to cache. Fire-and-forget — non-fatal if the put fails.
       try {
         const body = JSON.stringify({ data: parsed, meta });
-        console.log(`[perf-cache] PUT-START key=${cacheKey} ${scopeTag} bytes=${body.length} ttl=${AIController.PERF_CACHE_TTL_HOURS}h`);
         await this.cache.put(cacheKey, body, AIController.PERF_CACHE_TTL_HOURS);
-        console.log(`[perf-cache] PUT-OK key=${cacheKey} ${scopeTag}`);
-        try {
-          const verify = await this.cache.get(cacheKey);
-          if (verify?.cache_value) {
-            console.log(`[perf-cache] VERIFY-OK key=${cacheKey} ${scopeTag} stored_bytes=${verify.cache_value.length}`);
-          } else {
-            console.warn(`[perf-cache] VERIFY-EMPTY key=${cacheKey} ${scopeTag} — put resolved but read-back returned no value (likely value size cap)`);
-          }
-        } catch (verifyErr) {
-          console.warn(`[perf-cache] VERIFY-FAIL key=${cacheKey} ${scopeTag} err=${verifyErr.message}`);
-        }
+        console.log(`[perf-cache] PUT-OK key=${cacheKey} ${scopeTag} bytes=${body.length}`);
       } catch (cacheErr) {
         console.warn(`[perf-cache] PUT-FAIL key=${cacheKey} ${scopeTag} err=${cacheErr.message}`);
       }

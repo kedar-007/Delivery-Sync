@@ -1,13 +1,15 @@
 'use strict';
 const DataStoreService = require('../services/DataStoreService');
 const AuditService     = require('../services/AuditService');
+const WishCronService  = require('../services/WishCronService');
 const ResponseHelper   = require('../utils/ResponseHelper');
 const { TABLES, AUDIT_ACTION } = require('../utils/Constants');
 
 class ProfileController {
-  constructor(catalystApp) {
-    this.db    = new DataStoreService(catalystApp);
-    this.audit = new AuditService(this.db);
+  constructor(catalystApp, adminCatalystApp) {
+    this.db           = new DataStoreService(catalystApp);
+    this.audit        = new AuditService(this.db);
+    this.adminApp     = adminCatalystApp || catalystApp;
   }
 
   async getMe(req, res) {
@@ -62,7 +64,20 @@ class ProfileController {
   async updateMe(req, res) {
     const tenantId = req.tenantId;
     const userId   = req.currentUser.id;
+
+    console.log(
+      `[ProfileController.updateMe] START userId=${userId} tenantId=${tenantId}` +
+      ` birth_date=${req.body.birth_date !== undefined ? JSON.stringify(req.body.birth_date) : '(not sent)'}` +
+      ` timezone=${req.body.timezone !== undefined ? JSON.stringify(req.body.timezone) : '(not sent)'}`
+    );
+
     const profiles = await this.db.findWhere(TABLES.USER_PROFILES, tenantId, `user_id = '${userId}'`, { limit: 1 });
+    console.log(
+      `[ProfileController.updateMe] existing profile: found=${profiles.length > 0}` +
+      (profiles.length
+        ? ` birth_date=${profiles[0].birth_date} timezone=${profiles[0].timezone}`
+        : '')
+    );
 
     const fields = ['bio', 'date_of_joining', 'department', 'designation', 'employee_id', 'phone', 'timezone', 'is_profile_public', 'birth_date', 'resume_url', 'photo_url'];
     const arrayFields = ['skills', 'experience', 'certifications'];
@@ -76,14 +91,40 @@ class ProfileController {
     let row;
     if (profiles.length > 0) {
       row = await this.db.update(TABLES.USER_PROFILES, { ROWID: profiles[0].ROWID, ...updates });
+      console.log(`[ProfileController.updateMe] user_profiles updated ROWID=${profiles[0].ROWID} fields=${Object.keys(updates).join(',')}`);
     } else {
       row = await this.db.insert(TABLES.USER_PROFILES, {
         tenant_id: tenantId, user_id: userId,
         bio: '', photo_url: '', skills: '[]', experience: '[]', certifications: '[]',
         resume_url: '', social_links: '{}', is_profile_public: 'false', ...updates,
       });
+      console.log(`[ProfileController.updateMe] user_profiles inserted (new row) userId=${userId}`);
     }
+
     await this.audit.log({ tenantId, entityType: 'USER_PROFILE', entityId: userId, action: AUDIT_ACTION.UPDATE, newValue: updates, performedBy: userId });
+
+    // Schedule/reschedule birthday cron whenever birth_date or timezone changes.
+    if (updates.birth_date !== undefined || updates.timezone !== undefined) {
+      const existing  = profiles.length ? profiles[0] : {};
+      const finalDob  = updates.birth_date !== undefined ? updates.birth_date : (existing.birth_date || null);
+      const finalTz   = updates.timezone   !== undefined ? updates.timezone   : (existing.timezone  || 'Asia/Kolkata');
+      console.log(
+        `[ProfileController.updateMe] cron trigger: finalDob=${JSON.stringify(finalDob)} finalTz=${finalTz}` +
+        ` (birth_date changed=${updates.birth_date !== undefined} timezone changed=${updates.timezone !== undefined})`
+      );
+      const wishCrons = new WishCronService(this.adminApp);
+      if (finalDob) {
+        console.log(`[ProfileController.updateMe] calling WishCronService.upsert BIRTHDAY userId=${userId}`);
+        wishCrons.upsert(userId, tenantId, 'BIRTHDAY', finalDob, finalTz)
+          .catch(e => console.error('[ProfileController.updateMe] birthday cron upsert failed:', e.message, e.stack));
+      } else {
+        console.log(`[ProfileController.updateMe] birth_date cleared — calling WishCronService.delete BIRTHDAY userId=${userId}`);
+        wishCrons.delete(userId, 'BIRTHDAY')
+          .catch(e => console.error('[ProfileController.updateMe] birthday cron delete failed:', e.message));
+      }
+    }
+
+    console.log(`[ProfileController.updateMe] DONE userId=${userId}`);
     return ResponseHelper.success(res, row);
   }
 
@@ -129,6 +170,63 @@ class ProfileController {
     } catch (err) {
       console.error('[ProfileController.directory]', err.message);
       return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  async serveResume(req, res) {
+    try {
+      const catalyst = require('zcatalyst-sdk-node');
+      const catalystApp = catalyst.initialize(req);
+
+      const tenantId = req.tenantId;
+      const userId = req.params.userId || req.currentUser.id;
+
+      const profiles = await this.db.findWhere(TABLES.USER_PROFILES, tenantId, `user_id = '${DataStoreService.escape(userId)}'`, { limit: 1 });
+      if (!profiles.length || !profiles[0].resume_url) {
+        return res.status(404).json({ success: false, message: 'No resume found' });
+      }
+
+      const resumeUrl = profiles[0].resume_url;
+      const bucketName = process.env.RESUME_BUCKET_NAME || 'resume-assets';
+      const baseUrl = (process.env.RESUME_BASE_URL || process.env.STRATUS_BASE_URL || '').replace(/\/$/, '');
+
+      // Extract the object key from the stored URL
+      let key;
+      if (baseUrl && resumeUrl.startsWith(baseUrl)) {
+        key = resumeUrl.slice(baseUrl.length).replace(/^\//, '');
+      } else {
+        // Fallback: last 3 path segments (e.g. resumes/userId/timestamp_filename.pdf)
+        const parts = resumeUrl.split('/').filter(Boolean);
+        key = parts.slice(-3).join('/');
+      }
+
+      const bucket = catalystApp.stratus().bucket(bucketName);
+      const fileData = await bucket.getObject(key);
+
+      // Derive content-type from the filename embedded in the key
+      const filename = key.split('/').pop() || 'resume';
+      const ext = filename.split('.').pop()?.toLowerCase() || '';
+      const CONTENT_TYPES = {
+        pdf:  'application/pdf',
+        doc:  'application/msword',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      };
+      const contentType = CONTENT_TYPES[ext] || 'application/octet-stream';
+
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+      res.setHeader('Cache-Control', 'private, max-age=300');
+
+      if (Buffer.isBuffer(fileData)) {
+        return res.end(fileData);
+      } else if (fileData && typeof fileData.pipe === 'function') {
+        return fileData.pipe(res);
+      } else {
+        return res.end(fileData);
+      }
+    } catch (err) {
+      console.error('[ProfileController.serveResume]', err);
+      return res.status(500).json({ success: false, message: err.message });
     }
   }
 

@@ -13,6 +13,7 @@ import Modal, { ModalActions } from '../components/ui/Modal';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
+import Pagination from '../components/ui/Pagination';
 import UserAvatar from '../components/ui/UserAvatar';
 import {
   useLeaveTypes,
@@ -520,15 +521,46 @@ const ApplyTab = () => {
 
 // ── Team Requests Tab ─────────────────────────────────────────────────────────
 
+const TEAM_REQ_PAGE_SIZE = 15;
+
 const TeamRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
   const [rejectTarget, setRejectTarget] = useState<string | null>(null);
   const [rejectError, setRejectError] = useState('');
   const [actionError, setActionError] = useState('');
   const [statusFilter, setStatusFilter] = useState('PENDING');
+  const [userFilter, setUserFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [page, setPage] = useState(1);
 
   const params: Record<string, string> = { team: 'true', ...(statusFilter ? { status: statusFilter } : {}) };
   const { data, isLoading, error } = useLeaveRequests(params);
   const requests: LeaveRequest[] = (data as LeaveRequest[]) ?? [];
+
+  // Unique users for the filter dropdown
+  const userOptions = React.useMemo(() => {
+    const seen = new Map<string, string>();
+    requests.forEach((r) => {
+      if (r.userId && r.userName) seen.set(r.userId, r.userName);
+    });
+    return Array.from(seen.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [requests]);
+
+  // Client-side filtering by user and date range
+  const filtered = React.useMemo(() => {
+    return requests.filter((r) => {
+      if (userFilter && r.userId !== userFilter) return false;
+      if (dateFrom && r.startDate < dateFrom) return false;
+      if (dateTo && r.endDate > dateTo) return false;
+      return true;
+    });
+  }, [requests, userFilter, dateFrom, dateTo]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / TEAM_REQ_PAGE_SIZE));
+  const pagedRequests = filtered.slice((page - 1) * TEAM_REQ_PAGE_SIZE, page * TEAM_REQ_PAGE_SIZE);
+
+  // Reset page when filters change
+  useEffect(() => { setPage(1); }, [statusFilter, userFilter, dateFrom, dateTo]);
 
   // If the manager arrived from a notification but the matching request
   // isn't in the current filter (e.g. an approved leave while filter is
@@ -536,19 +568,26 @@ const TeamRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
   useEffect(() => {
     if (!highlightId || isLoading) return;
     const found = requests.some((r) => String(r.id) === String(highlightId));
-    if (!found && statusFilter !== '') setStatusFilter('');
+    if (!found && statusFilter !== '') { setStatusFilter(''); setUserFilter(''); setDateFrom(''); setDateTo(''); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightId, isLoading, requests.length]);
 
+  // Jump to the page containing the highlighted row
+  useEffect(() => {
+    if (!highlightId || isLoading || filtered.length === 0) return;
+    const idx = filtered.findIndex((r) => String(r.id) === String(highlightId));
+    if (idx !== -1) setPage(Math.ceil((idx + 1) / TEAM_REQ_PAGE_SIZE));
+  }, [highlightId, isLoading, filtered]);
+
   // Scroll the highlighted row into view once it's present.
-  const highlightRef = React.useRef<HTMLDivElement | null>(null);
+  const highlightRef = React.useRef<HTMLTableRowElement | null>(null);
   useEffect(() => {
     if (!highlightId || isLoading) return;
     const t = setTimeout(() => {
       highlightRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 50);
     return () => clearTimeout(t);
-  }, [highlightId, isLoading, requests.length]);
+  }, [highlightId, isLoading, page]);
 
   const approveLeave = useApproveLeave();
   const rejectLeave = useRejectLeave();
@@ -579,87 +618,162 @@ const TeamRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
   if (isLoading) return <PageSkeleton />;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {error && <Alert type="error" message={(error as Error).message} />}
       {actionError && <Alert type="error" message={actionError} />}
 
-      {/* Status Filter */}
-      <div className="flex items-center gap-2">
-        {['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED', ''].map((s) => (
-          <button
-            key={s || 'all'}
-            onClick={() => setStatusFilter(s)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${statusFilter === s
-              ? 'bg-blue-600 text-white border-blue-600'
-              : 'bg-ds-surface text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-600 hover:border-blue-300'
-            }`}
-          >
-            {s || 'All'}
-          </button>
-        ))}
+      {/* Filters row */}
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Status chips */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED', ''].map((s) => (
+            <button
+              key={s || 'all'}
+              onClick={() => setStatusFilter(s)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${statusFilter === s
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-ds-surface text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-600 hover:border-blue-300'
+              }`}
+            >
+              {s || 'All'}
+            </button>
+          ))}
+        </div>
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* User filter */}
+        <select
+          value={userFilter}
+          onChange={(e) => setUserFilter(e.target.value)}
+          className="text-xs border border-gray-200 dark:border-gray-600 rounded-lg px-2.5 py-1.5 bg-ds-surface text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">All employees</option>
+          {userOptions.map((u) => (
+            <option key={u.id} value={u.id}>{u.name}</option>
+          ))}
+        </select>
+
+        {/* Date range */}
+        <div className="flex items-center gap-1.5">
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="text-xs border border-gray-200 dark:border-gray-600 rounded-lg px-2.5 py-1.5 bg-ds-surface text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <span className="text-xs text-gray-400">–</span>
+          <input
+            type="date"
+            value={dateTo}
+            min={dateFrom}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="text-xs border border-gray-200 dark:border-gray-600 rounded-lg px-2.5 py-1.5 bg-ds-surface text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          {(dateFrom || dateTo) && (
+            <button
+              onClick={() => { setDateFrom(''); setDateTo(''); }}
+              className="text-xs text-gray-400 hover:text-gray-600 px-1"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
 
+      {/* Table */}
       <Card padding={false}>
-        {requests.length === 0 ? (
+        {filtered.length === 0 ? (
           <EmptyState title="No requests" description="No leave requests match this filter." />
         ) : (
-          <div className="divide-y divide-gray-50">
-            {requests.map((req) => {
-              const isHighlight = highlightId && String(req.id) === String(highlightId);
-              return (
-              <div
-                key={req.id}
-                ref={isHighlight ? highlightRef : undefined}
-                className={`flex items-start gap-4 px-4 py-4 transition-all ${
-                  isHighlight
-                    ? 'bg-blue-50 ring-2 ring-blue-300 ring-inset animate-pulse'
-                    : 'hover:bg-gray-50'
-                }`}
-              >
-                <UserAvatar name={req.userName ?? ''} avatarUrl={req.userAvatarUrl} size="md" />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <p className="text-sm font-medium text-gray-900">{req.userName ?? 'Unknown'}</p>
-                    <Badge variant={leaveStatusVariant(req.status)}>{req.status.replace(/_/g, ' ')}</Badge>
-                  </div>
-                  <p className="text-sm text-gray-600">{req.leaveTypeName ?? 'Leave'}</p>
-                  <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
-                    <Calendar size={11} />
-                    <span>{formatDate(req.startDate)}</span>
-                    {req.startDate !== req.endDate && (
-                      <><span>→</span><span>{formatDate(req.endDate)}</span></>
-                    )}
-                    <span className="text-gray-400 ml-1">({req.days} day{req.days !== 1 ? 's' : ''})</span>
-                  </div>
-                  {req.reason && (
-                    <p className="text-xs text-gray-500 mt-1 line-clamp-2">{req.reason}</p>
-                  )}
-                </div>
-                {req.status === 'PENDING' && (
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button
-                      size="sm"
-                      className="bg-green-600 hover:bg-green-700 text-white"
-                      icon={<CheckCircle size={13} />}
-                      loading={approveLeave.isPending}
-                      onClick={() => handleApprove(req.id)}
-                    >
-                      Approve
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      icon={<XCircle size={13} />}
-                      onClick={() => { setRejectTarget(req.id); setRejectError(''); }}
-                    >
-                      Reject
-                    </Button>
-                  </div>
-                )}
-              </div>
-              );
-            })}
-          </div>
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 dark:border-gray-700">
+                    <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">Employee</th>
+                    <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">Leave Type</th>
+                    <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">From</th>
+                    <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">To</th>
+                    <th className="text-center text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">Days</th>
+                    <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">Status</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+                  {pagedRequests.map((req) => {
+                    const isHighlight = highlightId && String(req.id) === String(highlightId);
+                    return (
+                      <tr
+                        key={req.id}
+                        ref={isHighlight ? highlightRef : undefined}
+                        className={`transition-all ${
+                          isHighlight
+                            ? 'bg-blue-50 dark:bg-blue-900/20 ring-2 ring-blue-300 ring-inset animate-pulse'
+                            : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                        }`}
+                      >
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <UserAvatar name={req.userName ?? ''} avatarUrl={req.userAvatarUrl} size="sm" />
+                            <span className="font-medium text-gray-900 dark:text-gray-100 whitespace-nowrap">
+                              {req.userName ?? 'Unknown'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                          {req.leaveTypeName ?? '—'}
+                          {req.isHalfDay && (
+                            <span className="ml-1.5 text-xs text-gray-400">({req.halfDaySession ?? 'half day'})</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-gray-400 whitespace-nowrap">{formatDate(req.startDate)}</td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-gray-400 whitespace-nowrap">{formatDate(req.endDate)}</td>
+                        <td className="px-4 py-3 text-center text-gray-700 dark:text-gray-300 font-medium">{req.days}</td>
+                        <td className="px-4 py-3">
+                          <Badge variant={leaveStatusVariant(req.status)}>{req.status.replace(/_/g, ' ')}</Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          {req.status === 'PENDING' ? (
+                            <div className="flex items-center justify-end gap-1.5">
+                              <Button
+                                size="sm"
+                                className="bg-green-600 hover:bg-green-700 text-white"
+                                icon={<CheckCircle size={13} />}
+                                loading={approveLeave.isPending}
+                                onClick={() => handleApprove(req.id)}
+                              >
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                icon={<XCircle size={13} />}
+                                onClick={() => { setRejectTarget(req.id); setRejectError(''); }}
+                              >
+                                Reject
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400 block text-right">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              total={filtered.length}
+              pageSize={TEAM_REQ_PAGE_SIZE}
+              onPageChange={setPage}
+              className="px-4 py-3 border-t border-gray-100 dark:border-gray-700"
+            />
+          </>
         )}
       </Card>
 

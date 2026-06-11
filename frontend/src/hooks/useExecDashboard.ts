@@ -93,10 +93,11 @@ export interface ExecSummaryData {
 
 // ─── Hook ──────────────────────────────────────────────────────────────────
 
-export const useExecSummary = () =>
+export const useExecSummary = (enabled = true) =>
   useQuery<ExecSummaryData>({
     queryKey: ['exec-summary'],
     queryFn:  dashboardApi.getExecSummary,
     staleTime: 1000 * 60 * 5, // 5 min
     refetchOnWindowFocus: false,
+    enabled,
   });

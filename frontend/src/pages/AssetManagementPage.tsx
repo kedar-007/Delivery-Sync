@@ -2,9 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Package, Plus, Edit2, Wrench, CheckCircle2, XCircle,
-  RotateCcw, AlertTriangle, Calendar, Tag, Upload, ChevronRight, MapPin,
+  RotateCcw, AlertTriangle, Calendar, Tag, Upload, ChevronRight, ChevronLeft, MapPin,
   Eye, Clock, User, FileText, Hash, Search, Key, Monitor, Truck,
-  ClipboardCheck, Shield, ChevronDown, ChevronUp, Lock, Info, QrCode,
+  ClipboardCheck, Shield, ChevronDown, ChevronUp, Lock, Info, QrCode, Filter,
 } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 import AssetScannerModal from '../components/assets/AssetScannerModal';
@@ -29,7 +29,7 @@ import {
   useAssetRequests, useRequestAsset, useUpdateAssetRequest, useApproveAssetRequest, useRejectAssetRequest,
   useAssignOpsRequest, useStartProcessingRequest, useHandoverAssetRequest,
   useInitiateReturn, useVerifyReturn, useRejectReturn,
-  useAssetMaintenance, useScheduleMaintenance,
+  useAssetMaintenance, useScheduleMaintenance, useCompleteMaintenance,
   useAssignableUsers, useAssetOrgRoles,
 } from '../hooks/useAssets';
 
@@ -151,10 +151,12 @@ interface AssetRequest {
 interface MaintenanceRecord {
   id: string;
   assetId: string;
-  assetName?: string;
+  assetName?: string | null;
+  assetTag?: string | null;
   scheduledDate: string;
+  completedDate?: string | null;
   maintenanceType: string;
-  notes?: string;
+  notes?: string | null;
   status?: string;
 }
 
@@ -863,7 +865,12 @@ const MaintenanceModal = ({ open, onClose, assets }: MaintenanceModalProps) => {
   const onSubmit = async (data: MaintenanceFormData) => {
     try {
       setError('');
-      await scheduleMaintenance.mutateAsync(data);
+      await scheduleMaintenance.mutateAsync({
+        asset_id:       data.asset_id,
+        type:           data.maintenance_type,
+        scheduled_date: data.scheduled_date,
+        description:    data.notes,
+      });
       onClose();
     } catch (err: unknown) {
       setError((err as Error).message ?? 'Something went wrong');
@@ -1462,6 +1469,7 @@ interface InventoryTabProps {
 const InventoryTab = ({ categories }: InventoryTabProps) => {
   const [filterCategory, setFilterCategory] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [invPage, setInvPage] = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
   const [editAsset, setEditAsset] = useState<Asset | null>(null);
   const [retireTarget, setRetireTarget] = useState<Asset | null>(null);
@@ -1518,6 +1526,10 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
 
     return { total, available, assigned, inMaint, byCat };
   }, [allInventory, categories]);
+
+  React.useEffect(() => { setInvPage(1); }, [filterCategory, filterStatus]);
+
+  const pagedInventory = enrichedInventory.slice((invPage - 1) * PAGE_SIZE, invPage * PAGE_SIZE);
 
   const handleRetire = async () => {
     if (!retireTarget) return;
@@ -1635,19 +1647,20 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
             description="Add your first asset to start tracking inventory."
           />
         ) : (
+          <>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-100">
-              <thead className="bg-gray-50">
+              <thead className="bg-gray-50/80">
                 <tr>
                   {['Asset Name', 'Category', 'Serial Number', 'Status', 'Purchase Date', 'Cost', 'Actions'].map((h) => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
                       {h}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {enrichedInventory.map((asset) => {
+                {pagedInventory.map((asset) => {
                   const totalCount = assetNameCount[(asset.assetName ?? '').toLowerCase()] ?? 1;
                   return (
                   <tr key={asset.id} className="hover:bg-gray-50 transition-colors">
@@ -1701,6 +1714,8 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
               </tbody>
             </table>
           </div>
+          <Pagination page={invPage} totalCount={enrichedInventory.length} onChange={setInvPage} />
+          </>
         )}
       </div>
 
@@ -2770,6 +2785,76 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
   );
 }
 
+// ── Pagination ────────────────────────────────────────────────────────────────
+
+const PAGE_SIZE = 10;
+
+interface PaginationProps {
+  page: number;
+  totalCount: number;
+  pageSize?: number;
+  onChange: (page: number) => void;
+}
+
+const Pagination = ({ page, totalCount, pageSize = PAGE_SIZE, onChange }: PaginationProps) => {
+  const totalPages = Math.ceil(totalCount / pageSize);
+  if (totalPages <= 1) return null;
+
+  const pages: (number | '...')[] = [];
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pages.push(i);
+  } else {
+    pages.push(1);
+    if (page > 3) pages.push('...');
+    for (let i = Math.max(2, page - 1); i <= Math.min(totalPages - 1, page + 1); i++) pages.push(i);
+    if (page < totalPages - 2) pages.push('...');
+    pages.push(totalPages);
+  }
+
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, totalCount);
+
+  return (
+    <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 bg-white rounded-b-xl">
+      <p className="text-xs text-gray-400">
+        Showing <span className="font-medium text-gray-600">{from}–{to}</span> of{' '}
+        <span className="font-medium text-gray-600">{totalCount}</span>
+      </p>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => onChange(page - 1)}
+          disabled={page === 1}
+          className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        >
+          <ChevronLeft size={14} />
+        </button>
+        {pages.map((p, i) =>
+          p === '...' ? (
+            <span key={`e${i}`} className="px-2 text-gray-400 text-xs">…</span>
+          ) : (
+            <button
+              key={p}
+              onClick={() => onChange(p as number)}
+              className={`min-w-[28px] h-7 px-2 text-xs font-medium rounded-lg transition-colors ${
+                p === page ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              {p}
+            </button>
+          )
+        )}
+        <button
+          onClick={() => onChange(page + 1)}
+          disabled={page === totalPages}
+          className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        >
+          <ChevronRight size={14} />
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // ── Requests Tab ──────────────────────────────────────────────────────────────
 
 interface RequestsTabProps {
@@ -2784,6 +2869,8 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
   type ViewMode = 'all' | 'mine' | 'approved';
   const [viewMode, setViewMode]             = useState<ViewMode>(canApprove ? 'all' : 'mine');
   const [filterStatus, setFilterStatus]     = useState('');
+  const [search, setSearch]                 = useState('');
+  const [page, setPage]                     = useState(1);
   const [detailReq, setDetailReq]           = useState<AssetRequest | null>(null);
   const [requestModalOpen, setRequestModalOpen] = useState(false);
   const [editRequest, setEditRequest]       = useState<AssetRequest | null>(null);
@@ -2791,9 +2878,6 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
   const isMyView       = !canApprove || viewMode === 'mine';
   const isApprovedView = viewMode === 'approved';
 
-  // `mode=approved` is a server-side scope — it bypasses the default
-  // own + reportees + ops-queue scoping and returns ONLY requests this
-  // user has approved (approved_by = me.id).
   const params = useMemo<Record<string, string>>(() => {
     const p: Record<string, string> = {};
     if (filterStatus) p.status = filterStatus;
@@ -2801,9 +2885,11 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
     return p;
   }, [filterStatus, isApprovedView]);
 
+  React.useEffect(() => { setPage(1); }, [viewMode, filterStatus, search]);
+
   const { data: requests = [], isLoading, error, refetch } = useAssetRequests(params);
 
-  if (isLoading) return <SkeletonTable rows={4} />;
+  if (isLoading) return <SkeletonTable rows={6} />;
   if (error) return <Alert type="error" message={(error as Error).message} />;
 
   const allReqList = requests as AssetRequest[];
@@ -2811,16 +2897,44 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
     ? allReqList.filter((r) => String(r.requestedBy) === String(currentUserId))
     : allReqList;
 
+  const q = search.trim().toLowerCase();
+  const filteredList = q ? reqList.filter((r) =>
+    r.requestedByName?.toLowerCase().includes(q) ||
+    r.categoryName?.toLowerCase().includes(q) ||
+    r.assetName?.toLowerCase().includes(q) ||
+    r.reason?.toLowerCase().includes(q)
+  ) : reqList;
+
+  const reqStats = {
+    total:      reqList.length,
+    pending:    reqList.filter((r) => r.status === 'PENDING').length,
+    inProgress: reqList.filter((r) => ['APPROVED', 'ASSIGNED_TO_OPS', 'PROCESSING'].includes(r.status)).length,
+    handedOver: reqList.filter((r) => r.status === 'HANDED_OVER').length,
+    returned:   reqList.filter((r) => r.status === 'RETURNED').length,
+    fulfilled:  reqList.filter((r) => r.status === 'FULFILLED').length,
+  };
+
+  const paged = filteredList.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   const statusOptions: Array<{ value: string; label: string }> = [
-    { value: '',               label: 'All Statuses' },
-    { value: 'PENDING',        label: 'Pending' },
-    { value: 'APPROVED',       label: 'Approved' },
-    { value: 'ASSIGNED_TO_OPS','label': 'Ops Assigned' },
-    { value: 'PROCESSING',     label: 'Processing' },
-    { value: 'HANDED_OVER',    label: 'Handed Over' },
-    { value: 'RETURNED',       label: 'Returned' },
-    { value: 'RETURN_VERIFIED','label': 'Return Verified' },
-    { value: 'REJECTED',       label: 'Rejected' },
+    { value: '',                label: 'All Statuses' },
+    { value: 'PENDING',         label: 'Pending' },
+    { value: 'APPROVED',        label: 'Approved' },
+    { value: 'ASSIGNED_TO_OPS', label: 'Ops Assigned' },
+    { value: 'PROCESSING',      label: 'Processing' },
+    { value: 'HANDED_OVER',     label: 'Handed Over' },
+    { value: 'RETURNED',        label: 'Returned' },
+    { value: 'RETURN_VERIFIED', label: 'Return Verified' },
+    { value: 'REJECTED',        label: 'Rejected' },
+  ];
+
+  const statsCards = [
+    { label: 'Total',       value: reqStats.total,      color: 'text-gray-800',   bg: 'bg-gray-50',    border: 'border-gray-200',   status: '' },
+    { label: 'Pending',     value: reqStats.pending,    color: 'text-amber-700',  bg: 'bg-amber-50',   border: 'border-amber-200',  status: 'PENDING' },
+    { label: 'In Progress', value: reqStats.inProgress, color: 'text-blue-700',   bg: 'bg-blue-50',    border: 'border-blue-200',   status: 'APPROVED' },
+    { label: 'Handed Over', value: reqStats.handedOver, color: 'text-violet-700', bg: 'bg-violet-50',  border: 'border-violet-200', status: 'HANDED_OVER' },
+    { label: 'Returned',    value: reqStats.returned,   color: 'text-orange-700', bg: 'bg-orange-50',  border: 'border-orange-200', status: 'RETURNED' },
+    { label: 'Fulfilled',   value: reqStats.fulfilled,  color: 'text-green-700',  bg: 'bg-green-50',   border: 'border-green-200',  status: 'FULFILLED' },
   ];
 
   return (
@@ -2831,7 +2945,7 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
           {(['all', 'mine', 'approved'] as const).map((mode) => (
             <button
               key={mode}
-              onClick={() => { setViewMode(mode); setFilterStatus(''); }}
+              onClick={() => { setViewMode(mode); setFilterStatus(''); setSearch(''); }}
               className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
                 viewMode === mode
                   ? 'border-blue-600 text-blue-600'
@@ -2844,14 +2958,43 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
         </div>
       )}
 
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        {!isMyView ? (
-          <select className="form-select max-w-[180px]" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+      {/* Summary stats */}
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+        {statsCards.map((s) => (
+          <button
+            key={s.label}
+            onClick={() => { setFilterStatus(s.status); setPage(1); }}
+            className={`${s.bg} border ${s.border} rounded-xl px-4 py-3 flex flex-col gap-0.5 text-left transition-all hover:shadow-sm active:scale-95 ${
+              filterStatus === s.status ? 'ring-2 ring-blue-400 ring-offset-1' : ''
+            }`}
+          >
+            <span className={`text-2xl font-bold tabular-nums ${s.color}`}>{s.value}</span>
+            <span className="text-xs text-gray-500 font-medium leading-tight">{s.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Filter + search bar */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <input
+            className="form-input pl-8 text-sm"
+            placeholder={`Search ${isMyView ? '' : 'requester, '}category, asset or reason…`}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Filter size={13} className="text-gray-400 shrink-0" />
+          <select
+            className="form-select w-[170px]"
+            value={filterStatus}
+            onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }}
+          >
             {statusOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-        ) : (
-          <div />
-        )}
+        </div>
         {isMyView && (
           <Button icon={<Plus size={14} />} onClick={() => setRequestModalOpen(true)}>
             New Request
@@ -2859,21 +3002,34 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
         )}
       </div>
 
+      {/* Table card */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-900">
             {isMyView ? 'My Requests' : isApprovedView ? 'Requests I Approved' : 'All Asset Requests'}
           </h3>
-          <span className="text-xs text-gray-400">{reqList.length} request{reqList.length !== 1 ? 's' : ''}</span>
+          <span className="text-xs text-gray-400">
+            {filteredList.length !== reqList.length
+              ? `${filteredList.length} of ${reqList.length} result${reqList.length !== 1 ? 's' : ''}`
+              : `${reqList.length} request${reqList.length !== 1 ? 's' : ''}`}
+          </span>
         </div>
 
-        {reqList.length === 0 ? (
+        {filteredList.length === 0 ? (
           <EmptyState
             icon={<Package size={36} />}
-            title="No requests"
-            description={isMyView ? 'You have not submitted any asset requests.' : isApprovedView ? 'You have not approved any requests yet.' : 'No asset requests match the current filter.'}
+            title={q ? 'No matching requests' : 'No requests'}
+            description={
+              q
+                ? 'Try a different search or clear the filter.'
+                : isMyView
+                ? 'You have not submitted any asset requests yet.'
+                : isApprovedView
+                ? 'You have not approved any requests yet.'
+                : 'No asset requests match the current filter.'
+            }
             action={
-              isMyView ? (
+              isMyView && !q ? (
                 <Button size="sm" icon={<Plus size={14} />} onClick={() => setRequestModalOpen(true)}>
                   Request Asset
                 </Button>
@@ -2881,75 +3037,157 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
             }
           />
         ) : (
-          <div className="divide-y divide-gray-100">
-            {reqList.map((req) => {
-              const isOpsAssignee = req.opsAssignees?.some((id) => String(id) === String(currentUserId));
-              return (
-                <div
-                  key={req.id}
-                  className="px-5 py-4 flex items-center gap-4 hover:bg-gray-50 transition-colors cursor-pointer"
-                  onClick={() => setDetailReq(req)}
-                >
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-100">
+                <thead className="bg-gray-50/80">
+                  <tr>
+                    {!isMyView && (
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                        Requester
+                      </th>
+                    )}
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                      Category / Asset
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      Reason
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                      Priority
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                      Status
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                      Submitted
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                      Needed By
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {paged.map((req) => {
+                    const needsOpsAction = canAssign && !isMyView && ['ASSIGNED_TO_OPS', 'PROCESSING', 'APPROVED'].includes(req.status);
+                    const needsVerify    = canAssign && !isMyView && req.status === 'RETURNED';
+                    return (
+                      <tr
+                        key={req.id}
+                        className="hover:bg-blue-50/30 transition-colors cursor-pointer group"
+                        onClick={() => setDetailReq(req)}
+                      >
+                        {!isMyView && (
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <div className="flex items-center gap-2.5">
+                              <UserAvatar
+                                name={req.requestedByName ?? ''}
+                                avatarUrl={req.requestedByAvatar ?? undefined}
+                                size="sm"
+                              />
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-gray-900 truncate max-w-[130px]">
+                                  {req.requestedByName ?? '—'}
+                                </p>
+                                {req.requestedByEmail && (
+                                  <p className="text-xs text-gray-400 truncate max-w-[130px]">
+                                    {req.requestedByEmail}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                        )}
 
-                  {(!isMyView || isOpsAssignee) && (
-                    <div className="shrink-0">
-                      <UserAvatar name={req.requestedByName ?? ''} avatarUrl={req.requestedByAvatar ?? undefined} size="md" />
-                    </div>
-                  )}
+                        <td className="px-4 py-3">
+                          <p className="text-sm font-medium text-gray-900">{req.categoryName ?? '—'}</p>
+                          {req.assetName && (
+                            <span className="inline-flex items-center gap-1 text-[11px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded mt-0.5 font-medium">
+                              <Hash size={9} /> {req.assetName}
+                              {req.assetTag && <span className="text-indigo-400 font-normal">· {req.assetTag}</span>}
+                            </span>
+                          )}
+                        </td>
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      {(!isMyView || isOpsAssignee) && (
-                        <span className="text-sm font-semibold text-gray-900">{req.requestedByName ?? '—'}</span>
-                      )}
-                      <span className="text-xs text-gray-400">{req.categoryName ?? 'Unknown category'}</span>
-                      {req.assetName && (
-                        <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full flex items-center gap-1">
-                          <Hash size={10} /> {req.assetName}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm text-gray-700 truncate">{req.reason || '—'}</p>
-                    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                      {req.neededBy && (
-                        <span className="text-xs text-blue-600 flex items-center gap-1">
-                          <Clock size={11} /> Needed by {safeFormat(req.neededBy, 'MMM d')}
-                        </span>
-                      )}
-                      {req.handoverByName && req.status === 'HANDED_OVER' && (
-                        <span className="text-xs text-teal-600 flex items-center gap-1">
-                          <Truck size={11} /> Handed over by {req.handoverByName}
-                        </span>
-                      )}
-                      {req.opsAssigneeDetails && req.opsAssigneeDetails.length > 0 && !isMyView && (
-                        <span className="text-xs text-blue-500 flex items-center gap-1">
-                          <User size={11} /> Ops: {req.opsAssigneeDetails.map((u) => u.name).join(', ')}
-                        </span>
-                      )}
-                      <span className="text-xs text-gray-400">{safeFormat(req.createdAt, 'MMM d, yyyy')}</span>
-                    </div>
-                  </div>
+                        <td className="px-4 py-3 max-w-[200px]">
+                          <p className="text-sm text-gray-700 truncate" title={req.reason}>{req.reason || '—'}</p>
+                          {req.reqNotes && (
+                            <p className="text-xs text-gray-400 truncate mt-0.5" title={req.reqNotes}>{req.reqNotes}</p>
+                          )}
+                        </td>
 
-                  <div className="shrink-0 flex flex-col items-end gap-2">
-                    <Badge variant={requestStatusVariant(req.status)}>{requestStatusLabel(req.status)}</Badge>
-                    <Badge variant={priorityVariant(req.priority)}>{req.priority || 'NORMAL'}</Badge>
-                  </div>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <Badge variant={priorityVariant(req.priority)}>{req.priority || 'NORMAL'}</Badge>
+                        </td>
 
-                  {isMyView && req.status === 'PENDING' ? (
-                    <button
-                      title="Edit request"
-                      className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors shrink-0"
-                      onClick={(e) => { e.stopPropagation(); setEditRequest(req); }}
-                    >
-                      <Edit2 size={14} />
-                    </button>
-                  ) : (
-                    <Eye size={15} className="text-gray-300 shrink-0" />
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <Badge variant={requestStatusVariant(req.status)}>{requestStatusLabel(req.status)}</Badge>
+                          {req.opsAssigneeDetails && req.opsAssigneeDetails.length > 0 && !isMyView && (
+                            <p className="text-[10px] text-gray-400 mt-1 flex items-center gap-1 whitespace-nowrap">
+                              <Truck size={9} className="text-amber-500" />
+                              {req.opsAssigneeDetails.map((u) => u.name).join(', ')}
+                            </p>
+                          )}
+                        </td>
+
+                        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500">
+                          {safeFormat(req.createdAt, 'MMM d, yyyy')}
+                        </td>
+
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {req.neededBy ? (
+                            <span className="flex items-center gap-1 text-xs text-blue-600">
+                              <Clock size={10} />
+                              {safeFormat(req.neededBy, 'MMM d, yyyy')}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
+                        </td>
+
+                        <td className="px-4 py-3 text-right">
+                          <div
+                            className="flex items-center justify-end gap-1"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {(needsOpsAction || needsVerify) && (
+                              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full mr-1 ${
+                                needsVerify
+                                  ? 'bg-indigo-100 text-indigo-700'
+                                  : 'bg-amber-100 text-amber-700'
+                              }`}>
+                                {needsVerify ? 'Verify' : 'Action'}
+                              </span>
+                            )}
+                            <button
+                              onClick={() => setDetailReq(req)}
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                              title="View details"
+                            >
+                              <Eye size={14} />
+                            </button>
+                            {isMyView && req.status === 'PENDING' && (
+                              <button
+                                onClick={() => setEditRequest(req)}
+                                className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                                title="Edit request"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <Pagination page={page} totalCount={filteredList.length} onChange={setPage} />
+          </>
         )}
       </div>
 
@@ -2994,13 +3232,57 @@ interface MaintenanceTabProps {
 
 const MaintenanceTab = ({ allAssets }: MaintenanceTabProps) => {
   const { data: records = [], isLoading, error } = useAssetMaintenance();
-  const [modalOpen, setModalOpen] = useState(false);
+  const completeMaintenance = useCompleteMaintenance();
+  const [modalOpen, setModalOpen]           = useState(false);
+  const [maintPage, setMaintPage]           = useState(1);
+  const [completeTarget, setCompleteTarget] = useState<MaintenanceRecord | null>(null);
+  const [completeNotes, setCompleteNotes]   = useState('');
+  const [completeError, setCompleteError]   = useState('');
 
   if (isLoading) return <SkeletonTable rows={4} />;
   if (error) return <Alert type="error" message={(error as Error).message} />;
 
+  const maintList = records as MaintenanceRecord[];
+  const scheduled  = maintList.filter((r) => (r.status ?? 'SCHEDULED') !== 'COMPLETED').length;
+  const completed  = maintList.filter((r) => r.status === 'COMPLETED').length;
+  const pagedMaint = maintList.slice((maintPage - 1) * PAGE_SIZE, maintPage * PAGE_SIZE);
+
+  const handleComplete = async () => {
+    if (!completeTarget) return;
+    try {
+      setCompleteError('');
+      await completeMaintenance.mutateAsync({ id: completeTarget.id, notes: completeNotes });
+      setCompleteTarget(null);
+      setCompleteNotes('');
+    } catch (err: unknown) {
+      setCompleteError((err as Error).message ?? 'Failed to complete maintenance');
+    }
+  };
+
+  const maintStatusVariant = (status?: string): 'warning' | 'success' | 'default' => {
+    if (!status || status === 'SCHEDULED') return 'warning';
+    if (status === 'COMPLETED') return 'success';
+    return 'default';
+  };
+
   return (
     <div className="space-y-4">
+      {/* Summary cards */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 flex flex-col gap-0.5">
+          <span className="text-2xl font-bold text-gray-800 tabular-nums">{maintList.length}</span>
+          <span className="text-xs text-gray-500 font-medium">Total Records</span>
+        </div>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex flex-col gap-0.5">
+          <span className="text-2xl font-bold text-amber-700 tabular-nums">{scheduled}</span>
+          <span className="text-xs text-gray-500 font-medium">Scheduled / In Progress</span>
+        </div>
+        <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex flex-col gap-0.5">
+          <span className="text-2xl font-bold text-green-700 tabular-nums">{completed}</span>
+          <span className="text-xs text-gray-500 font-medium">Completed</span>
+        </div>
+      </div>
+
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h3 className="text-sm font-semibold text-gray-900">Maintenance Schedule</h3>
@@ -3009,7 +3291,7 @@ const MaintenanceTab = ({ allAssets }: MaintenanceTabProps) => {
           </Button>
         </div>
 
-        {(records as MaintenanceRecord[]).length === 0 ? (
+        {maintList.length === 0 ? (
           <EmptyState
             icon={<Wrench size={36} />}
             title="No maintenance records"
@@ -3021,40 +3303,70 @@ const MaintenanceTab = ({ allAssets }: MaintenanceTabProps) => {
             }
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-100">
-              <thead className="bg-gray-50">
-                <tr>
-                  {['Asset', 'Scheduled Date', 'Type', 'Notes', 'Status'].map((h) => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {(records as MaintenanceRecord[]).map((rec) => (
-                  <tr key={rec.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{rec.assetName ?? rec.assetId}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
-                      {safeFormat(rec.scheduledDate, 'MMM d, yyyy')}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{rec.maintenanceType}</td>
-                    <td className="px-4 py-3 text-sm text-gray-500 max-w-xs truncate" title={rec.notes}>
-                      {rec.notes ?? '—'}
-                    </td>
-                    <td className="px-4 py-3">
-                      {rec.status ? (
-                        <Badge variant="default">{rec.status}</Badge>
-                      ) : (
-                        <Badge variant="warning">SCHEDULED</Badge>
-                      )}
-                    </td>
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-100">
+                <thead className="bg-gray-50/80">
+                  <tr>
+                    {['Asset', 'Type', 'Scheduled Date', 'Completed Date', 'Notes', 'Status', 'Actions'].map((h) => (
+                      <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                        {h}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {pagedMaint.map((rec) => {
+                    const isScheduled = !rec.status || rec.status === 'SCHEDULED';
+                    return (
+                      <tr key={rec.id} className="hover:bg-gray-50/60 transition-colors">
+                        <td className="px-4 py-3">
+                          <p className="text-sm font-medium text-gray-900">
+                            {rec.assetName ?? <span className="text-gray-400 italic text-xs">ID: {rec.assetId}</span>}
+                          </p>
+                          {rec.assetTag && (
+                            <span className="text-xs text-gray-400 font-mono">{rec.assetTag}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
+                          {rec.maintenanceType || '—'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+                          {safeFormat(rec.scheduledDate, 'MMM d, yyyy')}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
+                          {rec.completedDate ? safeFormat(rec.completedDate, 'MMM d, yyyy') : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-500 max-w-[180px] truncate" title={rec.notes ?? ''}>
+                          {rec.notes ?? '—'}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <Badge variant={maintStatusVariant(rec.status)}>
+                            {rec.status ?? 'SCHEDULED'}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {isScheduled ? (
+                            <button
+                              onClick={() => { setCompleteTarget(rec); setCompleteNotes(''); setCompleteError(''); }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors"
+                            >
+                              <CheckCircle2 size={12} /> Mark Done
+                            </button>
+                          ) : (
+                            <span className="text-xs text-gray-400 flex items-center gap-1">
+                              <CheckCircle2 size={12} className="text-green-500" /> Done
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <Pagination page={maintPage} totalCount={maintList.length} onChange={setMaintPage} />
+          </>
         )}
       </div>
 
@@ -3063,6 +3375,54 @@ const MaintenanceTab = ({ allAssets }: MaintenanceTabProps) => {
         onClose={() => setModalOpen(false)}
         assets={allAssets}
       />
+
+      {/* Complete Maintenance Modal */}
+      <Modal
+        open={completeTarget !== null}
+        onClose={() => setCompleteTarget(null)}
+        title="Mark Maintenance as Done"
+        size="sm"
+      >
+        {completeError && <Alert type="error" message={completeError} className="mb-3" />}
+        <div className="space-y-4">
+          <div className="bg-green-50 border border-green-100 rounded-xl p-3 flex items-center gap-3">
+            <Wrench size={16} className="text-green-600 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-green-900">
+                {completeTarget?.assetName ?? `Asset #${completeTarget?.assetId}`}
+                {completeTarget?.assetTag && (
+                  <span className="ml-1.5 text-xs font-mono text-green-600">· {completeTarget.assetTag}</span>
+                )}
+              </p>
+              <p className="text-xs text-green-700">{completeTarget?.maintenanceType}</p>
+            </div>
+          </div>
+          <div>
+            <label className="form-label">Completion Notes <span className="text-gray-400 font-normal">(optional)</span></label>
+            <textarea
+              className="form-textarea"
+              rows={3}
+              placeholder="What was done? Any observations or follow-up needed…"
+              value={completeNotes}
+              onChange={(e) => setCompleteNotes(e.target.value)}
+            />
+          </div>
+          <p className="text-xs text-gray-500">
+            Marking this done will set the asset status back to <strong>Available</strong>.
+          </p>
+        </div>
+        <ModalActions>
+          <Button variant="outline" onClick={() => setCompleteTarget(null)}>Cancel</Button>
+          <Button
+            onClick={handleComplete}
+            loading={completeMaintenance.isPending}
+            icon={<CheckCircle2 size={15} />}
+            className="bg-green-600 hover:bg-green-700 text-white"
+          >
+            Confirm Completion
+          </Button>
+        </ModalActions>
+      </Modal>
     </div>
   );
 };

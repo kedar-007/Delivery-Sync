@@ -1,0 +1,9 @@
+{
+  "test_job": {
+    "params": {
+      "user_id": "YOUR_USER_ROWID",
+      "tenant_id": "YOUR_TENANT_ROWID",
+      "type": "BIRTHDAY"
+    }
+  }
+}

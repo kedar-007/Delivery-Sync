@@ -80,7 +80,7 @@ class TeamController {
             target_type: 'Function',
             target_name: 'team_reminder',
             job_config: { number_of_retries: 2, retry_interval: 15 * 60 },
-            params: { team_id: teamId, tenant_id: tenantId, type, time, team_name: teamName },
+            params: { team_id: teamId, tenant_id: tenantId, type, time, team_name: teamName, timezone: tz },
           },
         };
 

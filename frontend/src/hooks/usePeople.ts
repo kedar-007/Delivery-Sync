@@ -157,7 +157,7 @@ export const useMyAttendanceRecord = () =>
     },
   });
 
-export const useAttendanceLive = () =>
+export const useAttendanceLive = (enabled = true) =>
   useQuery({
     queryKey: ['attendance', 'live'],
     queryFn: async () => {
@@ -165,6 +165,7 @@ export const useAttendanceLive = () =>
       return Array.isArray(rows) ? rows.map(normaliseAttendance) : [];
     },
     refetchInterval: 60000,
+    enabled,
   });
 
 export const useAttendanceRecords = (params?: Record<string, string>) =>
@@ -191,7 +192,7 @@ export const useAttendanceAnomalies = () =>
     },
   });
 
-export const useAttendanceNotCheckedIn = () =>
+export const useAttendanceNotCheckedIn = (enabled = true) =>
   useQuery({
     queryKey: ['attendance', 'not-checked-in'],
     queryFn: async () => {
@@ -199,6 +200,7 @@ export const useAttendanceNotCheckedIn = () =>
       return Array.isArray(rows) ? rows : [];
     },
     refetchInterval: 30_000,
+    enabled,
   });
 
 export const useCheckIn = () => {

@@ -12,6 +12,7 @@ import Modal, { ModalActions } from '../components/ui/Modal';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
+import Pagination from '../components/ui/Pagination';
 import UserAvatar from '../components/ui/UserAvatar';
 import {
   useMyAttendanceRecord,
@@ -193,6 +194,88 @@ function useElapsedTimer(startIso?: string) {
 
   return elapsed;
 }
+
+// ── History Section (My tab) ──────────────────────────────────────────────────
+
+const HISTORY_DAY_OPTIONS = [7, 14] as const;
+type HistoryDays = (typeof HISTORY_DAY_OPTIONS)[number];
+
+const HistorySection = ({ history }: { history: AttendanceRecord[] }) => {
+  const [days, setDays] = useState<HistoryDays>(7);
+
+  const cutoff = format(new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000), 'yyyy-MM-dd');
+  const filtered = history.filter((r) => r.date >= cutoff);
+
+  return (
+    <>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-gray-900">Recent History</h3>
+        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
+          {HISTORY_DAY_OPTIONS.map((d) => (
+            <button
+              key={d}
+              onClick={() => setDays(d)}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                days === d
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {d} days
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <EmptyState title="No records yet" description="Your attendance history will appear here." />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100">
+                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">Date</th>
+                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">Status</th>
+                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">Check In</th>
+                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">Check Out</th>
+                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">Breaks</th>
+                <th className="text-left py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Hours</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {filtered.map((rec) => (
+                <tr key={rec.id} className="hover:bg-gray-50">
+                  <td className="py-2.5 pr-4 text-gray-700">{formatDate(rec.date)}</td>
+                  <td className="py-2.5 pr-4">
+                    <div className="flex items-center gap-1.5">
+                      <AttendanceStatusBadge status={rec.status} />
+                      {rec.isWfh && <Badge variant="info">WFH</Badge>}
+                    </div>
+                  </td>
+                  <td className="py-2.5 pr-4 text-gray-600">{formatTime(rec.checkInTime)}</td>
+                  <td className="py-2.5 pr-4">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-gray-600">{formatTime((rec as any).checkOutTime)}</span>
+                      {(rec as any).botCheckout && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded-full" title="Auto checked out by system at 23:59">
+                          <Bot size={9} /> Bot
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="py-2.5 pr-4">
+                    <BreakCell rec={rec as any} />
+                  </td>
+                  <td className="py-2.5 text-gray-600">{rec.hoursWorked?.toFixed(1) ?? '—'}h</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+};
 
 // ── My Attendance Tab ─────────────────────────────────────────────────────────
 
@@ -554,53 +637,7 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
 
       {/* Recent History */}
       <Card>
-        <h3 className="text-sm font-semibold text-gray-900 mb-4">Recent History (Last 7 Days)</h3>
-        {history.length === 0 ? (
-          <EmptyState title="No records yet" description="Your attendance history will appear here." />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">Date</th>
-                  <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">Status</th>
-                  <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">Check In</th>
-                  <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">Check Out</th>
-                  <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">Breaks</th>
-                  <th className="text-left py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Hours</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {history.map((rec) => (
-                  <tr key={rec.id} className="hover:bg-gray-50">
-                    <td className="py-2.5 pr-4 text-gray-700">{formatDate(rec.date)}</td>
-                    <td className="py-2.5 pr-4">
-                      <div className="flex items-center gap-1.5">
-                        <AttendanceStatusBadge status={rec.status} />
-                        {rec.isWfh && <Badge variant="info">WFH</Badge>}
-                      </div>
-                    </td>
-                    <td className="py-2.5 pr-4 text-gray-600">{formatTime(rec.checkInTime)}</td>
-                    <td className="py-2.5 pr-4">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-gray-600">{formatTime((rec as any).checkOutTime)}</span>
-                        {(rec as any).botCheckout && (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded-full" title="Auto checked out by system at 23:59">
-                            <Bot size={9} /> Bot
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-2.5 pr-4">
-                      <BreakCell rec={rec as any} />
-                    </td>
-                    <td className="py-2.5 text-gray-600">{rec.hoursWorked?.toFixed(1) ?? '—'}h</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <HistorySection history={history} />
       </Card>
 
       {/* WFH Modal */}
@@ -628,10 +665,17 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
 
 // ── Team Live Tab ─────────────────────────────────────────────────────────────
 
+const LIVE_GRID_PAGE_SIZE = 12;
+const LIVE_LIST_PAGE_SIZE = 15;
+
 const TeamLiveTab = () => {
   const { data, isLoading, error } = useAttendanceLive();
   const { data: anomaliesData } = useAttendanceAnomalies();
   const { data: notCheckedInData } = useAttendanceNotCheckedIn();
+
+  const [livePage, setLivePage] = useState(1);
+  const [anomalyPage, setAnomalyPage] = useState(1);
+  const [notCheckedInPage, setNotCheckedInPage] = useState(1);
 
   const liveUsers: LiveUser[] = Array.isArray(data) ? (data as unknown as LiveUser[]) : [];
 
@@ -646,6 +690,10 @@ const TeamLiveTab = () => {
   // Not-checked-in: backend already subtracts checked-in users; de-duplicate against live list for safety
   const notCheckedIn: { id: string; name: string; email: string; avatarUrl: string }[] =
     ((notCheckedInData as any[]) ?? []).filter((u) => !liveUserIds.has(String(u.userId || u.id)));
+
+  const pagedLiveUsers = liveUsers.slice((livePage - 1) * LIVE_GRID_PAGE_SIZE, livePage * LIVE_GRID_PAGE_SIZE);
+  const pagedAnomalies = anomalies.slice((anomalyPage - 1) * LIVE_LIST_PAGE_SIZE, anomalyPage * LIVE_LIST_PAGE_SIZE);
+  const pagedNotCheckedIn = notCheckedIn.slice((notCheckedInPage - 1) * LIVE_GRID_PAGE_SIZE, notCheckedInPage * LIVE_GRID_PAGE_SIZE);
 
   if (isLoading) return <PageSkeleton />;
 
@@ -662,21 +710,31 @@ const TeamLiveTab = () => {
         {liveUsers.length === 0 ? (
           <EmptyState title="No one checked in yet" description="Team members who check in will appear here." />
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {liveUsers.map((u) => (
-              <div key={u.id} className="flex items-center gap-3 p-3 bg-green-50 border border-green-100 rounded-lg">
-                <UserAvatar name={u.name} avatarUrl={u.avatarUrl} size="md" />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">{u.name}</p>
-                  <div className="flex items-center gap-1 text-xs text-gray-500">
-                    <Clock size={11} />
-                    <span>{formatTime(u.checkInTime)}</span>
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {pagedLiveUsers.map((u) => (
+                <div key={u.id} className="flex items-center gap-3 p-3 bg-green-50 border border-green-100 rounded-lg">
+                  <UserAvatar name={u.name} avatarUrl={u.avatarUrl} size="md" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{u.name}</p>
+                    <div className="flex items-center gap-1 text-xs text-gray-500">
+                      <Clock size={11} />
+                      <span>{formatTime(u.checkInTime)}</span>
+                    </div>
                   </div>
+                  <span className="ml-auto w-2 h-2 rounded-full bg-green-500 shrink-0" />
                 </div>
-                <span className="ml-auto w-2 h-2 rounded-full bg-green-500 shrink-0" />
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+            <Pagination
+              page={livePage}
+              totalPages={Math.ceil(liveUsers.length / LIVE_GRID_PAGE_SIZE)}
+              total={liveUsers.length}
+              pageSize={LIVE_GRID_PAGE_SIZE}
+              onPageChange={setLivePage}
+              className="mt-4"
+            />
+          </>
         )}
       </Card>
 
@@ -688,7 +746,7 @@ const TeamLiveTab = () => {
             <Badge variant="danger">{anomalies.length}</Badge>
           </div>
           <div className="divide-y divide-gray-50">
-            {anomalies.map((u) => (
+            {pagedAnomalies.map((u) => (
               <div key={u.id} className="flex items-center gap-3 py-2.5">
                 <UserAvatar name={u.name} avatarUrl={u.avatarUrl} size="sm" />
                 <p className="text-sm text-gray-700">{u.name}</p>
@@ -696,6 +754,14 @@ const TeamLiveTab = () => {
               </div>
             ))}
           </div>
+          <Pagination
+            page={anomalyPage}
+            totalPages={Math.ceil(anomalies.length / LIVE_LIST_PAGE_SIZE)}
+            total={anomalies.length}
+            pageSize={LIVE_LIST_PAGE_SIZE}
+            onPageChange={setAnomalyPage}
+            className="mt-4"
+          />
         </Card>
       )}
 
@@ -707,7 +773,7 @@ const TeamLiveTab = () => {
             <Badge variant="warning">{notCheckedIn.length}</Badge>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {notCheckedIn.map((u) => (
+            {pagedNotCheckedIn.map((u) => (
               <div key={u.id} className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-100 rounded-lg">
                 <UserAvatar name={u.name} avatarUrl={u.avatarUrl} size="md" />
                 <div className="min-w-0">
@@ -718,6 +784,14 @@ const TeamLiveTab = () => {
               </div>
             ))}
           </div>
+          <Pagination
+            page={notCheckedInPage}
+            totalPages={Math.ceil(notCheckedIn.length / LIVE_GRID_PAGE_SIZE)}
+            total={notCheckedIn.length}
+            pageSize={LIVE_GRID_PAGE_SIZE}
+            onPageChange={setNotCheckedInPage}
+            className="mt-4"
+          />
         </Card>
       )}
     </div>
@@ -743,9 +817,13 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
   const [selectedUserId, setSelectedUserId] = useState('');
   const [selectedUserName, setSelectedUserName] = useState('');
   const [downloading, setDownloading] = useState(false);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
 
   const { data, isLoading, error } = useAttendanceRecords(filterParams);
   const allRecords: AttendanceRecord[] = (data as AttendanceRecord[]) ?? [];
+  const totalPages = Math.ceil(allRecords.length / PAGE_SIZE);
+  const pagedRecords = allRecords.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   // Build unique user list from loaded records for the dropdown
   const userOptions = React.useMemo(() => {
@@ -763,6 +841,7 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
     };
     if (selectedUserId) params.user_id = selectedUserId;
     setFilterParams(params);
+    setPage(1);
   };
 
   const handleUserSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -770,6 +849,7 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
     const uname = userOptions.find(([id]) => id === uid)?.[1] ?? '';
     setSelectedUserId(uid);
     setSelectedUserName(uname);
+    setPage(1);
     // Re-query immediately with new user filter
     setFilterParams((prev) => {
       const next = { ...prev };
@@ -855,52 +935,62 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
         ) : allRecords.length === 0 ? (
           <EmptyState title="No records found" description="Try adjusting your date range or filters." />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b border-gray-100 bg-gray-50">
-                <tr>
-                  {isManager && <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">User</th>}
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Date</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Status</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Check In</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Check Out</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Hours</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">WFH</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {allRecords.map((rec) => (
-                  <tr key={rec.id} className="hover:bg-gray-50">
-                    {isManager && (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-gray-100 bg-gray-50">
+                  <tr>
+                    {isManager && <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">User</th>}
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Date</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Status</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Check In</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Check Out</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Hours</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">WFH</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {pagedRecords.map((rec) => (
+                    <tr key={rec.id} className="hover:bg-gray-50">
+                      {isManager && (
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <UserAvatar name={(rec as any).name ?? ''} avatarUrl={(rec as any).avatarUrl} size="xs" />
+                            <span className="text-sm text-gray-700">{(rec as any).name || rec.userName || '—'}</span>
+                          </div>
+                        </td>
+                      )}
+                      <td className="px-4 py-3 text-gray-700">{formatDate(rec.date)}</td>
+                      <td className="px-4 py-3"><AttendanceStatusBadge status={rec.status} /></td>
+                      <td className="px-4 py-3 text-gray-600">{formatTime(rec.checkInTime)}</td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <UserAvatar name={(rec as any).name ?? ''} avatarUrl={(rec as any).avatarUrl} size="xs" />
-                          <span className="text-sm text-gray-700">{(rec as any).name || rec.userName || '—'}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-gray-600">{formatTime(rec.checkOutTime)}</span>
+                          {(rec as any).botCheckout && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded-full" title="Auto checked out by system at 23:59">
+                              <Bot size={9} /> Bot
+                            </span>
+                          )}
                         </div>
                       </td>
-                    )}
-                    <td className="px-4 py-3 text-gray-700">{formatDate(rec.date)}</td>
-                    <td className="px-4 py-3"><AttendanceStatusBadge status={rec.status} /></td>
-                    <td className="px-4 py-3 text-gray-600">{formatTime(rec.checkInTime)}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-gray-600">{formatTime(rec.checkOutTime)}</span>
-                        {(rec as any).botCheckout && (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded-full" title="Auto checked out by system at 23:59">
-                            <Bot size={9} /> Bot
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{rec.hoursWorked?.toFixed(1) ?? '—'}h</td>
-                    <td className="px-4 py-3">
-                      {rec.isWfh ? <Badge variant="info">WFH</Badge> : <span className="text-gray-300 text-xs">—</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      <td className="px-4 py-3 text-gray-600">{rec.hoursWorked?.toFixed(1) ?? '—'}h</td>
+                      <td className="px-4 py-3">
+                        {rec.isWfh ? <Badge variant="info">WFH</Badge> : <span className="text-gray-300 text-xs">—</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              total={allRecords.length}
+              pageSize={PAGE_SIZE}
+              onPageChange={setPage}
+              className="px-4 py-3 border-t border-gray-100"
+            />
+          </>
         )}
       </Card>
     </div>
@@ -1140,22 +1230,57 @@ const wfhStatusVariant = (status: string): 'success' | 'danger' | 'warning' | 'g
   return map[status] ?? 'gray';
 };
 
+const WFH_PAGE_SIZE = 10;
+const WFH_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'] as const;
+
 const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
+  const [wfhSubTab, setWfhSubTab] = useState<'my' | 'team'>('my');
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [rejectTarget, setRejectTarget] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
+  const [myPage, setMyPage] = useState(1);
+  const [teamPage, setTeamPage] = useState(1);
+  const [myStatusFilter, setMyStatusFilter] = useState('');
+  const [teamStatusFilter, setTeamStatusFilter] = useState('');
 
   const { data: myRequests = [], isLoading: myLoading } = useWfhRequests({ mine: 'true' });
   const { data: teamRequests = [], isLoading: teamLoading } = useWfhRequests({ team: 'true' });
 
-  // When the page was opened from a WFH notification, scroll the matching
-  // row into view and pulse a ring around it briefly so the user sees which
-  // request triggered the notification.
+  const hasTeam = !teamLoading && (teamRequests as any[]).length > 0;
+  const pendingTeam = (teamRequests as any[]).filter((r: any) => r.status === 'PENDING').length;
+
+  const filteredMyRequests = myStatusFilter
+    ? (myRequests as any[]).filter((r: any) => r.status === myStatusFilter)
+    : (myRequests as any[]);
+  const filteredTeamRequests = teamStatusFilter
+    ? (teamRequests as any[]).filter((r: any) => r.status === teamStatusFilter)
+    : (teamRequests as any[]);
+
+  const pagedMyRequests = filteredMyRequests.slice((myPage - 1) * WFH_PAGE_SIZE, myPage * WFH_PAGE_SIZE);
+  const pagedTeamRequests = filteredTeamRequests.slice((teamPage - 1) * WFH_PAGE_SIZE, teamPage * WFH_PAGE_SIZE);
+
+  // When the page was opened from a WFH notification, switch to the right
+  // sub-tab, clear the status filter and jump to the correct page.
   const highlightRef = React.useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (!highlightId) return;
-    if (myLoading || teamLoading) return; // wait for rows to render
-    // Scroll on next frame so the DOM has the highlighted row mounted
+    if (!highlightId || myLoading || teamLoading) return;
+    const myIdx = (myRequests as any[]).findIndex((r: any) => String(r.id) === String(highlightId));
+    if (myIdx !== -1) {
+      setWfhSubTab('my');
+      setMyStatusFilter('');
+      setMyPage(Math.ceil((myIdx + 1) / WFH_PAGE_SIZE));
+      return;
+    }
+    const teamIdx = (teamRequests as any[]).findIndex((r: any) => String(r.id) === String(highlightId));
+    if (teamIdx !== -1) {
+      setWfhSubTab('team');
+      setTeamStatusFilter('');
+      setTeamPage(Math.ceil((teamIdx + 1) / WFH_PAGE_SIZE));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightId, myLoading, teamLoading]);
+  useEffect(() => {
+    if (!highlightId || myLoading || teamLoading) return;
     const t = setTimeout(() => {
       highlightRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 50);
@@ -1216,126 +1341,211 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
     } catch (e: any) { setActionError(e?.message ?? 'Failed to cancel'); }
   };
 
+  // Status filter chip bar
+  const StatusFilterBar = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <button
+        onClick={() => onChange('')}
+        className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+          value === '' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+        }`}
+      >All</button>
+      {WFH_STATUSES.map((s) => (
+        <button
+          key={s}
+          onClick={() => onChange(s)}
+          className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+            value === s
+              ? s === 'PENDING'   ? 'bg-amber-500 text-white border-amber-500'
+              : s === 'APPROVED'  ? 'bg-green-600 text-white border-green-600'
+              : s === 'REJECTED'  ? 'bg-red-600 text-white border-red-600'
+              :                     'bg-gray-400 text-white border-gray-400'
+              : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+          }`}
+        >{s.charAt(0) + s.slice(1).toLowerCase()}</button>
+      ))}
+    </div>
+  );
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {actionError && <Alert type="error" message={actionError} />}
 
-      {/* My WFH Requests */}
-      <Card>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900">My WFH Requests</h3>
-            <p className="text-xs text-gray-500 mt-0.5">Submit a request for your Reporting Manager to approve</p>
-          </div>
-          <Button size="sm" icon={<Send size={13} />} onClick={() => setShowSubmitModal(true)}>Request WFH</Button>
+      {/* Sub-tab bar + Request WFH button */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
+          <button
+            onClick={() => setWfhSubTab('my')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              wfhSubTab === 'my' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            My Requests
+            {(myRequests as any[]).length > 0 && (
+              <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                wfhSubTab === 'my' ? 'bg-gray-100 text-gray-600' : 'bg-gray-200 text-gray-500'
+              }`}>{(myRequests as any[]).length}</span>
+            )}
+          </button>
+          {(teamLoading || hasTeam) && (
+            <button
+              onClick={() => setWfhSubTab('team')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                wfhSubTab === 'team' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Users size={13} />
+              Team Requests
+              {pendingTeam > 0 && (
+                <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-700">{pendingTeam}</span>
+              )}
+            </button>
+          )}
         </div>
+        <Button size="sm" icon={<Send size={13} />} onClick={() => setShowSubmitModal(true)}>Request WFH</Button>
+      </div>
 
-        {myLoading ? <PageSkeleton /> : (myRequests as any[]).length === 0 ? (
-          <EmptyState title="No WFH requests yet" description="You haven't submitted any WFH requests. Use the button above to request a WFH day." />
-        ) : (
-          <div className="space-y-2">
-            {(myRequests as any[]).map((req: any) => {
-              const isHighlight = highlightId && String(req.id) === String(highlightId);
-              return (
-              <div
-                key={req.id}
-                ref={isHighlight ? highlightRef : undefined}
-                className={`flex items-center justify-between px-3 py-3 rounded-xl border transition-all ${
-                  isHighlight
-                    ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-300 ring-offset-1 animate-pulse'
-                    : 'bg-gray-50 border-gray-100'
-                }`}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <p className="text-sm font-medium text-gray-800">
-                      {(req.wfhDateTo ?? req.wfh_date_to) && (req.wfhDateTo ?? req.wfh_date_to) !== (req.wfhDate ?? req.wfh_date)
-                        ? `${formatDate(req.wfhDate ?? req.wfh_date)} – ${formatDate(req.wfhDateTo ?? req.wfh_date_to)}`
-                        : formatDate(req.wfhDate ?? req.wfh_date)}
-                    </p>
-                    <Badge variant={wfhStatusVariant(req.status)}>{req.status}</Badge>
-                  </div>
-                  <p className="text-xs text-gray-500 truncate">{req.reason}</p>
-                  {(req.reviewerNotes ?? req.reviewer_notes) && (
-                    <p className="text-xs text-red-500 mt-0.5">Note: {req.reviewerNotes ?? req.reviewer_notes}</p>
-                  )}
-                </div>
-                {req.status === 'PENDING' && (
-                  <button
-                    onClick={() => handleCancel(String(req.id))}
-                    disabled={cancelWfh.isPending}
-                    className="ml-3 p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
-                    title="Cancel request"
-                  >
-                    <XCircle size={15} />
-                  </button>
-                )}
-              </div>
-              );
-            })}
-          </div>
-        )}
-      </Card>
-
-      {/* Team WFH Requests (RMs / managers only — hidden when empty) */}
-      {!teamLoading && (teamRequests as any[]).length > 0 && (
+      {/* My Requests panel */}
+      {wfhSubTab === 'my' && (
         <Card>
-          <div className="flex items-center gap-2 mb-4">
-            <Users size={15} className="text-indigo-600" />
-            <h3 className="text-sm font-semibold text-gray-900">Team WFH Requests</h3>
-            <Badge variant="warning">
-              {(teamRequests as any[]).filter((r: any) => r.status === 'PENDING').length} pending
-            </Badge>
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <p className="text-xs text-gray-500">Requests submitted to your Reporting Manager</p>
+            <StatusFilterBar value={myStatusFilter} onChange={(v) => { setMyStatusFilter(v); setMyPage(1); }} />
           </div>
-          <div className="space-y-2">
-            {(teamRequests as any[]).map((req: any) => {
-              const isHighlight = highlightId && String(req.id) === String(highlightId);
-              return (
-              <div
-                key={req.id}
-                ref={isHighlight ? highlightRef : undefined}
-                className={`flex items-center justify-between px-3 py-3 rounded-xl border transition-all ${
-                  isHighlight
-                    ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-300 ring-offset-1 animate-pulse'
-                    : 'bg-gray-50 border-gray-100'
-                }`}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <p className="text-sm font-medium text-gray-800">{req.userName ?? req.user_name ?? '—'}</p>
-                    <span className="text-gray-300 text-xs">·</span>
-                    <p className="text-sm text-gray-600">
-                      {(req.wfhDateTo ?? req.wfh_date_to) && (req.wfhDateTo ?? req.wfh_date_to) !== (req.wfhDate ?? req.wfh_date)
-                        ? `${formatDate(req.wfhDate ?? req.wfh_date)} – ${formatDate(req.wfhDateTo ?? req.wfh_date_to)}`
-                        : formatDate(req.wfhDate ?? req.wfh_date)}
-                    </p>
-                    <Badge variant={wfhStatusVariant(req.status)}>{req.status}</Badge>
-                  </div>
-                  <p className="text-xs text-gray-500 truncate">{req.reason}</p>
-                </div>
-                {req.status === 'PENDING' && (
-                  <div className="flex items-center gap-1 ml-3">
-                    <button
-                      onClick={() => handleApprove(String(req.id))}
-                      disabled={approveWfh.isPending}
-                      className="p-1.5 rounded-lg text-green-500 hover:text-green-700 hover:bg-green-50 transition-colors disabled:opacity-50"
-                      title="Approve"
+          {myLoading ? <PageSkeleton /> : filteredMyRequests.length === 0 ? (
+            <EmptyState
+              title={myStatusFilter ? `No ${myStatusFilter.toLowerCase()} requests` : 'No WFH requests yet'}
+              description={myStatusFilter ? 'Try a different filter.' : "You haven't submitted any WFH requests yet."}
+            />
+          ) : (
+            <>
+              <div className="space-y-2">
+                {pagedMyRequests.map((req: any) => {
+                  const isHighlight = highlightId && String(req.id) === String(highlightId);
+                  return (
+                    <div
+                      key={req.id}
+                      ref={isHighlight ? highlightRef : undefined}
+                      className={`flex items-center justify-between px-3 py-3 rounded-xl border transition-all ${
+                        isHighlight
+                          ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-300 ring-offset-1 animate-pulse'
+                          : 'bg-gray-50 border-gray-100'
+                      }`}
                     >
-                      <CheckCircle size={16} />
-                    </button>
-                    <button
-                      onClick={() => setRejectTarget(String(req.id))}
-                      className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                      title="Reject"
-                    >
-                      <XCircle size={16} />
-                    </button>
-                  </div>
-                )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <p className="text-sm font-medium text-gray-800">
+                            {(req.wfhDateTo ?? req.wfh_date_to) && (req.wfhDateTo ?? req.wfh_date_to) !== (req.wfhDate ?? req.wfh_date)
+                              ? `${formatDate(req.wfhDate ?? req.wfh_date)} – ${formatDate(req.wfhDateTo ?? req.wfh_date_to)}`
+                              : formatDate(req.wfhDate ?? req.wfh_date)}
+                          </p>
+                          <Badge variant={wfhStatusVariant(req.status)}>{req.status}</Badge>
+                        </div>
+                        <p className="text-xs text-gray-500 truncate">{req.reason}</p>
+                        {(req.reviewerNotes ?? req.reviewer_notes) && (
+                          <p className="text-xs text-red-500 mt-0.5">Note: {req.reviewerNotes ?? req.reviewer_notes}</p>
+                        )}
+                      </div>
+                      {req.status === 'PENDING' && (
+                        <button
+                          onClick={() => handleCancel(String(req.id))}
+                          disabled={cancelWfh.isPending}
+                          className="ml-3 p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                          title="Cancel request"
+                        >
+                          <XCircle size={15} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-              );
-            })}
+              <Pagination
+                page={myPage}
+                totalPages={Math.ceil(filteredMyRequests.length / WFH_PAGE_SIZE)}
+                total={filteredMyRequests.length}
+                pageSize={WFH_PAGE_SIZE}
+                onPageChange={setMyPage}
+                className="mt-4"
+              />
+            </>
+          )}
+        </Card>
+      )}
+
+      {/* Team Requests panel */}
+      {wfhSubTab === 'team' && (
+        <Card>
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <p className="text-xs text-gray-500">WFH requests from your direct reports</p>
+            <StatusFilterBar value={teamStatusFilter} onChange={(v) => { setTeamStatusFilter(v); setTeamPage(1); }} />
           </div>
+          {teamLoading ? <PageSkeleton /> : filteredTeamRequests.length === 0 ? (
+            <EmptyState
+              title={teamStatusFilter ? `No ${teamStatusFilter.toLowerCase()} requests` : 'No team requests'}
+              description={teamStatusFilter ? 'Try a different filter.' : 'No WFH requests from your team yet.'}
+            />
+          ) : (
+            <>
+              <div className="space-y-2">
+                {pagedTeamRequests.map((req: any) => {
+                  const isHighlight = highlightId && String(req.id) === String(highlightId);
+                  return (
+                    <div
+                      key={req.id}
+                      ref={isHighlight ? highlightRef : undefined}
+                      className={`flex items-center justify-between px-3 py-3 rounded-xl border transition-all ${
+                        isHighlight
+                          ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-300 ring-offset-1 animate-pulse'
+                          : 'bg-gray-50 border-gray-100'
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <p className="text-sm font-medium text-gray-800">{req.userName ?? req.user_name ?? '—'}</p>
+                          <span className="text-gray-300 text-xs">·</span>
+                          <p className="text-sm text-gray-600">
+                            {(req.wfhDateTo ?? req.wfh_date_to) && (req.wfhDateTo ?? req.wfh_date_to) !== (req.wfhDate ?? req.wfh_date)
+                              ? `${formatDate(req.wfhDate ?? req.wfh_date)} – ${formatDate(req.wfhDateTo ?? req.wfh_date_to)}`
+                              : formatDate(req.wfhDate ?? req.wfh_date)}
+                          </p>
+                          <Badge variant={wfhStatusVariant(req.status)}>{req.status}</Badge>
+                        </div>
+                        <p className="text-xs text-gray-500 truncate">{req.reason}</p>
+                      </div>
+                      {req.status === 'PENDING' && (
+                        <div className="flex items-center gap-1 ml-3">
+                          <button
+                            onClick={() => handleApprove(String(req.id))}
+                            disabled={approveWfh.isPending}
+                            className="p-1.5 rounded-lg text-green-500 hover:text-green-700 hover:bg-green-50 transition-colors disabled:opacity-50"
+                            title="Approve"
+                          >
+                            <CheckCircle size={16} />
+                          </button>
+                          <button
+                            onClick={() => setRejectTarget(String(req.id))}
+                            className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                            title="Reject"
+                          >
+                            <XCircle size={16} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <Pagination
+                page={teamPage}
+                totalPages={Math.ceil(filteredTeamRequests.length / WFH_PAGE_SIZE)}
+                total={filteredTeamRequests.length}
+                pageSize={WFH_PAGE_SIZE}
+                onPageChange={setTeamPage}
+                className="mt-4"
+              />
+            </>
+          )}
         </Card>
       )}
 
