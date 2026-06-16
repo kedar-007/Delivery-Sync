@@ -3,18 +3,7 @@
     "name": "badge_profile_service",
     "stack": "node20",
     "type": "advancedio",
-    "env_variables": {
-      "WISHES_POOL_NAME": "PeopleWishes",
-      "WISHES_POOL_ID": "17682000001912007",
-      "STRATUS_BUCKET_NAME": "badge-assets",
-      "RESUME_BUCKET_NAME": "resume-assets",
-      "NODE_ENV": "development",
-      "STRATUS_BASE_URL": "https://badge-assets-development.zohostratus.in",
-      "RESUME_BASE_URL": "https://resume-assets-development.zohostratus.in",
-      "FROM_EMAIL": "catalystadmin@dsv360.ai",
-      "APP_URL": "https://delivery-sync-60040289923.development.catalystserverless.in",
-      "ENVIRONMENT": "development"
-    }
+    "env_variables": {}
   },
   "execution": {
     "main": "index.js"

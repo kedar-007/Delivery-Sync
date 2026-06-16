@@ -35,6 +35,7 @@ import { useConfirm } from '../components/ui/ConfirmDialog';
 import { canDo, hasPermission, PERMISSIONS, INVITE_ALLOWED_ROLES } from '../utils/permissions';
 import { COUNTRIES, TIMEZONES, TZ_GROUPS } from '../lib/locationData';
 import { User as UserType } from '../types';
+import UserPicker from '../components/ui/UserPicker';
 const PAGE_SIZE = 20;
 
 type Tab = 'users' | 'roles' | 'orgchart';
@@ -63,7 +64,9 @@ const OrgRoleCard = ({
   onAssignUser: (userId: string, roleId: string | null) => void;
   onDataAccess: (r: OrgRole) => void;
 }) => {
+  const { t } = useI18n();
   const [showAssign, setShowAssign] = useState(false);
+  const [assignPickerValue, setAssignPickerValue] = useState('');
   const parent = allRoles.find((r) => r.id === role.parentRoleId);
 
   return (
@@ -82,7 +85,7 @@ const OrgRoleCard = ({
               {role.description && <p className="text-xs text-gray-400 mt-0.5">{role.description}</p>}
               {parent && (
                 <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
-                  <GitBranch size={10} /> Reports to: <span className="font-medium">{parent.name}</span>
+                  <GitBranch size={10} /> {t('admin.users.role')}: <span className="font-medium">{parent.name}</span>
                 </p>
               )}
             </div>
@@ -109,7 +112,7 @@ const OrgRoleCard = ({
 
         <div className="mt-3 flex items-center gap-3 flex-wrap text-xs text-gray-500">
           <span className="flex items-center gap-1">
-            <Users size={11} /> {role.userCount} {role.userCount === 1 ? 'member' : 'members'}
+            <Users size={11} /> {role.userCount} {t('teams.members')}
           </span>
           <span className="flex items-center gap-1">
             <Settings size={11} /> {role.permissions.length} permissions
@@ -123,19 +126,23 @@ const OrgRoleCard = ({
         <div className="mt-3 pt-3 border-t border-gray-100">
           <button onClick={() => setShowAssign((v) => !v)}
             className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium">
-            <User size={11} /> Assign member {showAssign ? '▲' : '▼'}
+            <User size={11} /> {t('teams.addMember')} {showAssign ? '▲' : '▼'}
           </button>
           {showAssign && (
-            <select
-              className="mt-2 form-select text-xs w-full"
-              defaultValue=""
-              onChange={(e) => { if (e.target.value) { onAssignUser(e.target.value, role.id); setShowAssign(false); } }}
-            >
-              <option value="">Select user to assign…</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
-              ))}
-            </select>
+            <div className="mt-2">
+              <UserPicker
+                users={users.map((u) => ({ id: u.id, name: u.name, role: u.email }))}
+                value={assignPickerValue}
+                placeholder={t('common.searchPlaceholder')}
+                onChange={(userId) => {
+                  if (userId) {
+                    onAssignUser(userId, role.id);
+                    setAssignPickerValue('');
+                    setShowAssign(false);
+                  }
+                }}
+              />
+            </div>
           )}
         </div>
       </div>
@@ -152,6 +159,7 @@ const RoleFormModal = ({
   open: boolean; onClose: () => void; initial?: OrgRole | null;
   onSave: (d: RoleFormData) => void; saving: boolean;
 }) => {
+  const { t } = useI18n();
   const [form, setForm] = useState<RoleFormData>({
     name: initial?.name ?? '',
     description: initial?.description ?? '',
@@ -174,14 +182,14 @@ const RoleFormModal = ({
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
   return (
-    <Modal open={open} onClose={onClose} title={initial ? 'Edit Role' : 'Create Role'}>
+    <Modal open={open} onClose={onClose} title={initial ? `${t('common.edit')} Role` : `${t('common.create')} Role`}>
       <div className="space-y-4">
         <div>
-          <label className="form-label">Role Name *</label>
+          <label className="form-label">{t('common.name')} *</label>
           <input className="form-input" placeholder="e.g. Tech Lead" value={form.name} onChange={set('name')} />
         </div>
         <div>
-          <label className="form-label">Description</label>
+          <label className="form-label">{t('common.description')}</label>
           <input className="form-input" placeholder="Short description" value={form.description} onChange={set('description')} />
         </div>
         <div>
@@ -195,13 +203,13 @@ const RoleFormModal = ({
             ))}
           </div>
           <p className="text-xs text-gray-400 mt-2">
-            Set hierarchy by dragging roles in the <strong>Org Chart</strong> tab.
+            Set hierarchy by dragging roles in the <strong>{t('directory.orgChart')}</strong> tab.
           </p>
         </div>
         <ModalActions>
-          <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" type="button" onClick={onClose}>{t('common.cancel')}</Button>
           <Button onClick={() => onSave(form)} loading={saving} disabled={!form.name.trim()}>
-            {initial ? 'Save Changes' : 'Create Role'}
+            {initial ? t('common.save') : t('common.create')}
           </Button>
         </ModalActions>
       </div>
@@ -299,7 +307,7 @@ const ROLE_PRESETS: Record<string, {
     permissions: [
       'PROJECT_READ','MILESTONE_READ',
       'STANDUP_READ','EOD_READ','TIME_READ','TIME_APPROVE',
-      'ATTENDANCE_READ','ATTENDANCE_WRITE','ATTENDANCE_ADMIN','ATTENDANCE_TEAM_VIEW','IP_CONFIG_WRITE',
+      'ATTENDANCE_READ','ATTENDANCE_WRITE','ATTENDANCE_ADMIN','ATTENDANCE_TEAM_VIEW','ATTENDANCE_REPORT','IP_CONFIG_WRITE',
       'LEAVE_READ','LEAVE_WRITE','LEAVE_APPROVE','LEAVE_ADMIN','LEAVE_TEAM_VIEW',
       'ASSET_READ','BADGE_READ','BADGE_WRITE','BADGE_AWARD',
       'PROFILE_READ','PROFILE_WRITE',
@@ -427,6 +435,7 @@ const PERM_INFO: Record<string, { label: string; desc: string; risk: 'low' | 'me
   ATTENDANCE_READ:      { label: 'View Attendance',   desc: 'See own attendance records',                       risk: 'low' },
   ATTENDANCE_WRITE:     { label: 'Check In / Out',    desc: 'Log daily attendance, WFH, breaks',                risk: 'low' },
   ATTENDANCE_TEAM_VIEW: { label: 'View Team Records', desc: 'See peers\' attendance — live view, records, export', risk: 'medium' },
+  ATTENDANCE_REPORT:    { label: 'Attendance Reports', desc: 'Generate & download comprehensive attendance reports (present/absent/leave/late/excess breaks)', risk: 'medium' },
   ATTENDANCE_ADMIN:     { label: 'Attendance Admin',  desc: 'Override records, view all tenants, export CSV',    risk: 'high' },
   IP_CONFIG_WRITE:    { label: 'Configure',          desc: 'People Settings: IP/Geo/Zone restrictions & work shifts', risk: 'high' },
   LEAVE_READ:         { label: 'View Leave',         desc: 'See own leave requests and balance',                           risk: 'low' },
@@ -591,6 +600,7 @@ const RolePermissionsModal = ({
   open: boolean; onClose: () => void; role: OrgRole | null;
   onSave: (perms: string[], moduleAccess: string[]) => void; saving: boolean;
 }) => {
+  const { t } = useI18n();
   const { data: permData } = useAllPermissions();
   const groups: { group: string; keys: string[] }[] = permData?.groups ?? [];
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -681,7 +691,7 @@ const RolePermissionsModal = ({
           <Shield size={18} style={{ color: role?.color ?? '#4F46E5' }} />
         </div>
         <div className="flex-1 min-w-0">
-          <h2 className="text-base font-bold text-gray-900 truncate">Permissions — {role?.name ?? ''}</h2>
+          <h2 className="text-base font-bold text-gray-900 truncate">{t('admin.tabs.roles')} — {role?.name ?? ''}</h2>
           <p className="text-xs text-gray-400 mt-0.5 truncate">
             {role?.description || 'Set which features and actions this org role can access'}
           </p>
@@ -699,12 +709,12 @@ const RolePermissionsModal = ({
 
       {/* ── Tab bar ── */}
       <div className="flex gap-1 mb-4 bg-gray-100 dark:bg-gray-700/50 rounded-lg p-1 shrink-0">
-        {(['modules', 'permissions'] as const).map((t) => (
-          <button key={t} onClick={() => setPermTab(t)}
+        {(['modules', 'permissions'] as const).map((tabKey) => (
+          <button key={tabKey} onClick={() => setPermTab(tabKey)}
             className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
-              permTab === t ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              permTab === tabKey ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
             }`}>
-            {t === 'modules' ? 'Module Access' : `Permissions (${selected.size})`}
+            {tabKey === 'modules' ? 'Module Access' : `Permissions (${selected.size})`}
           </button>
         ))}
       </div>
@@ -756,7 +766,7 @@ const RolePermissionsModal = ({
             {/* Search */}
             <div className="relative mb-3 shrink-0">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-              <input type="text" placeholder="Search modules or permissions…" value={permSearch}
+              <input type="text" placeholder={t('common.searchPlaceholder')} value={permSearch}
                 onChange={(e) => setPermSearch(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-gray-50" />
             </div>
@@ -774,7 +784,7 @@ const RolePermissionsModal = ({
 
             <div className="overflow-y-auto flex-1 space-y-4 pr-1">
               {filteredCrudModules.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-8">No modules match "{permSearch}"</p>
+                <p className="text-sm text-gray-400 text-center py-8">{t('common.noResults')}</p>
               ) : filteredCrudModules.map(({ section, rows }) => {
                 const allPerms = Array.from(new Set(rows.flatMap((r) =>
                   ([r.view, r.write, r.approve, r.admin, r.team] as (string | undefined)[]).filter(Boolean) as string[]
@@ -855,9 +865,9 @@ const RolePermissionsModal = ({
       </div>
 
       <ModalActions>
-        <Button variant="outline" onClick={onClose}>Cancel</Button>
+        <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
         <Button onClick={() => onSave(Array.from(selected), Array.from(disabledModules))} loading={saving}>
-          Save ({selected.size} permissions)
+          {t('common.save')} ({selected.size})
         </Button>
       </ModalActions>
     </Modal>
@@ -877,6 +887,7 @@ const DataSharingModal = ({
 }: {
   open: boolean; onClose: () => void; role: OrgRole | null; allRoles: OrgRole[];
 }) => {
+  const { t } = useI18n();
   const roleId = role?.id ?? null;
   const { data: sharingData, isLoading } = useSharingRules(roleId);
   const setVisibility  = useSetDefaultVisibility(roleId ?? '');
@@ -945,7 +956,7 @@ const DataSharingModal = ({
                 disabled={selectedScope === defaultScope}
                 onClick={() => setVisibility.mutate({ visibilityScope: selectedScope })}
               >
-                Apply Scope
+                {t('common.apply')}
               </Button>
               {selectedScope !== defaultScope && (
                 <p className="text-xs text-amber-600 mt-1">
@@ -961,7 +972,7 @@ const DataSharingModal = ({
                 <button
                   onClick={() => setAddingExplicit((v) => !v)}
                   className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium">
-                  <Plus size={12} /> Add grant
+                  <Plus size={12} /> {t('common.add')}
                 </button>
               </div>
 
@@ -972,7 +983,7 @@ const DataSharingModal = ({
                     onChange={(e) => setExplicitTarget(e.target.value)}
                     className="form-select text-xs flex-1 min-w-0"
                   >
-                    <option value="">Select target role…</option>
+                    <option value="">{t('common.searchPlaceholder')}</option>
                     {allRoles.filter(r => r.id !== role.id).map(r => (
                       <option key={r.id} value={r.id}>{r.name}</option>
                     ))}
@@ -997,13 +1008,13 @@ const DataSharingModal = ({
                       setExplicitAccess('READ');
                     }}
                   >
-                    Add
+                    {t('common.add')}
                   </Button>
                 </div>
               )}
 
               {explicitRules.length === 0 ? (
-                <p className="text-xs text-gray-400 italic py-2">No explicit grants configured.</p>
+                <p className="text-xs text-gray-400 italic py-2">{t('common.noData')}</p>
               ) : (
                 <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                   {explicitRules.map((r: any) => {
@@ -1039,7 +1050,7 @@ const DataSharingModal = ({
         )}
 
         <ModalActions>
-          <Button variant="outline" onClick={onClose}>Close</Button>
+          <Button variant="outline" onClick={onClose}>{t('common.close')}</Button>
         </ModalActions>
       </div>
     </Modal>
@@ -1094,6 +1105,7 @@ function buildOrgLayout(all: any[]): Record<string, { x: number; y: number }> {
 }
 
 const OrgChartView = () => {
+  const { t } = useI18n();
   const { data, isLoading, refetch } = useOrgChart();
   const [view, setView] = useState<'chart' | 'list'>('chart');
   const [search, setSearch] = useState('');
@@ -1122,7 +1134,7 @@ const OrgChartView = () => {
 
   if (!allNodes.length) return (
     <EmptyState
-      title="No org chart yet"
+      title={t('directory.orgChart')}
       description="Create roles in the Roles tab and assign users to build the org chart."
     />
   );
@@ -1281,11 +1293,11 @@ const OrgChartView = () => {
               )}
             </div>
             <span className="text-xs text-gray-400">
-              {node.users.length} {node.users.length === 1 ? 'member' : 'members'}
+              {node.users.length} {t('teams.members')}
             </span>
           </div>
         ) : (
-          <span className="text-xs text-gray-400">No members yet</span>
+          <span className="text-xs text-gray-400">{t('common.noData')}</span>
         )}
       </div>
     );
@@ -1310,7 +1322,7 @@ const OrgChartView = () => {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name…"
+              placeholder={t('common.searchPlaceholder')}
               className="pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 w-52"
             />
           </div>
@@ -1318,7 +1330,7 @@ const OrgChartView = () => {
             {allNodes.length} roles · {totalMembers} members
             {view === 'chart' && <span className="ml-1.5 opacity-60">· Drag nodes to reassign reporting lines</span>}
           </p>
-          {saving && <span className="text-xs text-indigo-500 animate-pulse">Saving…</span>}
+          {saving && <span className="text-xs text-indigo-500 animate-pulse">{t('common.saving')}</span>}
         </div>
 
         <div className="flex items-center gap-2">
@@ -1365,7 +1377,7 @@ const OrgChartView = () => {
                 </div>
               )}
               <span className="text-xs text-gray-400 w-12 text-right shrink-0">
-                {node.users?.length ?? 0} member{node.users?.length !== 1 ? 's' : ''}
+                {node.users?.length ?? 0} {t('teams.members')}
               </span>
             </div>
           ))}
@@ -1562,6 +1574,7 @@ const UserRow = ({
   onDeactivate: () => void;
   onActivate: () => void;
 }) => {
+  const { t } = useI18n();
   const updateUser = useUpdateAdminUser(user.id);
   const updateLocation = useUpdateUserLocation();
   const isSelf = user.id === currentUserId;
@@ -1748,18 +1761,18 @@ const UserRow = ({
               className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors"
               title="Manage permissions"
             >
-              <KeyRound size={12} /> Permissions
+              <KeyRound size={12} /> {t('admin.users.permissions')}
             </button>
             {user.status === 'ACTIVE' && !isSelf && (
               <button onClick={onDeactivate}
                 className="text-xs text-red-600 hover:underline flex items-center gap-1">
-                <UserX size={12} /> Deactivate
+                <UserX size={12} /> {t('admin.users.deactivate')}
               </button>
             )}
             {user.status === 'INACTIVE' && (
               <button onClick={onActivate}
                 className="text-xs text-emerald-600 hover:underline flex items-center gap-1">
-                <UserCheck size={12} /> Activate
+                <UserCheck size={12} /> {t('admin.users.activate')}
               </button>
             )}
           </div>
@@ -1792,6 +1805,7 @@ const WEEKEND_POLICY_OPTIONS = [
 interface LocForm { name: string; country?: string; timezone?: string; }
 
 export const OfficeLocationsTab = () => {
+  const { t } = useI18n();
   const { user: currentUser } = useAuth();
   const canManage = hasPermission(currentUser, PERMISSIONS.LOCATION_ADMIN) || hasPermission(currentUser, PERMISSIONS.LEAVE_ADMIN);
   const { data: rawConfig } = useCalendarConfig() as { data: any };
@@ -1836,7 +1850,7 @@ export const OfficeLocationsTab = () => {
           <p className="text-xs text-gray-500 mt-0.5">Define your company's office locations. Assign users to locations and configure location-specific holiday calendars.</p>
         </div>
         {canManage && (
-          <Button size="sm" icon={<Plus size={14} />} onClick={() => setAddOpen(true)}>Add Location</Button>
+          <Button size="sm" icon={<Plus size={14} />} onClick={() => setAddOpen(true)}>{t('common.add')}</Button>
         )}
       </div>
 
@@ -1851,11 +1865,11 @@ export const OfficeLocationsTab = () => {
       {calLocations.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
           <MapPin size={32} className="mx-auto text-gray-300 mb-2" />
-          <p className="text-sm font-medium text-gray-500">No office locations yet</p>
+          <p className="text-sm font-medium text-gray-500">{t('common.noData')}</p>
           <p className="text-xs text-gray-400 mt-1">Add locations to assign users and configure location-specific holiday calendars.</p>
           {canManage && (
             <Button size="sm" icon={<Plus size={14} />} onClick={() => setAddOpen(true)} className="mt-4">
-              Add First Location
+              {t('common.add')}
             </Button>
           )}
         </div>
@@ -1905,7 +1919,7 @@ export const OfficeLocationsTab = () => {
 
                 {/* Assigned users */}
                 <div>
-                  <p className="text-xs text-gray-500 mb-1">{assigned.length} user{assigned.length !== 1 ? 's' : ''} assigned</p>
+                  <p className="text-xs text-gray-500 mb-1">{assigned.length} {t('admin.users.title')}</p>
                   {assigned.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                       {assigned.slice(0, 5).map((u) => (
@@ -1915,7 +1929,7 @@ export const OfficeLocationsTab = () => {
                         </div>
                       ))}
                       {assigned.length > 5 && (
-                        <span className="text-xs text-gray-400 px-2 py-0.5">+{assigned.length - 5} more</span>
+                        <span className="text-xs text-gray-400 px-2 py-0.5">+{assigned.length - 5} {t('common.moreItems')}</span>
                       )}
                     </div>
                   )}
@@ -1948,11 +1962,11 @@ export const OfficeLocationsTab = () => {
       )}
 
       {/* Add Location Modal */}
-      <Modal open={addOpen} onClose={() => { setAddOpen(false); resetLoc(); }} title="Add Office Location" size="sm">
+      <Modal open={addOpen} onClose={() => { setAddOpen(false); resetLoc(); }} title={t('common.add')} size="sm">
         <form onSubmit={handleLocSubmit(addLocation)} className="space-y-4">
           <div>
-            <label className="form-label">Location Name *</label>
-            <input className="form-input" placeholder="e.g. Sydney Office" {...regLoc('name', { required: 'Required' })} />
+            <label className="form-label">{t('common.name')} *</label>
+            <input className="form-input" placeholder="e.g. Sydney Office" {...regLoc('name', { required: t('validation.required') })} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -1963,13 +1977,13 @@ export const OfficeLocationsTab = () => {
               </select>
             </div>
             <div>
-              <label className="form-label">Timezone</label>
+              <label className="form-label">{t('admin.config.timezone')}</label>
               <select className="form-select" {...regLoc('timezone')}>
                 <option value="">— Select timezone —</option>
                 {TZ_GROUPS.map((group) => (
                   <optgroup key={group} label={group}>
-                    {TIMEZONES.filter((t) => t.group === group).map((t) => (
-                      <option key={t.value} value={t.value}>{t.label}</option>
+                    {TIMEZONES.filter((tz) => tz.group === group).map((tz) => (
+                      <option key={tz.value} value={tz.value}>{tz.label}</option>
                     ))}
                   </optgroup>
                 ))}
@@ -1977,8 +1991,8 @@ export const OfficeLocationsTab = () => {
             </div>
           </div>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setAddOpen(false)}>Cancel</Button>
-            <Button type="submit" loading={locSubmitting} icon={<Plus size={14} />}>Add Location</Button>
+            <Button variant="outline" type="button" onClick={() => setAddOpen(false)}>{t('common.cancel')}</Button>
+            <Button type="submit" loading={locSubmitting} icon={<Plus size={14} />}>{t('common.add')}</Button>
           </ModalActions>
         </form>
       </Modal>
@@ -2052,17 +2066,17 @@ const AdminPage = () => {
     try {
       setInviteError(''); setInviteSuccess('');
       await inviteUser.mutateAsync(data);
-      setInviteSuccess(`Invitation sent to ${data.email}. They'll receive an email to sign in.`);
+      setInviteSuccess(t('common.saveSuccess'));
       reset();
       setTimeout(() => { setShowInvite(false); setInviteSuccess(''); }, 2500);
-    } catch (err: unknown) { setInviteError((err as Error).message); }
+    } catch (err: unknown) { setInviteError((err as Error).message || t('errors.saveFailed')); }
   };
 
   const handleDeactivate = async (userId: string) => {
     const ok = await confirm({
-      title: 'Deactivate User',
+      title: t('admin.users.deactivate'),
       message: 'This user will immediately lose access to the app. Their data and history will be preserved.',
-      confirmText: 'Deactivate',
+      confirmText: t('admin.users.deactivate'),
       variant: 'danger',
     });
     if (!ok) return;
@@ -2071,9 +2085,9 @@ const AdminPage = () => {
 
   const handleActivate = async (userId: string) => {
     const ok = await confirm({
-      title: 'Reactivate User',
+      title: t('admin.users.activate'),
       message: 'This user will regain full access to the app based on their role and permissions.',
-      confirmText: 'Activate',
+      confirmText: t('admin.users.activate'),
       variant: 'info',
     });
     if (!ok) return;
@@ -2092,19 +2106,19 @@ const AdminPage = () => {
 
   return (
     <Layout>
-      <Header title={t('nav.userManagement')} subtitle="Manage users, roles and org structure"
+      <Header title={t('nav.userManagement')} subtitle={t('admin.title')}
         actions={tab === 'users' && (canInvite
-          ? <Button onClick={() => setShowInvite(true)} icon={<Plus size={16} />}>Invite User</Button>
-          : <span className="flex items-center gap-1.5 text-sm text-gray-400"><Lock size={14} />No permission to invite users</span>)}
+          ? <Button onClick={() => setShowInvite(true)} icon={<Plus size={16} />}>{t('admin.users.invite')}</Button>
+          : <span className="flex items-center gap-1.5 text-sm text-gray-400"><Lock size={14} />{t('errors.forbidden')}</span>)}
       />
       <div className="py-5 px-8 space-y-5">
 
         {/* Tabs */}
         <div className="flex gap-2 border-b border-gray-200 overflow-x-auto">
           {([
-            { key: 'users',    label: `Users (${users.length})` },
-            { key: 'roles',    label: `Roles (${orgRoles.length})` },
-            { key: 'orgchart', label: 'Org Chart' },
+            { key: 'users',    label: `${t('admin.tabs.users')} (${users.length})` },
+            { key: 'roles',    label: `${t('admin.tabs.roles')} (${orgRoles.length})` },
+            { key: 'orgchart', label: t('directory.orgChart') },
           ] as { key: Tab; label: string }[]).map(({ key, label }) => (
             <button key={key} onClick={() => setTab(key)}
               className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
@@ -2118,8 +2132,8 @@ const AdminPage = () => {
         {/* ── Users tab ─────────────────────────────────────────────────────── */}
         {tab === 'users' && (
           (users as UserType[]).length === 0 ? (
-            <EmptyState title="No users" description="Invite your first team member."
-              action={canInvite ? <Button onClick={() => setShowInvite(true)} icon={<Plus size={16} />}>Invite User</Button> : undefined} />
+            <EmptyState title={t('admin.users.noUsers')} description={t('admin.users.invite')}
+              action={canInvite ? <Button onClick={() => setShowInvite(true)} icon={<Plus size={16} />}>{t('admin.users.invite')}</Button> : undefined} />
           ) : (
             <div className="space-y-3">
               {/* Search bar */}
@@ -2127,7 +2141,7 @@ const AdminPage = () => {
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                 <input
                   type="text"
-                  placeholder="Search by name, email or role…"
+                  placeholder={t('common.searchPlaceholder')}
                   value={userSearch}
                   onChange={(e) => { setUserSearch(e.target.value); setUserPage(1); }}
                   className="w-full pl-9 pr-3 py-2 text-sm rounded-xl border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-400"
@@ -2138,14 +2152,14 @@ const AdminPage = () => {
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      {['Name', 'Email', 'Role', 'Shift', 'Location', 'Status', 'Actions'].map((h) => (
+                      {[t('common.name'), t('profile.email'), t('admin.users.role'), 'Shift', 'Location', t('common.status'), t('common.actions')].map((h) => (
                         <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {pagedUsers.length === 0 ? (
-                      <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">No users match "{userSearch}"</td></tr>
+                      <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">{t('common.noResults')}</td></tr>
                     ) : pagedUsers.map((u: UserType) => (
                       <UserRow
                         key={u.id}
@@ -2174,7 +2188,7 @@ const AdminPage = () => {
               {userTotalPages > 1 && (
                 <div className="flex items-center justify-between px-1">
                   <p className="text-xs text-gray-500">
-                    Showing {(userPage - 1) * PAGE_SIZE + 1}–{Math.min(userPage * PAGE_SIZE, filteredUsers.length)} of {filteredUsers.length} users
+                    {(userPage - 1) * PAGE_SIZE + 1}–{Math.min(userPage * PAGE_SIZE, filteredUsers.length)} / {filteredUsers.length} {t('admin.users.title')}
                   </p>
                   <div className="flex items-center gap-1">
                     <button
@@ -2235,7 +2249,7 @@ const AdminPage = () => {
                   <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                   <input
                     type="text"
-                    placeholder="Search roles…"
+                    placeholder={t('common.searchPlaceholder')}
                     value={roleSearch}
                     onChange={(e) => setRoleSearch(e.target.value)}
                     className="pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 w-44"
@@ -2243,7 +2257,7 @@ const AdminPage = () => {
                 </div>
                 {canManageRoles && (
                   <Button icon={<Plus size={15} />} onClick={() => { setEditingOrgRole(null); setRoleFormOpen(true); }}>
-                    New Role
+                    {t('common.new')}
                   </Button>
                 )}
               </div>
@@ -2255,10 +2269,10 @@ const AdminPage = () => {
               </div>
             ) : orgRoles.length === 0 ? (
               <EmptyState
-                title="No custom roles yet"
+                title={t('common.noData')}
                 description="Create roles like CEO, Tech Lead, or Product Owner to build your org chart."
                 action={canManageRoles
-                  ? <Button icon={<Plus size={15} />} onClick={() => { setEditingOrgRole(null); setRoleFormOpen(true); }}>Create First Role</Button>
+                  ? <Button icon={<Plus size={15} />} onClick={() => { setEditingOrgRole(null); setRoleFormOpen(true); }}>{t('common.create')}</Button>
                   : undefined}
               />
             ) : (
@@ -2279,7 +2293,7 @@ const AdminPage = () => {
                         users={users as UserType[]}
                         onEdit={(r) => { setEditingOrgRole(r); setRoleFormOpen(true); }}
                         onDelete={async (id) => {
-                          const ok = await confirm({ title: 'Delete Role', message: 'All member assignments for this role will be removed. This cannot be undone.', confirmText: 'Delete', variant: 'danger' });
+                          const ok = await confirm({ title: t('common.confirmDeleteTitle'), message: t('common.confirmDeleteDesc'), confirmText: t('common.delete'), variant: 'danger' });
                           if (!ok) return;
                           await deleteRole.mutateAsync(id);
                         }}
@@ -2290,7 +2304,7 @@ const AdminPage = () => {
                     ))}
                 </div>
                 {roleSearch.trim() && orgRoles.filter((r) => r.name.toLowerCase().includes(roleSearch.toLowerCase())).length === 0 && (
-                  <div className="text-center py-8 text-gray-400 text-sm">No roles match "{roleSearch}"</div>
+                  <div className="text-center py-8 text-gray-400 text-sm">{t('common.noResults')}</div>
                 )}
               </>
             )}
@@ -2339,9 +2353,9 @@ const AdminPage = () => {
         {tab === 'orgchart' && (
           <div className="space-y-4">
             <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-700">
-              <p className="font-medium mb-1">Org Chart — role hierarchy</p>
+              <p className="font-medium mb-1">{t('directory.orgChart')}</p>
               <p className="text-xs text-blue-600">
-                Roles are arranged by their hierarchy level. Assign members to roles in the <strong>Roles</strong> tab. Set <em>Reports to</em> on each role to define the parent-child structure.
+                Roles are arranged by their hierarchy level. Assign members to roles in the <strong>{t('admin.tabs.roles')}</strong> tab. Set <em>Reports to</em> on each role to define the parent-child structure.
               </p>
             </div>
             <OrgChartView />
@@ -2351,25 +2365,25 @@ const AdminPage = () => {
       </div>
 
       {/* Invite Modal */}
-      <Modal open={showInvite} onClose={() => { setShowInvite(false); reset(); setInviteError(''); setInviteSuccess(''); }} title="Invite User">
+      <Modal open={showInvite} onClose={() => { setShowInvite(false); reset(); setInviteError(''); setInviteSuccess(''); }} title={t('admin.users.invite')}>
         <form onSubmit={handleSubmit(onInvite)} className="space-y-4">
           {inviteError && <Alert type="error" message={inviteError} />}
           {inviteSuccess && <Alert type="success" message={inviteSuccess} />}
           <div>
-            <label className="form-label">Name *</label>
-            <input className="form-input" placeholder="Full name" {...register('name', { required: 'Required' })} />
+            <label className="form-label">{t('common.name')} *</label>
+            <input className="form-input" placeholder="Full name" {...register('name', { required: t('validation.required') })} />
             {errors.name && <p className="form-error">{errors.name.message}</p>}
           </div>
           <div>
-            <label className="form-label">Email *</label>
-            <input type="email" className="form-input" placeholder="user@company.com" {...register('email', { required: 'Required' })} />
+            <label className="form-label">{t('profile.email')} *</label>
+            <input type="email" className="form-input" placeholder="user@company.com" {...register('email', { required: t('validation.required') })} />
             {errors.email && <p className="form-error">{errors.email.message}</p>}
           </div>
           {orgRoles.length > 0 && (
             <div>
-              <label className="form-label">Org Role <span className="text-gray-400 font-normal">(optional)</span></label>
+              <label className="form-label">{t('admin.tabs.roles')} <span className="text-gray-400 font-normal">{t('common.optional2')}</span></label>
               <select className="form-select" {...register('orgRoleId')}>
-                <option value="">— None —</option>
+                <option value="">— {t('common.none')} —</option>
                 {(orgRoles as OrgRole[]).map((r) => (
                   <option key={r.id} value={r.id}>{r.name}</option>
                 ))}
@@ -2386,8 +2400,8 @@ const AdminPage = () => {
             </ol>
           </div>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setShowInvite(false)}>Cancel</Button>
-            <Button type="submit" loading={isSubmitting} icon={<UserCheck size={16} />}>Send Invitation</Button>
+            <Button variant="outline" type="button" onClick={() => setShowInvite(false)}>{t('common.cancel')}</Button>
+            <Button type="submit" loading={isSubmitting} icon={<UserCheck size={16} />}>{t('common.send')}</Button>
           </ModalActions>
         </form>
       </Modal>

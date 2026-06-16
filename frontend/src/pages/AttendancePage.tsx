@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Clock, LogIn, LogOut, Home, Users, BarChart2, AlertTriangle, UtensilsCrossed, Coffee, Bot } from 'lucide-react';
+import { Clock, LogIn, LogOut, Home, Users, BarChart2, AlertTriangle, UtensilsCrossed, Coffee, Bot, FileText } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { format, parseISO, startOfWeek, endOfWeek, addDays } from 'date-fns';
 import Layout from '../components/layout/Layout';
@@ -14,6 +14,7 @@ import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
 import Pagination from '../components/ui/Pagination';
 import UserAvatar from '../components/ui/UserAvatar';
+import UserPicker from '../components/ui/UserPicker';
 import {
   useMyAttendanceRecord,
   useAttendanceLive,
@@ -124,7 +125,7 @@ const ATTENDANCE_MANAGER_PERMS = ['ATTENDANCE_ADMIN', 'ATTENDANCE_TEAM_VIEW'];
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 
-type Tab = 'my' | 'wfh' | 'live' | 'records' | 'summary';
+type Tab = 'my' | 'wfh' | 'live' | 'records' | 'summary' | 'report';
 
 // ── IP Config Tab ─────────────────────────────────────────────────────────────
 
@@ -201,6 +202,7 @@ const HISTORY_DAY_OPTIONS = [7, 14] as const;
 type HistoryDays = (typeof HISTORY_DAY_OPTIONS)[number];
 
 const HistorySection = ({ history }: { history: AttendanceRecord[] }) => {
+  const { t } = useI18n();
   const [days, setDays] = useState<HistoryDays>(7);
 
   const cutoff = format(new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000), 'yyyy-MM-dd');
@@ -209,7 +211,7 @@ const HistorySection = ({ history }: { history: AttendanceRecord[] }) => {
   return (
     <>
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-gray-900">Recent History</h3>
+        <h3 className="text-sm font-semibold text-gray-900">{t('attendance.tabs.myRecord')}</h3>
         <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
           {HISTORY_DAY_OPTIONS.map((d) => (
             <button
@@ -221,25 +223,25 @@ const HistorySection = ({ history }: { history: AttendanceRecord[] }) => {
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              {d} days
+              {d} {t('common.days')}
             </button>
           ))}
         </div>
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState title="No records yet" description="Your attendance history will appear here." />
+        <EmptyState title={t('common.noData')} description={t('common.noResults')} />
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100">
-                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">Date</th>
-                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">Status</th>
-                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">Check In</th>
-                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">Check Out</th>
-                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">Breaks</th>
-                <th className="text-left py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">Hours</th>
+                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('common.dueDate')}</th>
+                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('common.status')}</th>
+                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('dashboard.attendance.labelIn')}</th>
+                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('dashboard.attendance.labelOut')}</th>
+                <th className="text-left py-2 pr-4 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('common.notes')}</th>
+                <th className="text-left py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('dashboard.attendance.labelHours')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -249,7 +251,7 @@ const HistorySection = ({ history }: { history: AttendanceRecord[] }) => {
                   <td className="py-2.5 pr-4">
                     <div className="flex items-center gap-1.5">
                       <AttendanceStatusBadge status={rec.status} />
-                      {rec.isWfh && <Badge variant="info">WFH</Badge>}
+                      {rec.isWfh && <Badge variant="info">{t('attendance.status.wfh')}</Badge>}
                     </div>
                   </td>
                   <td className="py-2.5 pr-4 text-gray-600">{formatTime(rec.checkInTime)}</td>
@@ -282,6 +284,7 @@ const HistorySection = ({ history }: { history: AttendanceRecord[] }) => {
 const BREAK_ALLOWANCES = { LUNCH: 60, SHORT: 15 };
 
 const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
+  const { t } = useI18n();
   const [showWfhModal, setShowWfhModal] = useState(false);
   const [actionError, setActionError] = useState('');
 
@@ -341,7 +344,7 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
     const payload = { client_time: clientTime(), break_type: type, ...(coords ?? {}) };
     console.log('[Location] breakStart payload:', payload);
     breakStart.mutate(payload,
-      { onError: (e: any) => setActionError(e?.message ?? 'Failed to start break') });
+      { onError: (e: any) => setActionError(e?.message ?? t('errors.saveFailed')) });
   };
   const handleBreakEnd = async () => {
     setActionError('');
@@ -349,7 +352,7 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
     const payload = { client_time: clientTime(), ...(coords ?? {}) };
     console.log('[Location] breakEnd payload:', payload);
     breakEnd.mutate(payload,
-      { onError: (e: any) => setActionError(e?.message ?? 'Failed to end break') });
+      { onError: (e: any) => setActionError(e?.message ?? t('errors.saveFailed')) });
   };
 
   const getGpsCoords = (): Promise<{ latitude: number; longitude: number } | null> => {
@@ -472,7 +475,7 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
       <Card>
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-base font-semibold text-gray-900">Today's Attendance</h3>
+            <h3 className="text-base font-semibold text-gray-900">{t('attendance.tabs.today')}</h3>
             <p className="text-sm text-gray-500">{format(new Date(), 'EEEE, dd MMMM yyyy')}</p>
           </div>
           {today?.status && <AttendanceStatusBadge status={today.status} />}
@@ -483,7 +486,7 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
             <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center">
               <LogIn size={28} className="text-green-600" />
             </div>
-            <p className="text-sm text-gray-500">You haven't checked in today</p>
+            <p className="text-sm text-gray-500">{t('attendance.notCheckedIn')}</p>
             <div className="flex flex-wrap gap-2 justify-center">
               <Button
                 className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 text-base"
@@ -491,7 +494,7 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
                 loading={checkIn.isPending}
                 onClick={handleCheckIn}
               >
-                Check In
+                {t('attendance.checkIn')}
               </Button>
               {todayApprovedWfh && (
                 <Button
@@ -500,7 +503,7 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
                   loading={checkIn.isPending}
                   onClick={handleCheckInWfh}
                 >
-                  Check In (WFH)
+                  {t('attendance.checkIn')} ({t('attendance.status.wfh')})
                 </Button>
               )}
             </div>
@@ -544,9 +547,9 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
                 </div>
               ) : (
                 <div className="text-center">
-                  <p className="text-xs text-gray-500 mb-0.5">Time since check-in</p>
+                  <p className="text-xs text-gray-500 mb-0.5">{t('dashboard.attendance.timeSinceCheckIn')}</p>
                   <p className="text-3xl font-bold text-green-600 font-mono tabular-nums tracking-widest">{elapsed}</p>
-                  <p className="text-xs text-gray-400 mt-1">Checked in at {formatTime(today?.checkInTime)}</p>
+                  <p className="text-xs text-gray-400 mt-1">{t('dashboard.attendance.checkedInAt')} {formatTime(today?.checkInTime)}</p>
                 </div>
               )}
             </div>
@@ -606,11 +609,11 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
                 loading={checkOut.isPending}
                 onClick={handleCheckOut}
               >
-                Check Out
+                {t('attendance.checkOut')}
               </Button>
               {!onBreak && todayApprovedWfh && !today?.isWfh && today?.status !== 'WFH' && (
                 <Button variant="outline" icon={<Home size={16} />} onClick={() => setShowWfhModal(true)}>
-                  Mark as WFH
+                  {t('attendance.markWfh')}
                 </Button>
               )}
             </div>
@@ -620,15 +623,15 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
         {isDone && (
           <div className="grid grid-cols-3 gap-4">
             <div className="p-3 bg-gray-50 rounded-lg text-center">
-              <p className="text-xs text-gray-500 mb-1">Check In</p>
+              <p className="text-xs text-gray-500 mb-1">{t('dashboard.attendance.labelIn')}</p>
               <p className="font-semibold text-gray-900 text-sm">{formatTime(today?.checkInTime)}</p>
             </div>
             <div className="p-3 bg-gray-50 rounded-lg text-center">
-              <p className="text-xs text-gray-500 mb-1">Check Out</p>
+              <p className="text-xs text-gray-500 mb-1">{t('dashboard.attendance.labelOut')}</p>
               <p className="font-semibold text-gray-900 text-sm">{formatTime(today?.checkOutTime)}</p>
             </div>
             <div className="p-3 bg-blue-50 rounded-lg text-center">
-              <p className="text-xs text-gray-500 mb-1">Hours Worked</p>
+              <p className="text-xs text-gray-500 mb-1">{t('dashboard.attendance.labelHours')}</p>
               <p className="font-semibold text-blue-700 text-sm">{today?.hoursWorked?.toFixed(1) ?? '—'}h</p>
             </div>
           </div>
@@ -641,21 +644,21 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
       </Card>
 
       {/* WFH Modal */}
-      <Modal open={showWfhModal} onClose={() => { setShowWfhModal(false); reset(); }} title="Mark as Work From Home" size="sm">
+      <Modal open={showWfhModal} onClose={() => { setShowWfhModal(false); reset(); }} title={t('attendance.markWfh')} size="sm">
         <form onSubmit={handleSubmit(handleWfh)} className="space-y-4">
           <div>
-            <label className="form-label">Reason</label>
+            <label className="form-label">{t('attendance.wfhRequest.reason')}</label>
             <textarea
               className="form-textarea"
               rows={3}
               placeholder="Briefly explain why you're working from home…"
-              {...register('reason', { required: 'Reason is required' })}
+              {...register('reason', { required: t('validation.required') })}
             />
             {errors.reason && <p className="form-error">{errors.reason.message}</p>}
           </div>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => { setShowWfhModal(false); reset(); }}>Cancel</Button>
-            <Button type="submit" loading={isSubmitting}>Confirm WFH</Button>
+            <Button variant="outline" type="button" onClick={() => { setShowWfhModal(false); reset(); }}>{t('common.cancel')}</Button>
+            <Button type="submit" loading={isSubmitting}>{t('common.confirm')}</Button>
           </ModalActions>
         </form>
       </Modal>
@@ -669,6 +672,7 @@ const LIVE_GRID_PAGE_SIZE = 12;
 const LIVE_LIST_PAGE_SIZE = 15;
 
 const TeamLiveTab = () => {
+  const { t } = useI18n();
   const { data, isLoading, error } = useAttendanceLive();
   const { data: anomaliesData } = useAttendanceAnomalies();
   const { data: notCheckedInData } = useAttendanceNotCheckedIn();
@@ -703,12 +707,12 @@ const TeamLiveTab = () => {
 
       <Card>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-900">Currently Checked In</h3>
-          <Badge variant="success">{liveUsers.length} online</Badge>
+          <h3 className="text-sm font-semibold text-gray-900">{t('attendance.liveNow')}</h3>
+          <Badge variant="success">{liveUsers.length} {t('statuses.checkedIn')}</Badge>
         </div>
 
         {liveUsers.length === 0 ? (
-          <EmptyState title="No one checked in yet" description="Team members who check in will appear here." />
+          <EmptyState title={t('attendance.notCheckedIn')} description={t('dashboard.teamAttendance.notYetCheckedIn')} />
         ) : (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -742,7 +746,7 @@ const TeamLiveTab = () => {
         <Card>
           <div className="flex items-center gap-2 mb-4">
             <AlertTriangle size={16} className="text-red-500" />
-            <h3 className="text-sm font-semibold text-gray-900">Absent Today</h3>
+            <h3 className="text-sm font-semibold text-gray-900">{t('attendance.anomalies')}</h3>
             <Badge variant="danger">{anomalies.length}</Badge>
           </div>
           <div className="divide-y divide-gray-50">
@@ -750,7 +754,7 @@ const TeamLiveTab = () => {
               <div key={u.id} className="flex items-center gap-3 py-2.5">
                 <UserAvatar name={u.name} avatarUrl={u.avatarUrl} size="sm" />
                 <p className="text-sm text-gray-700">{u.name}</p>
-                <Badge variant="danger" className="ml-auto">ABSENT</Badge>
+                <Badge variant="danger" className="ml-auto">{t('attendance.status.absent')}</Badge>
               </div>
             ))}
           </div>
@@ -769,7 +773,7 @@ const TeamLiveTab = () => {
         <Card>
           <div className="flex items-center gap-2 mb-4">
             <Clock size={16} className="text-gray-400" />
-            <h3 className="text-sm font-semibold text-gray-900">Not Checked In Yet</h3>
+            <h3 className="text-sm font-semibold text-gray-900">{t('attendance.notCheckedIn')}</h3>
             <Badge variant="warning">{notCheckedIn.length}</Badge>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -778,7 +782,7 @@ const TeamLiveTab = () => {
                 <UserAvatar name={u.name} avatarUrl={u.avatarUrl} size="md" />
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-gray-600 truncate">{u.name}</p>
-                  <p className="text-xs text-gray-400">Not checked in</p>
+                  <p className="text-xs text-gray-400">{t('attendance.notCheckedIn')}</p>
                 </div>
                 <span className="ml-auto w-2 h-2 rounded-full bg-gray-300 shrink-0" />
               </div>
@@ -801,6 +805,7 @@ const TeamLiveTab = () => {
 // ── Records Tab ───────────────────────────────────────────────────────────────
 
 const RecordsTab = ({ isManager }: { isManager: boolean }) => {
+  const { t } = useI18n();
   const today = format(new Date(), 'yyyy-MM-dd');
   const monthAgo = format(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd');
 
@@ -876,7 +881,7 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      alert('Export failed: ' + (e as Error).message);
+      alert(t('errors.saveFailed') + ': ' + (e as Error).message);
     } finally {
       setDownloading(false);
     }
@@ -890,29 +895,29 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
       <Card>
         <form onSubmit={handleSubmit(onFilter)} className="flex flex-wrap items-end gap-3">
           <div>
-            <label className="form-label">From</label>
+            <label className="form-label">{t('leave.from')}</label>
             <input type="date" className="form-input" {...register('date_from')} />
           </div>
           <div>
-            <label className="form-label">To</label>
+            <label className="form-label">{t('leave.to')}</label>
             <input type="date" className="form-input" {...register('date_to')} />
           </div>
           {isManager && (
             <div>
-              <label className="form-label">Team Member</label>
+              <label className="form-label">{t('teams.members')}</label>
               <select
                 className="form-select"
                 value={selectedUserId}
                 onChange={handleUserSelect}
               >
-                <option value="">All members</option>
+                <option value="">{t('common.all')} members</option>
                 {userOptions.map(([uid, uname]) => (
                   <option key={uid} value={uid}>{uname}</option>
                 ))}
               </select>
             </div>
           )}
-          <Button type="submit" size="sm">Apply</Button>
+          <Button type="submit" size="sm">{t('common.apply')}</Button>
           {isManager && (
             <Button
               type="button"
@@ -922,7 +927,7 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
               onClick={handleDownload}
               disabled={downloading}
             >
-              {downloading ? 'Exporting…' : selectedUserId ? `Export ${selectedUserName}` : 'Export All CSV'}
+              {downloading ? t('common.loading') : selectedUserId ? `${t('attendance.export')} ${selectedUserName}` : `${t('attendance.export')} ${t('common.all')} CSV`}
             </Button>
           )}
         </form>
@@ -933,20 +938,20 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
         {isLoading ? (
           <div className="p-6"><PageSkeleton /></div>
         ) : allRecords.length === 0 ? (
-          <EmptyState title="No records found" description="Try adjusting your date range or filters." />
+          <EmptyState title={t('common.noResults')} description={t('common.noData')} />
         ) : (
           <>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="border-b border-gray-100 bg-gray-50">
                   <tr>
-                    {isManager && <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">User</th>}
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Date</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Status</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Check In</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Check Out</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Hours</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">WFH</th>
+                    {isManager && <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('common.name')}</th>}
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('common.dueDate')}</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('common.status')}</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('dashboard.attendance.labelIn')}</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('dashboard.attendance.labelOut')}</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('dashboard.attendance.labelHours')}</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('attendance.status.wfh')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -975,7 +980,7 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
                       </td>
                       <td className="px-4 py-3 text-gray-600">{rec.hoursWorked?.toFixed(1) ?? '—'}h</td>
                       <td className="px-4 py-3">
-                        {rec.isWfh ? <Badge variant="info">WFH</Badge> : <span className="text-gray-300 text-xs">—</span>}
+                        {rec.isWfh ? <Badge variant="info">{t('attendance.status.wfh')}</Badge> : <span className="text-gray-300 text-xs">—</span>}
                       </td>
                     </tr>
                   ))}
@@ -1002,6 +1007,7 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
 type SummaryMode = 'weekly' | 'monthly';
 
 const SummaryTab = () => {
+  const { t } = useI18n();
   const now = new Date();
   const [mode, setMode] = useState<SummaryMode>('weekly');
 
@@ -1043,10 +1049,10 @@ const SummaryTab = () => {
   const maxDays    = mode === 'weekly' ? 7 : 31;
 
   const stats = [
-    { label: 'Present', value: summary?.presentCount ?? 0, color: 'bg-green-500' },
-    { label: 'Absent',  value: summary?.absentCount  ?? 0, color: 'bg-red-500'   },
-    { label: 'WFH',     value: summary?.wfhCount     ?? 0, color: 'bg-purple-500' },
-    { label: 'Late',    value: summary?.lateCount    ?? 0, color: 'bg-yellow-500' },
+    { label: t('attendance.summary.present'), value: summary?.presentCount ?? 0, color: 'bg-green-500' },
+    { label: t('attendance.summary.absent'),  value: summary?.absentCount  ?? 0, color: 'bg-red-500'   },
+    { label: t('attendance.summary.wfh'),     value: summary?.wfhCount     ?? 0, color: 'bg-purple-500' },
+    { label: t('attendance.summary.late'),    value: summary?.lateCount    ?? 0, color: 'bg-yellow-500' },
   ];
 
   const months = [
@@ -1086,7 +1092,7 @@ const SummaryTab = () => {
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
-                {m === 'weekly' ? 'This Week' : 'Monthly'}
+                {m === 'weekly' ? t('common.thisWeek') : t('common.thisMonth')}
               </button>
             ))}
           </div>
@@ -1128,11 +1134,11 @@ const SummaryTab = () => {
               <Card key={s.label}>
                 <p className="text-xs text-gray-500 mb-1">{s.label}</p>
                 <p className="text-2xl font-bold text-gray-900">{s.value}</p>
-                <p className="text-xs text-gray-400">days</p>
+                <p className="text-xs text-gray-400">{t('common.days')}</p>
               </Card>
             ))}
             <Card>
-              <p className="text-xs text-gray-500 mb-1">Total Hours</p>
+              <p className="text-xs text-gray-500 mb-1">{t('attendance.summary.totalHours')}</p>
               <p className="text-2xl font-bold text-blue-700">{summary?.totalHours?.toFixed(1) ?? 0}</p>
               <p className="text-xs text-gray-400">hrs</p>
             </Card>
@@ -1141,7 +1147,7 @@ const SummaryTab = () => {
           {/* Weekly: day-by-day breakdown */}
           {mode === 'weekly' && (
             <Card>
-              <h3 className="text-sm font-semibold text-gray-900 mb-5">Day-by-Day Breakdown</h3>
+              <h3 className="text-sm font-semibold text-gray-900 mb-5">{t('attendance.tabs.summary')}</h3>
               <div className="space-y-3">
                 {weekDays.map(({ label, date, rec }) => {
                   const isToday = date === format(now, 'yyyy-MM-dd');
@@ -1153,7 +1159,7 @@ const SummaryTab = () => {
                         <div className="flex items-center gap-3">
                           <span className={`text-sm font-medium w-8 ${isToday ? 'text-blue-600' : 'text-gray-700'}`}>{label}</span>
                           <span className="text-xs text-gray-400">{format(parseISO(date), 'dd MMM')}</span>
-                          {isToday && <span className="text-[10px] font-semibold bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">Today</span>}
+                          {isToday && <span className="text-[10px] font-semibold bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">{t('common.today')}</span>}
                         </div>
                         <div className="flex items-center gap-3">
                           {rec?.status && <AttendanceStatusBadge status={rec.status} />}
@@ -1180,7 +1186,7 @@ const SummaryTab = () => {
           {/* Monthly: bar chart */}
           {mode === 'monthly' && (
             <Card>
-              <h3 className="text-sm font-semibold text-gray-900 mb-5">Breakdown</h3>
+              <h3 className="text-sm font-semibold text-gray-900 mb-5">{t('attendance.tabs.summary')}</h3>
               <div className="space-y-4">
                 {stats.map((s) => {
                   const pct = Math.min(100, (s.value / maxDays) * 100);
@@ -1188,7 +1194,7 @@ const SummaryTab = () => {
                     <div key={s.label}>
                       <div className="flex items-center justify-between mb-1.5">
                         <span className="text-sm text-gray-700">{s.label}</span>
-                        <span className="text-sm font-medium text-gray-900">{s.value} days</span>
+                        <span className="text-sm font-medium text-gray-900">{s.value} {t('common.days')}</span>
                       </div>
                       <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
                         <div
@@ -1234,6 +1240,7 @@ const WFH_PAGE_SIZE = 10;
 const WFH_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'] as const;
 
 const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
+  const { t } = useI18n();
   const [wfhSubTab, setWfhSubTab] = useState<'my' | 'team'>('my');
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [rejectTarget, setRejectTarget] = useState<string | null>(null);
@@ -1281,10 +1288,10 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
   }, [highlightId, myLoading, teamLoading]);
   useEffect(() => {
     if (!highlightId || myLoading || teamLoading) return;
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       highlightRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 50);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [highlightId, myLoading, teamLoading]);
 
   const submitWfh  = useSubmitWfhRequest();
@@ -1314,14 +1321,14 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
       await submitWfh.mutateAsync(data);
       resetSubmit();
       setShowSubmitModal(false);
-    } catch (e: any) { setActionError(e?.message ?? 'Failed to submit'); }
+    } catch (e: any) { setActionError(e?.message ?? t('errors.saveFailed')); }
   };
 
   const handleApprove = async (id: string) => {
     try {
       setActionError('');
       await approveWfh.mutateAsync({ id });
-    } catch (e: any) { setActionError(e?.message ?? 'Failed to approve'); }
+    } catch (e: any) { setActionError(e?.message ?? t('errors.saveFailed')); }
   };
 
   const handleReject = async (data: RejectForm) => {
@@ -1331,14 +1338,14 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
       await rejectWfh.mutateAsync({ id: rejectTarget, data });
       setRejectTarget(null);
       resetReject();
-    } catch (e: any) { setActionError(e?.message ?? 'Failed to reject'); }
+    } catch (e: any) { setActionError(e?.message ?? t('errors.saveFailed')); }
   };
 
   const handleCancel = async (id: string) => {
     try {
       setActionError('');
       await cancelWfh.mutateAsync(id);
-    } catch (e: any) { setActionError(e?.message ?? 'Failed to cancel'); }
+    } catch (e: any) { setActionError(e?.message ?? t('errors.saveFailed')); }
   };
 
   // Status filter chip bar
@@ -1349,7 +1356,7 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
         className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
           value === '' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
         }`}
-      >All</button>
+      >{t('common.all')}</button>
       {WFH_STATUSES.map((s) => (
         <button
           key={s}
@@ -1380,7 +1387,7 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
               wfhSubTab === 'my' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            My Requests
+            {t('leave.tabs.myRequests')}
             {(myRequests as any[]).length > 0 && (
               <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
                 wfhSubTab === 'my' ? 'bg-gray-100 text-gray-600' : 'bg-gray-200 text-gray-500'
@@ -1395,27 +1402,27 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
               }`}
             >
               <Users size={13} />
-              Team Requests
+              {t('leave.tabs.team')}
               {pendingTeam > 0 && (
                 <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-700">{pendingTeam}</span>
               )}
             </button>
           )}
         </div>
-        <Button size="sm" icon={<Send size={13} />} onClick={() => setShowSubmitModal(true)}>Request WFH</Button>
+        <Button size="sm" icon={<Send size={13} />} onClick={() => setShowSubmitModal(true)}>{t('attendance.wfhRequest.submit')}</Button>
       </div>
 
       {/* My Requests panel */}
       {wfhSubTab === 'my' && (
         <Card>
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <p className="text-xs text-gray-500">Requests submitted to your Reporting Manager</p>
+            <p className="text-xs text-gray-500">{t('attendance.wfhRequest.pending')}</p>
             <StatusFilterBar value={myStatusFilter} onChange={(v) => { setMyStatusFilter(v); setMyPage(1); }} />
           </div>
           {myLoading ? <PageSkeleton /> : filteredMyRequests.length === 0 ? (
             <EmptyState
-              title={myStatusFilter ? `No ${myStatusFilter.toLowerCase()} requests` : 'No WFH requests yet'}
-              description={myStatusFilter ? 'Try a different filter.' : "You haven't submitted any WFH requests yet."}
+              title={myStatusFilter ? `No ${myStatusFilter.toLowerCase()} requests` : t('attendance.wfhRequest.title')}
+              description={myStatusFilter ? t('common.noResults') : t('common.noData')}
             />
           ) : (
             <>
@@ -1451,7 +1458,7 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
                           onClick={() => handleCancel(String(req.id))}
                           disabled={cancelWfh.isPending}
                           className="ml-3 p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
-                          title="Cancel request"
+                          title={t('leave.cancel')}
                         >
                           <XCircle size={15} />
                         </button>
@@ -1477,13 +1484,13 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
       {wfhSubTab === 'team' && (
         <Card>
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <p className="text-xs text-gray-500">WFH requests from your direct reports</p>
+            <p className="text-xs text-gray-500">{t('dashboard.teamAttendance.title')}</p>
             <StatusFilterBar value={teamStatusFilter} onChange={(v) => { setTeamStatusFilter(v); setTeamPage(1); }} />
           </div>
           {teamLoading ? <PageSkeleton /> : filteredTeamRequests.length === 0 ? (
             <EmptyState
-              title={teamStatusFilter ? `No ${teamStatusFilter.toLowerCase()} requests` : 'No team requests'}
-              description={teamStatusFilter ? 'Try a different filter.' : 'No WFH requests from your team yet.'}
+              title={teamStatusFilter ? `No ${teamStatusFilter.toLowerCase()} requests` : t('common.noData')}
+              description={teamStatusFilter ? t('common.noResults') : t('common.noResults')}
             />
           ) : (
             <>
@@ -1519,14 +1526,14 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
                             onClick={() => handleApprove(String(req.id))}
                             disabled={approveWfh.isPending}
                             className="p-1.5 rounded-lg text-green-500 hover:text-green-700 hover:bg-green-50 transition-colors disabled:opacity-50"
-                            title="Approve"
+                            title={t('leave.approve')}
                           >
                             <CheckCircle size={16} />
                           </button>
                           <button
                             onClick={() => setRejectTarget(String(req.id))}
                             className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                            title="Reject"
+                            title={t('leave.reject')}
                           >
                             <XCircle size={16} />
                           </button>
@@ -1550,24 +1557,24 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
       )}
 
       {/* Submit WFH Request Modal */}
-      <Modal open={showSubmitModal} onClose={() => { setShowSubmitModal(false); resetSubmit(); }} title="Request Work From Home" size="sm">
+      <Modal open={showSubmitModal} onClose={() => { setShowSubmitModal(false); resetSubmit(); }} title={t('attendance.wfhRequest.title')} size="sm">
         <form onSubmit={handleSubmitForm(handleSubmitRequest)} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="form-label">From</label>
+              <label className="form-label">{t('leave.from')}</label>
               <input
                 type="date"
                 className="form-input"
                 min={todayStr}
                 {...registerSubmit('date_from', {
-                  required: 'Start date is required',
-                  validate: (v) => (v && v >= todayStr) || "Start date can't be in the past",
+                  required: t('validation.required'),
+                  validate: (v) => (v && v >= todayStr) || t('validation.pastDate'),
                 })}
               />
               {submitErrors.date_from && <p className="form-error">{submitErrors.date_from.message}</p>}
             </div>
             <div>
-              <label className="form-label">To</label>
+              <label className="form-label">{t('leave.to')}</label>
               <input
                 type="date"
                 className="form-input"
@@ -1575,10 +1582,10 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
                 // browser's date picker won't even offer earlier days.
                 min={wfhDateFrom || todayStr}
                 {...registerSubmit('date_to', {
-                  required: 'End date is required',
+                  required: t('validation.required'),
                   validate: (v) => {
-                    if (!v) return 'End date is required';
-                    if (wfhDateFrom && v < wfhDateFrom) return 'End date must be on or after the start date';
+                    if (!v) return t('validation.required');
+                    if (wfhDateFrom && v < wfhDateFrom) return t('validation.invalidDate');
                     return true;
                   },
                 })}
@@ -1587,41 +1594,432 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
             </div>
           </div>
           <div>
-            <label className="form-label">Reason</label>
+            <label className="form-label">{t('attendance.wfhRequest.reason')}</label>
             <textarea
               className="form-textarea"
               rows={3}
               placeholder="Briefly explain why you're working from home…"
-              {...registerSubmit('reason', { required: 'Reason is required' })}
+              {...registerSubmit('reason', { required: t('validation.required') })}
             />
             {submitErrors.reason && <p className="form-error">{submitErrors.reason.message}</p>}
           </div>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => { setShowSubmitModal(false); resetSubmit(); }}>Cancel</Button>
-            <Button type="submit" icon={<Send size={13} />} loading={submitPending}>Submit Request</Button>
+            <Button variant="outline" type="button" onClick={() => { setShowSubmitModal(false); resetSubmit(); }}>{t('common.cancel')}</Button>
+            <Button type="submit" icon={<Send size={13} />} loading={submitPending}>{t('attendance.wfhRequest.submit')}</Button>
           </ModalActions>
         </form>
       </Modal>
 
       {/* Reject WFH Request Modal */}
-      <Modal open={!!rejectTarget} onClose={() => { setRejectTarget(null); resetReject(); }} title="Reject WFH Request" size="sm">
+      <Modal open={!!rejectTarget} onClose={() => { setRejectTarget(null); resetReject(); }} title={t('leave.reject')} size="sm">
         <form onSubmit={handleRejectForm(handleReject)} className="space-y-4">
           <div>
-            <label className="form-label">Reason for rejection</label>
+            <label className="form-label">{t('attendance.wfhRequest.reason')}</label>
             <textarea
               className="form-textarea"
               rows={3}
               placeholder="Provide a reason so the employee can resubmit if needed…"
-              {...registerReject('reviewer_notes', { required: 'Reason is required' })}
+              {...registerReject('reviewer_notes', { required: t('validation.required') })}
             />
             {rejectErrors.reviewer_notes && <p className="form-error">{rejectErrors.reviewer_notes.message}</p>}
           </div>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => { setRejectTarget(null); resetReject(); }}>Cancel</Button>
-            <Button variant="danger" type="submit" icon={<XCircle size={13} />} loading={rejectPending}>Reject Request</Button>
+            <Button variant="outline" type="button" onClick={() => { setRejectTarget(null); resetReject(); }}>{t('common.cancel')}</Button>
+            <Button variant="danger" type="submit" icon={<XCircle size={13} />} loading={rejectPending}>{t('leave.reject')}</Button>
           </ModalActions>
         </form>
       </Modal>
+    </div>
+  );
+};
+
+// ── Report Tab ────────────────────────────────────────────────────────────────
+
+interface ReportRow {
+  userId: string;
+  name: string;
+  email: string;
+  working_days: number;
+  present_days: number;
+  wfh_days: number;
+  late_days: number;
+  absent_days: number;
+  calendar_absent: number;
+  half_days: number;
+  on_leave_days: number;
+  leave_days: number;
+  total_hours: number;
+  avg_hours_per_day: number;
+  excess_lunch_breaks: number;
+  total_lunch_excess_min: number;
+  excess_short_breaks: number;
+  total_short_excess_min: number;
+}
+
+const ReportTab = ({ isManager }: { isManager: boolean }) => {
+  const { t } = useI18n();
+  const today    = format(new Date(), 'yyyy-MM-dd');
+  const monthAgo = format(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd');
+
+  const [dateFrom, setDateFrom]           = useState(monthAgo);
+  const [dateTo, setDateTo]               = useState(today);
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [selectedUserName, setSelectedUserName] = useState('');
+  const [report, setReport]               = useState<ReportRow[]>([]);
+  const [loading, setLoading]             = useState(false);
+  const [downloading, setDownloading]     = useState(false);
+  const [error, setError]                 = useState('');
+  const [generated, setGenerated]         = useState(false);
+  const [userOptions, setUserOptions]     = useState<[string, string][]>([]);
+  const [progress, setProgress]           = useState(0);
+  const [progressMsg, setProgressMsg]     = useState('');
+  const progressRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const PROGRESS_STEPS = [
+    { pct: 10, msg: 'Fetching team members…'        },
+    { pct: 25, msg: 'Loading attendance records…'   },
+    { pct: 42, msg: 'Calculating working days…'     },
+    { pct: 58, msg: 'Analysing leave data…'         },
+    { pct: 72, msg: 'Checking break allowances…'    },
+    { pct: 84, msg: 'Compiling report data…'        },
+    { pct: 91, msg: 'Preparing your report…'        },
+    { pct: 96, msg: 'Almost ready…'                 },
+  ];
+
+  const startProgress = () => {
+    setProgress(0);
+    setProgressMsg(PROGRESS_STEPS[0].msg);
+    let stepIdx = 0;
+    progressRef.current = setInterval(() => {
+      stepIdx = Math.min(stepIdx + 1, PROGRESS_STEPS.length - 1);
+      setProgress(PROGRESS_STEPS[stepIdx].pct);
+      setProgressMsg(PROGRESS_STEPS[stepIdx].msg);
+    }, 900);
+  };
+
+  const finishProgress = (cb: () => void) => {
+    if (progressRef.current) clearInterval(progressRef.current);
+    setProgress(100);
+    setProgressMsg('Report ready!');
+    setTimeout(cb, 400);
+  };
+
+  const fetchReport = async () => {
+    if (!dateFrom || !dateTo) { setError(t('validation.required')); return; }
+    setError('');
+    setLoading(true);
+    startProgress();
+    try {
+      const params: Record<string, string> = { date_from: dateFrom, date_to: dateTo };
+      const data = await attendanceApi.attendanceReport(params);
+      const rows: ReportRow[] = data?.report ?? [];
+      finishProgress(() => {
+        setReport(rows);
+        setGenerated(true);
+        if (isManager && rows.length > 0) {
+          const opts: [string, string][] = rows.map((r) => [r.userId, r.name]);
+          opts.sort((a, b) => a[1].localeCompare(b[1]));
+          setUserOptions(opts);
+        }
+        setSelectedUserId('');
+        setSelectedUserName('');
+        setLoading(false);
+      });
+    } catch (e) {
+      if (progressRef.current) clearInterval(progressRef.current);
+      setError((e as Error).message || t('errors.loadFailed'));
+      setLoading(false);
+    }
+  };
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const params: Record<string, string> = { date_from: dateFrom, date_to: dateTo };
+      if (selectedUserId) params.user_id = selectedUserId;
+      const blob = await attendanceApi.exportAttendanceReport(params);
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      const slug = selectedUserName ? selectedUserName.replace(/\s+/g, '_') : 'all_users';
+      a.download = `${slug}_attendance_report_${dateFrom}_to_${dateTo}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(t('errors.saveFailed') + ': ' + (e as Error).message);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleUserSelect = (uid: string) => {
+    const uname = userOptions.find(([id]) => id === uid)?.[1] ?? '';
+    setSelectedUserId(uid);
+    setSelectedUserName(uname);
+  };
+
+  const userPickerOptions = React.useMemo(
+    () => userOptions.map(([id, name]) => ({ id, name })),
+    [userOptions]
+  );
+
+  // Client-side filter: selecting a user narrows the view instantly (no re-fetch)
+  const displayedReport = selectedUserId
+    ? report.filter((r) => r.userId === selectedUserId)
+    : report;
+
+  // Summary stat cards derived from the currently displayed (possibly filtered) rows
+  const totalUsers       = displayedReport.length;
+  const totalPresent     = displayedReport.reduce((s, r) => s + r.present_days, 0);
+  const totalAbsent      = displayedReport.reduce((s, r) => s + (r.calendar_absent ?? r.absent_days), 0);
+  const totalLate        = displayedReport.reduce((s, r) => s + r.late_days, 0);
+  const totalLeave       = displayedReport.reduce((s, r) => s + r.leave_days, 0);
+  const totalWorkingDays = displayedReport.reduce((s, r) => s + (r.working_days ?? 0), 0);
+  // Working days for the period (same for all users in one org — use avg to handle
+  // edge cases where different locations have slightly different holiday counts)
+  const periodWorkingDays = totalUsers > 0 ? Math.round(totalWorkingDays / totalUsers) : 0;
+  // Avg absent per person — more meaningful than team-wide total for the headline card
+  const avgAbsent        = totalUsers > 0 ? +(totalAbsent / totalUsers).toFixed(1) : 0;
+  const usersWithExcess  = displayedReport.filter((r) => r.excess_lunch_breaks > 0 || r.excess_short_breaks > 0).length;
+
+  return (
+    <div className="space-y-5">
+      {/* Filter row */}
+      <Card>
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="form-label">{t('leave.from')} <span className="text-red-500">*</span></label>
+            <input type="date" className="form-input" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+          </div>
+          <div>
+            <label className="form-label">{t('leave.to')} <span className="text-red-500">*</span></label>
+            <input type="date" className="form-input" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+          </div>
+          {isManager && userOptions.length > 0 && (
+            <div>
+              <label className="form-label">Member</label>
+              <UserPicker
+                users={userPickerOptions}
+                value={selectedUserId}
+                onChange={handleUserSelect}
+                placeholder="All members"
+                allowEmpty
+              />
+            </div>
+          )}
+          <Button type="button" size="sm" onClick={fetchReport} disabled={loading}>
+            {loading ? 'Generating…' : t('reports.generate')}
+          </Button>
+          {generated && report.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              icon={<Download size={14} />}
+              onClick={handleDownload}
+              disabled={downloading}
+            >
+              {downloading ? t('common.loading') : selectedUserId ? `Export ${selectedUserName}` : 'Export All CSV'}
+            </Button>
+          )}
+        </div>
+        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      </Card>
+
+      {/* ── Progress loader ── */}
+      {loading && (
+        <Card>
+          <div className="py-8 px-6 flex flex-col items-center gap-5">
+            {/* Spinner + message */}
+            <div className="flex items-center gap-3">
+              <svg className="animate-spin h-5 w-5 text-blue-500 shrink-0" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+              </svg>
+              <span className="text-sm font-medium text-ds-text">{progressMsg}</span>
+            </div>
+
+            {/* Progress bar */}
+            <div className="w-full max-w-md">
+              <div className="flex justify-between text-xs text-ds-text-muted mb-1.5">
+                <span>Preparing the report</span>
+                <span className="font-semibold text-blue-600">{progress}%</span>
+              </div>
+              <div className="h-2.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-700 ease-out"
+                  style={{
+                    width: `${progress}%`,
+                    background: progress === 100
+                      ? 'linear-gradient(90deg, #22c55e, #16a34a)'
+                      : 'linear-gradient(90deg, #3b82f6, #6366f1)',
+                  }}
+                />
+              </div>
+            </div>
+
+            <p className="text-xs text-ds-text-muted">This may take a moment for large teams</p>
+          </div>
+        </Card>
+      )}
+
+      {!loading && generated && (
+        <>
+          {/* Stat Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {[
+              {
+                label: isManager ? 'Team Members' : 'Users',
+                value: totalUsers,
+                sub: 'in this report',
+                color: 'text-gray-900',
+              },
+              {
+                label: 'Working Days',
+                value: periodWorkingDays,
+                sub: 'per person this period',
+                color: 'text-gray-700',
+              },
+              {
+                label: 'Present Days',
+                value: totalPresent,
+                sub: totalUsers > 1 ? `avg ${+(totalPresent / totalUsers).toFixed(1)} / person` : 'days',
+                color: 'text-green-700',
+              },
+              {
+                label: 'Absent Days',
+                value: avgAbsent,
+                sub: `avg / person  (${totalAbsent} total)`,
+                color: avgAbsent >= periodWorkingDays * 0.5 ? 'text-red-600' : 'text-yellow-600',
+              },
+              {
+                label: 'Late Check-ins',
+                value: totalLate,
+                sub: totalUsers > 1 ? `avg ${+(totalLate / totalUsers).toFixed(1)} / person` : 'check-ins',
+                color: totalLate === 0 ? 'text-green-600' : totalLate >= 10 ? 'text-red-600' : 'text-yellow-600',
+              },
+              {
+                label: 'Excess Breaks',
+                value: `${usersWithExcess}`,
+                sub: `user${usersWithExcess !== 1 ? 's' : ''} exceeded limit`,
+                color: usersWithExcess > 0 ? 'text-orange-600' : 'text-gray-400',
+              },
+            ].map((s) => (
+              <Card key={s.label} className="text-center">
+                <p className="text-xs text-gray-500 mb-1">{s.label}</p>
+                <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{s.sub}</p>
+              </Card>
+            ))}
+          </div>
+
+          {/* Report Table */}
+          {displayedReport.length === 0 ? (
+            <EmptyState title={t('common.noData')} description={t('common.noResults')} />
+          ) : (
+            <Card padding={false}>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="border-b border-gray-100 bg-gray-50">
+                    <tr>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide sticky left-0 bg-gray-50 z-10">{t('common.name')}</th>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Work Days</th>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('attendance.summary.present')}</th>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('attendance.status.wfh')}</th>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('attendance.status.late')}</th>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Absent</th>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('attendance.status.halfDay')}</th>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('leave.title')}</th>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('attendance.summary.totalHours')}</th>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Avg Hrs</th>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-orange-500 uppercase tracking-wide">Excess Breaks</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {displayedReport.map((row) => {
+                      const hasExcess   = row.excess_lunch_breaks > 0 || row.excess_short_breaks > 0;
+                      const absentCount = row.calendar_absent ?? row.absent_days;
+                      const lateColor   = row.late_days === 0
+                        ? 'text-gray-300'
+                        : row.late_days < 3
+                          ? 'font-semibold text-green-600'
+                          : 'font-semibold text-red-600';
+                      return (
+                        <tr key={row.userId} className={`hover:bg-gray-50 transition-colors ${hasExcess ? 'bg-orange-50/30' : ''}`}>
+                          <td className="px-4 py-3 sticky left-0 bg-inherit z-10">
+                            <div>
+                              <p className="font-medium text-gray-900">{row.name}</p>
+                              <p className="text-xs text-gray-400">{row.email}</p>
+                            </div>
+                          </td>
+                          <td className="px-3 py-3 text-center">
+                            <span className="text-xs font-medium text-gray-500 bg-gray-100 rounded px-1.5 py-0.5">{row.working_days ?? '—'}</span>
+                          </td>
+                          <td className="px-3 py-3 text-center">
+                            <span className="font-semibold text-green-700">{row.present_days}</span>
+                          </td>
+                          <td className="px-3 py-3 text-center text-blue-600">{row.wfh_days || '—'}</td>
+                          <td className="px-3 py-3 text-center">
+                            <span className={lateColor}>
+                              {row.late_days > 0 ? row.late_days : '—'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 text-center">
+                            {absentCount > 0
+                              ? <span className="font-medium text-red-600">{absentCount}</span>
+                              : <span className="text-gray-300">—</span>}
+                          </td>
+                          <td className="px-3 py-3 text-center text-gray-500">{row.half_days || '—'}</td>
+                          <td className="px-3 py-3 text-center">
+                            {row.leave_days > 0
+                              ? <span className="text-indigo-600 font-medium">{row.leave_days}d</span>
+                              : <span className="text-gray-300">—</span>}
+                          </td>
+                          <td className="px-3 py-3 text-center font-medium text-gray-700">{row.total_hours}h</td>
+                          <td className="px-3 py-3 text-center text-gray-500">{row.avg_hours_per_day}h</td>
+                          <td className="px-3 py-3 text-center">
+                            {hasExcess ? (
+                              <div className="flex flex-col gap-0.5 items-center text-xs">
+                                {row.excess_lunch_breaks > 0 && (
+                                  <span className="text-orange-600 font-medium">
+                                    Lunch: {row.excess_lunch_breaks}x (+{row.total_lunch_excess_min}m)
+                                  </span>
+                                )}
+                                {row.excess_short_breaks > 0 && (
+                                  <span className="text-orange-500">
+                                    Short: {row.excess_short_breaks}x (+{row.total_short_excess_min}m)
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-gray-300">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="px-4 py-2 border-t border-gray-100 text-xs text-gray-400 flex items-center gap-3 flex-wrap">
+                <span>Period: {dateFrom} → {dateTo}</span>
+                {selectedUserId
+                  ? <span className="font-medium text-gray-600">· {selectedUserName}</span>
+                  : <span>· {report.length} members</span>
+                }
+                <span className="ml-auto text-xs text-gray-300">Absent = calendar working days not accounted by present/leave</span>
+              </div>
+            </Card>
+          )}
+        </>
+      )}
+
+      {!generated && !loading && (
+        <EmptyState
+          title="Attendance Report"
+          description="Select a date range and click Generate Report to view attendance data"
+        />
+      )}
     </div>
   );
 };
@@ -1660,23 +2058,32 @@ const AttendancePage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const tabs: { id: Tab; label: string; icon: React.ReactNode; managerOnly?: boolean; ipOnly?: boolean }[] = [
-    { id: 'my',        label: 'My Attendance',  icon: <Clock size={15} /> },
-    { id: 'wfh',       label: 'WFH Requests',   icon: <Home size={15} /> },
-    { id: 'live',      label: 'Team Live',       icon: <Users size={15} />,    managerOnly: true },
-    { id: 'records',   label: 'Records',         icon: <BarChart2 size={15} /> },
-    { id: 'summary',   label: 'Summary',         icon: <BarChart2 size={15} /> },
+  const canReport = hasPermission(user, PERMISSIONS.ATTENDANCE_ADMIN) ||
+    hasPermission(user, PERMISSIONS.ATTENDANCE_REPORT) ||
+    hasPermission(user, PERMISSIONS.ATTENDANCE_TEAM_VIEW) ||
+    effectivePerms.includes('ATTENDANCE_ADMIN') ||
+    effectivePerms.includes('ATTENDANCE_REPORT') ||
+    effectivePerms.includes('ATTENDANCE_TEAM_VIEW');
+
+  const tabs: { id: Tab; label: string; icon: React.ReactNode; managerOnly?: boolean; ipOnly?: boolean; reportOnly?: boolean }[] = [
+    { id: 'my',        label: t('attendance.tabs.today'),    icon: <Clock size={15} /> },
+    { id: 'wfh',       label: t('attendance.tabs.wfh'),      icon: <Home size={15} /> },
+    { id: 'live',      label: t('attendance.liveNow'),       icon: <Users size={15} />,       managerOnly: true },
+    { id: 'records',   label: t('attendance.tabs.team'),     icon: <BarChart2 size={15} /> },
+    { id: 'summary',   label: t('attendance.tabs.summary'),  icon: <BarChart2 size={15} /> },
+    { id: 'report',    label: t('reports.title'),            icon: <FileText size={15} />,    reportOnly: true },
   ];
 
   const visibleTabs = tabs.filter((t) => {
     if (t.managerOnly && !isManager) return false;
     if (t.ipOnly && !canManageIp) return false;
+    if (t.reportOnly && !canReport) return false;
     return true;
   });
 
   return (
     <Layout>
-      <Header title={t('nav.attendance')} subtitle="Track daily attendance and team presence" />
+      <Header title={t('attendance.title')} subtitle={t('attendance.checkedIn')} />
 
       <div className="p-6 space-y-5">
         {/* Tab Bar */}
@@ -1705,6 +2112,7 @@ const AttendancePage = () => {
         {tab === 'live' && isManager && <TeamLiveTab />}
         {tab === 'records' && <RecordsTab isManager={isManager} />}
         {tab === 'summary' && <SummaryTab />}
+        {tab === 'report' && canReport && <ReportTab isManager={isManager} />}
       </div>
     </Layout>
   );

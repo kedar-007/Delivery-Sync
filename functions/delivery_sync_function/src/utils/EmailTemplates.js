@@ -58,7 +58,7 @@ function buildInviteEmailHtml({ firstName, lastName, inviterName, tenantName, ro
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>${escapeHtml(inviterName)} invited you to Delivery Sync</title>
+<title>${escapeHtml(inviterName)} invited you to DSV OpsPulse</title>
 </head>
 <body style="margin:0;padding:0;background:#f0f4ff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1e293b">
 
@@ -80,7 +80,7 @@ function buildInviteEmailHtml({ firstName, lastName, inviterName, tenantName, ro
           <span style="font-size:22px;line-height:44px">📦</span>
         </td>
         <td style="padding-left:12px;vertical-align:middle">
-          <div style="color:#fff;font-size:18px;font-weight:700;letter-spacing:-.3px">Delivery Sync</div>
+          <div style="color:#fff;font-size:18px;font-weight:700;letter-spacing:-.3px">DSV OpsPulse</div>
           <div style="color:rgba(255,255,255,.55);font-size:11px;margin-top:1px">Delivery Intelligence Platform</div>
         </td>
       </tr>
@@ -102,7 +102,7 @@ function buildInviteEmailHtml({ firstName, lastName, inviterName, tenantName, ro
         You're invited to join<br/>${escapeHtml(tenantName)}
       </div>
       <div style="color:rgba(255,255,255,.7);font-size:15px;margin-top:10px;line-height:1.6">
-        ${escapeHtml(inviterName)} has added you as a team member on Delivery Sync.
+        ${escapeHtml(inviterName)} has added you as a team member on DSV OpsPulse.
       </div>
 
     </td></tr>
@@ -158,7 +158,7 @@ function buildInviteEmailHtml({ firstName, lastName, inviterName, tenantName, ro
         <tr><td style="vertical-align:top;padding-bottom:14px">
           <table cellpadding="0" cellspacing="0"><tr>
             <td style="width:30px;height:30px;background:#e0e7ff;border-radius:50%;text-align:center;vertical-align:middle;font-size:13px;font-weight:700;color:#4f46e5;line-height:30px">1</td>
-            <td style="padding-left:12px;font-size:14px;color:#475569;line-height:1.6">Click <strong>Accept invitation</strong> above — you'll be taken to the Delivery Sync login page.</td>
+            <td style="padding-left:12px;font-size:14px;color:#475569;line-height:1.6">Click <strong>Accept invitation</strong> above — you'll be taken to the DSV OpsPulse login page.</td>
           </tr></table>
         </td></tr>
         <tr><td style="vertical-align:top;padding-bottom:14px">
@@ -186,7 +186,7 @@ function buildInviteEmailHtml({ firstName, lastName, inviterName, tenantName, ro
         This invitation was sent by <strong style="color:#64748b">${escapeHtml(inviterName)}</strong>
         on behalf of <strong style="color:#64748b">${escapeHtml(tenantName)}</strong>.<br/>
         If you weren't expecting this, you can safely ignore this email.<br/>
-        &copy; ${new Date().getFullYear()} Delivery Sync &mdash; Delivery Intelligence Platform
+        &copy; ${new Date().getFullYear()} DSV OpsPulse &mdash; Delivery Intelligence Platform
       </p>
     </td></tr>
     </table>

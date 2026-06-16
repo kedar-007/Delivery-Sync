@@ -48,29 +48,35 @@ const AccordionItem = ({ label, content }: { label: string; content: React.React
 
 // ─── Reusable little widgets ──────────────────────────────────────────────────
 
-const Tip = ({ children }: { children: React.ReactNode }) => (
-  <div className="flex gap-2 bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 rounded-lg px-3 py-2 text-indigo-700 dark:text-indigo-300 text-xs">
-    <Info size={13} className="shrink-0 mt-0.5" />
-    <span>{children}</span>
-  </div>
-);
+const Tip = ({ children }: { children: React.ReactNode }) => {
+  return (
+    <div className="flex gap-2 bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 rounded-lg px-3 py-2 text-indigo-700 dark:text-indigo-300 text-xs">
+      <Info size={13} className="shrink-0 mt-0.5" />
+      <span>{children}</span>
+    </div>
+  );
+};
 
-const Step = ({ n, children }: { n: number; children: React.ReactNode }) => (
-  <div className="flex gap-2.5">
-    <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{n}</span>
-    <span>{children}</span>
-  </div>
-);
+const Step = ({ n, children }: { n: number; children: React.ReactNode }) => {
+  return (
+    <div className="flex gap-2.5">
+      <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{n}</span>
+      <span>{children}</span>
+    </div>
+  );
+};
 
 // `Example` block — used heavily across the doc to ground each concept in a
 // concrete real-world scenario. Visually distinct from Tip so users learn the
 // idea before reading the how-to steps.
-const Example = ({ children }: { children: React.ReactNode }) => (
-  <div className="flex gap-2 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 rounded-lg px-3 py-2 text-emerald-800 dark:text-emerald-300 text-xs">
-    <Lightbulb size={13} className="shrink-0 mt-0.5" />
-    <div><strong className="font-semibold">Example:</strong> {children}</div>
-  </div>
-);
+const Example = ({ children }: { children: React.ReactNode }) => {
+  return (
+    <div className="flex gap-2 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 rounded-lg px-3 py-2 text-emerald-800 dark:text-emerald-300 text-xs">
+      <Lightbulb size={13} className="shrink-0 mt-0.5" />
+      <div><strong className="font-semibold">Example:</strong> {children}</div>
+    </div>
+  );
+};
 
 // ─── Documentation data ───────────────────────────────────────────────────────
 //
@@ -1134,7 +1140,7 @@ export default function HelpPage() {
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ds-text-muted" />
           <input
             type="text"
-            placeholder="Search documentation…"
+            placeholder={t('common.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-9 pr-4 py-2.5 text-sm border border-ds-border rounded-xl outline-none focus:ring-2 focus:ring-indigo-200 bg-ds-surface text-ds-text"
@@ -1181,7 +1187,7 @@ export default function HelpPage() {
         {filtered.length === 0 && (
           <div className="text-center py-16 text-ds-text-muted">
             <BookOpen size={32} className="mx-auto mb-3 opacity-30" />
-            <p className="text-sm">No results for "{search}"</p>
+            <p className="text-sm">{t('common.noResults')}</p>
           </div>
         )}
       </div>

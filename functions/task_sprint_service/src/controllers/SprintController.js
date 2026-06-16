@@ -180,7 +180,7 @@ class SprintController {
         // markup into recipient inboxes.
         await this.notif.send({
           toEmail: userRows[0].email,
-          subject: `[Delivery Sync] Sprint "${sprint.name}" has started`,
+          subject: `Sprint "${sprint.name}" has started`,
           htmlBody: `<p>Hi ${_escapeHtml(userRows[0].name)}, the sprint <strong>${_escapeHtml(sprint.name)}</strong> has started. Check your assigned tasks.</p>`,
         });
         await this.notif.sendInApp({ tenantId, userId: m.user_id, title: 'Sprint Started', message: `Sprint "${sprint.name}" is now active`, type: NOTIFICATION_TYPE.SPRINT_STARTED, entityType: 'SPRINT', entityId: sprintId });

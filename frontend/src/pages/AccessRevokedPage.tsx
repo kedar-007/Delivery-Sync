@@ -1,9 +1,11 @@
 import React from 'react';
 import { ShieldOff, Mail, LogOut } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useI18n } from '../contexts/I18nContext';
 
 const AccessRevokedPage = () => {
   const { logout, user } = useAuth();
+  const { t } = useI18n();
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -17,20 +19,20 @@ const AccessRevokedPage = () => {
             <ShieldOff size={30} className="text-red-500" />
           </div>
 
-          <h1 className="text-xl font-bold text-gray-900 mb-2">Account Deactivated</h1>
+          <h1 className="text-xl font-bold text-gray-900 mb-2">{t('errors.accessRevoked')}</h1>
           <p className="text-sm text-gray-500 leading-relaxed mb-6">
-            Your account has been deactivated and you no longer have access to{' '}
-            <span className="font-semibold text-gray-700">DSV OpsPulse</span>.
-            Please contact your organisation administrator to restore access.
+            {t('errors.accessRevokedDesc')}{' '}
+            <span className="font-semibold text-gray-700">DSV OpsPulse</span>.{' '}
+            {t('errors.contactAdmin')}
           </p>
 
           {/* Info box */}
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-left mb-6">
-            <p className="text-xs font-semibold text-amber-800 mb-1">What this means</p>
+            <p className="text-xs font-semibold text-amber-800 mb-1">{t('errors.whatThisMeans')}</p>
             <ul className="text-xs text-amber-700 space-y-1 list-disc list-inside">
-              <li>Your Zoho account is still active</li>
-              <li>Only your app access has been removed</li>
-              <li>An admin can restore your access at any time</li>
+              <li>{t('errors.zohoStillActive')}</li>
+              <li>{t('errors.appAccessRemoved')}</li>
+              <li>{t('errors.adminCanRestore')}</li>
             </ul>
           </div>
 
@@ -38,7 +40,7 @@ const AccessRevokedPage = () => {
           <div className="flex items-center gap-2 text-xs text-gray-400 justify-center mb-6">
             <Mail size={13} />
             <span>
-              Contact your admin and share your account email
+              {t('errors.contactAdminEmail')}
               {user?.email ? (
                 <span className="font-semibold text-gray-600"> ({user.email})</span>
               ) : null}
@@ -51,7 +53,7 @@ const AccessRevokedPage = () => {
             className="inline-flex items-center gap-2 px-5 py-2.5 bg-gray-900 hover:bg-gray-700 text-white text-sm font-semibold rounded-xl transition-colors"
           >
             <LogOut size={14} />
-            Sign out
+            {t('nav.signOut')}
           </button>
         </div>
       </div>

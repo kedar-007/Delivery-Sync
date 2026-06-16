@@ -37,6 +37,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { useUsers } from '../hooks/useUsers';
+import UserPicker from '../components/ui/UserPicker';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -168,6 +169,7 @@ type Tab = 'my' | 'apply' | 'team' | 'who-is-off' | 'calendar' | 'balance';
 const MyLeavesTab = ({ highlightId = '' }: { highlightId?: string }) => {
   const [cancelTarget, setCancelTarget] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState('');
+  const { t } = useI18n();
 
   // Always pass mine=true so managers/admins only see their own leaves here
   const { data, isLoading, error } = useLeaveRequests({ mine: 'true' });
@@ -205,17 +207,17 @@ const MyLeavesTab = ({ highlightId = '' }: { highlightId?: string }) => {
 
       <Card padding={false}>
         {requests.length === 0 ? (
-          <EmptyState title="No leave requests" description="Your leave applications will appear here." />
+          <EmptyState title={t('leave.noLeave')} description="Your leave applications will appear here." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b border-gray-100 bg-gray-50">
                 <tr>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Type</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('leave.form.leaveType')}</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Dates</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Days</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Reason</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Status</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('common.days')}</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('leave.form.reason')}</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('common.status')}</th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
@@ -261,7 +263,7 @@ const MyLeavesTab = ({ highlightId = '' }: { highlightId?: string }) => {
                           size="sm"
                           onClick={() => setCancelTarget(req.id)}
                         >
-                          Cancel
+                          {t('common.cancel')}
                         </Button>
                       )}
                     </td>
@@ -301,6 +303,7 @@ const MyLeavesTab = ({ highlightId = '' }: { highlightId?: string }) => {
 const ApplyTab = () => {
   const [submitError, setSubmitError] = useState('');
   const [submitSuccess, setSubmitSuccess] = useState('');
+  const { t } = useI18n();
 
   const { user } = useAuth();
   const { data: typesData } = useLeaveTypes();
@@ -394,13 +397,13 @@ const ApplyTab = () => {
       {submitSuccess && <Alert type="success" message={submitSuccess} />}
 
       <Card>
-        <h3 className="text-sm font-semibold text-gray-900 mb-4">Apply for Leave</h3>
+        <h3 className="text-sm font-semibold text-gray-900 mb-4">{t('leave.apply')}</h3>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
 
           {/* Leave Type */}
           <div>
-            <label className="form-label">Leave Type *</label>
-            <select className="form-select" {...register('leave_type_id', { required: 'Required' })}>
+            <label className="form-label">{t('leave.form.leaveType')} *</label>
+            <select className="form-select" {...register('leave_type_id', { required: t('validation.required') })}>
               <option value="">Select leave type…</option>
               {leaveTypes.map((t) => (
                 //  value={t.id} sends the ROWID, t.name is display only
@@ -421,11 +424,11 @@ const ApplyTab = () => {
           {/* Dates — no min restriction, allow past dates for backdated applications */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="form-label">Start Date *</label>
+              <label className="form-label">{t('leave.form.startDate')} *</label>
               <input
                 type="date"
                 className="form-input"
-                {...register('start_date', { required: 'Required' })}
+                {...register('start_date', { required: t('validation.required') })}
               />
               {errors.start_date && <p className="form-error">{errors.start_date.message}</p>}
             </div>
@@ -434,14 +437,14 @@ const ApplyTab = () => {
                   the value is auto-locked to start_date, so the `*` and
                   required-error are meaningless to the user. Hide both. */}
               <label className="form-label">
-                End Date {!isHalfDay && <span className="text-red-500">*</span>}
+                {t('leave.form.endDate')} {!isHalfDay && <span className="text-red-500">*</span>}
               </label>
               <input
                 type="date"
                 className={`form-input ${isHalfDay ? 'bg-gray-50 cursor-not-allowed' : ''}`}
                 disabled={isHalfDay}
                 {...register('end_date', {
-                  required: isHalfDay ? false : 'Required',
+                  required: isHalfDay ? false : t('validation.required'),
                   validate: (v) => isHalfDay || !startDate || v >= startDate || 'End date must be on or after start date',
                 })}
               />
@@ -482,7 +485,7 @@ const ApplyTab = () => {
               {...register('is_half_day')}
             />
             <label htmlFor="is_half_day" className="text-sm text-gray-700 cursor-pointer">
-              Half Day
+              {t('leave.form.halfDay')}
             </label>
           </div>
 
@@ -498,19 +501,19 @@ const ApplyTab = () => {
 
           {/* Reason */}
           <div>
-            <label className="form-label">Reason *</label>
+            <label className="form-label">{t('leave.form.reason')} *</label>
             <textarea
               className="form-textarea"
               rows={3}
               placeholder="Briefly explain the reason for leave…"
-              {...register('reason', { required: 'Reason is required' })}
+              {...register('reason', { required: t('validation.required') })}
             />
             {errors.reason && <p className="form-error">{errors.reason.message}</p>}
           </div>
 
           <div className="flex justify-end pt-2">
             <Button type="submit" loading={isSubmitting} icon={<Plus size={15} />}>
-              Submit Request
+              {t('leave.form.submit')}
             </Button>
           </div>
         </form>
@@ -532,6 +535,7 @@ const TeamRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
+  const { t } = useI18n();
 
   const params: Record<string, string> = { team: 'true', ...(statusFilter ? { status: statusFilter } : {}) };
   const { data, isLoading, error } = useLeaveRequests(params);
@@ -635,7 +639,7 @@ const TeamRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
                 : 'bg-ds-surface text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-600 hover:border-blue-300'
               }`}
             >
-              {s || 'All'}
+              {s || t('common.all')}
             </button>
           ))}
         </div>
@@ -644,16 +648,15 @@ const TeamRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
         <div className="flex-1" />
 
         {/* User filter */}
-        <select
-          value={userFilter}
-          onChange={(e) => setUserFilter(e.target.value)}
-          className="text-xs border border-gray-200 dark:border-gray-600 rounded-lg px-2.5 py-1.5 bg-ds-surface text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="">All employees</option>
-          {userOptions.map((u) => (
-            <option key={u.id} value={u.id}>{u.name}</option>
-          ))}
-        </select>
+        <div className="w-52">
+          <UserPicker
+            users={userOptions}
+            value={userFilter}
+            onChange={(id) => setUserFilter(id)}
+            placeholder="All employees"
+            allowEmpty
+          />
+        </div>
 
         {/* Date range */}
         <div className="flex items-center gap-1.5">
@@ -693,12 +696,12 @@ const TeamRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
                 <thead>
                   <tr className="border-b border-gray-100 dark:border-gray-700">
                     <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">Employee</th>
-                    <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">Leave Type</th>
-                    <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">From</th>
-                    <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">To</th>
-                    <th className="text-center text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">Days</th>
-                    <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">Status</th>
-                    <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">Actions</th>
+                    <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">{t('leave.form.leaveType')}</th>
+                    <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">{t('leave.from')}</th>
+                    <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">{t('leave.to')}</th>
+                    <th className="text-center text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">{t('common.days')}</th>
+                    <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">{t('common.status')}</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">{t('common.actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
@@ -744,7 +747,7 @@ const TeamRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
                                 loading={approveLeave.isPending}
                                 onClick={() => handleApprove(req.id)}
                               >
-                                Approve
+                                {t('common.approve')}
                               </Button>
                               <Button
                                 size="sm"
@@ -752,7 +755,7 @@ const TeamRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
                                 icon={<XCircle size={13} />}
                                 onClick={() => { setRejectTarget(req.id); setRejectError(''); }}
                               >
-                                Reject
+                                {t('common.reject')}
                               </Button>
                             </div>
                           ) : (
@@ -792,12 +795,12 @@ const TeamRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
               className="form-textarea"
               rows={3}
               placeholder="Provide a reason for rejection…"
-              {...register('notes', { required: 'Notes are required' })}
+              {...register('notes', { required: t('validation.required') })}
             />
             {errors.notes && <p className="form-error">{errors.notes.message}</p>}
           </div>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => { setRejectTarget(null); reset(); }}>Cancel</Button>
+            <Button variant="outline" type="button" onClick={() => { setRejectTarget(null); reset(); }}>{t('common.cancel')}</Button>
             <Button variant="danger" type="submit" loading={isSubmitting}>Reject Request</Button>
           </ModalActions>
         </form>
@@ -809,6 +812,7 @@ const TeamRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
 // ── Team On Leave Tab ─────────────────────────────────────────────────────────
 
 const TeamOnLeaveTab = ({ canViewOrg }: { canViewOrg: boolean }) => {
+  const { t } = useI18n();
   const now = new Date();
   const todayStr = format(now, 'yyyy-MM-dd');
   const [filter, setFilter] = useState<'today' | 'week' | 'month'>('today');
@@ -897,7 +901,7 @@ const TeamOnLeaveTab = ({ canViewOrg }: { canViewOrg: boolean }) => {
                   filter === f ? 'bg-white dark:bg-gray-600 shadow-sm text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                 }`}
               >
-                {f === 'today' ? 'Today' : f === 'week' ? 'This Week' : 'This Month'}
+                {f === 'today' ? t('common.today') : f === 'week' ? t('common.thisWeek') : t('common.thisMonth')}
               </button>
             ))}
           </div>
@@ -1632,6 +1636,7 @@ const PlanningTab = ({ canViewOrg }: { canViewOrg: boolean }) => {
 // ── Balance Tab ───────────────────────────────────────────────────────────────
 
 const BalanceTab = () => {
+  const { t } = useI18n();
   const { data, isLoading, error } = useLeaveBalance();
   const balances: LeaveBalance[] = (data as LeaveBalance[]) ?? [];
 
@@ -1670,11 +1675,11 @@ const BalanceTab = () => {
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-green-700">{b.used}</p>
-                    <p className="text-xs text-gray-400">Used</p>
+                    <p className="text-xs text-gray-400">{t('leave.balance.used')}</p>
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-yellow-600">{b.pending}</p>
-                    <p className="text-xs text-gray-400">Pending</p>
+                    <p className="text-xs text-gray-400">{t('leave.balance.pending')}</p>
                   </div>
                 </div>
               </Card>
@@ -1723,6 +1728,7 @@ interface OrgLocation {
 export const CompanyCalendarTab = () => {
   const { user } = useAuth();
   const canManage = hasPermission(user, PERMISSIONS.LEAVE_ADMIN);
+  const { t } = useI18n();
 
   const now = new Date();
   const [year, setYear] = useState(String(now.getFullYear()));
@@ -2013,7 +2019,7 @@ export const CompanyCalendarTab = () => {
           </div>
 
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => { setAddOpen(false); setAddLocIds([]); setAddOrgWide(false); }}>Cancel</Button>
+            <Button variant="outline" type="button" onClick={() => { setAddOpen(false); setAddLocIds([]); setAddOrgWide(false); }}>{t('common.cancel')}</Button>
             <Button
               type="submit"
               loading={isSubmitting}
@@ -2051,7 +2057,7 @@ export const CompanyCalendarTab = () => {
             <label htmlFor="edit_optional" className="text-sm text-gray-700 cursor-pointer">Optional holiday</label>
           </div>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setEditTarget(null)}>Cancel</Button>
+            <Button variant="outline" type="button" onClick={() => setEditTarget(null)}>{t('common.cancel')}</Button>
             <Button type="submit" loading={editSubmitting} icon={<Pencil size={14} />}>Save Changes</Button>
           </ModalActions>
         </form>
@@ -2062,8 +2068,8 @@ export const CompanyCalendarTab = () => {
         <div className="space-y-4">
           <p className="text-sm text-gray-600">Are you sure you want to delete this holiday?</p>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-            <Button variant="danger" loading={deleteHoliday.isPending} onClick={handleDelete}>Delete</Button>
+            <Button variant="outline" type="button" onClick={() => setDeleteTarget(null)}>{t('common.cancel')}</Button>
+            <Button variant="danger" loading={deleteHoliday.isPending} onClick={handleDelete}>{t('common.delete')}</Button>
           </ModalActions>
         </div>
       </Modal>
@@ -2108,6 +2114,7 @@ export const LeaveBalancesTab = () => {
   const [submitError, setSubmitError] = useState('');
   const [filterUser, setFilterUser] = useState('');
   const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
+  const { t } = useI18n();
 
   const { data: raw = [], isLoading, error } = useAllLeaveBalances();
   const { data: typesData } = useLeaveTypes();
@@ -2430,7 +2437,7 @@ export const LeaveBalancesTab = () => {
           </div>
           <ModalActions>
             <Button variant="outline" type="button" onClick={() => setSetOpen(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button type="submit" loading={isSubmitting} icon={<Upload size={14} />}>
               Set Balance
@@ -2474,6 +2481,7 @@ export const LeaveAccrualPolicyTab = () => {
   const { data: policyData, isLoading: policyLoading } = useLeavePolicy();
   const savePolicy = useSaveLeavePolicy();
 
+  const { t } = useI18n();
   const [policy, setPolicy] = React.useState<LeavePolicyData>({
     accrualEnabled: false,
     probationMonths: 3,
@@ -2609,7 +2617,7 @@ export const LeaveAccrualPolicyTab = () => {
           </p>
           <ModalActions>
             <Button variant="outline" type="button" onClick={() => setShowEnableConfirm(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button onClick={confirmEnableAccrual}>
               Enable Accrual

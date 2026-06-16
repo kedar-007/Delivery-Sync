@@ -97,7 +97,7 @@ class NotificationService {
   async sendTaskAssignment({ toEmail, toName, actionTitle, dueDate, projectName, assignedBy }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] New action assigned – ${actionTitle}`,
+      subject: `New action assigned – ${actionTitle}`,
       htmlBody: this._taskAssignmentTemplate(toName, actionTitle, dueDate, projectName, assignedBy),
     });
   }
@@ -105,7 +105,7 @@ class NotificationService {
   async sendBlockerAdded({ toEmail, toName, blockerTitle, severity, projectName, raisedBy }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] ${severity} blocker raised – ${projectName}`,
+      subject: `${severity} blocker raised – ${projectName}`,
       htmlBody: this._blockerAddedTemplate(toName, blockerTitle, severity, projectName, raisedBy),
     });
   }
@@ -113,7 +113,7 @@ class NotificationService {
   async sendMemberAdded({ toEmail, toName, projectName, addedBy, projectRole }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] You've been added to ${projectName}`,
+      subject: `You've been added to ${projectName}`,
       htmlBody: this._memberAddedTemplate(toName, projectName, addedBy, projectRole),
     });
   }
@@ -121,7 +121,7 @@ class NotificationService {
   async sendTeamMemberAdded({ toEmail, toName, teamName, projectName, addedBy, teamRole }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] You've been added to team "${teamName}"`,
+      subject: `You've been added to team "${teamName}"`,
       htmlBody: this._teamMemberAddedTemplate(toName, teamName, projectName, addedBy, teamRole),
     });
   }
@@ -129,31 +129,31 @@ class NotificationService {
   async sendBlockerEscalation({ toEmail, toName, blockerTitle, severity, projectName, ageDays }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] CRITICAL blocker escalation – ${projectName}`,
+      subject: `CRITICAL blocker escalation – ${projectName}`,
       htmlBody: this._blockerEscalationTemplate(toName, blockerTitle, severity, projectName, ageDays),
     });
   }
 
-  async sendStandupReminder({ toEmail, toName, projectName, date }) {
+  async sendStandupReminder({ toEmail, toName, projectName, date, time }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] Standup reminder – ${projectName}`,
-      htmlBody: this._standupReminderTemplate(toName, projectName, date),
+      subject: `Standup reminder – ${projectName}`,
+      htmlBody: this._standupReminderTemplate(toName, projectName, date, time),
     });
   }
 
-  async sendEodReminder({ toEmail, toName, projectName, date }) {
+  async sendEodReminder({ toEmail, toName, projectName, date, time }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] EOD update reminder – ${projectName}`,
-      htmlBody: this._eodReminderTemplate(toName, projectName, date),
+      subject: `EOD update reminder – ${projectName}`,
+      htmlBody: this._eodReminderTemplate(toName, projectName, date, time),
     });
   }
 
   async sendActionOverdue({ toEmail, toName, actionTitle, dueDate, projectName }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] Overdue action – ${actionTitle}`,
+      subject: `Overdue action – ${actionTitle}`,
       htmlBody: this._actionOverdueTemplate(toName, actionTitle, dueDate, projectName),
     });
   }
@@ -161,7 +161,7 @@ class NotificationService {
   async sendBlockerResolved({ toEmail, toName, blockerTitle, projectName, resolvedBy, resolution }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] Blocker resolved – ${blockerTitle}`,
+      subject: `Blocker resolved – ${blockerTitle}`,
       htmlBody: this._blockerResolvedTemplate(toName, blockerTitle, projectName, resolvedBy, resolution),
     });
   }
@@ -169,7 +169,7 @@ class NotificationService {
   async sendActionStatusChanged({ toEmail, toName, actionTitle, projectName, newStatus, changedBy, dueDate }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] Action status updated – ${actionTitle}`,
+      subject: `Action status updated – ${actionTitle}`,
       htmlBody: this._actionStatusChangedTemplate(toName, actionTitle, projectName, newStatus, changedBy, dueDate),
     });
   }
@@ -177,7 +177,7 @@ class NotificationService {
   async sendDailySummary({ toEmail, toName, date, submitted, missed, projectName }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] Daily Summary – ${projectName} – ${date}`,
+      subject: `Daily Summary – ${projectName} – ${date}`,
       htmlBody: this._dailySummaryTemplate(toName, date, submitted, missed, projectName),
     });
   }
@@ -236,7 +236,7 @@ class NotificationService {
             <table width="100%" cellpadding="0" cellspacing="0">
               <tr>
                 <td>
-                  <div style="font-size:11px;font-weight:700;letter-spacing:2px;color:rgba(255,255,255,0.7);text-transform:uppercase;margin-bottom:6px;">Delivery Sync</div>
+                  <div style="font-size:11px;font-weight:700;letter-spacing:2px;color:rgba(255,255,255,0.7);text-transform:uppercase;margin-bottom:6px;">DSV OpsPulse</div>
                   <div style="font-size:22px;font-weight:700;color:#ffffff;line-height:1.3;">${headerTitle}</div>
                   ${headerSubtitle ? `<div style="font-size:14px;color:rgba(255,255,255,0.85);margin-top:6px;">${headerSubtitle}</div>` : ''}
                 </td>
@@ -260,7 +260,7 @@ class NotificationService {
         <tr>
           <td style="background:#f9fafb;border-top:1px solid #e5e7eb;border-radius:0 0 12px 12px;padding:20px 32px;text-align:center;">
             <div style="font-size:12px;color:#9ca3af;line-height:1.6;">
-              This is an automated notification from <strong style="color:#6b7280;">Delivery Sync</strong>.<br />
+              This is an automated notification from <strong style="color:#6b7280;">DSV OpsPulse</strong>.<br />
               ${footerNote || 'You received this because you are a member of this project.'}
             </div>
           </td>
@@ -433,57 +433,81 @@ class NotificationService {
     });
   }
 
-  _standupReminderTemplate(name, projectName, date) {
+  _standupReminderTemplate(name, projectName, date, time) {
+    const timeBanner = time ? `
+      <div style="background:#eff6ff;border-left:4px solid #1d4ed8;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:20px;">
+        <p style="margin:0;font-size:14px;color:#1e40af;font-weight:600;">
+          &#128337;&nbsp; Your standup starts in 15 minutes\${time ? \` at \${time}\` : ''}.
+        </p>
+      </div>` : '';
+
     const body = `
-      <p style="font-size:15px;color:#374151;margin:0 0 20px;">Hi <strong>${name}</strong>,</p>
+      <p style="font-size:15px;color:#374151;margin:0 0 20px;">Hi <strong>\${name}</strong>,</p>
+      \${timeBanner}
       <p style="font-size:14px;color:#6b7280;margin:0 0 20px;">
         This is your daily reminder to submit your <strong style="color:#374151;">standup update</strong> for today.
         Keeping the team aligned starts with a quick update from everyone.
       </p>
-      ${this._infoCard([
+      \${this._infoCard([
         ['Project', projectName],
         ['Date', date],
         ['Type', 'Daily Standup'],
       ])}
       <p style="font-size:13px;color:#6b7280;margin:16px 0 0;">
         Just a few lines on what you did yesterday, what you're doing today, and any blockers. It takes less than 2 minutes!
+      </p>
+      <p style="font-size:13px;color:#374151;font-weight:500;margin:12px 0 0;">
+        Open the app and add your standup records before your meeting starts.
       </p>`;
 
     return this._base({
       accentColor: '#1d4ed8',
-      preheader: `Time to submit your standup for ${projectName}`,
+      preheader: time ? `Your standup starts in 15 minutes — submit your update for \${projectName}` : `Time to submit your standup for \${projectName}`,
       headerTitle: 'Standup Reminder',
-      headerSubtitle: `${projectName} · ${date}`,
+      headerSubtitle: `\${projectName} · \${date}`,
       body,
       ctaUrl: '/standup',
-      ctaLabel: 'Submit Standup',
+      ctaLabel: 'Submit My Standup',
+      footerNote: "You're receiving this because your team has daily standups configured.",
     });
   }
 
-  _eodReminderTemplate(name, projectName, date) {
+  _eodReminderTemplate(name, projectName, date, time) {
+    const timeBanner = time ? `
+      <div style="background:#ecfdf5;border-left:4px solid #059669;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:20px;">
+        <p style="margin:0;font-size:14px;color:#065f46;font-weight:600;">
+          &#128337;&nbsp; Your EOD is due in 15 minutes\${time ? \` at \${time}\` : ''}.
+        </p>
+      </div>` : '';
+
     const body = `
-      <p style="font-size:15px;color:#374151;margin:0 0 20px;">Hi <strong>${name}</strong>,</p>
+      <p style="font-size:15px;color:#374151;margin:0 0 20px;">Hi <strong>\${name}</strong>,</p>
+      \${timeBanner}
       <p style="font-size:14px;color:#6b7280;margin:0 0 20px;">
         Don't forget to wrap up your day with an <strong style="color:#374151;">EOD update</strong>!
         It helps leadership stay informed and feeds into your weekly reports automatically.
       </p>
-      ${this._infoCard([
+      \${this._infoCard([
         ['Project', projectName],
         ['Date', date],
         ['Type', 'End-of-Day Update'],
       ])}
       <p style="font-size:13px;color:#6b7280;margin:16px 0 0;">
         Share what you completed today, any pending items, and note any blockers before you sign off.
+      </p>
+      <p style="font-size:13px;color:#374151;font-weight:500;margin:12px 0 0;">
+        Open the app and add your EOD records before wrapping up for the day.
       </p>`;
 
     return this._base({
       accentColor: '#059669',
-      preheader: `Submit your EOD update for ${projectName}`,
+      preheader: time ? `Your EOD is due in 15 minutes — wrap up for \${projectName}` : `Submit your EOD update for \${projectName}`,
       headerTitle: 'EOD Update Reminder',
-      headerSubtitle: `${projectName} · ${date}`,
+      headerSubtitle: `\${projectName} · \${date}`,
       body,
       ctaUrl: '/eod',
-      ctaLabel: 'Submit EOD Update',
+      ctaLabel: 'Submit My EOD Update',
+      footerNote: "You're receiving this because your team has daily EOD updates configured.",
     });
   }
 

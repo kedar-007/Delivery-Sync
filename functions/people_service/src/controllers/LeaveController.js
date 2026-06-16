@@ -269,7 +269,11 @@ class LeaveController {
       if (reporteeProfiles.length === 0) {
         return ResponseHelper.success(res, []);
       }
-      const ids = reporteeProfiles.map(p => `'${p.user_id}'`).join(',');
+      const validIds = reporteeProfiles.map(p => p.user_id).filter(id => id && String(id) !== 'null');
+      if (validIds.length === 0) {
+        return ResponseHelper.success(res, []);
+      }
+      const ids = validIds.map(id => `'${id}'`).join(',');
       where = `user_id IN (${ids})`;
     } else if (mine === 'true' || me.role === 'TEAM_MEMBER') {
       // My own leaves only (default for any non-admin caller).

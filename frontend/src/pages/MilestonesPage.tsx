@@ -86,38 +86,38 @@ const MilestonesPage = () => {
 
   return (
     <Layout>
-      <Header title={t('nav.milestones')} subtitle={selectedProject ? `${milestones.length} milestones · ${overdue.length} overdue` : 'Select a project'}
-        actions={selectedProject && canWrite && <Button onClick={openCreate} icon={<Plus size={16} />}>Add Milestone</Button>}
+      <Header title={t('nav.milestones')} subtitle={selectedProject ? `${milestones.length} milestones · ${overdue.length} overdue` : t('projects.searchPlaceholder')}
+        actions={selectedProject && canWrite && <Button onClick={openCreate} icon={<Plus size={16} />}>{t('milestones.new')}</Button>}
       />
       <div className="p-6 space-y-5">
         <select className="form-select max-w-xs" value={selectedProject} onChange={(e) => setSelectedProject(e.target.value)}>
-          <option value="">Select project…</option>
+          <option value="">{t('projects.searchPlaceholder')}</option>
           {projects.map((p: {id: string; name: string}) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
 
         {!selectedProject ? (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-12 text-center">
             <Flag size={40} className="mx-auto text-gray-200 mb-3" />
-            <p className="text-sm text-gray-500">Select a project to view its milestones</p>
+            <p className="text-sm text-gray-500">{t('projects.searchPlaceholder')}</p>
           </div>
         ) : milestonesLoading ? (
           <PageLoader />
         ) : milestones.length === 0 ? (
           <EmptyState
-            title="No milestones"
-            description={canWrite ? "Add milestones to track key project deliverables." : "No milestones have been added for this project yet."}
-            action={canWrite ? <Button onClick={openCreate} icon={<Plus size={16} />}>Add Milestone</Button> : undefined}
+            title={t('milestones.noMilestones')}
+            description={canWrite ? t('milestones.noMilestonesDesc') : t('milestones.noMilestonesDesc')}
+            action={canWrite ? <Button onClick={openCreate} icon={<Plus size={16} />}>{t('milestones.new')}</Button> : undefined}
           />
         ) : (
           <div className="space-y-6">
             {overdue.length > 0 && (
               <section>
                 <h2 className="text-xs font-semibold text-red-600 uppercase tracking-wider mb-3 flex items-center gap-2">
-                  <Clock size={12} /> Overdue ({overdue.length})
+                  <Clock size={12} /> {t('milestones.status.overdue')} ({overdue.length})
                 </h2>
                 <div className="space-y-2">
                   {overdue.map((m: Milestone) => (
-                    <MilestoneCard key={m.id} milestone={m} overdue onEdit={() => openEdit(m)} />
+                    <MilestoneCard key={m.id} milestone={m} overdue onEdit={() => openEdit(m)} editLabel={t('common.edit')} overdueLabel={t('milestones.status.overdue')} dueLabel={t('milestones.dueOn')} completedLabel={t('milestones.completedOn')} />
                   ))}
                 </div>
               </section>
@@ -125,11 +125,11 @@ const MilestonesPage = () => {
             {upcoming.length > 0 && (
               <section>
                 <h2 className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-3 flex items-center gap-2">
-                  <Clock size={12} /> Upcoming ({upcoming.length})
+                  <Clock size={12} /> {t('milestones.status.inProgress')} ({upcoming.length})
                 </h2>
                 <div className="space-y-2">
                   {upcoming.map((m: Milestone) => (
-                    <MilestoneCard key={m.id} milestone={m} overdue={false} onEdit={() => openEdit(m)} />
+                    <MilestoneCard key={m.id} milestone={m} overdue={false} onEdit={() => openEdit(m)} editLabel={t('common.edit')} overdueLabel={t('milestones.status.overdue')} dueLabel={t('milestones.dueOn')} completedLabel={t('milestones.completedOn')} />
                   ))}
                 </div>
               </section>
@@ -137,11 +137,11 @@ const MilestonesPage = () => {
             {completed.length > 0 && (
               <section>
                 <h2 className="text-xs font-semibold text-green-600 uppercase tracking-wider mb-3 flex items-center gap-2">
-                  <CheckCircle size={12} /> Completed ({completed.length})
+                  <CheckCircle size={12} /> {t('milestones.status.completed')} ({completed.length})
                 </h2>
                 <div className="space-y-2">
                   {completed.map((m: Milestone) => (
-                    <MilestoneCard key={m.id} milestone={m} overdue={false} onEdit={() => openEdit(m)} />
+                    <MilestoneCard key={m.id} milestone={m} overdue={false} onEdit={() => openEdit(m)} editLabel={t('common.edit')} overdueLabel={t('milestones.status.overdue')} dueLabel={t('milestones.dueOn')} completedLabel={t('milestones.completedOn')} />
                   ))}
                 </div>
               </section>
@@ -151,26 +151,26 @@ const MilestonesPage = () => {
       </div>
 
       <Modal open={showCreate} onClose={() => { setShowCreate(false); reset(); setCreateError(''); setEditingMilestone(null); }}
-        title={editingMilestone ? 'Edit Milestone' : 'Add Milestone'}>
+        title={editingMilestone ? t('milestones.modal.editTitle') : t('milestones.modal.createTitle')}>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {createError && <Alert type="error" message={createError} />}
           <div>
-            <label className="form-label">Title *</label>
-            <input className="form-input" placeholder="Milestone name" {...register('title', { required: 'Required' })} />
+            <label className="form-label">{t('milestones.modal.titleLabel')}</label>
+            <input className="form-input" placeholder={t('milestones.modal.titleLabel')} {...register('title', { required: t('validation.required') })} />
             {errors.title && <p className="form-error">{errors.title.message}</p>}
           </div>
           <div>
-            <label className="form-label">Description</label>
-            <textarea className="form-textarea" rows={2} placeholder="What does this milestone represent?" {...register('description')} />
+            <label className="form-label">{t('milestones.modal.descLabel')}</label>
+            <textarea className="form-textarea" rows={2} placeholder={t('milestones.modal.descLabel')} {...register('description')} />
           </div>
           <div>
-            <label className="form-label">Due Date *</label>
-            <input type="date" className="form-input" {...register('due_date', { required: 'Required' })} />
+            <label className="form-label">{t('milestones.modal.dueDate')}</label>
+            <input type="date" className="form-input" {...register('due_date', { required: t('validation.required') })} />
             {errors.due_date && <p className="form-error">{errors.due_date.message}</p>}
           </div>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button type="submit" loading={isSubmitting}>{editingMilestone ? 'Save Changes' : 'Add Milestone'}</Button>
+            <Button variant="outline" type="button" onClick={() => setShowCreate(false)}>{t('common.cancel')}</Button>
+            <Button type="submit" loading={isSubmitting}>{editingMilestone ? t('milestones.modal.save') : t('milestones.modal.create')}</Button>
           </ModalActions>
         </form>
       </Modal>
@@ -178,21 +178,21 @@ const MilestonesPage = () => {
   );
 };
 
-const MilestoneCard = ({ milestone, overdue, onEdit }: { milestone: Milestone; overdue: boolean; onEdit: () => void }) => (
+const MilestoneCard = ({ milestone, overdue, onEdit, editLabel, overdueLabel, dueLabel, completedLabel }: { milestone: Milestone; overdue: boolean; onEdit: () => void; editLabel: string; overdueLabel: string; dueLabel: string; completedLabel: string }) => (
   <Card>
     <div className="flex items-start justify-between gap-4">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-1">
           <h3 className="text-sm font-semibold text-gray-900">{milestone.title}</h3>
           <StatusBadge status={milestone.status} />
-          {overdue && <span className="text-xs text-red-600 font-medium bg-red-50 px-1.5 py-0.5 rounded">OVERDUE</span>}
+          {overdue && <span className="text-xs text-red-600 font-medium bg-red-50 px-1.5 py-0.5 rounded">{overdueLabel}</span>}
         </div>
-        <p className="text-xs text-gray-400">Due {milestone.dueDate}
-          {milestone.completionDate && <span className="ml-2 text-green-600">· Completed {milestone.completionDate}</span>}
+        <p className="text-xs text-gray-400">{dueLabel} {milestone.dueDate}
+          {milestone.completionDate && <span className="ml-2 text-green-600">· {completedLabel} {milestone.completionDate}</span>}
         </p>
         {milestone.description && <p className="text-sm text-gray-600 mt-1">{milestone.description}</p>}
       </div>
-      <button onClick={onEdit} className="text-xs text-blue-600 hover:underline whitespace-nowrap">Edit</button>
+      <button onClick={onEdit} className="text-xs text-blue-600 hover:underline whitespace-nowrap">{editLabel}</button>
     </div>
   </Card>
 );

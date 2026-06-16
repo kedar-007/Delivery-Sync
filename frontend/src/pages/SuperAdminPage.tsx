@@ -11,6 +11,7 @@ import { superAdminApi, bugApi } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import UserAvatar from '../components/ui/UserAvatar';
 import { useMyProfile } from '../hooks/useUsers';
+import { useI18n } from '../contexts/I18nContext';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Tab = 'overview' | 'organisations' | 'users' | 'modules' | 'billing' | 'metrics' | 'alerts' | 'audit' | 'bug-reports' | 'bug-config';
@@ -280,6 +281,7 @@ const LOCK_TYPES = [
 ];
 
 function LockModal({ tenantId, tenantName, onClose }: { tenantId: string; tenantName: string; onClose: () => void }) {
+  const { t } = useI18n();
   const qc = useQueryClient();
   const [lockType, setLockType] = useState('TEMPORARY_SUSPEND');
   const [reason,   setReason]   = useState('');
@@ -315,7 +317,7 @@ function LockModal({ tenantId, tenantName, onClose }: { tenantId: string; tenant
           )}
         </div>
         <div className="flex gap-2 mt-5">
-          <button onClick={onClose} className="flex-1 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
+          <button onClick={onClose} className="flex-1 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50">{t('common.cancel')}</button>
           <button onClick={() => lock.mutate()} disabled={!reason.trim() || lock.isPending} className="flex-1 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50">
             {lock.isPending ? 'Locking…' : 'Lock Tenant'}
           </button>
@@ -327,6 +329,7 @@ function LockModal({ tenantId, tenantName, onClose }: { tenantId: string; tenant
 
 // ── Unlock Modal ───────────────────────────────────────────────────────────────
 function UnlockModal({ tenantId, tenantName, onClose }: { tenantId: string; tenantName: string; onClose: () => void }) {
+  const { t } = useI18n();
   const qc = useQueryClient();
   const [reason, setReason] = useState('');
   const [confirmed, setConfirmed] = useState(false);
@@ -421,7 +424,7 @@ function UnlockModal({ tenantId, tenantName, onClose }: { tenantId: string; tena
             onClick={onClose}
             className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             onClick={() => unlock.mutate()}
@@ -441,6 +444,7 @@ function UnlockModal({ tenantId, tenantName, onClose }: { tenantId: string; tena
 
 // ── Module Control Panel ───────────────────────────────────────────────────────
 function ModuleControlPanel({ tenantId, tenantName }: { tenantId: string; tenantName: string }) {
+  const { t } = useI18n();
   const qc = useQueryClient();
   const { data: modulesData, isLoading } = useQuery({
     queryKey: ['sa-modules', tenantId],
@@ -463,7 +467,7 @@ function ModuleControlPanel({ tenantId, tenantName }: { tenantId: string; tenant
     onSuccess:  () => { qc.invalidateQueries({ queryKey: ['sa-modules', tenantId] }); setDirty(false); },
   });
 
-  if (isLoading) return <div className="py-8 text-center text-gray-400 text-sm">Loading modules…</div>;
+  if (isLoading) return <div className="py-8 text-center text-gray-400 text-sm">{t('common.loading')}</div>;
 
   return (
     <div>
@@ -474,7 +478,7 @@ function ModuleControlPanel({ tenantId, tenantName }: { tenantId: string; tenant
         </div>
         {dirty && (
           <button onClick={() => save.mutate()} disabled={save.isPending} className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2">
-            {save.isPending ? 'Saving…' : <><Check size={14} /> Save Changes</>}
+            {save.isPending ? t('common.saving') : <><Check size={14} /> {t('common.save')}</>}
           </button>
         )}
       </div>
@@ -523,6 +527,7 @@ const NAV: { id: Tab; label: string; icon: React.ReactNode; group: string }[] = 
 function SuperAdminSidebar({ active, onChange, alertCount }: {
   active: Tab; onChange: (t: Tab) => void; alertCount: number;
 }) {
+  const { t } = useI18n();
   const { user, logout } = useAuth();
   const { data: profile } = useMyProfile();
   const [collapsed, setCollapsed] = useState(false);
@@ -584,7 +589,7 @@ function SuperAdminSidebar({ active, onChange, alertCount }: {
           className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 text-xs transition-colors ${collapsed ? 'justify-center' : ''}`}
         >
           <LogOut size={14} />
-          {!collapsed && 'Sign out'}
+          {!collapsed && t('nav.signOut')}
         </button>
       </div>
     </aside>
@@ -630,6 +635,7 @@ const AttachmentImage: React.FC<{ src: string; alt: string }> = ({ src, alt }) =
 
 // ── Bug Report Attachment Panel ───────────────────────────────────────────────
 const BugDetailAttachments: React.FC<{ reportId: string }> = ({ reportId }) => {
+  const { t } = useI18n();
   const { data, isLoading, isError } = useQuery({
     queryKey: ['bug-detail', reportId],
     queryFn:  () => bugApi.get(reportId).then((d: any) => d),
@@ -639,9 +645,9 @@ const BugDetailAttachments: React.FC<{ reportId: string }> = ({ reportId }) => {
 
   const attachments: any[] = (data as any)?.attachments ?? [];
 
-  if (isLoading) return <p className="text-xs text-gray-400 mt-3">Loading attachments…</p>;
-  if (isError)   return <p className="text-xs text-red-400 mt-3">Could not load attachments.</p>;
-  if (attachments.length === 0) return <p className="text-xs text-gray-400 mt-3">No attachments.</p>;
+  if (isLoading) return <p className="text-xs text-gray-400 mt-3">{t('common.loading')}</p>;
+  if (isError)   return <p className="text-xs text-red-400 mt-3">{t('errors.loadFailed')}</p>;
+  if (attachments.length === 0) return <p className="text-xs text-gray-400 mt-3">{t('common.noData')}</p>;
 
   return (
     <div className="mt-4">
@@ -781,6 +787,7 @@ function BugDetailSlider({ bug, seenReplies, onMarkSeen, onClose, onStatusChange
   replyPending: boolean;
   resolvePending: boolean;
 }) {
+  const { t } = useI18n();
   const rowId = bug.ROWID ?? bug.id;
   const hasReply = !!bug.reporter_reply;
   // Capture unseen status at open time so the "NEW" badge persists while reading
@@ -989,14 +996,14 @@ function BugDetailSlider({ bug, seenReplies, onMarkSeen, onClose, onStatusChange
               <div className="flex gap-2 justify-end">
                 <button onClick={() => { setReplyOpen(false); setReplyNote(''); }}
                   className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 rounded-xl hover:bg-gray-100 transition-colors">
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={async () => { await onReply(rowId, replyNote); setReplyOpen(false); setReplyNote(''); }}
                   disabled={!replyNote.trim() || replyPending}
                   className="px-5 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-2"
                 >
-                  <Mail size={13} />{replyPending ? 'Sending…' : 'Send Reply'}
+                  <Mail size={13} />{replyPending ? 'Sending…' : <>{t('common.send')} Reply</>}
                 </button>
               </div>
             </div>
@@ -1021,14 +1028,14 @@ function BugDetailSlider({ bug, seenReplies, onMarkSeen, onClose, onStatusChange
               <div className="flex gap-2 justify-end">
                 <button onClick={() => { setResolveOpen(false); setResolveNote(''); }}
                   className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 rounded-xl hover:bg-gray-100 transition-colors">
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={async () => { await onResolve(rowId, resolveNote); setResolveOpen(false); setResolveNote(''); }}
                   disabled={resolvePending}
                   className="px-5 py-2 text-sm font-semibold bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-colors flex items-center gap-2"
                 >
-                  <CheckCircle2 size={13} />{resolvePending ? 'Resolving…' : 'Confirm Resolve'}
+                  <CheckCircle2 size={13} />{resolvePending ? 'Resolving…' : <>{t('common.confirm')} {t('common.resolve')}</>}
                 </button>
               </div>
             </div>
@@ -1077,6 +1084,7 @@ function BugDetailSlider({ bug, seenReplies, onMarkSeen, onClose, onStatusChange
 
 // ── Main ───────────────────────────────────────────────────────────────────────
 const SuperAdminPage: React.FC = () => {
+  const { t } = useI18n();
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (searchParams.get('tab') as Tab) || 'overview';
@@ -1430,7 +1438,7 @@ const SuperAdminPage: React.FC = () => {
                 <Bell size={12} /> {highAlerts.length} Alert{highAlerts.length > 1 ? 's' : ''}
               </button>
             )}
-            <button onClick={() => qc.invalidateQueries()} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400" title="Refresh">
+            <button onClick={() => qc.invalidateQueries()} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400" title={t('common.refresh')}>
               <RefreshCw size={15} />
             </button>
           </div>
@@ -1466,7 +1474,7 @@ const SuperAdminPage: React.FC = () => {
                 <div className="bg-white rounded-2xl border border-gray-200 p-5">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="font-semibold text-gray-800">Top Features Used</h3>
-                    <button onClick={() => setActiveTab('metrics')} className="text-xs text-indigo-600 font-medium hover:underline flex items-center gap-0.5">Full metrics <ChevronRight size={12} /></button>
+                    <button onClick={() => setActiveTab('metrics')} className="text-xs text-indigo-600 font-medium hover:underline flex items-center gap-0.5">{t('common.viewAll')} <ChevronRight size={12} /></button>
                   </div>
                   <div className="space-y-3">
                     {(featureUsage.features as any[]).slice(0, 5).map((f: any) => (
@@ -1489,7 +1497,7 @@ const SuperAdminPage: React.FC = () => {
               <div className="bg-white rounded-2xl border border-gray-200 p-5">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-semibold text-gray-800">Recent Organisations</h3>
-                  <button onClick={() => setActiveTab('organisations')} className="text-xs text-indigo-600 font-medium hover:underline flex items-center gap-0.5">View all <ChevronRight size={12} /></button>
+                  <button onClick={() => setActiveTab('organisations')} className="text-xs text-indigo-600 font-medium hover:underline flex items-center gap-0.5">{t('common.viewAll')} <ChevronRight size={12} /></button>
                 </div>
                 {(tenantsData as any[]).slice(0, 6).map((t: any) => (
                   <div key={t.id} className="flex items-center justify-between py-2.5 border-b border-gray-100 last:border-0">
@@ -1507,7 +1515,7 @@ const SuperAdminPage: React.FC = () => {
               <div className="flex flex-wrap gap-3">
                 <div className="relative">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input value={orgSearch} onChange={e => setOrgSearch(e.target.value)} placeholder="Search organisations…" className="pl-9 pr-4 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 w-56" />
+                  <input value={orgSearch} onChange={e => setOrgSearch(e.target.value)} placeholder={`${t('common.search')} organisations…`} className="pl-9 pr-4 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 w-56" />
                 </div>
                 <select value={orgPlan} onChange={e => setOrgPlan(e.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none">
                   <option value="">All Plans</option><option>STARTER</option><option>PRO</option><option>ENTERPRISE</option>
@@ -1520,10 +1528,17 @@ const SuperAdminPage: React.FC = () => {
               <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                 <table className="w-full text-sm">
                   <thead><tr className="border-b border-gray-100 bg-gray-50">
-                    {['Organisation','Plan','Status','Users','Joined','Actions'].map(h => <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>)}
+                    {[
+                      ['Organisation', 'Organisation'],
+                      ['Plan', 'Plan'],
+                      [t('common.status'), t('common.status')],
+                      ['Users', 'Users'],
+                      ['Joined', 'Joined'],
+                      [t('common.actions'), t('common.actions')],
+                    ].map(([key, label]) => <th key={key} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{label}</th>)}
                   </tr></thead>
                   <tbody>
-                    {tenantsLoading && <tr><td colSpan={6} className="text-center py-10 text-gray-400">Loading…</td></tr>}
+                    {tenantsLoading && <tr><td colSpan={6} className="text-center py-10 text-gray-400">{t('common.loading')}</td></tr>}
                     {!tenantsLoading && (tenantsData as any[]).map((t: any) => (
                       <tr key={t.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                         <td className="px-4 py-3"><p className="font-semibold text-gray-800">{t.name}</p><p className="text-xs text-gray-400">{t.slug}</p></td>
@@ -1544,7 +1559,7 @@ const SuperAdminPage: React.FC = () => {
                         </td>
                       </tr>
                     ))}
-                    {!tenantsLoading && !(tenantsData as any[]).length && <tr><td colSpan={6} className="text-center py-10 text-gray-400">No organisations found</td></tr>}
+                    {!tenantsLoading && !(tenantsData as any[]).length && <tr><td colSpan={6} className="text-center py-10 text-gray-400">{t('common.noResults')}</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -1557,7 +1572,7 @@ const SuperAdminPage: React.FC = () => {
                     <button onClick={() => setTenantDetailId(null)} className="text-gray-400 hover:text-gray-600"><X size={17} /></button>
                   </div>
                   <div className="overflow-y-auto flex-1 p-5 space-y-4">
-                    {!tenantDetail ? <p className="text-sm text-gray-400 text-center pt-8">Loading…</p> : (
+                    {!tenantDetail ? <p className="text-sm text-gray-400 text-center pt-8">{t('common.loading')}</p> : (
                       <>
                         <div>
                           <p className="text-lg font-bold text-gray-800">{tenantDetail.name}</p>
@@ -1604,7 +1619,7 @@ const SuperAdminPage: React.FC = () => {
               <div className="bg-white rounded-2xl border border-gray-200 p-4 flex flex-wrap gap-3 items-center">
                 <div className="relative">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input value={userSearch} onChange={e => setUserSearch(e.target.value)} placeholder="Search name or email…"
+                  <input value={userSearch} onChange={e => setUserSearch(e.target.value)} placeholder={`${t('common.search')} name or email…`}
                     className="pl-9 pr-4 py-2 rounded-xl border border-gray-200 text-sm w-52 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
                 </div>
                 <select value={userRole} onChange={e => setUserRole(e.target.value)} className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
@@ -1619,7 +1634,7 @@ const SuperAdminPage: React.FC = () => {
                   onClick={() => { setShowInviteModal(true); setInviteName(''); setInviteEmail(''); setInviteError(null); setInviteSuccess(false); }}
                   className="ml-auto flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors"
                 >
-                  <Plus size={14} /> Invite Tenant Admin
+                  <Plus size={14} /> {t('admin.users.invite')}
                 </button>
               </div>
 
@@ -1639,13 +1654,20 @@ const SuperAdminPage: React.FC = () => {
 
               {/* User table */}
               {usersLoading
-                ? <div className="text-center py-16 text-gray-400">Loading users…</div>
+                ? <div className="text-center py-16 text-gray-400">{t('common.loading')}</div>
                 : (
                   <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                     <table className="w-full text-sm">
                       <thead><tr className="border-b border-gray-100 bg-gray-50">
-                        {['User','Organisation','Role','Status','Joined',''].map(h => (
-                          <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
+                        {[
+                          ['User', 'User'],
+                          ['Organisation', 'Organisation'],
+                          [t('admin.users.role'), t('admin.users.role')],
+                          [t('admin.users.status'), t('admin.users.status')],
+                          ['Joined', 'Joined'],
+                          ['', ''],
+                        ].map(([key, label]) => (
+                          <th key={key} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{label}</th>
                         ))}
                       </tr></thead>
                       <tbody>
@@ -1672,7 +1694,7 @@ const SuperAdminPage: React.FC = () => {
                             <td className="px-4 py-3">
                               {u.status === 'BLOCKED' ? (
                                 <button onClick={() => unblockUser.mutate(u.id)} className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 font-semibold hover:bg-emerald-100 ml-auto">
-                                  <UserCheck size={12} /> Unblock
+                                  <UserCheck size={12} /> {t('admin.users.activate')}
                                 </button>
                               ) : blockTarget === u.id ? (
                                 <div className="flex items-center gap-1 justify-end">
@@ -1684,13 +1706,13 @@ const SuperAdminPage: React.FC = () => {
                                 </div>
                               ) : (
                                 <button onClick={() => setBlockTarget(u.id)} className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-red-50 text-red-600 font-semibold hover:bg-red-100 ml-auto">
-                                  <UserX size={12} /> Block
+                                  <UserX size={12} /> {t('admin.users.deactivate')}
                                 </button>
                               )}
                             </td>
                           </tr>
                         ))}
-                        {!(usersData as any[]).length && <tr><td colSpan={6} className="text-center py-14 text-gray-400">No users found</td></tr>}
+                        {!(usersData as any[]).length && <tr><td colSpan={6} className="text-center py-14 text-gray-400">{t('common.noResults')}</td></tr>}
                       </tbody>
                     </table>
                   </div>
@@ -1945,7 +1967,7 @@ const SuperAdminPage: React.FC = () => {
                 <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 shrink-0"><Filter size={13} /> Filters</span>
                 <div className="relative">
                   <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input value={auditSearch} onChange={e => setAuditSearch(e.target.value)} placeholder="Search action, org, user…"
+                  <input value={auditSearch} onChange={e => setAuditSearch(e.target.value)} placeholder="Search action, org, user…"  aria-label={t('common.search')}
                     className="pl-8 pr-3 py-1.5 rounded-lg border border-gray-200 text-xs w-52 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
                 </div>
                 <select value={auditAction} onChange={e => setAuditAction(e.target.value)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-300">
@@ -1954,7 +1976,7 @@ const SuperAdminPage: React.FC = () => {
                 </select>
                 {(auditSearch || auditAction) && (
                   <button onClick={() => { setAuditSearch(''); setAuditAction(''); }} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700">
-                    <X size={12} /> Clear
+                    <X size={12} /> {t('common.clear')}
                   </button>
                 )}
                 <span className="ml-auto text-xs text-gray-400">{filteredAudit.length} entries</span>
@@ -1964,7 +1986,7 @@ const SuperAdminPage: React.FC = () => {
               {pagedAudit.length === 0 ? (
                 <div className="text-center py-16 bg-white rounded-2xl border border-gray-200 text-gray-400">
                   <Shield size={28} className="mx-auto mb-2 opacity-30" />
-                  <p className="text-sm">No audit logs found</p>
+                  <p className="text-sm">{t('admin.audit.noLogs')}</p>
                 </div>
               ) : (
                 <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -2118,7 +2140,7 @@ const SuperAdminPage: React.FC = () => {
                 <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 shrink-0"><Filter size={13} /> Filters</span>
                 <div className="relative">
                   <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input value={bugSearch} onChange={e => setBugSearch(e.target.value)} placeholder="Search title, reporter, org…"
+                  <input value={bugSearch} onChange={e => setBugSearch(e.target.value)} placeholder={`${t('common.search')} title, reporter, org…`}
                     className="pl-8 pr-3 py-1.5 rounded-lg border border-gray-200 text-xs w-52 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
                 </div>
                 <select value={bugStatus} onChange={e => setBugStatus(e.target.value)} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:outline-none">
@@ -2139,7 +2161,7 @@ const SuperAdminPage: React.FC = () => {
                 </select>
                 {(bugSearch || bugStatus || bugSeverity || bugTenant || bugReporter) && (
                   <button onClick={() => { setBugSearch(''); setBugStatus(''); setBugSeverity(''); setBugTenant(''); setBugReporter(''); }}
-                    className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700"><X size={12} /> Clear</button>
+                    className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700"><X size={12} /> {t('common.clear')}</button>
                 )}
                 <span className="ml-auto text-xs text-gray-400 font-medium">{filteredBugs.length} of {(bugReports as any[]).length} reports</span>
               </div>
@@ -2149,7 +2171,7 @@ const SuperAdminPage: React.FC = () => {
                 <div className="bg-red-50 border border-red-200 rounded-2xl px-5 py-4 flex items-center gap-3 text-red-700">
                   <AlertTriangle size={16} className="shrink-0" />
                   <div>
-                    <p className="text-sm font-semibold">Failed to load bug reports</p>
+                    <p className="text-sm font-semibold">{t('errors.loadFailed')}</p>
                     <p className="text-xs mt-0.5 opacity-80">{(bugFetchError as any)?.message || 'Check that the bug_service is running and session is valid.'}</p>
                   </div>
                 </div>
@@ -2158,7 +2180,7 @@ const SuperAdminPage: React.FC = () => {
               {/* ── Bug list ── */}
               {bugLoading ? (
                 <div className="flex items-center justify-center gap-2 py-20 text-gray-400 text-sm bg-white rounded-2xl border border-gray-200">
-                  <RefreshCw size={16} className="animate-spin" /> Loading bug reports…
+                  <RefreshCw size={16} className="animate-spin" /> {t('common.loading')}
                 </div>
               ) : (
                 <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -2177,7 +2199,7 @@ const SuperAdminPage: React.FC = () => {
                   {pagedBugs.length === 0 && !bugError ? (
                     <div className="text-center py-16 text-gray-400">
                       <Bug size={28} className="mx-auto mb-3 opacity-25" />
-                      <p className="text-sm font-semibold">No bug reports found</p>
+                      <p className="text-sm font-semibold">{t('bugs.noBugs')}</p>
                       <p className="text-xs mt-1 opacity-60">Try adjusting your filters</p>
                     </div>
                   ) : (
@@ -2475,11 +2497,11 @@ const SuperAdminPage: React.FC = () => {
                       }}
                       className="flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors"
                     >
-                      <Save size={14} /> {cfgSaving ? 'Saving…' : 'Save Configuration'}
+                      <Save size={14} /> {cfgSaving ? t('common.saving') : t('common.save')}
                     </button>
                     {cfgSaved && (
                       <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-semibold">
-                        <Check size={15} /> Saved successfully
+                        <Check size={15} /> {t('common.saveSuccess')}
                       </span>
                     )}
                   </div>
@@ -2530,7 +2552,7 @@ const SuperAdminPage: React.FC = () => {
                     onClick={() => setShowInviteModal(false)}
                     className="flex-1 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
                   >
-                    Done
+                    {t('common.close')}
                   </button>
                 </div>
               </div>
@@ -2585,7 +2607,7 @@ const SuperAdminPage: React.FC = () => {
 
                 <div className="flex gap-2 mt-6">
                   <button onClick={() => { setShowInviteModal(false); setInviteName(''); setInviteEmail(''); setInviteOrgId(''); setInviteError(null); setInviteSuccess(false); }} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50">
-                    Cancel
+                    {t('common.cancel')}
                   </button>
                   <button
                     onClick={() => {

@@ -1,52 +1,62 @@
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
-import en, { Translations } from '../locales/en';
-import hi from '../locales/hi';
-import es from '../locales/es';
-import fr from '../locales/fr';
-import de from '../locales/de';
-import zh from '../locales/zh';
-import pt from '../locales/pt';
-import ar from '../locales/ar';
+import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import type { Translations } from '../i18n/types';
+import { resolve, interpolate, isRtl } from '../i18n/utils';
+import en from '../i18n/locales/en';
 
 // ─── Locale registry ──────────────────────────────────────────────────────────
 
-export type LocaleCode = 'en' | 'hi' | 'es' | 'fr' | 'de' | 'zh' | 'pt' | 'ar';
+export type LocaleCode = 'en' | 'hi' | 'mr' | 'es' | 'fr' | 'de' | 'zh' | 'pt' | 'ar';
 
-export const LOCALES: Record<LocaleCode, { label: string; flag: string; translations: Translations }> = {
-  en: { label: 'English',   flag: '🇬🇧', translations: en },
-  hi: { label: 'हिंदी',     flag: '🇮🇳', translations: hi },
-  es: { label: 'Español',   flag: '🇪🇸', translations: es },
-  fr: { label: 'Français',  flag: '🇫🇷', translations: fr },
-  de: { label: 'Deutsch',   flag: '🇩🇪', translations: de },
-  zh: { label: '中文',       flag: '🇨🇳', translations: zh },
-  pt: { label: 'Português', flag: '🇧🇷', translations: pt },
-  ar: { label: 'العربية',   flag: '🇸🇦', translations: ar },
+export const LOCALES: Record<LocaleCode, { label: string; flag: string; nativeLabel: string }> = {
+  en: { label: 'English',    flag: '🇬🇧', nativeLabel: 'English' },
+  hi: { label: 'Hindi',      flag: '🇮🇳', nativeLabel: 'हिंदी' },
+  mr: { label: 'Marathi',    flag: '🇮🇳', nativeLabel: 'मराठी' },
+  es: { label: 'Spanish',    flag: '🇪🇸', nativeLabel: 'Español' },
+  fr: { label: 'French',     flag: '🇫🇷', nativeLabel: 'Français' },
+  de: { label: 'German',     flag: '🇩🇪', nativeLabel: 'Deutsch' },
+  zh: { label: 'Chinese',    flag: '🇨🇳', nativeLabel: '中文' },
+  pt: { label: 'Portuguese', flag: '🇧🇷', nativeLabel: 'Português' },
+  ar: { label: 'Arabic',     flag: '🇸🇦', nativeLabel: 'العربية' },
 };
+
+// ─── Lazy loaders ─────────────────────────────────────────────────────────────
+// English is bundled eagerly (default locale, always needed).
+// All other locales are code-split and fetched on first language switch.
+
+type LocaleModule = { default: Translations };
+
+const LOCALE_LOADERS: Record<LocaleCode, () => Promise<LocaleModule>> = {
+  en: async () => ({ default: en }),
+  hi: () => import('../i18n/locales/hi'),
+  mr: () => import('../i18n/locales/mr'),
+  es: () => import('../i18n/locales/es'),
+  fr: () => import('../i18n/locales/fr'),
+  de: () => import('../i18n/locales/de'),
+  zh: () => import('../i18n/locales/zh'),
+  pt: () => import('../i18n/locales/pt'),
+  ar: () => import('../i18n/locales/ar'),
+};
+
+// In-memory cache: each locale is loaded at most once per session
+const localeCache = new Map<LocaleCode, Translations>();
+localeCache.set('en', en);
 
 const STORAGE_KEY = 'ds_locale';
 
-// ─── Deep-path resolver ───────────────────────────────────────────────────────
-
-type DeepKeys<T, Prefix extends string = ''> =
-  T extends string ? Prefix :
-  { [K in keyof T]: K extends string
-      ? DeepKeys<T[K], Prefix extends '' ? K : `${Prefix}.${K}`>
-      : never
-  }[keyof T];
-
-type TranslationKey = DeepKeys<Translations>;
-
-function resolve(obj: Record<string, unknown>, path: string): string {
-  const value = path.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown>)?.[k], obj);
-  return typeof value === 'string' ? value : path;
-}
-
-// ─── Context ──────────────────────────────────────────────────────────────────
+// ─── Context types ────────────────────────────────────────────────────────────
 
 interface I18nContextValue {
   locale: LocaleCode;
-  setLocale: (code: LocaleCode) => void;
-  t: (key: TranslationKey) => string;
+  /** Change the active locale. Returns a promise that resolves once the locale file is loaded. */
+  setLocale: (code: LocaleCode) => Promise<void>;
+  /**
+   * Translate a dot-notation key.
+   * Supports interpolation: t('key', { count: 3, name: 'Alice' })
+   * Supports pluralisation via pipe in translation value: "1 item | {count} items"
+   */
+  t: (key: string, params?: Record<string, string | number>) => string;
+  /** True while a non-English locale file is being fetched */
+  isLoading: boolean;
 }
 
 const I18nContext = createContext<I18nContextValue | null>(null);
@@ -65,25 +75,70 @@ export const I18nProvider = ({ children }: { children: ReactNode }) => {
     return stored && stored in LOCALES ? stored : 'en';
   });
 
-  const setLocale = useCallback((code: LocaleCode) => {
+  // Active translations object; starts with the eagerly-bundled English locale
+  const [translations, setTranslations] = useState<Translations>(() => {
+    const stored = localStorage.getItem(STORAGE_KEY) as LocaleCode | null;
+    if (stored && stored !== 'en' && localeCache.has(stored)) {
+      return localeCache.get(stored)!;
+    }
+    return en;
+  });
+
+  const [isLoading, setIsLoading] = useState(false);
+
+  const applyLocale = useCallback((code: LocaleCode, trans: Translations) => {
+    setTranslations(trans);
     setLocaleState(code);
     localStorage.setItem(STORAGE_KEY, code);
     document.documentElement.lang = code;
-    document.documentElement.dir = code === 'ar' ? 'rtl' : 'ltr';
+    document.documentElement.dir = isRtl(code) ? 'rtl' : 'ltr';
+  }, []);
+
+  const setLocale = useCallback(async (code: LocaleCode): Promise<void> => {
+    if (localeCache.has(code)) {
+      applyLocale(code, localeCache.get(code)!);
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const mod = await LOCALE_LOADERS[code]();
+      localeCache.set(code, mod.default);
+      applyLocale(code, mod.default);
+    } catch (err) {
+      console.error('[i18n] Failed to load locale', code, err);
+      // Fall back to English on load failure
+      applyLocale('en', en);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [applyLocale]);
+
+  // On mount: if a non-English locale was stored, load it lazily
+  useEffect(() => {
+    const stored = localStorage.getItem(STORAGE_KEY) as LocaleCode | null;
+    if (stored && stored !== 'en' && stored in LOCALES) {
+      if (!localeCache.has(stored)) {
+        setLocale(stored);
+      } else {
+        applyLocale(stored, localeCache.get(stored)!);
+      }
+    } else {
+      document.documentElement.lang = locale;
+      document.documentElement.dir = isRtl(locale) ? 'rtl' : 'ltr';
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const t = useCallback(
-    (key: TranslationKey) =>
-      resolve(LOCALES[locale].translations as unknown as Record<string, unknown>, key),
-    [locale],
+    (key: string, params?: Record<string, string | number>): string => {
+      const raw = resolve(translations as unknown as Record<string, unknown>, key);
+      return params ? interpolate(raw, params) : raw;
+    },
+    [translations],
   );
 
-  // Set initial lang + writing direction
-  document.documentElement.lang = locale;
-  document.documentElement.dir = locale === 'ar' ? 'rtl' : 'ltr';
-
   return (
-    <I18nContext.Provider value={{ locale, setLocale, t }}>
+    <I18nContext.Provider value={{ locale, setLocale, t, isLoading }}>
       {children}
     </I18nContext.Provider>
   );

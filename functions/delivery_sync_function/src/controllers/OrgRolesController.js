@@ -177,6 +177,13 @@ class OrgRolesController {
         await this.db.update(TABLES.USER_ORG_ROLES, { ROWID: String(a.ROWID), is_active: false });
       }
 
+      // Bust auth-ctx for every affected user so the role removal reflects immediately
+      if (assignments.length > 0) {
+        await Promise.allSettled(
+          assignments.map((a) => CacheService.invalidateUserAuthCtx(req.catalystApp, String(a.user_id)))
+        );
+      }
+
       await this.audit.log({
         tenantId, entityType: 'org_role', entityId: roleId,
         action: AUDIT_ACTION.DELETE,
@@ -230,14 +237,19 @@ class OrgRolesController {
       const cleanModuleAccess = Array.isArray(moduleAccess) ? moduleAccess.filter((m) => typeof m === 'string') : [];
       await this._upsertRolePermissions(tenantId, roleId, cleanPerms, cleanModuleAccess);
 
-      // Cache invalidation note:
-      // The auth-context cache is keyed per-user (`authCtx:v1:{userId}`), not
-      // per-role. Invalidating every member of this role would require an
-      // extra DB query just to list them — and at scale that's more cache
-      // calls than the 5-minute TTL saves. So role-permission changes
-      // propagate within the 5-minute TTL window. Acceptable lag for an
-      // admin action. (Individual user-level changes still invalidate
-      // immediately — see assignUserOrgRole and setUserPermissions.)
+      // Bust auth-ctx for every member of this role across ALL microservices so
+      // the permission change reflects immediately instead of waiting for the TTL.
+      try {
+        const members = await this.db.query(
+          `SELECT user_id FROM ${TABLES.USER_ORG_ROLES} ` +
+          `WHERE org_role_id = '${roleId}' AND is_active != 'false' LIMIT 300`
+        );
+        if (members.length > 0) {
+          await Promise.allSettled(
+            members.map((m) => CacheService.invalidateUserAuthCtx(req.catalystApp, String(m.user_id)))
+          );
+        }
+      } catch (_) {}
 
       await this.audit.log({
         tenantId, entityType: 'org_role_permissions', entityId: roleId,
@@ -287,13 +299,8 @@ class OrgRolesController {
         });
       }
 
-      // Cache invalidation — AuthMiddleware caches the resolved auth context
-      // per-user. Clearing this one key drops the user's cached perms, role
-      // assignment, and overrides in one call (instead of 3 separate ones).
-      try {
-        const cache = new CacheService(req.catalystApp);
-        await cache.invalidate(`authCtx:v1:${String(userId)}`);
-      } catch (_) {}
+      // Bust auth-ctx across all microservices so the role change reflects immediately.
+      await CacheService.invalidateUserAuthCtx(req.catalystApp, userId);
 
       await this.audit.log({
         tenantId, entityType: 'user_org_role', entityId: userId,

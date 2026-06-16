@@ -37,6 +37,7 @@ router.patch('/:recordId/override',        RBACMiddleware.require(PERMISSIONS.AT
 router.get('/anomalies',                   RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).anomalies(req, res));
 router.get('/not-checked-in',              RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).notCheckedIn(req, res));
 router.get('/summary',                     RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).summary(req, res));
+router.get('/report',                      RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).attendanceReport(req, res));
 router.get('/export',                      RBACMiddleware.require(PERMISSIONS.ATTENDANCE_ADMIN), (req, res) => ctrl(req).exportCsv(req, res));
 router.get('/wfh-requests',               RBACMiddleware.require(PERMISSIONS.ATTENDANCE_READ),  (req, res) => ctrl(req).listWfhRequests(req, res));
 router.post('/wfh-requests',              RBACMiddleware.require(PERMISSIONS.ATTENDANCE_WRITE), (req, res) => ctrl(req).submitWfhRequest(req, res));

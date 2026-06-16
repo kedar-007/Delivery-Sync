@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { format, isPast, parseISO } from 'date-fns';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
@@ -15,6 +15,7 @@ import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import UserAvatar from '../components/ui/UserAvatar';
+import UserPicker from '../components/ui/UserPicker';
 import {
   useBacklog,
   useSprints,
@@ -88,22 +89,6 @@ const isOverdue = (d?: string, status?: TaskStatus) => {
   try { return isPast(parseISO(d)); } catch { return false; }
 };
 
-const STATUS_OPTIONS: { value: '' | TaskStatus; label: string }[] = [
-  { value: '', label: 'All Statuses' },
-  { value: 'TODO', label: 'To Do' },
-  { value: 'IN_PROGRESS', label: 'In Progress' },
-  { value: 'IN_REVIEW', label: 'In Review' },
-  { value: 'DONE', label: 'Done' },
-];
-
-const PRIORITY_OPTIONS: { value: '' | TaskPriority; label: string }[] = [
-  { value: '', label: 'All Priorities' },
-  { value: 'CRITICAL', label: 'Critical' },
-  { value: 'HIGH', label: 'High' },
-  { value: 'MEDIUM', label: 'Medium' },
-  { value: 'LOW', label: 'Low' },
-];
-
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 const BacklogPage = () => {
@@ -154,6 +139,7 @@ const BacklogPage = () => {
     register: registerEdit,
     handleSubmit: handleEditSubmit,
     reset: resetEdit,
+    control: editControl,
     formState: { errors: editErrors, isSubmitting: isEditSubmitting },
   } = useForm<EditTaskForm>();
 
@@ -163,6 +149,23 @@ const BacklogPage = () => {
   const availableSprints = (sprints as Sprint[]).filter(
     (s) => s.status === 'PLANNING' || s.status === 'ACTIVE'
   );
+
+  // Status and priority options built with translations
+  const STATUS_OPTIONS: { value: '' | TaskStatus; label: string }[] = [
+    { value: '', label: t('common.all') + ' ' + t('common.status') },
+    { value: 'TODO', label: t('tasks.status.todo') },
+    { value: 'IN_PROGRESS', label: t('tasks.status.inProgress') },
+    { value: 'IN_REVIEW', label: t('tasks.status.inReview') },
+    { value: 'DONE', label: t('tasks.status.done') },
+  ];
+
+  const PRIORITY_OPTIONS: { value: '' | TaskPriority; label: string }[] = [
+    { value: '', label: t('common.all') + ' ' + t('common.priority') },
+    { value: 'CRITICAL', label: t('tasks.priority.critical') },
+    { value: 'HIGH', label: t('tasks.priority.high') },
+    { value: 'MEDIUM', label: t('tasks.priority.medium') },
+    { value: 'LOW', label: t('tasks.priority.low') },
+  ];
 
   // Filtered tasks
   const filtered = useMemo(() => {
@@ -180,7 +183,7 @@ const BacklogPage = () => {
     try {
       setCreateError('');
       if (!selectedProjectId) {
-        setCreateError('Please select a project first');
+        setCreateError(t('errors.generic'));
         return;
       }
       await createTask.mutateAsync({
@@ -287,11 +290,11 @@ const BacklogPage = () => {
         subtitle={
           selectedProjectId
             ? `${(backlogTasks as Task[]).length} task${(backlogTasks as Task[]).length !== 1 ? 's' : ''} not in a sprint`
-            : 'Select a project to view its backlog'
+            : t('sprints.backlog')
         }
         actions={
           <Button onClick={() => setShowCreate(true)} disabled={!selectedProjectId}>
-            New Task
+            {t('tasks.new')}
           </Button>
         }
       />
@@ -307,13 +310,13 @@ const BacklogPage = () => {
               value={selectedProjectId}
               onChange={(e) => setSelectedProjectId(e.target.value)}
             >
-              <option value="">Select project…</option>
+              <option value="">{t('projects.searchPlaceholder')}</option>
               {(allProjects as { id: string; name: string }[]).map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
             {!selectedProjectId && (
-              <span className="text-sm text-amber-600">Select a project to load its backlog</span>
+              <span className="text-sm text-amber-600">{t('sprints.backlog')}</span>
             )}
           </div>
         )}
@@ -322,7 +325,7 @@ const BacklogPage = () => {
         <div className="flex flex-wrap items-center gap-3">
           <input
             className="form-input w-56"
-            placeholder="Search tasks…"
+            placeholder={t('common.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -350,7 +353,7 @@ const BacklogPage = () => {
               className="text-xs text-gray-500 hover:text-gray-700 underline"
               onClick={() => { setSearch(''); setFilterStatus(''); setFilterPriority(''); }}
             >
-              Clear filters
+              {t('common.clear')}
             </button>
           )}
         </div>
@@ -358,15 +361,15 @@ const BacklogPage = () => {
         {/* Task Table */}
         {filtered.length === 0 ? (
           <EmptyState
-            title={(backlogTasks as Task[]).length === 0 ? 'Backlog is empty' : 'No tasks match your filters'}
+            title={(backlogTasks as Task[]).length === 0 ? t('tasks.noTasks') : t('common.noResults')}
             description={
               (backlogTasks as Task[]).length === 0
-                ? 'Add tasks to the backlog to start planning sprints.'
-                : 'Try adjusting your search or filters.'
+                ? t('tasks.noTasksDesc')
+                : t('common.tryAgain')
             }
             action={
               (backlogTasks as Task[]).length === 0 ? (
-                <Button onClick={() => setShowCreate(true)}>Add First Task</Button>
+                <Button onClick={() => setShowCreate(true)}>{t('tasks.new')}</Button>
               ) : undefined
             }
           />
@@ -376,13 +379,13 @@ const BacklogPage = () => {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50">
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Priority</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Title</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Assignee</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Points</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Due Date</th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('common.priority')}</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('common.title')}</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('common.status')}</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('tasks.modal.assignee')}</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('sprints.velocity')}</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('common.dueDate')}</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('common.actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -422,7 +425,7 @@ const BacklogPage = () => {
                               <span className="text-xs text-gray-600 truncate max-w-[100px]">{assignee.name}</span>
                             </div>
                           ) : (
-                            <span className="text-xs text-gray-400">Unassigned</span>
+                            <span className="text-xs text-gray-400">{t('common.na')}</span>
                           )}
                         </td>
 
@@ -454,27 +457,27 @@ const BacklogPage = () => {
                           <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
                               type="button"
-                              title="Move to Sprint"
+                              title={t('sprints.addTask')}
                               onClick={(e) => openMove(e, task)}
                               className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors text-xs font-medium"
                             >
-                              Move
+                              {t('common.assign')}
                             </button>
                             <button
                               type="button"
-                              title="Edit task"
+                              title={t('common.edit')}
                               onClick={(e) => openEdit(e, task)}
                               className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors text-xs font-medium"
                             >
-                              Edit
+                              {t('common.edit')}
                             </button>
                             <button
                               type="button"
-                              title="Delete task"
+                              title={t('common.delete')}
                               onClick={(e) => openDelete(e, task)}
                               className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors text-xs font-medium"
                             >
-                              Delete
+                              {t('common.delete')}
                             </button>
                           </div>
                         </td>
@@ -492,7 +495,7 @@ const BacklogPage = () => {
       <Modal
         open={showCreate}
         onClose={() => { setShowCreate(false); createForm.reset({ priority: 'MEDIUM' }); setCreateError(''); }}
-        title="Add Task to Backlog"
+        title={t('tasks.modal.createTitle')}
         size="lg"
       >
         <form onSubmit={createForm.handleSubmit(onCreateTask)} className="space-y-4">
@@ -500,7 +503,7 @@ const BacklogPage = () => {
 
           {/* Project selection is mandatory; locked to URL project when available */}
           <div>
-            <label className="form-label">Project *</label>
+            <label className="form-label">{t('tasks.modal.project')}</label>
             {projectId ? (
               <div className="form-input bg-gray-50 text-gray-600 cursor-not-allowed">
                 {(allProjects as { id: string; name: string }[]).find((p) => p.id === projectId)?.name ?? projectId}
@@ -512,7 +515,7 @@ const BacklogPage = () => {
                 onChange={(e) => setSelectedProjectId(e.target.value)}
                 required
               >
-                <option value="">Select project…</option>
+                <option value="">{t('projects.searchPlaceholder')}</option>
                 {(allProjects as { id: string; name: string }[]).map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
@@ -521,28 +524,28 @@ const BacklogPage = () => {
           </div>
 
           <div>
-            <label className="form-label">Title *</label>
+            <label className="form-label">{t('tasks.modal.titleLabel')}</label>
             <input
               className="form-input"
-              placeholder="What needs to be done?"
-              {...createForm.register('title', { required: 'Required' })}
+              placeholder={t('common.searchPlaceholder')}
+              {...createForm.register('title', { required: t('validation.required') })}
             />
             {createForm.formState.errors.title && (
               <p className="form-error">{createForm.formState.errors.title.message}</p>
             )}
           </div>
           <div>
-            <label className="form-label">Description</label>
+            <label className="form-label">{t('tasks.modal.descLabel')}</label>
             <textarea
               className="form-textarea"
               rows={3}
-              placeholder="Details, acceptance criteria…"
+              placeholder={t('common.optional')}
               {...createForm.register('description')}
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="form-label">Priority</label>
+              <label className="form-label">{t('tasks.modal.priority')}</label>
               <select className="form-select" {...createForm.register('priority')}>
                 {(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as TaskPriority[]).map((p) => (
                   <option key={p} value={p}>{p}</option>
@@ -550,18 +553,26 @@ const BacklogPage = () => {
               </select>
             </div>
             <div>
-              <label className="form-label">Assignee</label>
-              <select className="form-select" {...createForm.register('assignee_id')}>
-                <option value="">Unassigned</option>
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>{u.name}</option>
-                ))}
-              </select>
+              <label className="form-label">{t('tasks.modal.assignee')}</label>
+              <Controller
+                name="assignee_id"
+                control={createForm.control}
+                defaultValue=""
+                render={({ field }) => (
+                  <UserPicker
+                    users={users.map((u) => ({ id: u.id, name: u.name, avatarUrl: u.avatarUrl }))}
+                    value={field.value ?? ''}
+                    onChange={field.onChange}
+                    placeholder={t('common.na')}
+                    allowEmpty
+                  />
+                )}
+              />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="form-label">Story Points</label>
+              <label className="form-label">{t('sprints.velocity')}</label>
               <input
                 type="number"
                 min={0}
@@ -572,12 +583,12 @@ const BacklogPage = () => {
               />
             </div>
             <div>
-              <label className="form-label">Due Date *</label>
+              <label className="form-label">{t('tasks.modal.dueDate')}</label>
               <input
                 type="date"
                 className="form-input"
                 min={new Date().toISOString().split('T')[0]}
-                {...createForm.register('due_date', { required: 'Due date is required' })}
+                {...createForm.register('due_date', { required: t('validation.required') })}
               />
               {createForm.formState.errors.due_date && (
                 <p className="form-error">{createForm.formState.errors.due_date.message as string}</p>
@@ -587,7 +598,7 @@ const BacklogPage = () => {
           {canManageApproval && (
             <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
               <div>
-                <p className="text-sm font-medium text-amber-900">Require time entry approval</p>
+                <p className="text-sm font-medium text-amber-900">{t('timeTracking.title')}</p>
                 <p className="text-xs text-amber-600 mt-0.5">Time entries will be sent to <strong>you</strong> ({user?.name ?? 'task owner'}) for approval</p>
               </div>
               <button
@@ -602,8 +613,8 @@ const BacklogPage = () => {
             </div>
           )}
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button type="submit" loading={createForm.formState.isSubmitting}>Add to Backlog</Button>
+            <Button variant="outline" type="button" onClick={() => setShowCreate(false)}>{t('common.cancel')}</Button>
+            <Button type="submit" loading={createForm.formState.isSubmitting}>{t('tasks.modal.create')}</Button>
           </ModalActions>
         </form>
       </Modal>
@@ -612,23 +623,23 @@ const BacklogPage = () => {
       <Modal
         open={!!editingTask}
         onClose={() => { setEditingTask(null); setEditError(''); }}
-        title="Edit Task"
+        title={t('tasks.modal.editTitle')}
         size="lg"
       >
         <form onSubmit={handleEditSubmit(onEditTask)} className="space-y-4">
           {editError && <Alert type="error" message={editError} />}
           <div>
-            <label className="form-label">Title *</label>
-            <input className="form-input" {...registerEdit('title', { required: 'Required' })} />
+            <label className="form-label">{t('tasks.modal.titleLabel')}</label>
+            <input className="form-input" {...registerEdit('title', { required: t('validation.required') })} />
             {editErrors.title && <p className="form-error">{editErrors.title.message}</p>}
           </div>
           <div>
-            <label className="form-label">Description</label>
+            <label className="form-label">{t('tasks.modal.descLabel')}</label>
             <textarea className="form-textarea" rows={3} {...registerEdit('description')} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="form-label">Status</label>
+              <label className="form-label">{t('tasks.modal.status')}</label>
               <select className="form-select" {...registerEdit('status')}>
                 {(['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'DONE'] as TaskStatus[]).map((s) => (
                   <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
@@ -636,7 +647,7 @@ const BacklogPage = () => {
               </select>
             </div>
             <div>
-              <label className="form-label">Priority</label>
+              <label className="form-label">{t('tasks.modal.priority')}</label>
               <select className="form-select" {...registerEdit('priority')}>
                 {(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as TaskPriority[]).map((p) => (
                   <option key={p} value={p}>{p}</option>
@@ -646,27 +657,35 @@ const BacklogPage = () => {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="form-label">Assignee</label>
-              <select className="form-select" {...registerEdit('assignee_id')}>
-                <option value="">Unassigned</option>
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>{u.name}</option>
-                ))}
-              </select>
+              <label className="form-label">{t('tasks.modal.assignee')}</label>
+              <Controller
+                name="assignee_id"
+                control={editControl}
+                defaultValue=""
+                render={({ field }) => (
+                  <UserPicker
+                    users={users.map((u) => ({ id: u.id, name: u.name, avatarUrl: u.avatarUrl }))}
+                    value={field.value ?? ''}
+                    onChange={field.onChange}
+                    placeholder={t('common.na')}
+                    allowEmpty
+                  />
+                )}
+              />
             </div>
             <div>
-              <label className="form-label">Story Points</label>
+              <label className="form-label">{t('sprints.velocity')}</label>
               <input type="number" min={0} max={100} className="form-input" {...registerEdit('story_points')} />
             </div>
           </div>
           <div>
-            <label className="form-label">Due Date</label>
+            <label className="form-label">{t('tasks.modal.dueDate')}</label>
             <input type="date" className="form-input" {...registerEdit('due_date')} />
           </div>
           {canManageApproval && (
             <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
               <div>
-                <p className="text-sm font-medium text-amber-900">Require time entry approval</p>
+                <p className="text-sm font-medium text-amber-900">{t('timeTracking.title')}</p>
                 <p className="text-xs text-amber-600 mt-0.5">Time entries logged on this task will be sent to the task owner for approval</p>
               </div>
               <button
@@ -681,8 +700,8 @@ const BacklogPage = () => {
             </div>
           )}
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setEditingTask(null)}>Cancel</Button>
-            <Button type="submit" loading={isEditSubmitting}>Save Changes</Button>
+            <Button variant="outline" type="button" onClick={() => setEditingTask(null)}>{t('common.cancel')}</Button>
+            <Button type="submit" loading={isEditSubmitting}>{t('tasks.modal.save')}</Button>
           </ModalActions>
         </form>
       </Modal>
@@ -691,20 +710,19 @@ const BacklogPage = () => {
       <Modal
         open={!!deletingTask}
         onClose={() => { setDeletingTask(null); setDeleteError(''); }}
-        title="Delete Task"
+        title={t('common.confirmDeleteTitle')}
         size="sm"
       >
         <div className="space-y-4">
           {deleteError && <Alert type="error" message={deleteError} />}
           <p className="text-sm text-gray-600">
-            Are you sure you want to delete{' '}
+            {t('common.confirmDeleteDesc')}{' '}
             <span className="font-semibold text-gray-900">"{deletingTask?.title}"</span>?
-            This action cannot be undone.
           </p>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setDeletingTask(null)}>Cancel</Button>
+            <Button variant="outline" type="button" onClick={() => setDeletingTask(null)}>{t('common.cancel')}</Button>
             <Button variant="danger" loading={deleteTask.isPending} onClick={onDeleteTask}>
-              Delete Task
+              {t('common.delete')}
             </Button>
           </ModalActions>
         </div>
@@ -714,22 +732,22 @@ const BacklogPage = () => {
       <Modal
         open={!!movingTask}
         onClose={() => { setMovingTask(null); setMoveError(''); }}
-        title="Move to Sprint"
+        title={t('sprints.addTask')}
         size="sm"
       >
         <form onSubmit={moveForm.handleSubmit(onMoveToSprint)} className="space-y-4">
           {moveError && <Alert type="error" message={moveError} />}
           <p className="text-sm text-gray-600 font-medium truncate">"{movingTask?.title}"</p>
           {availableSprints.length === 0 ? (
-            <Alert type="warning" message="No active or planning sprints available. Create a sprint first." />
+            <Alert type="warning" message={t('sprints.noSprints')} />
           ) : (
             <div>
-              <label className="form-label">Select Sprint *</label>
+              <label className="form-label">{t('sprints.title')}</label>
               <select
                 className="form-select"
-                {...moveForm.register('sprint_id', { required: 'Required' })}
+                {...moveForm.register('sprint_id', { required: t('validation.required') })}
               >
-                <option value="">Select a sprint…</option>
+                <option value="">{t('sprints.title')}…</option>
                 {availableSprints.map((s) => (
                   <option key={s.id} value={s.id}>{s.name} ({s.status})</option>
                 ))}
@@ -740,13 +758,13 @@ const BacklogPage = () => {
             </div>
           )}
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setMovingTask(null)}>Cancel</Button>
+            <Button variant="outline" type="button" onClick={() => setMovingTask(null)}>{t('common.cancel')}</Button>
             <Button
               type="submit"
               loading={moveTaskMutation.isPending}
               disabled={availableSprints.length === 0}
             >
-              Move to Sprint
+              {t('sprints.addTask')}
             </Button>
           </ModalActions>
         </form>

@@ -7,6 +7,7 @@ import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import { useI18n } from '../contexts/I18nContext';
 import Button from '../components/ui/Button';
+
 import Modal, { ModalActions } from '../components/ui/Modal';
 import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
@@ -702,6 +703,7 @@ const ListView = ({
   onSetManager: (user: OrgUser) => void;
   isAdmin: boolean;
 }) => {
+  const { t } = useI18n();
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase();
     if (!q) return users;
@@ -744,7 +746,7 @@ const ListView = ({
               </th>
               {isAdmin && (
                 <th className="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">
-                  Actions
+                  {t('common.actions')}
                 </th>
               )}
             </tr>
@@ -808,6 +810,7 @@ const SetManagerModal = ({
   open: boolean;
   onClose: () => void;
 }) => {
+  const { t } = useI18n();
   const setManager = useSetManager();
   const [error, setError] = useState('');
 
@@ -879,10 +882,10 @@ const SetManagerModal = ({
 
         <ModalActions>
           <Button variant="outline" type="button" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button variant="primary" type="submit" loading={isSubmitting}>
-            Save
+            {t('common.save')}
           </Button>
         </ModalActions>
       </form>

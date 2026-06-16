@@ -63,6 +63,7 @@ function useElapsedTimer(startIso?: string) {
 // ── Check-in Widget ───────────────────────────────────────────────────────────
 
 function CheckInWidget() {
+  const { t } = useI18n();
   const { data: attendance } = useMyAttendanceRecord();
   const checkIn = useCheckIn();
   const checkOut = useCheckOut();
@@ -89,7 +90,7 @@ function CheckInWidget() {
           <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${isCheckedIn && !isCheckedOut ? 'bg-green-100' : isDone ? 'bg-blue-100' : 'bg-gray-100'}`}>
             <Clock size={14} className={isCheckedIn && !isCheckedOut ? 'text-green-600' : isDone ? 'text-blue-600' : 'text-gray-500'} />
           </div>
-          <span className="text-sm font-semibold text-gray-800">Today's Attendance</span>
+          <span className="text-sm font-semibold text-gray-800">{t('dashboard.attendance.title')}</span>
         </div>
         {today?.status && (
           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${today.status === 'PRESENT' ? 'bg-green-100 text-green-700' : today.status === 'WFH' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
@@ -104,7 +105,7 @@ function CheckInWidget() {
         <div className="flex flex-col items-center py-3 gap-3">
           <div className="flex flex-col items-center gap-1">
             <Coffee size={22} className="text-gray-300" />
-            <p className="text-xs text-gray-500">Not checked in yet</p>
+            <p className="text-xs text-gray-500">{t('dashboard.attendance.notCheckedIn')}</p>
           </div>
           <Button
             size="sm"
@@ -113,7 +114,7 @@ function CheckInWidget() {
             loading={checkIn.isPending}
             onClick={handleCheckIn}
           >
-            Check In Now
+            {t('dashboard.attendance.checkInNow')}
           </Button>
         </div>
       )}
@@ -121,10 +122,10 @@ function CheckInWidget() {
       {isCheckedIn && !isCheckedOut && (
         <div className="space-y-3">
           <div className="text-center bg-green-50 rounded-xl p-3">
-            <p className="text-xs text-gray-500 mb-0.5">Time since check-in</p>
+            <p className="text-xs text-gray-500 mb-0.5">{t('dashboard.attendance.timeSinceCheckIn')}</p>
             <p className="text-2xl font-bold text-green-600 font-mono tabular-nums tracking-widest">{elapsed}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">
-              Checked in at {today?.checkInTime ? format(new Date(today.checkInTime), 'hh:mm a') : ''}
+              {t('dashboard.attendance.checkedInAt')} {today?.checkInTime ? format(new Date(today.checkInTime), 'hh:mm a') : ''}
             </p>
           </div>
           <Button
@@ -135,7 +136,7 @@ function CheckInWidget() {
             onClick={handleCheckOut}
             className="w-full justify-center"
           >
-            Check Out
+            {t('dashboard.attendance.checkOut')}
           </Button>
         </div>
       )}
@@ -143,15 +144,15 @@ function CheckInWidget() {
       {isDone && (
         <div className="grid grid-cols-3 gap-2 text-center">
           <div className="bg-gray-50 rounded-lg p-2">
-            <p className="text-[10px] text-gray-400 mb-0.5">In</p>
+            <p className="text-[10px] text-gray-400 mb-0.5">{t('dashboard.attendance.labelIn')}</p>
             <p className="text-xs font-semibold text-gray-700">{today?.checkInTime ? format(new Date(today.checkInTime), 'hh:mm a') : '—'}</p>
           </div>
           <div className="bg-gray-50 rounded-lg p-2">
-            <p className="text-[10px] text-gray-400 mb-0.5">Out</p>
+            <p className="text-[10px] text-gray-400 mb-0.5">{t('dashboard.attendance.labelOut')}</p>
             <p className="text-xs font-semibold text-gray-700">{today?.checkOutTime ? format(new Date(today.checkOutTime), 'hh:mm a') : '—'}</p>
           </div>
           <div className="bg-blue-50 rounded-lg p-2">
-            <p className="text-[10px] text-gray-400 mb-0.5">Hours</p>
+            <p className="text-[10px] text-gray-400 mb-0.5">{t('dashboard.attendance.labelHours')}</p>
             <p className="text-xs font-semibold text-blue-700">{today?.hoursWorked?.toFixed(1) ?? '—'}h</p>
           </div>
         </div>
@@ -218,6 +219,7 @@ function KpiCard({ label, value, sub, icon, iconBg, valueCls = 'text-gray-900', 
 // ── My Tasks Widget ───────────────────────────────────────────────────────────
 
 function MyTasksWidget({ userId, tenantSlug }: { userId: string; tenantSlug: string }) {
+  const { t } = useI18n();
   const { data: rawTasks } = useTasks();
   const { data: projects = [] } = useProjects();
 
@@ -280,20 +282,20 @@ function MyTasksWidget({ userId, tenantSlug }: { userId: string; tenantSlug: str
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <CheckSquare size={15} className="text-indigo-600" />
-            <span className="text-sm font-semibold text-gray-900">My Tasks</span>
-            <span className="text-xs bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded-full font-medium">{totalActive} active</span>
+            <span className="text-sm font-semibold text-gray-900">{t('dashboard.myTasks.title')}</span>
+            <span className="text-xs bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded-full font-medium">{t('dashboard.myTasks.active', { count: totalActive })}</span>
           </div>
           <div className="flex items-center gap-2 text-xs">
             {overdue.length > 0 && (
               <span className="flex items-center gap-1 text-red-600 font-semibold bg-red-50 px-2 py-0.5 rounded-full">
-                <AlertTriangle size={10} /> {overdue.length} overdue
+                <AlertTriangle size={10} /> {t('dashboard.myTasks.overdue', { count: overdue.length })}
               </span>
             )}
             {dueSoon.length > 0 && overdue.length === 0 && (
-              <span className="text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">{dueSoon.length} due soon</span>
+              <span className="text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">{t('dashboard.myTasks.dueSoon', { count: dueSoon.length })}</span>
             )}
             <Link to={`/${tenantSlug}/my-tasks`} className="text-indigo-600 hover:underline flex items-center gap-0.5">
-              View all <ChevronRight size={11} />
+              {t('dashboard.myTasks.viewAll')} <ChevronRight size={11} />
             </Link>
           </div>
         </div>
@@ -331,7 +333,7 @@ function MyTasksWidget({ userId, tenantSlug }: { userId: string; tenantSlug: str
                     <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                       <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${completionPct}%` }} />
                     </div>
-                    <span className="text-[11px] font-semibold text-gray-600 shrink-0">{completionPct}% done</span>
+                    <span className="text-[11px] font-semibold text-gray-600 shrink-0">{t('dashboard.myTasks.donePct', { pct: completionPct })}</span>
                   </div>
                 </div>
               </div>
@@ -344,8 +346,8 @@ function MyTasksWidget({ userId, tenantSlug }: { userId: string; tenantSlug: str
       {tasks.length === 0 ? (
         <div className="py-8 text-center">
           <CheckCheck size={28} className="mx-auto text-green-300 mb-2" />
-          <p className="text-sm font-medium text-gray-500">All caught up!</p>
-          <p className="text-xs text-gray-400 mt-0.5">No tasks assigned to you</p>
+          <p className="text-sm font-medium text-gray-500">{t('dashboard.myTasks.allCaughtUp')}</p>
+          <p className="text-xs text-gray-400 mt-0.5">{t('dashboard.myTasks.noTasks')}</p>
         </div>
       ) : (
         <>
@@ -353,39 +355,39 @@ function MyTasksWidget({ userId, tenantSlug }: { userId: string; tenantSlug: str
           {overdue.length > 0 && (
             <div className="px-4 py-1.5 bg-red-50 border-b border-red-100 flex items-center gap-1.5">
               <AlertTriangle size={11} className="text-red-500" />
-              <span className="text-[10px] font-bold text-red-600 uppercase tracking-wider">Overdue · {overdue.length} task{overdue.length > 1 ? 's' : ''}</span>
+              <span className="text-[10px] font-bold text-red-600 uppercase tracking-wider">{t('dashboard.myTasks.overdueSection', { count: overdue.length })}</span>
             </div>
           )}
           <div className="divide-y divide-gray-50">
             {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-            {displayTasks.map((t: any) => {
-              const isOv = overdueIds.has(t.id);
-              const daysOv = isOv && t.dueDate
-                ? Math.max(1, differenceInDays(new Date(), parseISO(t.dueDate)))
+            {displayTasks.map((task: any) => {
+              const isOv = overdueIds.has(task.id);
+              const daysOv = isOv && task.dueDate
+                ? Math.max(1, differenceInDays(new Date(), parseISO(task.dueDate)))
                 : 0;
               return (
                 <div
-                  key={t.id}
+                  key={task.id}
                   className={`px-4 py-2.5 flex items-center gap-3 transition-colors ${
                     isOv ? 'bg-red-50/40 hover:bg-red-50/70 border-l-2 border-l-red-400' : 'hover:bg-gray-50'
                   }`}
                 >
-                  <span className="flex-shrink-0">{STATUS_ICON[t.status] ?? <Circle size={13} />}</span>
+                  <span className="flex-shrink-0">{STATUS_ICON[task.status] ?? <Circle size={13} />}</span>
                   <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-medium truncate ${isOv ? 'text-red-900' : 'text-gray-800'}`}>{t.title}</p>
-                    <p className="text-[10px] text-gray-400 truncate">{getProject(t.projectId)?.name ?? ''}</p>
+                    <p className={`text-sm font-medium truncate ${isOv ? 'text-red-900' : 'text-gray-800'}`}>{task.title}</p>
+                    <p className="text-[10px] text-gray-400 truncate">{getProject(task.projectId)?.name ?? ''}</p>
                   </div>
-                  {t.priority && (
-                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${PRIORITY_PILL[t.priority] ?? 'bg-gray-100 text-gray-500'}`}>
-                      {t.priority.charAt(0) + t.priority.slice(1).toLowerCase()}
+                  {task.priority && (
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${PRIORITY_PILL[task.priority] ?? 'bg-gray-100 text-gray-500'}`}>
+                      {task.priority.charAt(0) + task.priority.slice(1).toLowerCase()}
                     </span>
                   )}
                   {isOv ? (
                     <span className="text-[10px] font-bold text-red-600 bg-red-100 px-1.5 py-0.5 rounded shrink-0">
-                      {daysOv}d overdue
+                      {t('tasks.daysOverdue', { count: daysOv })}
                     </span>
-                  ) : t.dueDate ? (
-                    <span className="text-[10px] text-gray-400 shrink-0">{format(parseISO(t.dueDate), 'MMM d')}</span>
+                  ) : task.dueDate ? (
+                    <span className="text-[10px] text-gray-400 shrink-0">{format(parseISO(task.dueDate), 'MMM d')}</span>
                   ) : null}
                 </div>
               );
@@ -394,7 +396,7 @@ function MyTasksWidget({ userId, tenantSlug }: { userId: string; tenantSlug: str
           {totalActive > 8 && (
             <div className="px-4 py-2 border-t border-gray-50">
               <Link to={`/${tenantSlug}/my-tasks`} className="text-xs text-indigo-600 hover:underline">
-                +{totalActive - 8} more tasks →
+                {t('dashboard.myTasks.moreTasks', { count: totalActive - 8 })}
               </Link>
             </div>
           )}
@@ -407,17 +409,18 @@ function MyTasksWidget({ userId, tenantSlug }: { userId: string; tenantSlug: str
 // ── Quick Actions ─────────────────────────────────────────────────────────────
 
 function QuickActions({ tenantSlug, user }: { tenantSlug: string; user: ReturnType<typeof useAuth>['user'] }) {
+  const { t } = useI18n();
   const allActions: { label: string; to: string; icon: React.ReactNode; bg: string; permission: Permission | null }[] = [
-    { label: 'Submit Standup', to: `/${tenantSlug}/standup`,       icon: <Clock size={15} />,         bg: 'bg-blue-50 text-blue-700 hover:bg-blue-100',      permission: PERMISSIONS.STANDUP_SUBMIT },
-    { label: 'Submit EOD',     to: `/${tenantSlug}/eod`,           icon: <CheckSquare size={15} />,   bg: 'bg-green-50 text-green-700 hover:bg-green-100',   permission: PERMISSIONS.EOD_SUBMIT },
-    { label: 'Log Time',       to: `/${tenantSlug}/time-tracking`, icon: <Timer size={15} />,         bg: 'bg-purple-50 text-purple-700 hover:bg-purple-100', permission: PERMISSIONS.TIME_WRITE },
-    { label: 'My Tasks',       to: `/${tenantSlug}/my-tasks`,      icon: <Layers size={15} />,        bg: 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100', permission: PERMISSIONS.TASK_READ },
-    { label: 'Raise Blocker',  to: `/${tenantSlug}/blockers`,      icon: <AlertTriangle size={15} />, bg: 'bg-red-50 text-red-700 hover:bg-red-100',          permission: PERMISSIONS.BLOCKER_READ },
-    { label: 'Mark Leave',     to: `/${tenantSlug}/leave`,         icon: <Calendar size={15} />,      bg: 'bg-amber-50 text-amber-700 hover:bg-amber-100',    permission: PERMISSIONS.LEAVE_READ },
-    { label: 'Projects',       to: `/${tenantSlug}/projects`,      icon: <FolderKanban size={15} />,  bg: 'bg-sky-50 text-sky-700 hover:bg-sky-100',          permission: PERMISSIONS.PROJECT_READ },
-    { label: 'Sprints',        to: `/${tenantSlug}/sprints`,       icon: <Activity size={15} />,      bg: 'bg-violet-50 text-violet-700 hover:bg-violet-100', permission: PERMISSIONS.SPRINT_READ },
-    { label: 'Team Directory', to: `/${tenantSlug}/directory`,     icon: <Users size={15} />,         bg: 'bg-teal-50 text-teal-700 hover:bg-teal-100',        permission: null },
-    { label: 'AI Insights',    to: `/${tenantSlug}/ai-insights`,   icon: <Zap size={15} />,           bg: 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100', permission: PERMISSIONS.AI_INSIGHTS },
+    { label: t('nav.submitStandup'), to: `/${tenantSlug}/standup`,       icon: <Clock size={15} />,         bg: 'bg-blue-50 text-blue-700 hover:bg-blue-100',      permission: PERMISSIONS.STANDUP_SUBMIT },
+    { label: t('nav.submitEod'),     to: `/${tenantSlug}/eod`,           icon: <CheckSquare size={15} />,   bg: 'bg-green-50 text-green-700 hover:bg-green-100',   permission: PERMISSIONS.EOD_SUBMIT },
+    { label: t('nav.timeTracking'),  to: `/${tenantSlug}/time-tracking`, icon: <Timer size={15} />,         bg: 'bg-purple-50 text-purple-700 hover:bg-purple-100', permission: PERMISSIONS.TIME_WRITE },
+    { label: t('nav.myTasks'),       to: `/${tenantSlug}/my-tasks`,      icon: <Layers size={15} />,        bg: 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100', permission: PERMISSIONS.TASK_READ },
+    { label: t('blockers.new'),      to: `/${tenantSlug}/blockers`,      icon: <AlertTriangle size={15} />, bg: 'bg-red-50 text-red-700 hover:bg-red-100',          permission: PERMISSIONS.BLOCKER_READ },
+    { label: t('leave.apply'),       to: `/${tenantSlug}/leave`,         icon: <Calendar size={15} />,      bg: 'bg-amber-50 text-amber-700 hover:bg-amber-100',    permission: PERMISSIONS.LEAVE_READ },
+    { label: t('nav.projects'),      to: `/${tenantSlug}/projects`,      icon: <FolderKanban size={15} />,  bg: 'bg-sky-50 text-sky-700 hover:bg-sky-100',          permission: PERMISSIONS.PROJECT_READ },
+    { label: t('nav.sprintBoards'),  to: `/${tenantSlug}/sprints`,       icon: <Activity size={15} />,      bg: 'bg-violet-50 text-violet-700 hover:bg-violet-100', permission: PERMISSIONS.SPRINT_READ },
+    { label: t('nav.directory'),     to: `/${tenantSlug}/directory`,     icon: <Users size={15} />,         bg: 'bg-teal-50 text-teal-700 hover:bg-teal-100',        permission: null },
+    { label: t('nav.aiInsights'),    to: `/${tenantSlug}/ai-insights`,   icon: <Zap size={15} />,           bg: 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100', permission: PERMISSIONS.AI_INSIGHTS },
   ];
 
   const actions = allActions.filter((a) => !a.permission || hasPermission(user, a.permission));
@@ -427,7 +430,7 @@ function QuickActions({ tenantSlug, user }: { tenantSlug: string; user: ReturnTy
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 h-full">
       <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-        <Star size={14} className="text-indigo-500" /> Quick Actions
+        <Star size={14} className="text-indigo-500" /> {t('dashboard.quickActions.title')}
       </h3>
       <div className="grid grid-cols-4 gap-2">
         {actions.slice(0, 8).map((a) => (
@@ -445,6 +448,7 @@ function QuickActions({ tenantSlug, user }: { tenantSlug: string; user: ReturnTy
 // ── Leave Balance Widget ──────────────────────────────────────────────────────
 
 function LeaveBalanceWidget({ tenantSlug }: { tenantSlug: string }) {
+  const { t } = useI18n();
   const { data: rawBalances } = useLeaveBalance();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const balances: any[] = Array.isArray(rawBalances) ? rawBalances : [];
@@ -458,22 +462,22 @@ function LeaveBalanceWidget({ tenantSlug }: { tenantSlug: string }) {
       <div className="p-4 border-b border-gray-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Calendar size={15} className="text-amber-600" />
-          <span className="text-sm font-semibold text-gray-900">Leave Balance</span>
+          <span className="text-sm font-semibold text-gray-900">{t('dashboard.leaveBalance.title')}</span>
           {lowBalances.length > 0 && (
             <span className="text-xs bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full font-semibold flex items-center gap-1">
-              <AlertTriangle size={9} /> {lowBalances.length} low
+              <AlertTriangle size={9} /> {t('dashboard.leaveBalance.low', { count: lowBalances.length })}
             </span>
           )}
         </div>
         <Link to={`/${tenantSlug}/leave`} className="text-xs text-indigo-600 hover:underline flex items-center gap-0.5">
-          Apply Leave <ChevronRight size={11} />
+          {t('dashboard.leaveBalance.applyLeave')} <ChevronRight size={11} />
         </Link>
       </div>
 
       {/* Total headline */}
       <div className="px-4 pt-3 pb-2 flex items-baseline gap-2">
         <span className="text-3xl font-bold text-gray-900">{totalRemaining}</span>
-        <span className="text-sm text-gray-400">days remaining across all leave types</span>
+        <span className="text-sm text-gray-400">{t('dashboard.leaveBalance.daysRemaining')}</span>
       </div>
 
       <div className="px-4 pb-4 grid grid-cols-2 gap-2.5">
@@ -507,7 +511,7 @@ function LeaveBalanceWidget({ tenantSlug }: { tenantSlug: string }) {
                 <span className="text-[11px] text-gray-400">/ {allocated}d</span>
               </div>
               {isPending && (
-                <p className="text-[10px] text-amber-600 mt-0.5">{pending}d pending</p>
+                <p className="text-[10px] text-amber-600 mt-0.5">{t('dashboard.leaveBalance.pending', { count: pending })}</p>
               )}
               <div className="mt-2 h-1.5 bg-gray-200 rounded-full overflow-hidden">
                 <div
@@ -526,6 +530,7 @@ function LeaveBalanceWidget({ tenantSlug }: { tenantSlug: string }) {
 // ── Pending Leave Requests Widget (for managers) ──────────────────────────────
 
 function PendingLeavesWidget({ tenantSlug }: { tenantSlug: string }) {
+  const { t } = useI18n();
   const { data: raw } = useLeaveRequests({ status: 'PENDING' });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const requests: any[] = Array.isArray(raw) ? raw : [];
@@ -536,11 +541,11 @@ function PendingLeavesWidget({ tenantSlug }: { tenantSlug: string }) {
       <div className="p-4 border-b border-gray-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Clock size={15} className="text-amber-500" />
-          <span className="text-sm font-semibold text-gray-900">Pending Leave Requests</span>
+          <span className="text-sm font-semibold text-gray-900">{t('dashboard.pendingLeaves.title')}</span>
           <span className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">{requests.length}</span>
         </div>
         <Link to={`/${tenantSlug}/leave`} className="text-xs text-indigo-600 hover:underline flex items-center gap-0.5">
-          Review <ChevronRight size={11} />
+          {t('dashboard.pendingLeaves.review')} <ChevronRight size={11} />
         </Link>
       </div>
       <div className="divide-y divide-gray-50">
@@ -557,7 +562,7 @@ function PendingLeavesWidget({ tenantSlug }: { tenantSlug: string }) {
         {requests.length > 4 && (
           <div className="px-4 py-2">
             <Link to={`/${tenantSlug}/leave`} className="text-xs text-indigo-600 hover:underline">
-              +{requests.length - 4} more pending
+              {t('dashboard.pendingLeaves.morePending', { count: requests.length - 4 })}
             </Link>
           </div>
         )}
@@ -569,6 +574,7 @@ function PendingLeavesWidget({ tenantSlug }: { tenantSlug: string }) {
 // ── Team Attendance Widget (for managers) ─────────────────────────────────────
 
 function TeamAttendanceWidget({ tenantSlug }: { tenantSlug: string }) {
+  const { t } = useI18n();
   const { data: liveData }         = useAttendanceLive();
   const { data: notCheckedInData } = useAttendanceNotCheckedIn();
 
@@ -599,10 +605,10 @@ function TeamAttendanceWidget({ tenantSlug }: { tenantSlug: string }) {
       <div className="p-4 border-b border-gray-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Users size={15} className="text-teal-600" />
-          <span className="text-sm font-semibold text-gray-900">Team Attendance Today</span>
+          <span className="text-sm font-semibold text-gray-900">{t('dashboard.teamAttendance.title')}</span>
         </div>
         <Link to={`/${tenantSlug}/attendance`} className="text-xs text-indigo-600 hover:underline flex items-center gap-0.5">
-          Full View <ChevronRight size={11} />
+          {t('dashboard.teamAttendance.fullView')} <ChevronRight size={11} />
         </Link>
       </div>
 
@@ -636,19 +642,19 @@ function TeamAttendanceWidget({ tenantSlug }: { tenantSlug: string }) {
             <p className={`text-4xl font-bold leading-none ${isHealthy ? 'text-green-600' : attendanceRate >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
               {attendanceRate}%
             </p>
-            <p className="text-xs text-gray-400 mt-1">of {total} team members in today</p>
+            <p className="text-xs text-gray-400 mt-1">{t('dashboard.teamAttendance.teamMembers', { count: total })}</p>
             <div className="flex flex-wrap gap-3 mt-2">
               <span className="flex items-center gap-1 text-[11px] text-gray-600">
-                <span className="w-2.5 h-2.5 rounded bg-green-500 inline-block" />{inOffice} office
+                <span className="w-2.5 h-2.5 rounded bg-green-500 inline-block" />{t('dashboard.teamAttendance.office', { count: inOffice })}
               </span>
               {wfh > 0 && (
                 <span className="flex items-center gap-1 text-[11px] text-gray-600">
-                  <span className="w-2.5 h-2.5 rounded bg-blue-400 inline-block" />{wfh} WFH
+                  <span className="w-2.5 h-2.5 rounded bg-blue-400 inline-block" />{t('dashboard.teamAttendance.wfh', { count: wfh })}
                 </span>
               )}
               {notIn > 0 && (
                 <span className="flex items-center gap-1 text-[11px] text-red-500 font-semibold">
-                  <span className="w-2.5 h-2.5 rounded bg-red-300 inline-block" />{notIn} not in
+                  <span className="w-2.5 h-2.5 rounded bg-red-300 inline-block" />{t('dashboard.teamAttendance.notIn', { count: notIn })}
                 </span>
               )}
             </div>
@@ -665,7 +671,7 @@ function TeamAttendanceWidget({ tenantSlug }: { tenantSlug: string }) {
         {/* Currently in office avatars */}
         {liveUsers.length > 0 && (
           <div className="mb-3">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Currently In</p>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">{t('dashboard.teamAttendance.currentlyIn')}</p>
             <div className="flex flex-wrap gap-1.5">
               {liveUsers.slice(0, 8).map((u: any) => (
                 <div key={u.id ?? u.userId} className="flex items-center gap-1.5 bg-green-50 border border-green-100 rounded-full px-2 py-0.5">
@@ -684,7 +690,7 @@ function TeamAttendanceWidget({ tenantSlug }: { tenantSlug: string }) {
         {filteredNotIn.length > 0 && (
           <div className="bg-red-50 rounded-xl p-3">
             <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider mb-2">
-              Not Yet Checked In ({filteredNotIn.length})
+              {t('dashboard.teamAttendance.notYetCheckedIn', { count: filteredNotIn.length })}
             </p>
             <div className="flex flex-wrap gap-1.5">
               {filteredNotIn.slice(0, 6).map((u: any) => (
@@ -707,6 +713,7 @@ function TeamAttendanceWidget({ tenantSlug }: { tenantSlug: string }) {
 // ── My Badges Widget ──────────────────────────────────────────────────────────
 
 function MyBadgesWidget({ tenantSlug }: { tenantSlug: string }) {
+  const { t } = useI18n();
   const { data: profile } = useMyProfile();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const badges: any[] = Array.isArray((profile as any)?.badges) ? (profile as any).badges : [];
@@ -717,11 +724,11 @@ function MyBadgesWidget({ tenantSlug }: { tenantSlug: string }) {
       <div className="p-4 border-b border-gray-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Award size={15} className="text-amber-500" />
-          <span className="text-sm font-semibold text-gray-900">My Badges</span>
+          <span className="text-sm font-semibold text-gray-900">{t('dashboard.badges.title')}</span>
           <span className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">{badges.length}</span>
         </div>
         <Link to={`/${tenantSlug}/directory`} className="text-xs text-indigo-600 hover:underline flex items-center gap-0.5">
-          Profile <ChevronRight size={11} />
+          {t('dashboard.badges.viewProfile')} <ChevronRight size={11} />
         </Link>
       </div>
       <div className="p-4 flex flex-wrap gap-2">
@@ -746,7 +753,7 @@ function MyBadgesWidget({ tenantSlug }: { tenantSlug: string }) {
         {badges.length > 8 && (
           <div className="flex flex-col items-center justify-center p-2 bg-gray-50 border border-gray-100 rounded-xl w-16 text-center">
             <span className="text-sm font-bold text-gray-500">+{badges.length - 8}</span>
-            <p className="text-[10px] text-gray-400">more</p>
+            <p className="text-[10px] text-gray-400">{t('common.showMore')}</p>
           </div>
         )}
       </div>
@@ -757,6 +764,7 @@ function MyBadgesWidget({ tenantSlug }: { tenantSlug: string }) {
 // ── Announcements Widget ──────────────────────────────────────────────────────
 
 function AnnouncementsWidget({ tenantSlug }: { tenantSlug: string }) {
+  const { t } = useI18n();
   const { data: raw } = useAnnouncements();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const items: any[] = Array.isArray(raw) ? raw.slice(0, 4) : [];
@@ -781,11 +789,11 @@ function AnnouncementsWidget({ tenantSlug }: { tenantSlug: string }) {
       <div className="p-4 border-b border-gray-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Bell size={15} className="text-purple-600" />
-          <span className="text-sm font-semibold text-gray-900">Announcements</span>
+          <span className="text-sm font-semibold text-gray-900">{t('dashboard.announcements.title')}</span>
           <span className="text-xs bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded-full font-medium">{items.length}</span>
         </div>
         <Link to={`/${tenantSlug}/announcements`} className="text-xs text-indigo-600 hover:underline flex items-center gap-0.5">
-          All <ChevronRight size={11} />
+          {t('dashboard.announcements.viewAll')} <ChevronRight size={11} />
         </Link>
       </div>
       <div className="divide-y divide-gray-50">
@@ -817,6 +825,7 @@ function AnnouncementsWidget({ tenantSlug }: { tenantSlug: string }) {
 // ── Projects RAG Widget ───────────────────────────────────────────────────────
 
 function ProjectsWidget({ summary, tenantSlug }: { summary: any; tenantSlug: string }) {
+  const { t } = useI18n();
   const red   = summary?.ragSummary?.RED   ?? 0;
   const amber = summary?.ragSummary?.AMBER ?? 0;
   const green = summary?.ragSummary?.GREEN ?? 0;
@@ -833,10 +842,10 @@ function ProjectsWidget({ summary, tenantSlug }: { summary: any; tenantSlug: str
       {/* Header */}
       <div className="p-4 border-b border-gray-100 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-          <FolderKanban size={14} className="text-blue-500" /> My Projects
+          <FolderKanban size={14} className="text-blue-500" /> {t('dashboard.projects.title')}
         </h3>
         <Link to={`/${tenantSlug}/projects`} className="text-xs text-indigo-600 hover:underline flex items-center gap-0.5">
-          All <ChevronRight size={11} />
+          {t('dashboard.projects.viewAll')} <ChevronRight size={11} />
         </Link>
       </div>
 
@@ -851,16 +860,16 @@ function ProjectsWidget({ summary, tenantSlug }: { summary: any; tenantSlug: str
           <span className="text-xs font-semibold text-gray-500 shrink-0">{total}</span>
         </div>
         <div className="flex gap-3 text-[10px]">
-          {red   > 0 && <span className="flex items-center gap-1 text-red-600 font-semibold"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" />{red} at risk</span>}
-          {amber > 0 && <span className="flex items-center gap-1 text-amber-600"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />{amber} caution</span>}
-          {green > 0 && <span className="flex items-center gap-1 text-green-700"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" />{green} healthy</span>}
+          {red   > 0 && <span className="flex items-center gap-1 text-red-600 font-semibold"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" />{t('dashboard.projects.atRisk', { count: red })}</span>}
+          {amber > 0 && <span className="flex items-center gap-1 text-amber-600"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />{t('dashboard.projects.caution', { count: amber })}</span>}
+          {green > 0 && <span className="flex items-center gap-1 text-green-700"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" />{t('dashboard.projects.healthy', { count: green })}</span>}
         </div>
       </div>
 
       {/* Project rows */}
       <div className="divide-y divide-gray-50">
         {(!summary?.projects || summary.projects.length === 0)
-          ? <EmptyState title="No projects" description="Not a member of any active project." />
+          ? <EmptyState title={t('dashboard.projects.noProjects')} description={t('dashboard.projects.noProjectsDesc')} />
           : summary.projects.slice(0, 7).map((p: { id: string; name: string; ragStatus: string; status?: string }) => {
               const rag = p.ragStatus ?? 'GREEN';
               const leftCls = RAG_LEFT[rag] ?? '';
@@ -886,7 +895,7 @@ function ProjectsWidget({ summary, tenantSlug }: { summary: any; tenantSlug: str
       {summary?.projects?.length > 7 && (
         <div className="px-4 py-2 border-t border-gray-50">
           <Link to={`/${tenantSlug}/projects`} className="text-xs text-indigo-600 hover:underline">
-            View all {summary.projects.length} →
+            {t('dashboard.projects.viewAllCount', { count: summary.projects.length })}
           </Link>
         </div>
       )}
@@ -897,6 +906,7 @@ function ProjectsWidget({ summary, tenantSlug }: { summary: any; tenantSlug: str
 // ── Activity Trend Widget (managers) ─────────────────────────────────────────────
 
 function ActivityTrendWidget({ tenantSlug, enabled = true }: { tenantSlug: string; enabled?: boolean }) {
+  const { t } = useI18n();
   const { data: exec } = useExecSummary(enabled);
 
   if (!exec?.activityTrend?.length) {
@@ -904,12 +914,12 @@ function ActivityTrendWidget({ tenantSlug, enabled = true }: { tenantSlug: strin
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
         <div className="p-4 border-b border-gray-100 flex items-center gap-2">
           <Activity size={15} className="text-indigo-600" />
-          <span className="text-sm font-semibold text-gray-900">Team Activity (Last 7 Days)</span>
+          <span className="text-sm font-semibold text-gray-900">{t('dashboard.activityTrend.title')}</span>
         </div>
         <div className="flex flex-col items-center justify-center py-10 text-center gap-2">
           <Activity size={28} className="text-gray-200" />
-          <p className="text-sm text-gray-400 font-medium">No activity data yet</p>
-          <p className="text-xs text-gray-300">Standups and EODs will appear here once submitted</p>
+          <p className="text-sm text-gray-400 font-medium">{t('dashboard.activityTrend.noActivity')}</p>
+          <p className="text-xs text-gray-300">{t('dashboard.activityTrend.noActivityDesc')}</p>
         </div>
       </div>
     );
@@ -931,17 +941,17 @@ function ActivityTrendWidget({ tenantSlug, enabled = true }: { tenantSlug: strin
       <div className="p-4 border-b border-gray-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Activity size={15} className="text-indigo-600" />
-          <span className="text-sm font-semibold text-gray-900">Team Activity (Last 7 Days)</span>
+          <span className="text-sm font-semibold text-gray-900">{t('dashboard.activityTrend.title')}</span>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-gray-500">
-            Submission rate:{' '}
+            {t('dashboard.activityTrend.submissionRate')}{' '}
             <span className={`font-semibold ${rate >= 70 ? 'text-green-600' : 'text-amber-600'}`}>
               {Math.round(rate)}%
             </span>
           </span>
           <Link to={`/${tenantSlug}/standup`} className="text-xs text-indigo-600 hover:underline flex items-center gap-0.5">
-            View <ChevronRight size={11} />
+            {t('dashboard.activityTrend.view')} <ChevronRight size={11} />
           </Link>
         </div>
       </div>
@@ -951,19 +961,19 @@ function ActivityTrendWidget({ tenantSlug, enabled = true }: { tenantSlug: strin
         <div className="flex items-center gap-6 mb-4">
           <div className="bg-indigo-50 rounded-xl px-3 py-2 text-center">
             <p className="text-xl font-bold text-indigo-700">{submittedToday}</p>
-            <p className="text-[10px] text-indigo-500 font-medium">Standups today</p>
+            <p className="text-[10px] text-indigo-500 font-medium">{t('dashboard.activityTrend.standupsToday')}</p>
           </div>
           <div className="bg-green-50 rounded-xl px-3 py-2 text-center">
             <p className="text-xl font-bold text-green-700">{eodToday}</p>
-            <p className="text-[10px] text-green-600 font-medium">EODs today</p>
+            <p className="text-[10px] text-green-600 font-medium">{t('dashboard.activityTrend.eodsToday')}</p>
           </div>
           <div className="bg-gray-50 rounded-xl px-3 py-2 text-center">
             <p className="text-xl font-bold text-gray-700">{last7Total}</p>
-            <p className="text-[10px] text-gray-400 font-medium">Standups (7d)</p>
+            <p className="text-[10px] text-gray-400 font-medium">{t('dashboard.activityTrend.standups7d')}</p>
           </div>
           <div className={`rounded-xl px-3 py-2 text-center ml-auto ${rate >= 70 ? 'bg-green-50' : 'bg-amber-50'}`}>
             <p className={`text-xl font-bold ${rate >= 70 ? 'text-green-700' : 'text-amber-700'}`}>{Math.round(rate)}%</p>
-            <p className={`text-[10px] font-medium ${rate >= 70 ? 'text-green-500' : 'text-amber-600'}`}>7-day rate</p>
+            <p className={`text-[10px] font-medium ${rate >= 70 ? 'text-green-500' : 'text-amber-600'}`}>{t('dashboard.activityTrend.rate7d')}</p>
           </div>
         </div>
 
@@ -1004,6 +1014,7 @@ function ActivityTrendWidget({ tenantSlug, enabled = true }: { tenantSlug: strin
 // ── Blocker Breakdown Widget (managers) ───────────────────────────────────────
 
 function BlockerBreakdownWidget({ tenantSlug, enabled = true }: { tenantSlug: string; enabled?: boolean }) {
+  const { t } = useI18n();
   const { data: exec } = useExecSummary(enabled);
 
   if (!exec?.blockers || exec.blockers.open === 0) {
@@ -1011,13 +1022,13 @@ function BlockerBreakdownWidget({ tenantSlug, enabled = true }: { tenantSlug: st
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm h-full">
         <div className="p-4 border-b border-gray-100 flex items-center gap-2">
           <ShieldAlert size={15} className="text-red-400" />
-          <span className="text-sm font-semibold text-gray-900">Blocker Severity</span>
+          <span className="text-sm font-semibold text-gray-900">{t('dashboard.blockerSeverity.title')}</span>
         </div>
         <div className="flex flex-col items-center justify-center py-10 text-center gap-2">
           <CheckCircle2 size={28} className="text-green-300" />
-          <p className="text-sm text-green-600 font-semibold">No open blockers</p>
-          <p className="text-xs text-gray-300">Team is running clean</p>
-          <Link to={`/${tenantSlug}/blockers`} className="mt-2 text-xs text-indigo-500 hover:underline">View blocker board →</Link>
+          <p className="text-sm text-green-600 font-semibold">{t('dashboard.blockerSeverity.noBlockers')}</p>
+          <p className="text-xs text-gray-300">{t('dashboard.blockerSeverity.teamClean')}</p>
+          <Link to={`/${tenantSlug}/blockers`} className="mt-2 text-xs text-indigo-500 hover:underline">{t('dashboard.blockerSeverity.viewBoard')}</Link>
         </div>
       </div>
     );
@@ -1039,11 +1050,11 @@ function BlockerBreakdownWidget({ tenantSlug, enabled = true }: { tenantSlug: st
       <div className="p-4 border-b border-gray-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <ShieldAlert size={15} className="text-red-500" />
-          <span className="text-sm font-semibold text-gray-900">Blocker Severity</span>
-          <span className="text-xs bg-red-50 text-red-700 px-1.5 py-0.5 rounded-full font-medium">{open} open</span>
+          <span className="text-sm font-semibold text-gray-900">{t('dashboard.blockerSeverity.title')}</span>
+          <span className="text-xs bg-red-50 text-red-700 px-1.5 py-0.5 rounded-full font-medium">{t('dashboard.blockerSeverity.open', { count: open })}</span>
         </div>
         <Link to={`/${tenantSlug}/blockers`} className="text-xs text-indigo-600 hover:underline flex items-center gap-0.5">
-          View all <ChevronRight size={11} />
+          {t('dashboard.blockerSeverity.viewAll')} <ChevronRight size={11} />
         </Link>
       </div>
 
@@ -1081,7 +1092,7 @@ function BlockerBreakdownWidget({ tenantSlug, enabled = true }: { tenantSlug: st
         {/* Top blockers list */}
         {topBlockers.length > 0 && (
           <div className="space-y-1.5 border-t border-gray-50 pt-3">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Top Blockers</p>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">{t('dashboard.blockerSeverity.topBlockers')}</p>
             {topBlockers.slice(0, 3).map((b: any) => {
               const sev = b.severity;
               const sevColor = sev === 'CRITICAL' ? '#ef4444' : sev === 'HIGH' ? '#f97316' : sev === 'MEDIUM' ? '#f59e0b' : '#6b7280';
@@ -1105,6 +1116,7 @@ function BlockerBreakdownWidget({ tenantSlug, enabled = true }: { tenantSlug: st
 // ── Project Health Panel (PMO / delivery lead) ────────────────────────────────
 
 function ProjectHealthPanel({ tenantSlug, enabled = true }: { tenantSlug: string; enabled?: boolean }) {
+  const { t } = useI18n();
   const { data: exec } = useExecSummary(enabled);
 
   if (!exec?.projects?.length) {
@@ -1112,13 +1124,13 @@ function ProjectHealthPanel({ tenantSlug, enabled = true }: { tenantSlug: string
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
         <div className="p-4 border-b border-gray-100 flex items-center gap-2">
           <Target size={15} className="text-purple-600" />
-          <span className="text-sm font-semibold text-gray-900">Project Health Overview</span>
+          <span className="text-sm font-semibold text-gray-900">{t('dashboard.projectHealth.title')}</span>
         </div>
         <div className="flex flex-col items-center justify-center py-14 text-center gap-2">
           <FolderKanban size={32} className="text-gray-200" />
-          <p className="text-sm text-gray-400 font-medium">No active projects</p>
-          <p className="text-xs text-gray-300">Project health scores will appear once projects are created</p>
-          <Link to={`/${tenantSlug}/projects`} className="mt-2 text-xs text-indigo-500 hover:underline">Create a project →</Link>
+          <p className="text-sm text-gray-400 font-medium">{t('dashboard.projectHealth.noProjects')}</p>
+          <p className="text-xs text-gray-300">{t('dashboard.projectHealth.noProjectsDesc')}</p>
+          <Link to={`/${tenantSlug}/projects`} className="mt-2 text-xs text-indigo-500 hover:underline">{t('dashboard.projectHealth.createProject')}</Link>
         </div>
       </div>
     );
@@ -1143,15 +1155,15 @@ function ProjectHealthPanel({ tenantSlug, enabled = true }: { tenantSlug: string
       <div className="p-4 border-b border-gray-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Target size={15} className="text-purple-600" />
-          <span className="text-sm font-semibold text-gray-900">Project Health Overview</span>
+          <span className="text-sm font-semibold text-gray-900">{t('dashboard.projectHealth.title')}</span>
           <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
             avgHealth >= 70 ? 'bg-green-50 text-green-700' : avgHealth >= 40 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'
           }`}>
-            Portfolio avg: {avgHealth}%
+            {t('dashboard.projectHealth.portfolioAvg', { pct: avgHealth })}
           </span>
         </div>
         <Link to={`/${tenantSlug}/projects`} className="text-xs text-indigo-600 hover:underline flex items-center gap-0.5">
-          All Projects <ChevronRight size={11} />
+          {t('dashboard.projectHealth.viewProjects')} <ChevronRight size={11} />
         </Link>
       </div>
 
@@ -1160,26 +1172,26 @@ function ProjectHealthPanel({ tenantSlug, enabled = true }: { tenantSlug: string
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
           <div className="bg-blue-50 rounded-xl p-3 text-center">
             <p className="text-2xl font-bold text-blue-700">{active}</p>
-            <p className="text-[10px] text-blue-500 font-medium">Active</p>
+            <p className="text-[10px] text-blue-500 font-medium">{t('dashboard.projectHealth.active')}</p>
           </div>
           <div className="bg-red-50 rounded-xl p-3 text-center">
             <p className="text-2xl font-bold text-red-600">{byRag.RED}</p>
-            <p className="text-[10px] text-red-400 font-medium">At Risk</p>
+            <p className="text-[10px] text-red-400 font-medium">{t('dashboard.projectHealth.atRisk')}</p>
           </div>
           <div className="bg-amber-50 rounded-xl p-3 text-center">
             <p className="text-2xl font-bold text-amber-600">{byRag.AMBER}</p>
-            <p className="text-[10px] text-amber-500 font-medium">Caution</p>
+            <p className="text-[10px] text-amber-500 font-medium">{t('dashboard.projectHealth.caution')}</p>
           </div>
           <div className="bg-green-50 rounded-xl p-3 text-center">
             <p className="text-2xl font-bold text-green-600">{byRag.GREEN}</p>
-            <p className="text-[10px] text-green-500 font-medium">Healthy</p>
+            <p className="text-[10px] text-green-500 font-medium">{t('dashboard.projectHealth.healthy')}</p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* Health bar chart */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 mb-2">Health Score by Project</p>
+            <p className="text-xs font-semibold text-gray-500 mb-2">{t('dashboard.projectHealth.healthByProject')}</p>
             <ResponsiveContainer width="100%" height={Math.max(120, chartData.length * 32)}>
               <ReBarChart data={chartData} layout="vertical" margin={{ top: 0, right: 40, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
@@ -1198,11 +1210,11 @@ function ProjectHealthPanel({ tenantSlug, enabled = true }: { tenantSlug: string
 
           {/* Milestones + actions stats */}
           <div className="space-y-3">
-            <p className="text-xs font-semibold text-gray-500">Delivery Health</p>
+            <p className="text-xs font-semibold text-gray-500">{t('dashboard.projectHealth.deliveryHealth')}</p>
             {[
-              { label: 'Milestones completed', value: milestones.completed, total: milestones.total, color: '#22c55e' },
-              { label: 'Milestones overdue',   value: milestones.overdue,   total: milestones.total, color: '#ef4444' },
-              { label: 'Due in 7 days',         value: milestones.upcoming7days, total: milestones.total, color: '#6366f1' },
+              { label: t('dashboard.projectHealth.milestonesCompleted'), value: milestones.completed, total: milestones.total, color: '#22c55e' },
+              { label: t('dashboard.projectHealth.milestonesOverdue'),   value: milestones.overdue,   total: milestones.total, color: '#ef4444' },
+              { label: t('dashboard.projectHealth.dueIn7Days'),          value: milestones.upcoming7days, total: milestones.total, color: '#6366f1' },
             ].map(({ label, value, total, color }) => (
               <div key={label}>
                 <div className="flex items-center justify-between mb-1">
@@ -1217,11 +1229,11 @@ function ProjectHealthPanel({ tenantSlug, enabled = true }: { tenantSlug: string
             <div className="mt-3 grid grid-cols-2 gap-2">
               <div className="bg-gray-50 rounded-lg p-2 text-center">
                 <p className="text-lg font-bold text-gray-700">{exec.actions.completionRate.toFixed(0)}%</p>
-                <p className="text-[10px] text-gray-400">Action completion</p>
+                <p className="text-[10px] text-gray-400">{t('dashboard.projectHealth.actionCompletion')}</p>
               </div>
               <div className="bg-gray-50 rounded-lg p-2 text-center">
                 <p className="text-lg font-bold text-gray-700">{completed}</p>
-                <p className="text-[10px] text-gray-400">Projects done</p>
+                <p className="text-[10px] text-gray-400">{t('dashboard.projectHealth.projectsDone')}</p>
               </div>
             </div>
           </div>
@@ -1244,6 +1256,7 @@ function BlockersActionsRow({
   showBlockers: boolean;
   showActions: boolean;
 }) {
+  const { t } = useI18n();
   if (!showBlockers && !showActions) return null;
   const bothCols = showBlockers && showActions;
 
@@ -1254,21 +1267,21 @@ function BlockersActionsRow({
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
           <div className="p-4 border-b border-gray-100 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-              <ClipboardList size={14} className="text-orange-500" /> Overdue Actions
+              <ClipboardList size={14} className="text-orange-500" /> {t('dashboard.overdueActions.title')}
               {summary?.overdueActions?.length > 0 && (
                 <span className="text-xs bg-orange-50 text-orange-700 px-1.5 py-0.5 rounded-full">{summary.overdueActions.length}</span>
               )}
             </h3>
-            <Link to={`/${tenantSlug}/actions`} className="text-xs text-indigo-600 hover:underline">View all</Link>
+            <Link to={`/${tenantSlug}/actions`} className="text-xs text-indigo-600 hover:underline">{t('dashboard.overdueActions.viewAll')}</Link>
           </div>
           <div className="divide-y divide-gray-50">
             {(!summary?.overdueActions || summary.overdueActions.length === 0)
-              ? <div className="py-6 text-center"><CheckCircle2 size={20} className="mx-auto text-green-300 mb-1" /><p className="text-xs text-gray-400">All caught up!</p></div>
+              ? <div className="py-6 text-center"><CheckCircle2 size={20} className="mx-auto text-green-300 mb-1" /><p className="text-xs text-gray-400">{t('dashboard.overdueActions.allClear')}</p></div>
               : summary.overdueActions.slice(0, 5).map((a: { id: string; title: string; dueDate: string; priority: string }) => (
                 <div key={a.id} className="px-4 py-2.5 flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-gray-800 font-medium truncate">{a.title}</p>
-                    <p className="text-xs text-red-500 mt-0.5">Due {a.dueDate}</p>
+                    <p className="text-xs text-red-500 mt-0.5">{t('dashboard.overdueActions.due', { date: a.dueDate })}</p>
                   </div>
                   <StatusBadge status={a.priority} />
                 </div>
@@ -1283,16 +1296,16 @@ function BlockersActionsRow({
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
           <div className="p-4 border-b border-gray-100 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-              <ShieldAlert size={14} className="text-red-500" /> Critical Blockers
+              <ShieldAlert size={14} className="text-red-500" /> {t('dashboard.criticalBlockers.title')}
               {summary?.criticalBlockers?.length > 0 && (
                 <span className="text-xs bg-red-50 text-red-700 px-1.5 py-0.5 rounded-full">{summary.criticalBlockers.length}</span>
               )}
             </h3>
-            <Link to={`/${tenantSlug}/blockers`} className="text-xs text-indigo-600 hover:underline">View all</Link>
+            <Link to={`/${tenantSlug}/blockers`} className="text-xs text-indigo-600 hover:underline">{t('dashboard.criticalBlockers.viewAll')}</Link>
           </div>
           <div className="divide-y divide-gray-50">
             {(!summary?.criticalBlockers || summary.criticalBlockers.length === 0)
-              ? <div className="py-6 text-center"><CheckCircle2 size={20} className="mx-auto text-green-300 mb-1" /><p className="text-xs text-gray-400">No critical blockers</p></div>
+              ? <div className="py-6 text-center"><CheckCircle2 size={20} className="mx-auto text-green-300 mb-1" /><p className="text-xs text-gray-400">{t('dashboard.criticalBlockers.noCritical')}</p></div>
               : summary.criticalBlockers.slice(0, 5).map((b: { id: string; title: string; severity: string; status: string }) => (
                 <div key={b.id} className="px-4 py-2.5">
                   <p className="text-sm text-gray-800 font-medium truncate">{b.title}</p>
@@ -1336,6 +1349,7 @@ function AttentionStrip({
   attendanceToday: any;
 }) {
   const { user } = useAuth();
+  const { t } = useI18n();
   const hour = new Date().getHours();
 
   const alerts: AttentionAlert[] = useMemo(() => {
@@ -1357,7 +1371,7 @@ function AttentionStrip({
           id: 'overdue-tasks',
           level: 'red',
           message: `${myOverdue.length} overdue task${myOverdue.length > 1 ? 's' : ''} across ${projects.length} project${projects.length > 1 ? 's' : ''}`,
-          action: 'View Tasks',
+          action: t('nav.myTasks'),
           to: `/${tenantSlug}/my-tasks`,
         });
       }
@@ -1369,7 +1383,7 @@ function AttentionStrip({
         id: 'critical-blockers',
         level: 'red',
         message: `${count} critical blocker${count > 1 ? 's' : ''} need${count === 1 ? 's' : ''} immediate attention`,
-        action: 'View Blockers',
+        action: t('nav.blockers'),
         to: `/${tenantSlug}/blockers`,
       });
     }
@@ -1383,8 +1397,8 @@ function AttentionStrip({
       list.push({
         id: 'not-checked-in',
         level: 'amber',
-        message: "You haven't checked in today",
-        action: 'Check In',
+        message: t('dashboard.alerts.notCheckedIn'),
+        action: t('dashboard.attendance.checkInNow'),
         to: `/${tenantSlug}/attendance`,
       });
     }
@@ -1394,7 +1408,7 @@ function AttentionStrip({
         id: 'pending-leaves',
         level: 'amber',
         message: `${pendingLeaves.length} pending leave approval${pendingLeaves.length > 1 ? 's' : ''} awaiting review`,
-        action: 'Review',
+        action: t('common.approve'),
         to: `/${tenantSlug}/leave`,
       });
     }
@@ -1408,7 +1422,7 @@ function AttentionStrip({
         id: 'missing-standups',
         level: 'blue',
         message: `${count} team member${count > 1 ? 's' : ''} yet to submit standup today`,
-        action: 'View',
+        action: t('common.view'),
         to: `/${tenantSlug}/standup`,
       });
     }
@@ -1463,6 +1477,7 @@ function AttentionStrip({
 // ── Portfolio Snapshot Widget (PROJECT_READ — all users) ─────────────────────
 
 function PortfolioSnapshotWidget({ summary, tenantSlug }: { summary: any; tenantSlug: string }) {
+  const { t } = useI18n();
   const rag = summary?.ragSummary ?? { RED: 0, AMBER: 0, GREEN: 0 };
   const stats = summary?.stats ?? {};
   const projects: any[] = Array.isArray(summary?.projects) ? summary.projects : [];
@@ -1488,21 +1503,21 @@ function PortfolioSnapshotWidget({ summary, tenantSlug }: { summary: any; tenant
       <div className="p-4 border-b border-gray-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <FolderKanban size={15} className="text-indigo-600" />
-          <span className="text-sm font-semibold text-gray-900">Portfolio Snapshot</span>
+          <span className="text-sm font-semibold text-gray-900">{t('nav.portfolio')}</span>
           <span className="text-xs bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded-full font-medium">
             {total - 1 > 0 ? total - 1 : stats.totalProjects ?? 0} projects
           </span>
         </div>
         <Link to={`/${tenantSlug}/projects`} className="text-xs text-indigo-600 hover:underline flex items-center gap-0.5">
-          All Projects <ChevronRight size={11} />
+          {t('dashboard.projectHealth.viewProjects')} <ChevronRight size={11} />
         </Link>
       </div>
 
       {total <= 1 && projects.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-10 text-center gap-2">
           <FolderKanban size={28} className="text-gray-200" />
-          <p className="text-sm text-gray-400 font-medium">No projects yet</p>
-          <Link to={`/${tenantSlug}/projects`} className="mt-1 text-xs text-indigo-500 hover:underline">Create your first project →</Link>
+          <p className="text-sm text-gray-400 font-medium">{t('dashboard.projectHealth.noProjects')}</p>
+          <Link to={`/${tenantSlug}/projects`} className="mt-1 text-xs text-indigo-500 hover:underline">{t('dashboard.projectHealth.createProject')}</Link>
         </div>
       ) : (
         <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1526,14 +1541,14 @@ function PortfolioSnapshotWidget({ summary, tenantSlug }: { summary: any; tenant
                 <span className={`text-xl font-bold ${healthPct >= 60 ? 'text-green-600' : healthPct >= 30 ? 'text-amber-600' : 'text-red-600'}`}>
                   {healthPct}%
                 </span>
-                <span className="text-[10px] text-gray-400">healthy</span>
+                <span className="text-[10px] text-gray-400">{t('dashboard.projectHealth.healthy')}</span>
               </div>
             </div>
             <div className="space-y-2.5">
               {[
-                { label: 'Healthy',  count: rag.GREEN, pct: Math.round((rag.GREEN/total)*100), color: 'text-green-600',  dot: 'bg-green-500' },
-                { label: 'Caution',  count: rag.AMBER, pct: Math.round((rag.AMBER/total)*100), color: 'text-amber-600',  dot: 'bg-amber-500' },
-                { label: 'At Risk',  count: rag.RED,   pct: atRiskPct,                          color: 'text-red-600',    dot: 'bg-red-500' },
+                { label: t('dashboard.projectHealth.healthy'),  count: rag.GREEN, pct: Math.round((rag.GREEN/total)*100), color: 'text-green-600',  dot: 'bg-green-500' },
+                { label: t('dashboard.projectHealth.caution'),  count: rag.AMBER, pct: Math.round((rag.AMBER/total)*100), color: 'text-amber-600',  dot: 'bg-amber-500' },
+                { label: t('dashboard.projectHealth.atRisk'),   count: rag.RED,   pct: atRiskPct,                          color: 'text-red-600',    dot: 'bg-red-500' },
               ].map(r => (
                 <div key={r.label} className="flex items-center gap-2">
                   <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${r.dot}`} />
@@ -1550,10 +1565,10 @@ function PortfolioSnapshotWidget({ summary, tenantSlug }: { summary: any; tenant
           {/* Stats grid */}
           <div className="grid grid-cols-2 gap-3">
             {[
-              { label: 'Overdue Actions',    value: stats.overdueActionsCount ?? 0,  icon: <AlertCircle size={14} />, bg: 'bg-red-50',    text: 'text-red-600' },
-              { label: 'Critical Blockers',  value: stats.criticalBlockersCount ?? 0, icon: <ShieldAlert size={14} />, bg: 'bg-orange-50', text: 'text-orange-600' },
-              { label: 'Missing Standups',   value: stats.missingStandupsCount ?? 0,  icon: <Bell size={14} />,       bg: 'bg-amber-50',  text: 'text-amber-600' },
-              { label: 'Total Projects',     value: stats.totalProjects ?? projects.length, icon: <Briefcase size={14} />, bg: 'bg-indigo-50', text: 'text-indigo-600' },
+              { label: t('dashboard.overdueActions.title'),    value: stats.overdueActionsCount ?? 0,  icon: <AlertCircle size={14} />, bg: 'bg-red-50',    text: 'text-red-600' },
+              { label: t('dashboard.criticalBlockers.title'),  value: stats.criticalBlockersCount ?? 0, icon: <ShieldAlert size={14} />, bg: 'bg-orange-50', text: 'text-orange-600' },
+              { label: t('nav.standup'),   value: stats.missingStandupsCount ?? 0,  icon: <Bell size={14} />,       bg: 'bg-amber-50',  text: 'text-amber-600' },
+              { label: t('projects.title'),     value: stats.totalProjects ?? projects.length, icon: <Briefcase size={14} />, bg: 'bg-indigo-50', text: 'text-indigo-600' },
             ].map(card => (
               <div key={card.label} className={`${card.bg} rounded-xl p-3`}>
                 <div className={`flex items-center gap-1.5 ${card.text} mb-1`}>
@@ -1573,6 +1588,7 @@ function PortfolioSnapshotWidget({ summary, tenantSlug }: { summary: any; tenant
 // ── Org Pulse Widget (managers only — risks, decisions, dependencies) ─────────
 
 function OrgPulseWidget({ tenantSlug, enabled = true }: { tenantSlug: string; enabled?: boolean }) {
+  const { t } = useI18n();
   const { data: exec } = useExecSummary(enabled);
   if (!exec) return null;
 
@@ -1580,34 +1596,34 @@ function OrgPulseWidget({ tenantSlug, enabled = true }: { tenantSlug: string; en
 
   const metrics = [
     {
-      label:   'Open Risks',
+      label:   t('raid.types.risk'),
       value:   risks.open,
-      sub:     `${risks.critical} critical · ${risks.high} high`,
+      sub:     `${risks.critical} ${t('common.critical').toLowerCase()} · ${risks.high} ${t('common.high').toLowerCase()}`,
       icon:    <Flame size={18} />,
       bg:      risks.critical > 0 ? 'bg-red-50 border-red-100' : 'bg-orange-50 border-orange-100',
       text:    risks.critical > 0 ? 'text-red-600' : 'text-orange-600',
       subText: risks.critical > 0 ? 'text-red-400' : 'text-orange-400',
     },
     {
-      label:   'Open Actions',
+      label:   t('nav.actions'),
       value:   actions.open,
-      sub:     `${actions.overdue} overdue · ${actions.completionRate.toFixed(0)}% done`,
+      sub:     `${actions.overdue} ${t('tasks.overdue').toLowerCase()} · ${actions.completionRate.toFixed(0)}% done`,
       icon:    <ClipboardList size={18} />,
       bg:      actions.overdue > 0 ? 'bg-amber-50 border-amber-100' : 'bg-green-50 border-green-100',
       text:    actions.overdue > 0 ? 'text-amber-700' : 'text-green-600',
       subText: actions.overdue > 0 ? 'text-amber-400' : 'text-green-400',
     },
     {
-      label:   'Decisions',
+      label:   t('nav.decisions'),
       value:   decisions.total,
-      sub:     `${decisions.thisMonth} this month`,
+      sub:     `${decisions.thisMonth} ${t('common.thisMonth').toLowerCase()}`,
       icon:    <CheckCheck size={18} />,
       bg:      'bg-blue-50 border-blue-100',
       text:    'text-blue-600',
       subText: 'text-blue-400',
     },
     {
-      label:   'Open Dependencies',
+      label:   t('raid.types.dependency'),
       value:   dependencies.open,
       sub:     'blocked by external',
       icon:    <Activity size={18} />,
@@ -1616,18 +1632,18 @@ function OrgPulseWidget({ tenantSlug, enabled = true }: { tenantSlug: string; en
       subText: 'text-gray-400',
     },
     {
-      label:   'Teams',
+      label:   t('nav.teams'),
       value:   teams.total,
-      sub:     `${teams.memberCount} members`,
+      sub:     `${teams.memberCount} ${t('teams.membersLabel').toLowerCase()}`,
       icon:    <Users size={18} />,
       bg:      'bg-teal-50 border-teal-100',
       text:    'text-teal-600',
       subText: 'text-teal-400',
     },
     {
-      label:   'Portfolio Health',
+      label:   t('nav.portfolio'),
       value:   `${portfolio.healthScore.toFixed(0)}%`,
-      sub:     `${portfolio.active} active · ${portfolio.completed} done`,
+      sub:     `${portfolio.active} ${t('common.active').toLowerCase()} · ${portfolio.completed} ${t('statuses.done').toLowerCase()}`,
       icon:    <TrendingUp size={18} />,
       bg:      portfolio.healthScore >= 70 ? 'bg-green-50 border-green-100' : portfolio.healthScore >= 40 ? 'bg-amber-50 border-amber-100' : 'bg-red-50 border-red-100',
       text:    portfolio.healthScore >= 70 ? 'text-green-600' : portfolio.healthScore >= 40 ? 'text-amber-600' : 'text-red-600',
@@ -1652,11 +1668,11 @@ function OrgPulseWidget({ tenantSlug, enabled = true }: { tenantSlug: string; en
             portfolio.healthScore >= 70 ? 'bg-green-50 text-green-700' :
             portfolio.healthScore >= 40 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'
           }`}>
-            {portfolio.healthScore.toFixed(0)}% healthy
+            {portfolio.healthScore.toFixed(0)}% {t('dashboard.projectHealth.healthy').toLowerCase()}
           </span>
         </div>
         <Link to={`/${tenantSlug}/projects`} className="text-xs text-indigo-600 hover:underline flex items-center gap-0.5">
-          View Portfolio <ChevronRight size={11} />
+          {t('nav.portfolio')} <ChevronRight size={11} />
         </Link>
       </div>
 
@@ -1679,9 +1695,9 @@ function OrgPulseWidget({ tenantSlug, enabled = true }: { tenantSlug: string; en
         {milestones.total > 0 && (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-gray-500">Milestone Progress</span>
+              <span className="text-xs font-semibold text-gray-500">{t('sprints.progress')} ({t('milestones.title')})</span>
               <span className="text-xs text-gray-400">
-                {milestones.completed}/{milestones.total} · {milestones.completionRate.toFixed(0)}% complete
+                {milestones.completed}/{milestones.total} · {milestones.completionRate.toFixed(0)}% {t('statuses.completed').toLowerCase()}
               </span>
             </div>
             <div className="h-3 bg-gray-100 rounded-full overflow-hidden flex">
@@ -1712,6 +1728,7 @@ function OrgPulseWidget({ tenantSlug, enabled = true }: { tenantSlug: string; en
 // ── My Upcoming Leaves Widget ────────────────────────────────────────────────
 
 function MyUpcomingLeavesWidget({ tenantSlug }: { tenantSlug: string }) {
+  const { t } = useI18n();
   const { data: raw } = useLeaveRequests({ mine: 'true', status: 'APPROVED' });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const all: any[] = Array.isArray(raw) ? raw : [];
@@ -1739,7 +1756,7 @@ function MyUpcomingLeavesWidget({ tenantSlug }: { tenantSlug: string }) {
       <div className="p-4 border-b border-gray-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Calendar size={15} className="text-teal-600" />
-          <span className="text-sm font-semibold text-gray-900">My Upcoming Leaves</span>
+          <span className="text-sm font-semibold text-gray-900">{t('leave.title')}</span>
           {upcoming.length > 0 && (
             <span className="text-xs bg-teal-50 text-teal-700 px-1.5 py-0.5 rounded-full font-medium">
               {upcoming.length}
@@ -1747,7 +1764,7 @@ function MyUpcomingLeavesWidget({ tenantSlug }: { tenantSlug: string }) {
           )}
         </div>
         <Link to={`/${tenantSlug}/leave`} className="text-xs text-indigo-600 hover:underline flex items-center gap-0.5">
-          All Leaves <ChevronRight size={11} />
+          {t('common.viewAll')} <ChevronRight size={11} />
         </Link>
       </div>
 
@@ -1756,13 +1773,13 @@ function MyUpcomingLeavesWidget({ tenantSlug }: { tenantSlug: string }) {
           <div className="w-10 h-10 rounded-full bg-green-50 flex items-center justify-center mb-2">
             <CheckCircle2 size={20} className="text-green-500" />
           </div>
-          <p className="text-sm font-medium text-gray-600">No upcoming leaves</p>
+          <p className="text-sm font-medium text-gray-600">{t('leave.noLeave')}</p>
           <p className="text-xs text-gray-400 mt-0.5">
-            {past > 0 ? `${past} leave${past > 1 ? 's' : ''} taken this year` : 'Apply for leave anytime'}
+            {past > 0 ? `${past} leave${past > 1 ? 's' : ''} taken this year` : t('leave.apply')}
           </p>
           <Link to={`/${tenantSlug}/leave`}
             className="mt-3 text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors">
-            Apply for Leave →
+            {t('leave.apply')} →
           </Link>
         </div>
       ) : (
@@ -1777,7 +1794,7 @@ function MyUpcomingLeavesWidget({ tenantSlug }: { tenantSlug: string }) {
             let daysUntil = '';
             try {
               const diff = differenceInDays(parseISO(startDate), new Date());
-              daysUntil = diff === 0 ? 'Starts today' : diff === 1 ? 'Tomorrow' : `In ${diff} days`;
+              daysUntil = diff === 0 ? t('common.today') : diff === 1 ? 'Tomorrow' : `In ${diff} days`;
             } catch { /* empty */ }
 
             return (
@@ -1821,6 +1838,7 @@ function MyUpcomingLeavesWidget({ tenantSlug }: { tenantSlug: string }) {
 // ── Time Histogram Widget (team view OR personal project breakdown) ────────────
 
 function TimeHistogramWidget({ showTeamView, tenantSlug }: { showTeamView: boolean; tenantSlug: string }) {
+  const { t } = useI18n();
   const { data: teamData } = useTeamAnalytics({ period: 'month' }, showTeamView);
   const { data: myWeek }   = useMyWeek();
 
@@ -1832,11 +1850,11 @@ function TimeHistogramWidget({ showTeamView, tenantSlug }: { showTeamView: boole
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
           <div className="p-4 border-b border-gray-100 flex items-center gap-2">
             <Users size={15} className="text-indigo-600" />
-            <span className="text-sm font-semibold text-gray-900">Team Time This Month</span>
+            <span className="text-sm font-semibold text-gray-900">{t('timeTracking.thisMonth')}</span>
           </div>
           <div className="flex flex-col items-center justify-center py-10 text-center gap-2">
             <Timer size={28} className="text-gray-200" />
-            <p className="text-sm text-gray-400 font-medium">No time logged this month</p>
+            <p className="text-sm text-gray-400 font-medium">{t('timeTracking.noLogs')}</p>
             <p className="text-xs text-gray-300">Team members' hours will appear here once time is logged</p>
           </div>
         </div>
@@ -1862,7 +1880,7 @@ function TimeHistogramWidget({ showTeamView, tenantSlug }: { showTeamView: boole
         <div className="p-4 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Users size={15} className="text-indigo-600" />
-            <span className="text-sm font-semibold text-gray-900">Team Time This Month</span>
+            <span className="text-sm font-semibold text-gray-900">{t('timeTracking.thisMonth')}</span>
             {period.from && (
               <span className="text-xs text-gray-400">
                 {format(parseISO(period.from), 'MMM d')} – {format(parseISO(period.to), 'MMM d')}
@@ -1871,12 +1889,12 @@ function TimeHistogramWidget({ showTeamView, tenantSlug }: { showTeamView: boole
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-gray-500">
-              Total: <span className="font-semibold text-indigo-700">{summary.total_hours?.toFixed(1) ?? 0}h</span>
-              <span className="text-gray-400"> · Billable: </span>
+              {t('common.total')}: <span className="font-semibold text-indigo-700">{summary.total_hours?.toFixed(1) ?? 0}h</span>
+              <span className="text-gray-400"> · {t('timeTracking.billable')}: </span>
               <span className="font-semibold text-green-600">{summary.billable_hours?.toFixed(1) ?? 0}h</span>
             </span>
             <Link to={`/${tenantSlug}/time-tracking`} className="text-xs text-indigo-600 hover:underline flex items-center gap-0.5">
-              Details <ChevronRight size={11} />
+              {t('nav.timeTracking')} <ChevronRight size={11} />
             </Link>
           </div>
         </div>
@@ -1885,10 +1903,10 @@ function TimeHistogramWidget({ showTeamView, tenantSlug }: { showTeamView: boole
           {/* Summary chips */}
           <div className="flex flex-wrap gap-3 mb-4">
             {[
-              { label: 'Team Members', value: members.length,                       color: 'bg-indigo-50 text-indigo-700' },
-              { label: 'Total Hours',  value: `${summary.total_hours?.toFixed(1)}h`, color: 'bg-blue-50 text-blue-700' },
-              { label: 'Billable',     value: `${summary.billable_hours?.toFixed(1)}h (${summary.billable_pct?.toFixed(0)}%)`, color: 'bg-green-50 text-green-700' },
-              { label: 'Non-Billable', value: `${summary.non_billable_hours?.toFixed(1)}h`, color: 'bg-gray-50 text-gray-600' },
+              { label: t('nav.teams'), value: members.length,                       color: 'bg-indigo-50 text-indigo-700' },
+              { label: t('timeTracking.totalHours'),  value: `${summary.total_hours?.toFixed(1)}h`, color: 'bg-blue-50 text-blue-700' },
+              { label: t('timeTracking.billable'),     value: `${summary.billable_hours?.toFixed(1)}h (${summary.billable_pct?.toFixed(0)}%)`, color: 'bg-green-50 text-green-700' },
+              { label: t('timeTracking.nonBillable'), value: `${summary.non_billable_hours?.toFixed(1)}h`, color: 'bg-gray-50 text-gray-600' },
             ].map(chip => (
               <div key={chip.label} className={`px-3 py-1.5 rounded-xl text-xs font-medium ${chip.color}`}>
                 <span className="text-gray-400 font-normal">{chip.label}: </span>{chip.value}
@@ -1923,10 +1941,10 @@ function TimeHistogramWidget({ showTeamView, tenantSlug }: { showTeamView: boole
 
           <div className="flex items-center gap-5 mt-2 justify-end">
             <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
-              <span className="w-3 h-2.5 rounded-sm bg-green-500 inline-block" />Billable
+              <span className="w-3 h-2.5 rounded-sm bg-green-500 inline-block" />{t('timeTracking.billable')}
             </span>
             <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
-              <span className="w-3 h-2.5 rounded-sm bg-indigo-200 inline-block" />Non-billable
+              <span className="w-3 h-2.5 rounded-sm bg-indigo-200 inline-block" />{t('timeTracking.nonBillable')}
             </span>
           </div>
         </div>
@@ -1954,12 +1972,12 @@ function TimeHistogramWidget({ showTeamView, tenantSlug }: { showTeamView: boole
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
         <div className="p-4 border-b border-gray-100 flex items-center gap-2">
           <BarChart size={15} className="text-indigo-600" />
-          <span className="text-sm font-semibold text-gray-900">My Time by Project (This Week)</span>
+          <span className="text-sm font-semibold text-gray-900">{t('timeTracking.thisWeek')}</span>
         </div>
         <div className="flex flex-col items-center justify-center py-10 text-center gap-2">
           <Timer size={28} className="text-gray-200" />
-          <p className="text-sm text-gray-400 font-medium">No time logged this week</p>
-          <Link to={`/${tenantSlug}/time-tracking`} className="mt-1 text-xs text-indigo-500 hover:underline">Log your first entry →</Link>
+          <p className="text-sm text-gray-400 font-medium">{t('timeTracking.noLogs')}</p>
+          <Link to={`/${tenantSlug}/time-tracking`} className="mt-1 text-xs text-indigo-500 hover:underline">{t('timeTracking.logTime')} →</Link>
         </div>
       </div>
     );
@@ -1977,13 +1995,13 @@ function TimeHistogramWidget({ showTeamView, tenantSlug }: { showTeamView: boole
       <div className="p-4 border-b border-gray-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <BarChart size={15} className="text-indigo-600" />
-          <span className="text-sm font-semibold text-gray-900">My Time by Project (This Week)</span>
+          <span className="text-sm font-semibold text-gray-900">{t('timeTracking.thisWeek')}</span>
           <span className="text-xs bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded-full font-medium">
-            {weekTotal.toFixed(1)}h total
+            {weekTotal.toFixed(1)}h {t('common.total').toLowerCase()}
           </span>
         </div>
         <Link to={`/${tenantSlug}/time-tracking`} className="text-xs text-indigo-600 hover:underline flex items-center gap-0.5">
-          Log Time <ChevronRight size={11} />
+          {t('timeTracking.logTime')} <ChevronRight size={11} />
         </Link>
       </div>
       <div className="p-4">
@@ -2008,6 +2026,7 @@ function TimeHistogramWidget({ showTeamView, tenantSlug }: { showTeamView: boole
 // ── Personal Insights Widget (task status donut + priority breakdown) ─────────
 
 function PersonalInsightsWidget({ tasks, tenantSlug, userId }: { tasks: any[]; tenantSlug: string; userId: string }) {
+  const { t } = useI18n();
   // Match: assigned (multi-assignee array), assigned (legacy single field), or owner/creator
   const myTasks = tasks.filter((t: any) =>
     t.assigneeIds?.includes(String(userId)) ||
@@ -2050,12 +2069,12 @@ function PersonalInsightsWidget({ tasks, tenantSlug, userId }: { tasks: any[]; t
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
         <div className="p-4 border-b border-gray-100 flex items-center gap-2">
           <Layers size={15} className="text-indigo-600" />
-          <span className="text-sm font-semibold text-gray-900">My Task Overview</span>
+          <span className="text-sm font-semibold text-gray-900">{t('tasks.myTasks')}</span>
         </div>
         <div className="flex flex-col items-center justify-center py-10 text-center gap-2">
           <CheckCheck size={28} className="text-gray-200" />
-          <p className="text-sm text-gray-400 font-medium">No tasks assigned</p>
-          <Link to={`/${tenantSlug}/my-tasks`} className="mt-1 text-xs text-indigo-500 hover:underline">View my tasks →</Link>
+          <p className="text-sm text-gray-400 font-medium">{t('tasks.noTasks')}</p>
+          <Link to={`/${tenantSlug}/my-tasks`} className="mt-1 text-xs text-indigo-500 hover:underline">{t('dashboard.myTasks.viewAll')} →</Link>
         </div>
       </div>
     );
@@ -2066,18 +2085,18 @@ function PersonalInsightsWidget({ tasks, tenantSlug, userId }: { tasks: any[]; t
       <div className="p-4 border-b border-gray-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Layers size={15} className="text-indigo-600" />
-          <span className="text-sm font-semibold text-gray-900">My Task Overview</span>
-          <span className="text-xs bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded-full font-medium">{total} tasks</span>
+          <span className="text-sm font-semibold text-gray-900">{t('tasks.myTasks')}</span>
+          <span className="text-xs bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded-full font-medium">{t('dashboard.myTasks.active', { count: total })}</span>
         </div>
         <Link to={`/${tenantSlug}/my-tasks`} className="text-xs text-indigo-600 hover:underline flex items-center gap-0.5">
-          View all <ChevronRight size={11} />
+          {t('dashboard.myTasks.viewAll')} <ChevronRight size={11} />
         </Link>
       </div>
 
       <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Donut: task status */}
         <div>
-          <p className="text-xs font-semibold text-gray-500 mb-2">By Status</p>
+          <p className="text-xs font-semibold text-gray-500 mb-2">{t('common.status')}</p>
           <div className="flex items-center gap-4">
             <div className="w-28 h-28 flex-shrink-0">
               <ResponsiveContainer width="100%" height="100%">
@@ -2104,10 +2123,10 @@ function PersonalInsightsWidget({ tasks, tenantSlug, userId }: { tasks: any[]; t
           {/* Completion summary */}
           <div className="flex gap-3 mt-3 flex-wrap">
             <span className={`text-xs px-2 py-1 rounded-lg font-semibold ${done > 0 ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-400'}`}>
-              ✓ {done} done
+              ✓ {done} {t('statuses.done').toLowerCase()}
             </span>
             <span className={`text-xs px-2 py-1 rounded-lg font-semibold ${inProgress > 0 ? 'bg-indigo-50 text-indigo-700' : 'bg-gray-50 text-gray-400'}`}>
-              ↻ {inProgress} in progress
+              ↻ {inProgress} {t('statuses.inProgress').toLowerCase()}
             </span>
             {blocked > 0 && (
               <span className="text-xs px-2 py-1 rounded-lg font-semibold bg-red-50 text-red-700">⚠ {blocked} blocked</span>
@@ -2117,7 +2136,7 @@ function PersonalInsightsWidget({ tasks, tenantSlug, userId }: { tasks: any[]; t
 
         {/* Bar: priority breakdown */}
         <div>
-          <p className="text-xs font-semibold text-gray-500 mb-2">By Priority</p>
+          <p className="text-xs font-semibold text-gray-500 mb-2">{t('common.priority')}</p>
           {barData.length > 0 ? (
             <ResponsiveContainer width="100%" height={110}>
               <ReBarChart data={barData} layout="vertical" margin={{ top: 0, right: 30, bottom: 0, left: 0 }}>
@@ -2131,11 +2150,11 @@ function PersonalInsightsWidget({ tasks, tenantSlug, userId }: { tasks: any[]; t
               </ReBarChart>
             </ResponsiveContainer>
           ) : (
-            <p className="text-xs text-gray-400 pt-6 text-center">No priority data</p>
+            <p className="text-xs text-gray-400 pt-6 text-center">{t('common.noData')}</p>
           )}
           <div className="mt-2 text-center">
             <span className="text-xs text-gray-400">
-              {total > 0 ? `${Math.round((done / total) * 100)}% completion rate` : ''}
+              {total > 0 ? `${Math.round((done / total) * 100)}% ${t('statuses.completed').toLowerCase()}` : ''}
             </span>
           </div>
         </div>
@@ -2147,6 +2166,7 @@ function PersonalInsightsWidget({ tasks, tenantSlug, userId }: { tasks: any[]; t
 // ── My Monthly Stats Widget ───────────────────────────────────────────────────
 
 function MyMonthlyStatsWidget({ userId, tenantSlug }: { userId: string; tenantSlug: string }) {
+  const { t } = useI18n();
   const now = new Date();
   const { data: rawAttend } = useAttendanceSummary({
     year:  String(now.getFullYear()),
@@ -2190,7 +2210,7 @@ function MyMonthlyStatsWidget({ userId, tenantSlug }: { userId: string; tenantSl
 
   const stats = [
     {
-      label: 'Days Present',
+      label: t('attendance.summary.present'),
       value: presentDays,
       sub: `of ${workingDaysSoFar} working days`,
       pct: attendancePct,
@@ -2198,25 +2218,25 @@ function MyMonthlyStatsWidget({ userId, tenantSlug }: { userId: string; tenantSl
       icon: <CheckCircle2 size={16} className={attendancePct >= 80 ? 'text-green-500' : 'text-amber-500'} />,
     },
     {
-      label: 'Hours Logged',
+      label: t('attendance.summary.totalHours'),
       value: hoursLogged !== null ? `${hoursLogged}h` : `${totalHoursAttend.toFixed(0)}h`,
-      sub: billableHours !== null ? `${billableHours}h billable` : `${monthName} total`,
+      sub: billableHours !== null ? `${billableHours}h ${t('timeTracking.billable').toLowerCase()}` : `${monthName} ${t('common.total').toLowerCase()}`,
       pct: null,
       barColor: '#6366f1',
       icon: <Timer size={16} className="text-indigo-500" />,
     },
     {
-      label: 'Leave Remaining',
+      label: t('leave.balance.remaining'),
       value: totalLeaveLeft,
-      sub: `of ${totalLeaveAlloc} days total`,
+      sub: `of ${totalLeaveAlloc} ${t('common.days').toLowerCase()} ${t('common.total').toLowerCase()}`,
       pct: totalLeaveAlloc > 0 ? Math.round((totalLeaveLeft / totalLeaveAlloc) * 100) : 0,
       barColor: '#f59e0b',
       icon: <Calendar size={16} className="text-amber-500" />,
     },
     {
-      label: 'Leave Used',
+      label: t('leave.balance.used'),
       value: leaveUsed,
-      sub: `${totalLeaveAlloc - totalLeaveLeft - leaveUsed > 0 ? `${totalLeaveAlloc - totalLeaveLeft - leaveUsed}d pending` : 'no pending'}`,
+      sub: `${totalLeaveAlloc - totalLeaveLeft - leaveUsed > 0 ? `${totalLeaveAlloc - totalLeaveLeft - leaveUsed}d ${t('statuses.pending').toLowerCase()}` : t('common.none').toLowerCase() + ' pending'}`,
       pct: totalLeaveAlloc > 0 ? Math.round((leaveUsed / totalLeaveAlloc) * 100) : 0,
       barColor: '#8b5cf6',
       icon: <ClipboardList size={16} className="text-purple-500" />,
@@ -2228,10 +2248,10 @@ function MyMonthlyStatsWidget({ userId, tenantSlug }: { userId: string; tenantSl
       <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <TrendingUp size={14} className="text-indigo-500" />
-          <span className="text-sm font-semibold text-gray-900">My {monthName} Snapshot</span>
+          <span className="text-sm font-semibold text-gray-900">{monthName}</span>
         </div>
         <Link to={`/${tenantSlug}/attendance`} className="text-xs text-indigo-600 hover:underline flex items-center gap-0.5">
-          View Details <ChevronRight size={11} />
+          {t('common.view')} <ChevronRight size={11} />
         </Link>
       </div>
       <div className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -2258,6 +2278,7 @@ function MyMonthlyStatsWidget({ userId, tenantSlug }: { userId: string; tenantSl
 // ── Upcoming Milestones Widget (managers / PMO) ────────────────────────────────
 
 function UpcomingMilestonesWidget({ tenantSlug, enabled = true }: { tenantSlug: string; enabled?: boolean }) {
+  const { t } = useI18n();
   const { data: exec } = useExecSummary(enabled);
   const upcoming  = exec?.upcomingMilestones  ?? [];
   const overdue   = exec?.overdueMilestones   ?? [];
@@ -2280,20 +2301,20 @@ function UpcomingMilestonesWidget({ tenantSlug, enabled = true }: { tenantSlug: 
       <div className="p-4 border-b border-gray-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Calendar size={15} className="text-indigo-500" />
-          <span className="text-sm font-semibold text-gray-900">Milestones</span>
+          <span className="text-sm font-semibold text-gray-900">{t('milestones.title')}</span>
           {overdue.length > 0 && (
             <span className="text-xs bg-red-50 text-red-700 px-1.5 py-0.5 rounded-full font-medium">
-              {overdue.length} overdue
+              {overdue.length} {t('tasks.overdue').toLowerCase()}
             </span>
           )}
           {upcoming.length > 0 && (
             <span className="text-xs bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded-full font-medium">
-              {exec?.milestones?.upcoming7days ?? 0} due this week
+              {exec?.milestones?.upcoming7days ?? 0} {t('dashboard.projectHealth.dueIn7Days').toLowerCase()}
             </span>
           )}
         </div>
         <Link to={`/${tenantSlug}/projects`} className="text-xs text-indigo-600 hover:underline flex items-center gap-0.5">
-          Projects <ChevronRight size={11} />
+          {t('nav.projects')} <ChevronRight size={11} />
         </Link>
       </div>
       <div className="divide-y divide-gray-50">
@@ -2304,7 +2325,7 @@ function UpcomingMilestonesWidget({ tenantSlug, enabled = true }: { tenantSlug: 
             const d = parseISO(dueDate);
             const diff = differenceInDays(d, new Date());
             if (m.isOverdue) relLabel = `${Math.abs(diff)}d overdue`;
-            else if (diff === 0) relLabel = 'Due today';
+            else if (diff === 0) relLabel = t('common.today');
             else relLabel = `in ${diff}d`;
           } catch { /* empty */ }
 
@@ -2326,7 +2347,7 @@ function UpcomingMilestonesWidget({ tenantSlug, enabled = true }: { tenantSlug: 
       {(upcoming.length + overdue.length) > 6 && (
         <div className="px-4 py-2 border-t border-gray-50">
           <Link to={`/${tenantSlug}/projects`} className="text-xs text-indigo-600 hover:underline">
-            +{(upcoming.length + overdue.length) - 6} more milestones →
+            +{(upcoming.length + overdue.length) - 6} {t('milestones.title').toLowerCase()} →
           </Link>
         </div>
       )}
@@ -2337,6 +2358,7 @@ function UpcomingMilestonesWidget({ tenantSlug, enabled = true }: { tenantSlug: 
 // ── Time This Week Widget ─────────────────────────────────────────────────────
 
 function TimeThisWeekWidget({ tenantSlug }: { tenantSlug: string }) {
+  const { t } = useI18n();
   const { data: week } = useMyWeek();
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
@@ -2348,12 +2370,12 @@ function TimeThisWeekWidget({ tenantSlug }: { tenantSlug: string }) {
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
         <div className="p-4 border-b border-gray-100 flex items-center gap-2">
           <Timer size={15} className="text-indigo-600" />
-          <span className="text-sm font-semibold text-gray-900">Time This Week</span>
+          <span className="text-sm font-semibold text-gray-900">{t('timeTracking.thisWeek')}</span>
         </div>
         <div className="flex flex-col items-center justify-center py-10 text-center gap-2">
           <Timer size={28} className="text-gray-200" />
-          <p className="text-sm text-gray-400 font-medium">No time logged this week</p>
-          <Link to={`/${tenantSlug}/time-tracking`} className="mt-1 text-xs text-indigo-500 hover:underline">Start logging time →</Link>
+          <p className="text-sm text-gray-400 font-medium">{t('timeTracking.noLogs')}</p>
+          <Link to={`/${tenantSlug}/time-tracking`} className="mt-1 text-xs text-indigo-500 hover:underline">{t('timeTracking.logTime')} →</Link>
         </div>
       </div>
     );
@@ -2395,13 +2417,13 @@ function TimeThisWeekWidget({ tenantSlug }: { tenantSlug: string }) {
       <div className="p-4 border-b border-gray-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Timer size={15} className="text-purple-600" />
-          <span className="text-sm font-semibold text-gray-900">Time This Week</span>
+          <span className="text-sm font-semibold text-gray-900">{t('timeTracking.thisWeek')}</span>
           <span className="text-xs bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded-full font-medium">
-            {totalHours.toFixed(1)}h total
+            {totalHours.toFixed(1)}h {t('common.total').toLowerCase()}
           </span>
         </div>
         <Link to={`/${tenantSlug}/time-tracking`} className="text-xs text-indigo-600 hover:underline flex items-center gap-0.5">
-          Log Time <ChevronRight size={11} />
+          {t('timeTracking.logTime')} <ChevronRight size={11} />
         </Link>
       </div>
 
@@ -2433,7 +2455,7 @@ function TimeThisWeekWidget({ tenantSlug }: { tenantSlug: string }) {
             </ResponsiveContainer>
             <div className="flex items-center gap-4 mt-1">
               <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
-                <span className="w-3 h-3 rounded-sm bg-indigo-500 inline-block" /> Today
+                <span className="w-3 h-3 rounded-sm bg-indigo-500 inline-block" /> {t('common.today')}
               </span>
               <span className="flex items-center gap-1.5 text-[11px] text-gray-400">
                 <span className="w-3 h-3 rounded-sm bg-indigo-200 inline-block" /> Other days
@@ -2449,21 +2471,21 @@ function TimeThisWeekWidget({ tenantSlug }: { tenantSlug: string }) {
                 {todayHours.toFixed(1)}h
               </p>
               <p className={`text-[11px] mt-1 font-medium ${todayHours > 0 ? 'text-indigo-400' : 'text-gray-400'}`}>
-                {todayHours > 0 ? 'logged today' : 'nothing logged yet'}
+                {todayHours > 0 ? `${t('timeTracking.logTime')} ${t('common.today').toLowerCase()}` : t('timeTracking.noLogs')}
               </p>
             </div>
 
             {/* Billable breakdown */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-[11px]">
-                <span className="text-gray-500">Billable</span>
+                <span className="text-gray-500">{t('timeTracking.billable')}</span>
                 <span className="font-semibold text-green-600">{billable.toFixed(1)}h <span className="text-gray-400 font-normal">({billablePct}%)</span></span>
               </div>
               <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                 <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${billablePct}%` }} />
               </div>
               <div className="flex items-center justify-between text-[11px]">
-                <span className="text-gray-500">Non-billable</span>
+                <span className="text-gray-500">{t('timeTracking.nonBillable')}</span>
                 <span className="font-semibold text-gray-600">{nonBillable.toFixed(1)}h</span>
               </div>
               <div className="flex items-center justify-between text-[11px]">
@@ -2475,7 +2497,7 @@ function TimeThisWeekWidget({ tenantSlug }: { tenantSlug: string }) {
             {/* Top projects today */}
             {topProjects.length > 0 && (
               <div className="border-t border-gray-50 pt-2">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1.5">Today's breakdown</p>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1.5">{t('common.today')}'s {t('nav.timeTracking').toLowerCase()}</p>
                 {topProjects.map(([name, hrs]) => (
                   <div key={name} className="flex items-center gap-2 mb-1">
                     <div className="flex-1 min-w-0">
@@ -2500,6 +2522,7 @@ function TimeThisWeekWidget({ tenantSlug }: { tenantSlug: string }) {
 function DynamicKpiStrip({ summary, tenantSlug, tasks, todayHours, weekHours }: {
   summary: any; tenantSlug: string; tasks: any[]; todayHours?: number; weekHours?: number;
 }) {
+  const { t } = useI18n();
   const { user } = useAuth();
   const p = (perm: Permission) => hasPermission(user, perm);
 
@@ -2551,9 +2574,9 @@ function DynamicKpiStrip({ summary, tenantSlug, tasks, todayHours, weekHours }: 
   const cards = [
     canSeeProjects && {
       key: 'projects',
-      label: 'Active Projects',
+      label: t('dashboard.projectHealth.active') + ' ' + t('nav.projects'),
       value: summary?.stats?.totalProjects ?? 0,
-      sub: `${summary?.ragSummary?.RED ?? 0} at risk · ${summary?.ragSummary?.GREEN ?? 0} healthy`,
+      sub: `${summary?.ragSummary?.RED ?? 0} ${t('dashboard.projectHealth.atRisk').toLowerCase()} · ${summary?.ragSummary?.GREEN ?? 0} ${t('dashboard.projectHealth.healthy').toLowerCase()}`,
       icon: <FolderKanban size={20} />,
       iconBg: 'bg-blue-100 text-blue-600',
       valueCls: (summary?.ragSummary?.RED ?? 0) > 0 ? 'text-red-600' : 'text-blue-700',

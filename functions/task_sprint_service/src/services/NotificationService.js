@@ -95,7 +95,7 @@ class NotificationService {
   async sendTaskAssignment({ toEmail, toName, actionTitle, dueDate, projectName, assignedBy }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] New action assigned – ${actionTitle}`,
+      subject: `New action assigned – ${actionTitle}`,
       htmlBody: this._taskAssignmentTemplate(toName, actionTitle, dueDate, projectName, assignedBy),
     });
   }
@@ -104,7 +104,7 @@ class NotificationService {
   async sendTaskAssigned({ toEmail, toName, taskTitle, taskType, priority, dueDate, projectName, assignedBy, taskId }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] Task assigned – ${taskTitle}`,
+      subject: `Task assigned – ${taskTitle}`,
       htmlBody: this._taskAssignedTemplate(toName, taskTitle, taskType, priority, dueDate, projectName, assignedBy, taskId),
     });
   }
@@ -112,7 +112,7 @@ class NotificationService {
   async sendBlockerAdded({ toEmail, toName, blockerTitle, severity, projectName, raisedBy }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] ${severity} blocker raised – ${projectName}`,
+      subject: `${severity} blocker raised – ${projectName}`,
       htmlBody: this._blockerAddedTemplate(toName, blockerTitle, severity, projectName, raisedBy),
     });
   }
@@ -120,7 +120,7 @@ class NotificationService {
   async sendMemberAdded({ toEmail, toName, projectName, addedBy, projectRole }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] You've been added to ${projectName}`,
+      subject: `You've been added to ${projectName}`,
       htmlBody: this._memberAddedTemplate(toName, projectName, addedBy, projectRole),
     });
   }
@@ -128,7 +128,7 @@ class NotificationService {
   async sendTeamMemberAdded({ toEmail, toName, teamName, projectName, addedBy, teamRole }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] You've been added to team "${teamName}"`,
+      subject: `You've been added to team "${teamName}"`,
       htmlBody: this._teamMemberAddedTemplate(toName, teamName, projectName, addedBy, teamRole),
     });
   }
@@ -136,7 +136,7 @@ class NotificationService {
   async sendBlockerEscalation({ toEmail, toName, blockerTitle, severity, projectName, ageDays }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] CRITICAL blocker escalation – ${projectName}`,
+      subject: `CRITICAL blocker escalation – ${projectName}`,
       htmlBody: this._blockerEscalationTemplate(toName, blockerTitle, severity, projectName, ageDays),
     });
   }
@@ -144,7 +144,7 @@ class NotificationService {
   async sendStandupReminder({ toEmail, toName, projectName, date }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] Standup reminder – ${projectName}`,
+      subject: `Standup reminder – ${projectName}`,
       htmlBody: this._standupReminderTemplate(toName, projectName, date),
     });
   }
@@ -152,7 +152,7 @@ class NotificationService {
   async sendEodReminder({ toEmail, toName, projectName, date }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] EOD update reminder – ${projectName}`,
+      subject: `EOD update reminder – ${projectName}`,
       htmlBody: this._eodReminderTemplate(toName, projectName, date),
     });
   }
@@ -160,7 +160,7 @@ class NotificationService {
   async sendActionOverdue({ toEmail, toName, actionTitle, dueDate, projectName }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] Overdue action – ${actionTitle}`,
+      subject: `Overdue action – ${actionTitle}`,
       htmlBody: this._actionOverdueTemplate(toName, actionTitle, dueDate, projectName),
     });
   }
@@ -168,7 +168,7 @@ class NotificationService {
   async sendBlockerResolved({ toEmail, toName, blockerTitle, projectName, resolvedBy, resolution }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] Blocker resolved – ${blockerTitle}`,
+      subject: `Blocker resolved – ${blockerTitle}`,
       htmlBody: this._blockerResolvedTemplate(toName, blockerTitle, projectName, resolvedBy, resolution),
     });
   }
@@ -176,7 +176,7 @@ class NotificationService {
   async sendActionStatusChanged({ toEmail, toName, actionTitle, projectName, newStatus, changedBy, dueDate }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] Action status updated – ${actionTitle}`,
+      subject: `Action status updated – ${actionTitle}`,
       htmlBody: this._actionStatusChangedTemplate(toName, actionTitle, projectName, newStatus, changedBy, dueDate),
     });
   }
@@ -184,7 +184,7 @@ class NotificationService {
   async sendDailySummary({ toEmail, toName, date, submitted, missed, projectName }) {
     return this.send({
       toEmail,
-      subject: `[Delivery Sync] Daily Summary – ${projectName} – ${date}`,
+      subject: `Daily Summary – ${projectName} – ${date}`,
       htmlBody: this._dailySummaryTemplate(toName, date, submitted, missed, projectName),
     });
   }
@@ -243,7 +243,7 @@ class NotificationService {
             <table width="100%" cellpadding="0" cellspacing="0">
               <tr>
                 <td>
-                  <div style="font-size:11px;font-weight:700;letter-spacing:2px;color:rgba(255,255,255,0.7);text-transform:uppercase;margin-bottom:6px;">Delivery Sync</div>
+                  <div style="font-size:11px;font-weight:700;letter-spacing:2px;color:rgba(255,255,255,0.7);text-transform:uppercase;margin-bottom:6px;">DSV OpsPulse</div>
                   <div style="font-size:22px;font-weight:700;color:#ffffff;line-height:1.3;">${headerTitle}</div>
                   ${headerSubtitle ? `<div style="font-size:14px;color:rgba(255,255,255,0.85);margin-top:6px;">${headerSubtitle}</div>` : ''}
                 </td>
@@ -267,7 +267,7 @@ class NotificationService {
         <tr>
           <td style="background:#f9fafb;border-top:1px solid #e5e7eb;border-radius:0 0 12px 12px;padding:20px 32px;text-align:center;">
             <div style="font-size:12px;color:#9ca3af;line-height:1.6;">
-              This is an automated notification from <strong style="color:#6b7280;">Delivery Sync</strong>.<br />
+              This is an automated notification from <strong style="color:#6b7280;">DSV OpsPulse</strong>.<br />
               ${footerNote || 'You received this because you are a member of this project.'}
             </div>
           </td>

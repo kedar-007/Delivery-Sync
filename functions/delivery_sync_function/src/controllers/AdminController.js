@@ -320,6 +320,9 @@ class AdminController {
       }
 
       if (role && role !== existing.role) {
+        // Bust auth-ctx across all microservices so the role change is visible immediately
+        await CacheService.invalidateUserAuthCtx(req.catalystApp, userId);
+
         await this.audit.log({
           tenantId, entityType: 'user', entityId: userId,
           action: AUDIT_ACTION.ROLE_CHANGE,
@@ -583,6 +586,20 @@ class AdminController {
       });
 
       console.log(`[AdminController] updateTenantSettings tenantId=${tenantId} keys=${Object.keys(updates).join(',')}`);
+
+      // Tenant-level settings (e.g. botEnabled) are baked into every user's
+      // auth-ctx cache. Bust all users' caches so the change reflects immediately.
+      try {
+        const userRows = await this.db.query(
+          `SELECT ROWID FROM ${TABLES.USERS} WHERE tenant_id = '${tenantId}' LIMIT 300`
+        );
+        if (userRows.length > 0) {
+          await Promise.allSettled(
+            userRows.map((u) => CacheService.invalidateUserAuthCtx(req.catalystApp, String(u.ROWID)))
+          );
+        }
+      } catch (_) {}
+
       return ResponseHelper.success(res, { settings: merged });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
@@ -768,25 +785,8 @@ class AdminController {
         });
       }
 
-      // Invalidate this user's auth-context cache across ALL microservices so
-      // the new grants/revokes take effect immediately. Each service maintains
-      // its own scoped key (authCtx:<service>:v1:<userId>); failing to bust
-      // them all causes the service to serve stale permissions from its own
-      // cache even after delivery_sync_function's cache is cleared.
-      try {
-        const cache = new CacheService(req.catalystApp);
-        const uid = String(userId);
-        await Promise.allSettled([
-          cache.invalidate(`authCtx:v1:${uid}`),           // delivery_sync_function
-          cache.invalidate(`authCtx:people:v1:${uid}`),    // people_service (leave, attendance)
-          cache.invalidate(`authCtx:tasks:v1:${uid}`),     // task_sprint_service
-          cache.invalidate(`authCtx:assets:v1:${uid}`),    // asset_service
-          cache.invalidate(`authCtx:reports:v1:${uid}`),   // reporting_service
-          cache.invalidate(`authCtx:badges:v1:${uid}`),    // badge_profile_service
-          cache.invalidate(`authCtx:admin:v1:${uid}`),     // admin_config_service
-          cache.invalidate(`authCtx:time:v1:${uid}`),      // time_tracking_service
-        ]);
-      } catch (_) {}
+      // Bust auth-ctx across all microservices so the new grants/revokes take effect immediately.
+      await CacheService.invalidateUserAuthCtx(req.catalystApp, userId);
 
       await this.audit.log({
         tenantId, entityType: 'user_permissions', entityId: userId,

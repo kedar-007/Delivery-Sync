@@ -124,11 +124,11 @@ const ProjectsPage = () => {
     <Layout>
       <Header
         title={t('nav.allProjects')}
-        subtitle={isSearchMode ? `${total} result${total !== 1 ? 's' : ''} for "${debouncedSearch}"` : `${total} project${total !== 1 ? 's' : ''}`}
+        subtitle={isSearchMode ? `${total} ${t('common.noResults').split(' ')[0].toLowerCase()} for "${debouncedSearch}"` : `${total} ${t('nav.projects').toLowerCase()}`}
         actions={
           canCreateProject ? (
             <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>
-              New Project
+              {t('projects.new')}
             </Button>
           ) : undefined
         }
@@ -145,7 +145,7 @@ const ProjectsPage = () => {
           }
           <input
             className="form-input pl-9"
-            placeholder="Search projects…"
+            placeholder={t('projects.searchPlaceholder')}
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
@@ -163,9 +163,9 @@ const ProjectsPage = () => {
         {/* Projects Grid */}
         {filtered.length === 0 ? (
           <EmptyState
-            title="No projects found"
-            description="Create your first project to get started."
-            action={canCreateProject ? <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>Create Project</Button> : undefined}
+            title={t('projects.noProjects')}
+            description={t('projects.noProjectsDesc')}
+            action={canCreateProject ? <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>{t('projects.modal.create')}</Button> : undefined}
           />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -186,7 +186,7 @@ const ProjectsPage = () => {
                           type="button"
                           onClick={(e) => openRename(e, { id: project.id, name: project.name })}
                           className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                          title="Rename project"
+                          title={t('projects.modal.renameTitle')}
                         >
                           <Pencil size={13} />
                         </button>
@@ -215,71 +215,70 @@ const ProjectsPage = () => {
 
       {/* Create Project Modal — DSV-010: disable backdrop dismiss so an
           accidental click outside the popup doesn't wipe entered values. */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); setCreateError(''); reset(); }} title="Create New Project" size="lg" closeOnBackdropClick={false}>
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); setCreateError(''); reset(); }} title={t('projects.modal.createTitle')} size="lg" closeOnBackdropClick={false}>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {createError && <Alert type="error" message={createError} />}
           <div>
-            <label className="form-label">Project Name *</label>
-            <input className="form-input" placeholder="e.g. Customer Portal v2" {...register('name', { required: 'Required' })} />
+            <label className="form-label">{t('projects.modal.nameLabel')} *</label>
+            <input className="form-input" placeholder={t('projects.modal.namePlaceholder')} {...register('name', { required: t('validation.required') })} />
             {errors.name && <p className="form-error">{errors.name.message}</p>}
           </div>
           <div>
-            <label className="form-label">Description</label>
-            <textarea className="form-textarea" rows={3} placeholder="Brief project overview…" {...register('description')} />
+            <label className="form-label">{t('projects.modal.descLabel')}</label>
+            <textarea className="form-textarea" rows={3} placeholder={t('projects.modal.descPlaceholder')} {...register('description')} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="form-label">Start Date *</label>
-              <input type="date" className="form-input" {...register('start_date', { required: 'Required' })} />
+              <label className="form-label">{t('projects.modal.startDate')} *</label>
+              <input type="date" className="form-input" {...register('start_date', { required: t('validation.required') })} />
               {errors.start_date && <p className="form-error">{errors.start_date.message}</p>}
             </div>
             <div>
-              <label className="form-label">End Date *</label>
-              <input type="date" className="form-input" {...register('end_date', { required: 'Required' })} />
+              <label className="form-label">{t('projects.modal.endDate')} *</label>
+              <input type="date" className="form-input" {...register('end_date', { required: t('validation.required') })} />
               {errors.end_date && <p className="form-error">{errors.end_date.message}</p>}
             </div>
           </div>
           <div>
-            <label className="form-label">Initial RAG Status</label>
+            <label className="form-label">{t('projects.modal.ragStatus')}</label>
             <select className="form-select" {...register('rag_status')}>
-              <option value="GREEN">Green</option>
-              <option value="AMBER">Amber</option>
-              <option value="RED">Red</option>
+              <option value="GREEN">{t('projects.modal.ragGreen')}</option>
+              <option value="AMBER">{t('projects.modal.ragAmber')}</option>
+              <option value="RED">{t('projects.modal.ragRed')}</option>
             </select>
           </div>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button type="submit" loading={isSubmitting}>Create Project</Button>
+            <Button variant="outline" type="button" onClick={() => setShowCreate(false)}>{t('common.cancel')}</Button>
+            <Button type="submit" loading={isSubmitting}>{t('projects.modal.create')}</Button>
           </ModalActions>
         </form>
       </Modal>
 
-      {/* ✅ Added: Rename Project Modal */}
       <Modal
         open={!!renamingProject}
         onClose={() => { setRenamingProject(null); resetRename(); setRenameError(''); }}
-        title="Rename Project"
+        title={t('projects.modal.renameTitle')}
         size="sm"
       >
         <form onSubmit={handleRenameSubmit(onRename)} className="space-y-4">
           {renameError && <Alert type="error" message={renameError} />}
           <div>
-            <label className="form-label">Project Name *</label>
+            <label className="form-label">{t('projects.modal.nameLabel')} *</label>
             <input
               className="form-input"
               autoFocus
               {...registerRename('name', {
-                required: 'Required',
-                validate: v => v.trim().length > 0 || 'Name cannot be blank',
+                required: t('validation.required'),
+                validate: v => v.trim().length > 0 || t('validation.cannotBeBlank'),
               })}
             />
             {renameErrors.name && <p className="form-error">{renameErrors.name.message}</p>}
           </div>
           <ModalActions>
             <Button variant="outline" type="button" onClick={() => { setRenamingProject(null); resetRename(); }}>
-              Cancel
+              {t('common.cancel')}
             </Button>
-            <Button type="submit" loading={isRenaming}>Save</Button>
+            <Button type="submit" loading={isRenaming}>{t('common.save')}</Button>
           </ModalActions>
         </form>
       </Modal>

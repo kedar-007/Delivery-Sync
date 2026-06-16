@@ -63,6 +63,7 @@ const FLAG_EMOJI = (code: string) =>
 // ── IP Restrictions ────────────────────────────────────────────────────────────
 
 export const IpRestrictionsTab = () => {
+  const { t } = useI18n();
   const { data: ipSettings, isLoading: ipSettingsLoading } = useIpSettings();
   const updateIpSettings = useUpdateIpSettings();
   const { data: ips = [], isLoading: ipsLoading } = useIpConfig();
@@ -81,22 +82,22 @@ export const IpRestrictionsTab = () => {
   const handleIpToggle = async () => {
     try {
       await updateIpSettings.mutateAsync({ enabled: !ipEnabled });
-      notify(ipEnabled ? 'IP restrictions disabled.' : 'IP restrictions enabled.');
-    } catch (e: any) { errMsg(e?.response?.data?.message ?? e?.message ?? 'Failed to update setting.'); }
+      notify(ipEnabled ? t('errors.generic') : t('common.saveSuccess'));
+    } catch (e: any) { errMsg(e?.response?.data?.message ?? e?.message ?? t('errors.saveFailed')); }
   };
 
   const handleAddIp = async () => {
-    if (!ipLabel.trim() || !ipAddr.trim()) { errMsg('Both a label and an IP address are required.'); return; }
+    if (!ipLabel.trim() || !ipAddr.trim()) { errMsg(t('validation.required')); return; }
     try {
       await addIp.mutateAsync({ label: ipLabel.trim(), ip_address: ipAddr.trim() });
       setIpLabel(''); setIpAddr('');
-      notify('IP address added.');
-    } catch (e: any) { errMsg(e?.response?.data?.message ?? e?.message ?? 'Failed to add IP address.'); }
+      notify(t('common.saveSuccess'));
+    } catch (e: any) { errMsg(e?.response?.data?.message ?? e?.message ?? t('errors.saveFailed')); }
   };
 
   const handleDeleteIp = async (id: string) => {
     try { await deleteIp.mutateAsync(id); }
-    catch (e: any) { errMsg(e?.response?.data?.message ?? e?.message ?? 'Failed to remove IP address.'); }
+    catch (e: any) { errMsg(e?.response?.data?.message ?? e?.message ?? t('errors.saveFailed')); }
   };
 
   return (
@@ -154,7 +155,7 @@ export const IpRestrictionsTab = () => {
         </h3>
         <div className="flex gap-3">
           <div className="flex-1">
-            <label className="text-xs font-medium text-gray-500 block mb-1">Label</label>
+            <label className="text-xs font-medium text-gray-500 block mb-1">{t('common.name')}</label>
             <input
               className="form-input w-full"
               placeholder="e.g. Head Office"
@@ -176,7 +177,7 @@ export const IpRestrictionsTab = () => {
           <div className="flex items-end">
             <Button icon={<Plus size={14} />} loading={addIp.isPending}
               disabled={!ipLabel.trim() || !ipAddr.trim()} onClick={handleAddIp}>
-              Add
+              {t('common.add')}
             </Button>
           </div>
         </div>
@@ -194,7 +195,7 @@ export const IpRestrictionsTab = () => {
         ) : (ips as any[]).length === 0 ? (
           <div className="flex flex-col items-center py-10 text-gray-400 gap-2">
             <Wifi size={28} className="opacity-30" />
-            <p className="text-sm">No IP restrictions configured</p>
+            <p className="text-sm">{t('common.noData')}</p>
           </div>
         ) : (
           <div className="divide-y divide-gray-50">
@@ -214,7 +215,7 @@ export const IpRestrictionsTab = () => {
                     disabled={deleteIp.isPending}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors disabled:opacity-50"
                   >
-                    <Trash2 size={13} /> Remove
+                    <Trash2 size={13} /> {t('common.remove')}
                   </button>
                 </div>
               );
@@ -229,6 +230,7 @@ export const IpRestrictionsTab = () => {
 // ── Geo Restrictions ───────────────────────────────────────────────────────────
 
 export const GeoRestrictionsTab = () => {
+  const { t } = useI18n();
   const { data: geoSettings, isLoading: geoSettingsLoading } = useGeoSettings();
   const updateGeoSettings = useUpdateGeoSettings();
   const { data: geos = [], isLoading: geosLoading } = useGeoConfig();
@@ -261,24 +263,24 @@ export const GeoRestrictionsTab = () => {
   const handleGeoToggle = async () => {
     try {
       await updateGeoSettings.mutateAsync({ enabled: !geoEnabled });
-      notify(geoEnabled ? 'Geo restrictions disabled.' : 'Geo restrictions enabled.');
-    } catch (e: any) { errMsg(e?.response?.data?.message ?? e?.message ?? 'Failed to update setting.'); }
+      notify(geoEnabled ? t('errors.generic') : t('common.saveSuccess'));
+    } catch (e: any) { errMsg(e?.response?.data?.message ?? e?.message ?? t('errors.saveFailed')); }
   };
 
   const handleAddGeo = async () => {
-    if (!selectedCode) { errMsg('Please select a country.'); return; }
+    if (!selectedCode) { errMsg(t('validation.required')); return; }
     const country = COUNTRIES.find((c) => c.code === selectedCode);
     if (!country) return;
     try {
       await addGeo.mutateAsync({ country_code: country.code, country_name: country.name });
       setSelectedCode(''); setCountrySearch('');
-      notify(`${country.name} added to allowed locations.`);
-    } catch (e: any) { errMsg(e?.response?.data?.message ?? e?.message ?? 'Failed to add country.'); }
+      notify(t('common.saveSuccess'));
+    } catch (e: any) { errMsg(e?.response?.data?.message ?? e?.message ?? t('errors.saveFailed')); }
   };
 
   const handleDeleteGeo = async (id: string) => {
     try { await deleteGeo.mutateAsync(id); }
-    catch (e: any) { errMsg(e?.response?.data?.message ?? e?.message ?? 'Failed to remove country.'); }
+    catch (e: any) { errMsg(e?.response?.data?.message ?? e?.message ?? t('errors.saveFailed')); }
   };
 
   return (
@@ -339,12 +341,12 @@ export const GeoRestrictionsTab = () => {
         </h3>
         <div className="flex gap-3">
           <div className="flex-1">
-            <label className="text-xs font-medium text-gray-500 block mb-1">Search &amp; Select Country</label>
+            <label className="text-xs font-medium text-gray-500 block mb-1">{t('common.search')} &amp; Select Country</label>
             <div className="relative">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
               <input
                 className="form-input w-full pl-8"
-                placeholder="Type to search countries…"
+                placeholder={t('common.searchPlaceholder')}
                 value={countrySearch}
                 onChange={(e) => { setCountrySearch(e.target.value); setSelectedCode(''); }}
               />
@@ -366,7 +368,7 @@ export const GeoRestrictionsTab = () => {
               </div>
             )}
             {countrySearch && filteredCountries.length === 0 && !selectedCode && (
-              <p className="text-xs text-gray-400 mt-1 px-1">No matching countries found.</p>
+              <p className="text-xs text-gray-400 mt-1 px-1">{t('common.noResults')}</p>
             )}
           </div>
           <div className="flex items-start pt-5">
@@ -376,7 +378,7 @@ export const GeoRestrictionsTab = () => {
               disabled={!selectedCode}
               onClick={handleAddGeo}
             >
-              Add
+              {t('common.add')}
             </Button>
           </div>
         </div>
@@ -394,7 +396,7 @@ export const GeoRestrictionsTab = () => {
         ) : (geos as any[]).length === 0 ? (
           <div className="flex flex-col items-center py-10 text-gray-400 gap-2">
             <Globe size={28} className="opacity-30" />
-            <p className="text-sm">No country restrictions configured</p>
+            <p className="text-sm">{t('common.noData')}</p>
             <p className="text-xs text-gray-400">Add countries above to restrict check-in by location.</p>
           </div>
         ) : (
@@ -415,7 +417,7 @@ export const GeoRestrictionsTab = () => {
                     disabled={deleteGeo.isPending}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors disabled:opacity-50"
                   >
-                    <Trash2 size={13} /> Remove
+                    <Trash2 size={13} /> {t('common.remove')}
                   </button>
                 </div>
               );
@@ -430,6 +432,7 @@ export const GeoRestrictionsTab = () => {
 // ── Zone Restrictions ──────────────────────────────────────────────────────────
 
 export const ZoneRestrictionsTab = () => {
+  const { t } = useI18n();
   const { data: zoneSettings, isLoading: zoneSettingsLoading } = useGeoZoneSettings();
   const updateZoneSettings = useUpdateGeoZoneSettings();
   const { data: zones = [], isLoading: zonesLoading } = useGeoZones();
@@ -450,28 +453,28 @@ export const ZoneRestrictionsTab = () => {
   const handleZoneToggle = async () => {
     try {
       await updateZoneSettings.mutateAsync({ enabled: !zoneEnabled });
-      notify(zoneEnabled ? 'Zone restrictions disabled.' : 'Zone restrictions enabled.');
-    } catch (e: any) { errMsg(e?.response?.data?.message ?? e?.message ?? 'Failed to update setting.'); }
+      notify(zoneEnabled ? t('errors.generic') : t('common.saveSuccess'));
+    } catch (e: any) { errMsg(e?.response?.data?.message ?? e?.message ?? t('errors.saveFailed')); }
   };
 
   const handleAddZone = async () => {
-    if (!zoneName.trim()) { errMsg('Zone name is required.'); return; }
+    if (!zoneName.trim()) { errMsg(t('validation.required')); return; }
     const lat = parseFloat(zoneLat);
     const lng = parseFloat(zoneLng);
     const radius = parseFloat(zoneRadius);
-    if (isNaN(lat) || lat < -90 || lat > 90) { errMsg('Latitude must be between -90 and 90.'); return; }
-    if (isNaN(lng) || lng < -180 || lng > 180) { errMsg('Longitude must be between -180 and 180.'); return; }
-    if (isNaN(radius) || radius <= 0) { errMsg('Radius must be a positive number.'); return; }
+    if (isNaN(lat) || lat < -90 || lat > 90) { errMsg(t('validation.invalidFormat')); return; }
+    if (isNaN(lng) || lng < -180 || lng > 180) { errMsg(t('validation.invalidFormat')); return; }
+    if (isNaN(radius) || radius <= 0) { errMsg(t('validation.positiveNumber')); return; }
     try {
       await addZone.mutateAsync({ name: zoneName.trim(), latitude: lat, longitude: lng, radius_km: radius });
       setZoneName(''); setZoneLat(''); setZoneLng(''); setZoneRadius('1');
-      notify(`Zone "${zoneName.trim()}" added.`);
-    } catch (e: any) { errMsg(e?.response?.data?.message ?? e?.message ?? 'Failed to add zone.'); }
+      notify(t('common.saveSuccess'));
+    } catch (e: any) { errMsg(e?.response?.data?.message ?? e?.message ?? t('errors.saveFailed')); }
   };
 
   const handleDeleteZone = async (id: string) => {
     try { await deleteZone.mutateAsync(id); }
-    catch (e: any) { errMsg(e?.response?.data?.message ?? e?.message ?? 'Failed to remove zone.'); }
+    catch (e: any) { errMsg(e?.response?.data?.message ?? e?.message ?? t('errors.saveFailed')); }
   };
 
   return (
@@ -532,7 +535,7 @@ export const ZoneRestrictionsTab = () => {
         </h3>
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-medium text-gray-500 block mb-1">Zone Name</label>
+            <label className="text-xs font-medium text-gray-500 block mb-1">{t('common.name')}</label>
             <input
               className="form-input w-full"
               placeholder="e.g. Hinjewadi Phase 1, Pune"
@@ -584,7 +587,7 @@ export const ZoneRestrictionsTab = () => {
               disabled={!zoneName.trim() || !zoneLat || !zoneLng}
               onClick={handleAddZone}
             >
-              Add Zone
+              {t('common.add')}
             </Button>
           </div>
         </div>
@@ -602,7 +605,7 @@ export const ZoneRestrictionsTab = () => {
         ) : (zones as any[]).length === 0 ? (
           <div className="flex flex-col items-center py-10 text-gray-400 gap-2">
             <Target size={28} className="opacity-30" />
-            <p className="text-sm">No zones configured</p>
+            <p className="text-sm">{t('common.noData')}</p>
             <p className="text-xs text-gray-400">Add zones above to restrict check-in by area.</p>
           </div>
         ) : (
@@ -627,7 +630,7 @@ export const ZoneRestrictionsTab = () => {
                     disabled={deleteZone.isPending}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors disabled:opacity-50"
                   >
-                    <Trash2 size={13} /> Remove
+                    <Trash2 size={13} /> {t('common.remove')}
                   </button>
                 </div>
               );
@@ -642,6 +645,7 @@ export const ZoneRestrictionsTab = () => {
 // ── Work Shifts ────────────────────────────────────────────────────────────────
 
 export const ShiftsTab = () => {
+  const { t } = useI18n();
   const { data: shifts = [], isLoading: shiftsLoading } = useShifts();
   const addShift    = useAddShift();
   const deleteShift = useDeleteShift();
@@ -663,20 +667,20 @@ export const ShiftsTab = () => {
   const errMsg = (msg: string) => { setSuccess(''); setErr(msg); };
 
   const handleAddShift = async () => {
-    if (!shiftName.trim()) return errMsg('Shift name is required.');
-    if (!/^\d{2}:\d{2}$/.test(shiftStart)) return errMsg('Start time must be HH:MM.');
+    if (!shiftName.trim()) return errMsg(t('validation.required'));
+    if (!/^\d{2}:\d{2}$/.test(shiftStart)) return errMsg(t('validation.invalidFormat'));
     try {
       await addShift.mutateAsync({ name: shiftName.trim(), start_time: shiftStart, end_time: shiftEnd, timezone: shiftTz, grace_minutes: shiftGrace });
       setShiftName(''); setShiftStart('09:00'); setShiftEnd('18:00'); setShiftTz('Asia/Kolkata'); setShiftGrace('15');
-      notify('Shift created.');
-    } catch (e: any) { errMsg(e?.message ?? 'Failed to create shift.'); }
+      notify(t('common.createSuccess'));
+    } catch (e: any) { errMsg(e?.message ?? t('errors.saveFailed')); }
   };
 
   const handleDeleteShift = async (id: string) => {
     try {
       await deleteShift.mutateAsync(id);
-      notify('Shift deleted.');
-    } catch (e: any) { errMsg(e?.message ?? 'Failed to delete shift.'); }
+      notify(t('common.success'));
+    } catch (e: any) { errMsg(e?.message ?? t('errors.saveFailed')); }
   };
 
   const startEditShift = (shift: any) => {
@@ -691,8 +695,8 @@ export const ShiftsTab = () => {
     try {
       await updateShiftMutation.mutateAsync({ name: editShiftName, start_time: editShiftStart, grace_minutes: editShiftGrace });
       setEditingShiftId(null);
-      notify('Shift updated.');
-    } catch (e: any) { errMsg(e?.message ?? 'Failed to update shift.'); }
+      notify(t('common.updateSuccess'));
+    } catch (e: any) { errMsg(e?.message ?? t('errors.saveFailed')); }
   };
 
   return (
@@ -710,10 +714,10 @@ export const ShiftsTab = () => {
       </p>
 
       <Card className="mb-4 p-4">
-        <h3 className="text-sm font-medium text-gray-700 mb-3">Add Shift</h3>
+        <h3 className="text-sm font-medium text-gray-700 mb-3">{t('common.add')}</h3>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
           <div>
-            <label className="text-xs text-gray-500 block mb-1">Shift Name</label>
+            <label className="text-xs text-gray-500 block mb-1">{t('common.name')}</label>
             <input className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-amber-200"
               placeholder="e.g. AU Shift" value={shiftName} onChange={(e) => setShiftName(e.target.value)} />
           </div>
@@ -748,17 +752,17 @@ export const ShiftsTab = () => {
           </div>
         </div>
         <Button size="sm" onClick={handleAddShift} disabled={addShift.isPending}>
-          <Plus size={14} /> {addShift.isPending ? 'Adding…' : 'Add Shift'}
+          <Plus size={14} /> {addShift.isPending ? t('common.saving') : t('common.add')}
         </Button>
       </Card>
 
       <Card>
         {shiftsLoading ? (
-          <div className="p-6 text-center text-sm text-gray-400">Loading shifts…</div>
+          <div className="p-6 text-center text-sm text-gray-400">{t('common.loading')}</div>
         ) : (shifts as any[]).length === 0 ? (
           <div className="p-8 text-center text-gray-400 flex flex-col items-center gap-2">
             <Clock size={28} className="opacity-30" />
-            <p className="text-sm">No shifts defined</p>
+            <p className="text-sm">{t('common.noData')}</p>
             <p className="text-xs text-gray-400">Create a shift above, then assign it to users in the Users admin tab.</p>
           </div>
         ) : (
@@ -774,7 +778,7 @@ export const ShiftsTab = () => {
                   {isEditing ? (
                     <div className="flex-1 flex items-center gap-2 flex-wrap">
                       <input className="text-sm border border-gray-200 rounded-lg px-2 py-1 w-32 outline-none focus:ring-2 focus:ring-amber-200"
-                        value={editShiftName} onChange={(e) => setEditShiftName(e.target.value)} placeholder="Name" />
+                        value={editShiftName} onChange={(e) => setEditShiftName(e.target.value)} placeholder={t('common.name')} />
                       <input type="time" className="text-sm border border-gray-200 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-amber-200"
                         value={editShiftStart} onChange={(e) => setEditShiftStart(e.target.value)} />
                       <input type="number" min="0" max="60" className="text-sm border border-gray-200 rounded-lg px-2 py-1 w-20 outline-none focus:ring-2 focus:ring-amber-200"
@@ -797,11 +801,11 @@ export const ShiftsTab = () => {
                     <div className="flex items-center gap-2">
                       <button onClick={() => startEditShift(shift)}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium text-gray-500 hover:text-blue-700 hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-colors">
-                        <Edit2 size={12} /> Edit
+                        <Edit2 size={12} /> {t('common.edit')}
                       </button>
                       <button onClick={() => handleDeleteShift(id)} disabled={deleteShift.isPending}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors disabled:opacity-50">
-                        <Trash2 size={13} /> Remove
+                        <Trash2 size={13} /> {t('common.remove')}
                       </button>
                     </div>
                   )}

@@ -60,6 +60,47 @@ function getNowInTZ(tz) {
 // Return today's date (YYYY-MM-DD) in the given timezone, default IST
 const todayIST = (tz) => getNowInTZ(tz || 'Asia/Kolkata').split(' ')[0];
 
+// ── Calendar helpers (mirrored from LeaveController) ─────────────────────────
+function getNthSaturdayAC(year, month, date) {
+  let count = 0;
+  for (let d = 1; d <= date; d++) {
+    if (new Date(year, month, d).getDay() === 6) count++;
+  }
+  return count;
+}
+function isDayOffAC(dayOfWeek, year, month, date, policy) {
+  if (policy === 'all_on') return false;
+  if (dayOfWeek === 0) return true;
+  if (dayOfWeek !== 6) return false;
+  if (policy === 'all_off') return true;
+  const nth = getNthSaturdayAC(year, month, date);
+  if (policy === '1st_3rd_off')     return nth === 1 || nth === 3;
+  if (policy === '2nd_4th_off')     return nth === 2 || nth === 4;
+  if (policy === '2nd_4th_5th_off') return nth === 2 || nth === 4 || nth === 5;
+  if (policy === 'alternate_off')   return nth % 2 === 1;
+  if (policy === '5th_sat_working') return nth !== 5;
+  return true;
+}
+function calcWorkingDaysAC(startDate, endDate, policy, holidaySet) {
+  // Parse YYYY-MM-DD directly — avoids UTC-midnight→local-time day shift
+  // that occurs when new Date('YYYY-MM-DD') is used on non-UTC servers.
+  const [sy, sm, sd] = startDate.split('-').map(Number);
+  const [ey, em, ed] = endDate.split('-').map(Number);
+  let y = sy, m = sm - 1, d = sd; // month 0-indexed
+  const em0 = em - 1;
+  let count = 0;
+  for (;;) {
+    if (y > ey || (y === ey && m > em0) || (y === ey && m === em0 && d > ed)) break;
+    // new Date(y, m, d) uses local time — no UTC shift
+    const dow = new Date(y, m, d).getDay();
+    const ds  = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    if (!isDayOffAC(dow, y, m, d, policy) && !(holidaySet && holidaySet.has(ds))) count++;
+    const dim = new Date(y, m + 1, 0).getDate(); // days in current month
+    if (++d > dim) { d = 1; if (++m > 11) { m = 0; y++; } }
+  }
+  return count;
+}
+
 class AttendanceController {
   constructor(catalystApp, adminCatalystApp) {
     this.db = new DataStoreService(catalystApp);
@@ -214,7 +255,7 @@ class AttendanceController {
             // Escape free-text fields (names, reason) before injecting into HTML
             await this.notif.send({
               toEmail: rmRows[0].email,
-              subject: `[Delivery Sync] ${req.currentUser.name} is working from home today`,
+              subject: `${req.currentUser.name} is working from home today`,
               htmlBody: `<p>Hi ${_escapeHtml(rmRows[0].name)}, ${_escapeHtml(req.currentUser.name)} has checked in as WFH today (${_escapeHtml(today)}).${wfh_reason ? ' Reason: ' + _escapeHtml(wfh_reason) : ''}</p>`,
             });
             await this.notif.sendInApp({
@@ -1425,6 +1466,258 @@ class AttendanceController {
       summary.total_hours += parseFloat(r.work_hours) || 0;
     }
     return ResponseHelper.success(res, { summary, records });
+  }
+
+  // GET /api/people/attendance/report?date_from=&date_to=&user_id=&format=json|csv
+  // Uses ZCQL COUNT(*) and SUM() — no full row loads for attendance or leave.
+  // Only break records are loaded per-user (typically a few rows; "load if required").
+  // Permission scope: ATTENDANCE_ADMIN | ATTENDANCE_REPORT → all users
+  //                   ATTENDANCE_TEAM_VIEW | team lead     → team peers
+  //                   (anyone with ATTENDANCE_READ)        → own data only
+  async attendanceReport(req, res) {
+    try {
+      const { date_from, date_to, user_id, format } = req.query;
+      if (!date_from || !date_to)
+        return ResponseHelper.validationError(res, 'date_from and date_to are required');
+
+      // ── Resolve caller ─────────────────────────────────────────────────────
+      const callerRows = await this.db.findWhere(TABLES.USERS, req.tenantId,
+        `email = '${req.currentUser.email}'`, { limit: 1 });
+      if (!callerRows.length) return ResponseHelper.notFound(res, 'User not found');
+      const callerUid = String(callerRows[0].ROWID);
+
+      // ── Permission scope ───────────────────────────────────────────────────
+      const MANAGER_ROLES = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
+      const isManager     = MANAGER_ROLES.includes(req.currentUser.role);
+      const userPerms     = Array.isArray(req.currentUser.permissions) ? req.currentUser.permissions : [];
+      const hasReportPerm = userPerms.includes(PERMISSIONS.ATTENDANCE_ADMIN) || userPerms.includes(PERMISSIONS.ATTENDANCE_REPORT);
+      const hasTeamView   = userPerms.includes(PERMISSIONS.ATTENDANCE_TEAM_VIEW);
+
+      let scopedUserIds = null; // null = no restriction (all org users)
+      if (isManager || hasReportPerm) {
+        if (user_id) scopedUserIds = [String(user_id)];
+      } else if (hasTeamView || await this._isTeamLead(req.tenantId, callerUid)) {
+        const scope   = new TeamScopeService(this.db);
+        const peerIds = await scope.getTeamPeerUserIds(req.tenantId, callerUid);
+        scopedUserIds = user_id
+          ? (peerIds.some(id => String(id) === String(user_id)) ? [String(user_id)] : [callerUid])
+          : peerIds.map(String);
+      } else {
+        scopedUserIds = [callerUid];
+      }
+
+      // ── Load only the required users — don't pull the whole org ───────────
+      let targetUsers;
+      if (scopedUserIds) {
+        targetUsers = [];
+        // Fetch in chunks of 200 to stay within ZCQL LIMIT
+        for (let i = 0; i < scopedUserIds.length; i += 200) {
+          const chunk  = scopedUserIds.slice(i, i + 200);
+          const inList = chunk.map(id => `'${DataStoreService.escape(id)}'`).join(',');
+          const rows   = await this.db.query(
+            `SELECT * FROM ${TABLES.USERS} WHERE tenant_id = '${req.tenantId}' AND ROWID IN (${inList}) LIMIT 200`
+          );
+          if (rows && rows.length) targetUsers.push(...rows);
+        }
+      } else {
+        targetUsers = await this._fetchAllPaginated(TABLES.USERS, req.tenantId, '', 'CREATEDTIME DESC', 1000);
+      }
+
+      if (!targetUsers.length) return ResponseHelper.success(res, { report: [], date_from, date_to });
+
+      const tn  = req.tenantId;
+      const dfE = DataStoreService.escape(date_from);
+      const dtE = DataStoreService.escape(date_to);
+
+      // ── Load tenant calendar config once (not per user) ───────────────────
+      let weekendPolicy    = { default: 'all_off', perLocation: {} };
+      let locationCalendar = {};
+      const orgHolidayDates = new Set();
+      try {
+        const tRows = await this.db.query(
+          `SELECT settings FROM ${TABLES.TENANTS} WHERE ROWID = ${tn} LIMIT 1`
+        );
+        if (tRows.length) {
+          const ts = JSON.parse(tRows[0].settings || '{}');
+          weekendPolicy    = ts.weekendPolicy    || weekendPolicy;
+          locationCalendar = ts.locationCalendar || {};
+        }
+        // Org-wide non-optional holidays for each year in range
+        const startYr = new Date(date_from).getFullYear();
+        const endYr   = new Date(date_to).getFullYear();
+        const yrs = [...new Set([String(startYr), String(endYr)])];
+        for (const yr of yrs) {
+          const hols = await this.db.findWhere(TABLES.LEAVE_CALENDAR, tn,
+            `year = '${yr}' AND is_optional = 'false'`, { limit: 200 });
+          // Normalize to YYYY-MM-DD — Catalyst may return datetime strings like
+          // '2026-05-01T00:00:00' which would never match the loop's ds format.
+          hols.forEach(h => { if (h.holiday_date) orgHolidayDates.add(String(h.holiday_date).slice(0, 10)); });
+        }
+      } catch (_) { /* fall back to all_off, no holidays */ }
+
+      // Build year list once — reused per-user for location holidays
+      const _startYr = new Date(date_from).getFullYear();
+      const _endYr   = new Date(date_to).getFullYear();
+      const reportYears = [...new Set([String(_startYr), String(_endYr)])];
+
+      // ── ZCQL aggregate helpers — return a scalar, never transfer row data ──
+      const zcqlCount = async (table, cond) => {
+        try {
+          const rows = await this.db.query(
+            `SELECT COUNT(ROWID) FROM ${table} WHERE tenant_id = '${tn}' AND ${cond}`
+          );
+          if (!rows || !rows.length) return 0;
+          return Number(Object.values(rows[0])[0]) || 0;
+        } catch (_) { return 0; }
+      };
+
+      const zcqlSum = async (table, col, cond) => {
+        try {
+          const rows = await this.db.query(
+            `SELECT SUM(${col}) FROM ${table} WHERE tenant_id = '${tn}' AND ${cond}`
+          );
+          if (!rows || !rows.length) return 0;
+          return Number(Object.values(rows[0])[0]) || 0;
+        } catch (_) { return 0; }
+      };
+
+      // ── Per-user stat builder ──────────────────────────────────────────────
+      const buildUserStats = async (u) => {
+        const uid  = String(u.ROWID);
+        const uEsc = DataStoreService.escape(uid);
+        const arBase = `user_id = '${uEsc}' AND attendance_date >= '${dfE}' AND attendance_date <= '${dtE}'`;
+
+        // All attendance COUNT/SUM run in parallel — no rows transferred
+        const [
+          cnt_present, cnt_wfh, cnt_late, cnt_absent, cnt_half, cnt_on_leave,
+          cnt_wfh_flag, total_hours,
+        ] = await Promise.all([
+          zcqlCount(TABLES.ATTENDANCE_RECORDS, `${arBase} AND status = 'PRESENT'`),
+          zcqlCount(TABLES.ATTENDANCE_RECORDS, `${arBase} AND status = 'WFH'`),
+          zcqlCount(TABLES.ATTENDANCE_RECORDS, `${arBase} AND status = 'LATE'`),
+          zcqlCount(TABLES.ATTENDANCE_RECORDS, `${arBase} AND status = 'ABSENT'`),
+          zcqlCount(TABLES.ATTENDANCE_RECORDS, `${arBase} AND status = 'HALF_DAY'`),
+          zcqlCount(TABLES.ATTENDANCE_RECORDS, `${arBase} AND status = 'ON_LEAVE'`),
+          // is_wfh='true' on PRESENT records — backward-compat edge case
+          zcqlCount(TABLES.ATTENDANCE_RECORDS, `${arBase} AND is_wfh = 'true' AND status = 'PRESENT'`),
+          zcqlSum(TABLES.ATTENDANCE_RECORDS, 'work_hours', arBase),
+        ]);
+
+        // Leave days — SUM(days_count) from approved requests, no row transfer
+        const leave_days = await zcqlSum(TABLES.LEAVE_REQUESTS, 'days_count',
+          `user_id = '${uEsc}' AND status = 'APPROVED' AND start_date <= '${dtE}' AND end_date >= '${dfE}'`);
+
+        // Break records — "load if required": typically ≤ 2 rows/day, 300 covers ~150 days
+        const brkRecs = await this.db.findWhere(TABLES.ATTENDANCE_BREAKS, tn,
+          `user_id = '${uEsc}' AND status = 'DONE' AND attendance_date >= '${dfE}' AND attendance_date <= '${dtE}'`,
+          { limit: 300 }
+        );
+
+        let excess_lunch = 0, lunch_excess_min = 0, excess_short = 0, short_excess_min = 0;
+        for (const b of brkRecs) {
+          const exc = Number(b.exceeded_minutes) || 0;
+          if (exc <= 0) continue;
+          if (b.break_type === 'LUNCH')      { excess_lunch++;  lunch_excess_min  += exc; }
+          else if (b.break_type === 'SHORT') { excess_short++;  short_excess_min  += exc; }
+        }
+
+        const present_days = cnt_present + cnt_wfh + cnt_late + cnt_half;
+        const wfh_days     = cnt_wfh + cnt_wfh_flag;
+        const avg_hours    = present_days > 0 ? +(total_hours / present_days).toFixed(2) : 0;
+
+        // ── Calendar working days for this user's location ─────────────────
+        const locId = u.officeLocationId || null;
+        const policy = (locId && weekendPolicy.perLocation?.[locId])
+          ? weekendPolicy.perLocation[locId]
+          : (weekendPolicy.default || 'all_off');
+        const holidaySet = new Set(orgHolidayDates);
+        if (locId && locationCalendar[locId]) {
+          for (const yr of reportYears) {
+            (locationCalendar[locId][yr] || []).forEach(h => {
+              if (h.holiday_date && !h.is_optional)
+                holidaySet.add(String(h.holiday_date).slice(0, 10));
+            });
+          }
+        }
+        const working_days = calcWorkingDaysAC(date_from, date_to, policy, holidaySet);
+
+        // calendar_absent = working days not accounted for by presence or approved leave.
+        // Do NOT subtract cnt_on_leave — it overlaps with leave_days (the same days are
+        // counted in both leave_requests.days_count AND attendance ON_LEAVE records).
+        // Using both causes double-counting that drives calendar_absent to 0 incorrectly.
+        // leave_days (from the portal) is the authoritative source for approved absences.
+        const leaveTaken = +Number(leave_days).toFixed(1);
+        const calendar_absent = Math.max(0, working_days - present_days - leaveTaken);
+
+        return {
+          userId: uid,
+          name:   u.name  || 'Unknown',
+          email:  u.email || '',
+          working_days,
+          present_days,
+          wfh_days,
+          late_days:              cnt_late,
+          absent_days:            cnt_absent,
+          calendar_absent:        +calendar_absent.toFixed(1),
+          half_days:              cnt_half,
+          on_leave_days:          cnt_on_leave,
+          leave_days:             +Number(leave_days).toFixed(1),
+          total_hours:            +Number(total_hours).toFixed(2),
+          avg_hours_per_day:      avg_hours,
+          excess_lunch_breaks:    excess_lunch,
+          total_lunch_excess_min: lunch_excess_min,
+          excess_short_breaks:    excess_short,
+          total_short_excess_min: short_excess_min,
+        };
+      };
+
+      // ── Process users in batches of 5 (parallel within each batch) ─────────
+      const BATCH  = 1; // >1 hits Catalyst's COMPONENT concurrency limit
+      const report = [];
+      for (let i = 0; i < targetUsers.length; i += BATCH) {
+        const results = await Promise.all(targetUsers.slice(i, i + BATCH).map(buildUserStats));
+        report.push(...results);
+      }
+
+      report.sort((a, b) => a.name.localeCompare(b.name));
+
+      if (format === 'csv') {
+        const esc    = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+        const header = [
+          'Name', 'Email',
+          'Working Days', 'Present Days', 'WFH Days', 'Late Check-Ins',
+          'Absent Days (Records)', 'Calendar Absent', 'Half Days',
+          'Leave Days (Portal)', 'On Leave (Attendance)',
+          'Total Hours', 'Avg Hours/Day',
+          'Excess Lunch Breaks', 'Lunch Excess Mins',
+          'Excess Short Breaks', 'Short Excess Mins',
+        ].join(',');
+        const csvRows = report.map(s => [
+          esc(s.name), esc(s.email),
+          esc(s.working_days), esc(s.present_days), esc(s.wfh_days), esc(s.late_days),
+          esc(s.absent_days), esc(s.calendar_absent), esc(s.half_days),
+          esc(s.leave_days), esc(s.on_leave_days),
+          esc(s.total_hours), esc(s.avg_hours_per_day),
+          esc(s.excess_lunch_breaks), esc(s.total_lunch_excess_min),
+          esc(s.excess_short_breaks), esc(s.total_short_excess_min),
+        ].join(','));
+        const csv = [header, ...csvRows].join('\n');
+
+        const uMap    = Object.fromEntries(targetUsers.map(u => [String(u.ROWID), u]));
+        let nameSlug  = 'all_users';
+        if (scopedUserIds && scopedUserIds.length === 1 && uMap[scopedUserIds[0]])
+          nameSlug = (uMap[scopedUserIds[0]].name || 'user').replace(/\s+/g, '_');
+        const filename = `${nameSlug}_attendance_report_${date_from}_to_${date_to}.csv`;
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        return res.send(csv);
+      }
+
+      return ResponseHelper.success(res, { report, date_from, date_to });
+    } catch (err) {
+      console.error('[AttendanceController.attendanceReport]', err.message);
+      return ResponseHelper.serverError(res, err.message);
+    }
   }
 
   // GET /api/people/attendance/export?date_from=&date_to=&user_id=

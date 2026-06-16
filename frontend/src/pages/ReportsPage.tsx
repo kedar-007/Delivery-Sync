@@ -125,7 +125,7 @@ const ReportsPage = () => {
       <Header
         title={t('nav.reports')}
         subtitle="Weekly and custom delivery reports"
-        actions={canWriteReports ? <Button onClick={() => setShowGenerate(true)} icon={<Plus size={16} />}>Generate Report</Button> : undefined}
+        actions={canWriteReports ? <Button onClick={() => setShowGenerate(true)} icon={<Plus size={16} />}>{t('reports.generate')}</Button> : undefined}
       />
 
       <div className="p-6 space-y-5">
@@ -144,7 +144,7 @@ const ReportsPage = () => {
             </div>
 
             {reports.length === 0 ? (
-              <EmptyState title="No reports" description="Generate your first report." />
+              <EmptyState title={t('reports.noReports')} description={t('reports.generate')} />
             ) : (
               <div className="divide-y divide-gray-50 overflow-y-auto">
                 {reports.map((r: Report) => (
@@ -348,7 +348,7 @@ const ReportsPage = () => {
       </div>
 
       {/* Generate Modal */}
-      <Modal open={showGenerate} onClose={() => { setShowGenerate(false); reset(); setGenerateError(''); }} title="Generate Report">
+      <Modal open={showGenerate} onClose={() => { setShowGenerate(false); reset(); setGenerateError(''); }} title={t('reports.generate')}>
         <form onSubmit={handleSubmit(onGenerate)} className="space-y-4">
           {generateError && <Alert type="error" message={generateError} />}
           <div>
@@ -377,8 +377,8 @@ const ReportsPage = () => {
             </div>
           </div>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setShowGenerate(false)}>Cancel</Button>
-            <Button type="submit" loading={isSubmitting}>Generate</Button>
+            <Button variant="outline" type="button" onClick={() => setShowGenerate(false)}>{t('common.cancel')}</Button>
+            <Button type="submit" loading={isSubmitting}>{t('reports.generate')}</Button>
           </ModalActions>
         </form>
       </Modal>
@@ -387,7 +387,7 @@ const ReportsPage = () => {
       <Modal
         open={!!renamingReport}
         onClose={() => { setRenamingReport(null); resetRename(); setRenameError(''); }}
-        title="Rename Report"
+        title={t('common.rename')}
         size="sm"
       >
         <form onSubmit={handleRenameSubmit(onRename)} className="space-y-4">
@@ -406,9 +406,9 @@ const ReportsPage = () => {
           </div>
           <ModalActions>
             <Button variant="outline" type="button" onClick={() => { setRenamingReport(null); resetRename(); }}>
-              Cancel
+              {t('common.cancel')}
             </Button>
-            <Button type="submit" loading={isRenaming}>Save</Button>
+            <Button type="submit" loading={isRenaming}>{t('common.save')}</Button>
           </ModalActions>
         </form>
       </Modal>

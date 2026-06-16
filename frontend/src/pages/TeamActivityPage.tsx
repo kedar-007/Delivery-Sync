@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useI18n } from '../contexts/I18nContext';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell,
@@ -856,6 +857,7 @@ function AttendanceSection({ records, loading }: { records: AttendanceRecord[]; 
 // ─── Member row ───────────────────────────────────────────────────────────────
 
 function MemberRow({ member }: { member: MemberStat }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
 
   return (
@@ -915,9 +917,9 @@ function MemberRow({ member }: { member: MemberStat }) {
                 <thead>
                   <tr className="bg-white border-b border-gray-100 text-xs text-gray-400 uppercase tracking-wide">
                     <th className="px-4 py-2 text-left font-medium">Project</th>
-                    <th className="px-4 py-2 text-right font-medium">Total</th>
-                    <th className="px-4 py-2 text-right font-medium">Billable</th>
-                    <th className="px-4 py-2 text-right font-medium">Non-billable</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('common.total')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('timeTracking.billable')}</th>
+                    <th className="px-4 py-2 text-right font-medium">{t('timeTracking.nonBillable')}</th>
                     <th className="px-4 py-2 text-right font-medium">Entries</th>
                   </tr>
                 </thead>
@@ -944,6 +946,7 @@ function MemberRow({ member }: { member: MemberStat }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function TeamActivityPage() {
+  const { t } = useI18n();
   const [period, setPeriod]         = useState<Period>('month');
   const [dateFrom, setDateFrom]     = useState('');
   const [dateTo, setDateTo]         = useState('');
@@ -1109,7 +1112,7 @@ export default function TeamActivityPage() {
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Team Activity</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{t('reports.teamActivity.title')}</h1>
           <p className="text-sm text-gray-500 mt-0.5">
             Billable vs non-billable hours across your team
             {data?.period && (
@@ -1251,7 +1254,7 @@ export default function TeamActivityPage() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard
               icon={<Clock size={18} className="text-indigo-600" />}
-              label="Total Hours"
+              label={t('timeTracking.totalHours')}
               value={`${fmt(summary.total_hours)}h`}
               sub={`${summary.total_entries} entries`}
               color="bg-indigo-50"
@@ -1265,7 +1268,7 @@ export default function TeamActivityPage() {
             />
             <StatCard
               icon={<TrendingUp size={18} className="text-amber-600" />}
-              label="Non-Billable"
+              label={t('timeTracking.nonBillable')}
               value={`${fmt(summary.non_billable_hours)}h`}
               sub={`${(100 - summary.billable_pct).toFixed(1)}% of total`}
               color="bg-amber-50"
@@ -1346,13 +1349,13 @@ export default function TeamActivityPage() {
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50 text-xs text-gray-400 uppercase tracking-wide">
                       <th className="px-4 py-3 font-medium">Member</th>
-                      <th className="px-4 py-3 font-medium text-right">Total</th>
-                      <th className="px-4 py-3 font-medium text-right text-emerald-600">Billable</th>
-                      <th className="px-4 py-3 font-medium text-right">Non-Billable</th>
+                      <th className="px-4 py-3 font-medium text-right">{t('common.total')}</th>
+                      <th className="px-4 py-3 font-medium text-right text-emerald-600">{t('timeTracking.billable')}</th>
+                      <th className="px-4 py-3 font-medium text-right">{t('timeTracking.nonBillable')}</th>
                       <th className="px-4 py-3 font-medium w-40">Billable %</th>
                       <th className="px-4 py-3 font-medium text-center">Days</th>
                       <th className="px-4 py-3 font-medium text-center">Entries</th>
-                      <th className="px-4 py-3 font-medium text-center">Status</th>
+                      <th className="px-4 py-3 font-medium text-center">{t('common.status')}</th>
                       <th className="px-4 py-3 w-8" />
                     </tr>
                   </thead>

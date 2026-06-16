@@ -179,6 +179,7 @@ interface LogTimeModalProps {
 }
 
 const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => {
+  const { t } = useI18n();
   const [error, setError] = useState('');
   const createEntry = useCreateTimeEntry();
   const updateEntry = useUpdateTimeEntry();
@@ -273,13 +274,13 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={entry ? 'Edit Time Entry' : 'Log Time'} size="md">
+    <Modal open={open} onClose={onClose} title={entry ? 'Edit Time Entry' : t('timeTracking.logTime')} size="md">
       <form onSubmit={handleSubmit(onSubmit as any)} className="space-y-4">
         {error && <Alert type="error" message={error} />}
 
         {/* Project selector */}
         <div>
-          <label className="form-label">Project *</label>
+          <label className="form-label">{t('timeTracking.form.project')} *</label>
           <select className="form-select" {...register('project_id', { required: 'Project is required' })}>
             <option value="">Select project…</option>
             {projects.map((p) => (
@@ -297,7 +298,7 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
             doesn't see a misleading "no tasks" hint during the request. */}
         {watchedProjectId && (
           <div>
-            <label className="form-label">Task *</label>
+            <label className="form-label">{t('timeTracking.form.task')} *</label>
             {tasksLoading ? (
               // Skeleton: matches the select's footprint so layout doesn't
               // shift when the real dropdown takes over. Soft indigo tint +
@@ -335,7 +336,7 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
 
         {/* Description */}
         <div>
-          <label className="form-label">Description / What did you work on? *</label>
+          <label className="form-label">{t('timeTracking.form.description')} / What did you work on? *</label>
           <input
             className="form-input"
             placeholder="What did you work on?"
@@ -384,7 +385,7 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="form-label">Date *</label>
+            <label className="form-label">{t('timeTracking.form.date')} *</label>
             <input
               type="date"
               className="form-input"
@@ -393,7 +394,7 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
           </div>
           <div>
             <label className="form-label">
-              Hours *
+              {t('timeTracking.form.hours')} *
               {watchedStart && watchedEnd && (
                 <span className="ml-1.5 text-[10px] font-bold text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded uppercase tracking-wide">auto</span>
               )}
@@ -425,12 +426,12 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
             {...register('is_billable')}
           />
           <label htmlFor="is_billable" className="text-sm text-gray-700 font-medium cursor-pointer">
-            Billable hours
+            {t('timeTracking.billable')} hours
           </label>
         </div>
 
         <div>
-          <label className="form-label">Notes <span className="text-gray-400 font-normal">(optional)</span></label>
+          <label className="form-label">{t('common.notes')} <span className="text-gray-400 font-normal">(optional)</span></label>
           <textarea
             className="form-textarea"
             rows={3}
@@ -440,9 +441,9 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
         </div>
 
         <ModalActions>
-          <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" type="button" onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="submit" loading={isSubmitting} icon={<Clock size={16} />}>
-            {entry ? 'Save Changes' : 'Log Time'}
+            {entry ? 'Save Changes' : t('timeTracking.logTime')}
           </Button>
         </ModalActions>
       </form>
@@ -460,6 +461,7 @@ interface RejectModalProps {
 }
 
 const RejectModal = ({ open, onClose, onConfirm, title = 'Reject Entry' }: RejectModalProps) => {
+  const { t } = useI18n();
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -495,9 +497,9 @@ const RejectModal = ({ open, onClose, onConfirm, title = 'Reject Entry' }: Rejec
         />
       </div>
       <ModalActions>
-        <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
+        <Button variant="outline" type="button" onClick={onClose}>{t('common.cancel')}</Button>
         <Button variant="danger" onClick={handleConfirm} loading={loading} icon={<XCircle size={16} />}>
-          Reject
+          {t('common.reject')}
         </Button>
       </ModalActions>
     </Modal>
@@ -512,6 +514,7 @@ interface MyTimeLogTabProps {
 
 
 const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
+  const { t } = useI18n();
   const { confirm: openConfirm } = useConfirm();
   const { user } = useAuth();
   // Build id→name map for instant project name lookup
@@ -666,9 +669,9 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
   }, [filterDateFrom, filterDateTo]);
 
   const PRESETS: Array<{ key: 'today' | 'yesterday' | 'week' | 'all'; label: string }> = [
-    { key: 'today',     label: 'Today' },
-    { key: 'yesterday', label: 'Yesterday' },
-    { key: 'week',      label: 'This Week' },
+    { key: 'today',     label: t('common.today') },
+    { key: 'yesterday', label: t('common.yesterday') },
+    { key: 'week',      label: t('common.thisWeek') },
     { key: 'all',       label: 'All Time' },
   ];
 
@@ -731,7 +734,7 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
             />
           </div>
           <div>
-            <label className="form-label">Project</label>
+            <label className="form-label">{t('timeTracking.form.project')}</label>
             <select className="form-select" value={filterProject} onChange={(e) => setFilterProject(e.target.value)}>
               <option value="">All projects</option>
               {projects.map((p) => (
@@ -740,7 +743,7 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
             </select>
           </div>
           <div>
-            <label className="form-label">Status</label>
+            <label className="form-label">{t('common.status')}</label>
             <select className="form-select" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
               <option value="">All statuses</option>
               <option value="DRAFT">Draft</option>
@@ -807,7 +810,7 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
             icon={<Plus size={14} />}
             onClick={() => { setEditEntry(null); setModalOpen(true); }}
           >
-            Log Time
+            {t('timeTracking.logTime')}
           </Button>
         </div>
 
@@ -822,7 +825,7 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
             description="Start tracking your time by logging an entry."
             action={
               <Button size="sm" icon={<Plus size={14} />} onClick={() => setModalOpen(true)}>
-                Log Time
+                {t('timeTracking.logTime')}
               </Button>
             }
           />
@@ -835,7 +838,7 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
                       its own column so the description shows only the task
                       content (was visually mixing user identity with task
                       details). */}
-                  {['Date', 'User', 'Project', 'Task', 'Time', 'Hours', 'Billable', 'Status', 'Actions'].map((h) => (
+                  {[t('timeTracking.form.date'), 'User', t('timeTracking.form.project'), t('timeTracking.form.task'), 'Time', t('timeTracking.form.hours'), t('timeTracking.billable'), t('common.status'), t('common.actions')].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
                       {h}
                     </th>
@@ -1053,6 +1056,7 @@ interface AnalyticsTabProps {
 }
 
 const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
+  const { t } = useI18n();
   const [period, setPeriod] = useState<AnalyticsPeriod>('week');
 
   const projectMap = useMemo(() => {
@@ -1062,7 +1066,8 @@ const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
   }, [projects]);
 
   // Date ranges
-  const now        = new Date();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const now        = useMemo(() => new Date(), []);
   const weekStart  = format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd');
   const weekEnd    = format(addDays(startOfWeek(now, { weekStartsOn: 1 }), 6), 'yyyy-MM-dd');
   const monthStart = format(startOfMonth(now), 'yyyy-MM-dd');
@@ -1187,7 +1192,7 @@ const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
     ].filter((s) => s.value > 0);
   }, [period, entries]);
 
-  const periodLabel = period === 'week' ? 'This Week' : period === 'month' ? format(now, 'MMMM yyyy') : 'All Time';
+  const periodLabel = period === 'week' ? t('timeTracking.thisWeek') : period === 'month' ? format(now, 'MMMM yyyy') : 'All Time';
 
   // Today's data — always derived from the week snapshot regardless of selected period
   const todayData = week?.days?.find((d) => d.date === todayStr());
@@ -1279,16 +1284,16 @@ const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
               period === p ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            {p === 'week' ? 'This Week' : p === 'month' ? 'This Month' : 'Overall'}
+            {p === 'week' ? t('timeTracking.thisWeek') : p === 'month' ? t('timeTracking.thisMonth') : 'Overall'}
           </button>
         ))}
       </div>
 
       {/* Summary stat cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <StatCard label="Total Hours"     value={`${Math.round(totalHours * 10) / 10}h`}       icon={<Clock size={20} />}        color="blue"   />
-        <StatCard label="Billable"        value={`${Math.round(billableHours * 10) / 10}h`}    icon={<DollarSign size={20} />}   color="green"  />
-        <StatCard label="Non-Billable"    value={`${Math.round(nonBillableHours * 10) / 10}h`} icon={<Clock size={20} />}        color="amber"  />
+        <StatCard label={t('timeTracking.totalHours')}     value={`${Math.round(totalHours * 10) / 10}h`}       icon={<Clock size={20} />}        color="blue"   />
+        <StatCard label={t('timeTracking.billable')}        value={`${Math.round(billableHours * 10) / 10}h`}    icon={<DollarSign size={20} />}   color="green"  />
+        <StatCard label={t('timeTracking.nonBillable')}    value={`${Math.round(nonBillableHours * 10) / 10}h`} icon={<Clock size={20} />}        color="amber"  />
         <StatCard label="Days Logged"     value={daysLogged}                                    icon={<CalendarDays size={20} />} color="purple" />
         <StatCard label="Time Entries"    value={entryCount}                                    icon={<Hash size={20} />}         color="purple" />
       </div>
@@ -1564,6 +1569,7 @@ const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
 // ── Approvals Tab ─────────────────────────────────────────────────────────────
 
 const ApprovalsTab = () => {
+  const { t } = useI18n();
   const { data: approvals = [], isLoading, error } = useTimeApprovals({ status: 'PENDING' });
   const approveTime = useApproveTime();
   const rejectTime = useRejectTime();
@@ -1622,7 +1628,7 @@ const ApprovalsTab = () => {
             onClick={handleBulkApprove}
             loading={bulkApproving}
           >
-            Approve Selected
+            {t('common.approve')} Selected
           </Button>
         </div>
       )}
@@ -1654,7 +1660,7 @@ const ApprovalsTab = () => {
                       onChange={toggleAll}
                     />
                   </th>
-                  {['Submitted By', 'Project', 'Description', 'Date', 'Hours', 'Billable', 'Actions'].map((h) => (
+                  {['Submitted By', t('timeTracking.form.project'), t('common.description'), t('timeTracking.form.date'), t('timeTracking.form.hours'), t('timeTracking.billable'), t('common.actions')].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
                       {h}
                     </th>
@@ -1726,7 +1732,7 @@ const ApprovalsTab = () => {
                           onClick={() => handleApprove(approval.id)}
                           loading={approveTime.isPending}
                         >
-                          Approve
+                          {t('common.approve')}
                         </Button>
                         <Button
                           size="sm"
@@ -1735,7 +1741,7 @@ const ApprovalsTab = () => {
                           icon={<XCircle size={14} />}
                           onClick={() => setRejectTarget(approval.id)}
                         >
-                          Reject
+                          {t('common.reject')}
                         </Button>
                       </div>
                     </td>
@@ -1771,6 +1777,7 @@ interface UserGroup {
 }
 
 const TeamTimeLogTab = () => {
+  const { t } = useI18n();
   const todayStr = format(new Date(), 'yyyy-MM-dd');
   const yesterdayStr = format(subDays(new Date(), 1), 'yyyy-MM-dd');
 
@@ -1799,7 +1806,7 @@ const TeamTimeLogTab = () => {
 
   // Single fetch — backend team scope returns only this lead's team members' entries
   const { data: result, isLoading, error } = useTeamMemberEntries(queryParams, queryEnabled);
-  const allEntries = (result?.data ?? []) as TimeEntry[];
+  const allEntries = useMemo(() => (result?.data ?? []) as TimeEntry[], [result]);
 
   // Group entries by user — maintain insertion order so backend sort is preserved
   const userGroups = useMemo((): UserGroup[] => {
@@ -1854,7 +1861,7 @@ const TeamTimeLogTab = () => {
                   : 'bg-white text-gray-600 hover:bg-gray-50'
               }`}
             >
-              {m === 'today' ? 'Today' : m === 'yesterday' ? 'Yesterday' : 'Custom Range'}
+              {m === 'today' ? t('common.today') : m === 'yesterday' ? t('common.yesterday') : 'Custom Range'}
             </button>
           ))}
         </div>
@@ -1912,8 +1919,8 @@ const TeamTimeLogTab = () => {
 
       {/* Summary stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <StatCard label="Total Hours"    value={fmtH(totalHours)}           icon={<Clock size={18} className="text-indigo-500" />} />
-        <StatCard label="Billable Hours" value={fmtH(billableHours)}        icon={<DollarSign size={18} className="text-green-500" />} />
+        <StatCard label={t('timeTracking.totalHours')}    value={fmtH(totalHours)}           icon={<Clock size={18} className="text-indigo-500" />} />
+        <StatCard label={t('timeTracking.billable') + ' Hours'} value={fmtH(billableHours)}        icon={<DollarSign size={18} className="text-green-500" />} />
         <StatCard label="Members Logged" value={String(userGroups.length)}  icon={<Users size={18} className="text-blue-500" />} />
         <StatCard label="Entries Today"  value={String(allEntries.length)}  icon={<TrendingUp size={18} className="text-purple-500" />} />
       </div>
@@ -1961,7 +1968,7 @@ const TeamTimeLogTab = () => {
                 <table className="min-w-full divide-y divide-gray-50">
                   <thead>
                     <tr className="bg-white">
-                      {(dateFrom !== dateTo ? ['Date', 'Project', 'Task', 'Description', 'Hours', 'Billable', 'Status'] : ['Project', 'Task', 'Description', 'Hours', 'Billable', 'Status']).map((h) => (
+                      {(dateFrom !== dateTo ? [t('timeTracking.form.date'), t('timeTracking.form.project'), t('timeTracking.form.task'), t('common.description'), t('timeTracking.form.hours'), t('timeTracking.billable'), t('common.status')] : [t('timeTracking.form.project'), t('timeTracking.form.task'), t('common.description'), t('timeTracking.form.hours'), t('timeTracking.billable'), t('common.status')]).map((h) => (
                         <th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">
                           {h}
                         </th>
@@ -2016,7 +2023,7 @@ type Tab = 'my-log' | 'this-week' | 'team' | 'approvals';
 const TimeTrackingPage = () => {
   const { t } = useI18n();
   const { user } = useAuth();
-  const { tenantSlug } = useParams<{ tenantSlug: string }>();
+  useParams<{ tenantSlug: string }>();
   const [activeTab, setActiveTab] = useState<Tab>('my-log');
 
   const isManager     = hasPermission(user, PERMISSIONS.TIME_APPROVE);
@@ -2028,9 +2035,9 @@ const TimeTrackingPage = () => {
   const pendingCount = (pendingApprovals as TimeApproval[]).length;
 
   const tabs: Array<{ id: Tab; label: string; hidden?: boolean; badge?: number }> = [
-    { id: 'my-log',    label: 'My Time Log' },
+    { id: 'my-log',    label: t('timeTracking.tabs.myLogs') },
     { id: 'this-week', label: 'My Analytics' },
-    { id: 'team',      label: 'Team Logs',  hidden: !canTeamView },
+    { id: 'team',      label: t('timeTracking.tabs.team'),  hidden: !canTeamView },
     { id: 'approvals', label: 'Approvals',  hidden: !isManager, badge: pendingCount },
   ];
 
@@ -2039,7 +2046,7 @@ const TimeTrackingPage = () => {
   return (
     <Layout>
       <Header
-        title={t('nav.timeTracking')}
+        title={t('timeTracking.title')}
         subtitle="Log and manage your time entries"
       />
 

@@ -86,6 +86,7 @@ const ProjectSection = ({
   onEdit: (entry: EodEntry) => void;
   color: string;
 }) => {
+  const { t } = useI18n();
   const [collapsed, setCollapsed] = useState(false);
   return (
     <div className="rounded-xl border border-gray-200 overflow-hidden">
@@ -130,18 +131,18 @@ const ProjectSection = ({
 
                     <div className="grid grid-cols-1 gap-1.5">
                       <div className="flex gap-2">
-                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-20 shrink-0">Done</span>
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-20 shrink-0">{t('eod.form.accomplished')}</span>
                         <p className="text-sm text-gray-700 leading-snug">{entry.accomplishments}</p>
                       </div>
                       {entry.plannedTomorrow && (
                         <div className="flex gap-2">
-                          <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider mt-0.5 w-20 shrink-0">Tomorrow</span>
+                          <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider mt-0.5 w-20 shrink-0">{t('eod.form.planned')}</span>
                           <p className="text-sm text-gray-700 leading-snug">{entry.plannedTomorrow}</p>
                         </div>
                       )}
                       {entry.blockers && (
                         <div className="flex gap-2">
-                          <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-20 shrink-0">Blockers</span>
+                          <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-20 shrink-0">{t('eod.form.blockers')}</span>
                           <p className="text-sm text-red-700 leading-snug">{entry.blockers}</p>
                         </div>
                       )}
@@ -151,7 +152,7 @@ const ProjectSection = ({
                   <button
                     type="button"
                     onClick={() => onEdit(entry)}
-                    title="Edit this EOD"
+                    title={t('common.edit')}
                     className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 shrink-0"
                   >
                     <Pencil size={13} />
@@ -375,11 +376,11 @@ const EodPage = () => {
             mood:               data.mood,
           },
         });
-        setSuccess('EOD updated successfully');
+        setSuccess(t('common.updateSuccess'));
         setEditingEntry(null);
       } else {
         await submitEod.mutateAsync({ ...data, progress_percentage: Number(data.progress_percentage) });
-        setSuccess(`EOD submitted for ${format(new Date(data.date), 'd MMM yyyy')}`);
+        setSuccess(t('eod.submittedFor', { date: format(new Date(data.date), 'd MMM yyyy') }));
       }
       // DSV-022: explicitly reset textareas to '' so they actually clear in
       // the UI (passing undefined leaves stale text on some browsers).
@@ -415,27 +416,27 @@ const EodPage = () => {
 
   return (
     <Layout>
-      <Header title={t('nav.eod')} subtitle="Daily EOD updates" />
+      <Header title={t('nav.eod')} subtitle={t('eod.title')} />
       <div className="p-6 space-y-5">
 
         {/* Tabs — Team EOD only visible to users with EOD_TEAM_VIEW */}
         <div className="flex gap-2 border-b border-gray-200">
-          {(['submit', 'rollup', 'mine', ...(canSeeTeamEods ? ['team'] as const : [])] as const).map((t) => (
-            <button key={t} onClick={() => setTab(t)}
+          {(['submit', 'rollup', 'mine', ...(canSeeTeamEods ? ['team'] as const : [])] as const).map((tabKey) => (
+            <button key={tabKey} onClick={() => setTab(tabKey)}
               className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                tab === t ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+                tab === tabKey ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}>
-              {t === 'submit'
+              {tabKey === 'submit'
                 ? editingEntry ? (
                     <span className="flex items-center gap-1.5 text-amber-600">
-                      <Pencil size={13} /> Edit EOD
+                      <Pencil size={13} /> {t('eod.update')}
                     </span>
-                  ) : 'Submit EOD'
-                : t === 'rollup' ? 'EOD Rollup'
-                : t === 'mine' ? (
+                  ) : t('eod.submit')
+                : tabKey === 'rollup' ? t('standup.rollupTitle')
+                : tabKey === 'mine' ? (
                   <span className="flex items-center gap-1.5">
                     <History size={14} />
-                    My Submissions
+                    {t('eod.tabs.myToday')}
                     {myEods.length > 0 && (
                       <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-1.5 py-0.5 rounded-full">
                         {myEods.length}
@@ -445,7 +446,7 @@ const EodPage = () => {
                 ) : (
                   <span className="flex items-center gap-1.5">
                     <UsersIcon size={14} />
-                    Team EOD
+                    {t('eod.tabs.teamToday')}
                     {teamEods.length > 0 && (
                       <span className="bg-violet-100 text-violet-700 text-xs font-bold px-1.5 py-0.5 rounded-full">
                         {teamEods.length}
@@ -466,7 +467,7 @@ const EodPage = () => {
                 <div className="flex items-center gap-2">
                   <Pencil size={15} className="text-amber-600 shrink-0" />
                   <div>
-                    <p className="text-sm font-semibold text-amber-800">Editing EOD</p>
+                    <p className="text-sm font-semibold text-amber-800">{t('eod.update')}</p>
                     <p className="text-xs text-amber-600">
                       {editingEntry.projectName} · {format(new Date(editingEntry.date + 'T00:00:00'), 'd MMM yyyy')}
                     </p>
@@ -474,7 +475,7 @@ const EodPage = () => {
                 </div>
                 <button type="button" onClick={cancelEdit}
                   className="text-xs text-amber-600 hover:text-amber-800 flex items-center gap-1 px-2 py-1 rounded hover:bg-amber-100 transition-colors">
-                  <X size={12} /> Cancel
+                  <X size={12} /> {t('common.cancel')}
                 </button>
               </div>
             )}
@@ -490,14 +491,14 @@ const EodPage = () => {
                 {/* Project + Date */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="form-label">Project *</label>
+                    <label className="form-label">{t('eod.form.project')}</label>
                     {editingEntry ? (
                       <div className="form-input bg-gray-50 text-gray-600 cursor-not-allowed">
-                        {editingEntry.projectName ?? 'Unknown'}
+                        {editingEntry.projectName ?? t('common.na')}
                       </div>
                     ) : (
-                      <select className="form-select" {...register('project_id', { required: 'Required' })}>
-                        <option value="">Select project…</option>
+                      <select className="form-select" {...register('project_id', { required: t('validation.required') })}>
+                        <option value="">{t('common.searchPlaceholder')}</option>
                         {eodProjects.map((p: { id: string; name: string }) => (
                           <option key={p.id} value={p.id}>{p.name}</option>
                         ))}
@@ -506,7 +507,7 @@ const EodPage = () => {
                     {errors.project_id && <p className="form-error">{errors.project_id.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">Date *</label>
+                    <label className="form-label">{t('eod.form.date')}</label>
                     <input
                       type="date"
                       className={`form-input ${editingEntry ? 'bg-gray-50 text-gray-600 cursor-not-allowed' : ''}`}
@@ -514,19 +515,19 @@ const EodPage = () => {
                       min={minDate}
                       max={today}
                       {...register('date', {
-                        required: 'Date is required',
+                        required: t('validation.required'),
                         validate: (v) => {
-                          if (!v) return 'Date is required';
-                          if (v > today)    return "You can't submit an EOD for a future date.";
-                          if (v < minDate)  return 'Backdated entries are allowed only within the past 7 days.';
+                          if (!v) return t('validation.required');
+                          if (v > today)    return t('validation.futureDate');
+                          if (v < minDate)  return t('validation.pastDate');
                           return true;
                         },
                       })}
                     />
-                    {errors.date && <p className="form-error">{(errors.date as any).message || 'Invalid date'}</p>}
+                    {errors.date && <p className="form-error">{(errors.date as any).message || t('validation.invalidDate')}</p>}
                     {!editingEntry && (
                       <p className="text-[11px] text-gray-400 mt-1">
-                        You can enter EODs for the past 7 days. Future dates are not allowed.
+                        {t('eod.form.backdateHint')}
                       </p>
                     )}
                   </div>
@@ -547,44 +548,41 @@ const EodPage = () => {
                 {/* Accomplishments */}
                 <div>
                   <label className="form-label">
-                    What did you accomplish today? *
+                    {t('eod.form.accomplished')}
                     {aiFilledFields.has('accomplishments') && <AiBadge />}
                   </label>
                   <textarea className="form-textarea" rows={4}
-                    placeholder="Completed X feature, fixed Y bug, reviewed Z PR…"
-                    {...register('accomplishments', { required: 'Required' })} />
+                    placeholder={t('eod.form.accomplishedPlaceholder')}
+                    {...register('accomplishments', { required: t('validation.required') })} />
                   {errors.accomplishments && <p className="form-error">{errors.accomplishments.message}</p>}
                 </div>
 
                 {/* Planned tomorrow */}
                 <div>
                   <label className="form-label">
-                    Planned for tomorrow?
+                    {t('eod.form.planned')}
                     {aiFilledFields.has('planned_tomorrow') && <AiBadge />}
                   </label>
                   <textarea className="form-textarea" rows={3}
-                    placeholder="Continue with A, start B, meeting about C…"
+                    placeholder={t('eod.form.plannedPlaceholder')}
                     {...register('planned_tomorrow')} />
                 </div>
 
                 {/* Blockers */}
                 <div>
                   <label className="form-label">
-                    Any blockers?
+                    {t('eod.form.blockers')}
                     {aiFilledFields.has('blockers') && <AiBadge />}
                   </label>
                   <textarea className="form-textarea" rows={2}
-                    placeholder="None / Waiting for X / Need access to Y…"
+                    placeholder={t('eod.form.blockersPlaceholder')}
                     {...register('blockers')} />
                 </div>
 
                 {/* Progress */}
                 <div>
                   <label className="form-label">
-                    Overall Progress Today:{' '}
-                    <strong className={`${progressValue >= 70 ? 'text-green-600' : progressValue >= 40 ? 'text-amber-600' : 'text-red-500'}`}>
-                      {progressValue}%
-                    </strong>
+                    {t('eod.form.progressLabel', { pct: progressValue })}
                     {aiFilledFields.has('progress_percentage') && <AiBadge />}
                   </label>
                   <input type="range" min={0} max={100} step={5}
@@ -598,7 +596,7 @@ const EodPage = () => {
                 {/* Mood */}
                 <div>
                   <label className="form-label">
-                    How was your day?
+                    {t('eod.form.mood')}
                     {aiFilledFields.has('mood') && <AiBadge />}
                   </label>
                   <div className="flex gap-3 flex-wrap">
@@ -616,10 +614,10 @@ const EodPage = () => {
                 <div className="flex items-center gap-3">
                   <Button type="submit" loading={isSubmitting}
                     icon={editingEntry ? <Pencil size={15} /> : <CheckCircle size={16} />}>
-                    {editingEntry ? 'Update EOD' : 'Submit EOD'}
+                    {editingEntry ? t('eod.update') : t('eod.submit')}
                   </Button>
                   {editingEntry && (
-                    <Button type="button" variant="outline" onClick={cancelEdit}>Cancel</Button>
+                    <Button type="button" variant="outline" onClick={cancelEdit}>{t('common.cancel')}</Button>
                   )}
                 </div>
               </form>
@@ -641,7 +639,7 @@ const EodPage = () => {
               {eodDateFilter && (
                 <button type="button" onClick={() => setEodDateFilter('')}
                   className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 transition-colors">
-                  <X size={12} /> Clear
+                  <X size={12} /> {t('common.clear')}
                 </button>
               )}
             </div>
@@ -650,7 +648,7 @@ const EodPage = () => {
             <div className="flex items-center gap-3 p-3 bg-indigo-50 rounded-xl border border-indigo-100">
               <History size={18} className="text-indigo-600 shrink-0" />
               <p className="text-sm font-medium text-indigo-800">
-                {myLoading ? 'Loading…'
+                {myLoading ? t('common.loading')
                   : eodDateFilter
                     ? `${visibleEods.length} EOD${visibleEods.length !== 1 ? 's' : ''} on ${format(new Date(eodDateFilter + 'T00:00:00'), 'd MMM yyyy')}`
                     : `${myEods.length} EOD${myEods.length !== 1 ? 's' : ''} across ${byProject.size} project${byProject.size !== 1 ? 's' : ''}`}
@@ -660,14 +658,14 @@ const EodPage = () => {
             {/* Hover-tip */}
             {!myLoading && myEods.length > 0 && (
               <p className="text-xs text-gray-400 flex items-center gap-1">
-                <Pencil size={10} /> Hover over an entry to edit it
+                <Pencil size={10} /> {t('eod.hoverToEdit')}
               </p>
             )}
 
             {myLoading ? <PageLoader /> : visibleEods.length === 0 ? (
               <EmptyState
-                title={eodDateFilter ? 'No EODs on this date' : 'No EODs yet'}
-                description={eodDateFilter ? 'Try a different date.' : 'Your submitted EODs will appear here.'}
+                title={eodDateFilter ? t('eod.noEodsDate') : t('eod.noEodsAll')}
+                description={eodDateFilter ? t('eod.noEodsDateDesc') : t('eod.noEodsAllDesc')}
               />
             ) : (
               <div className="space-y-3">
@@ -705,9 +703,9 @@ const EodPage = () => {
             </div>
 
             {rollupLoading ? <PageLoader /> : !rollupProjectId ? (
-              <EmptyState title="Select a project" description="Choose a project above to see the EOD rollup." />
+              <EmptyState title={t('eod.selectProject')} description={t('eod.selectProjectDesc')} />
             ) : rollupData?.rollup?.length === 0 ? (
-              <EmptyState title="No EODs found" description="No EOD entries in the last 7 days." />
+              <EmptyState title={t('eod.noEntries')} description={t('eod.noEodsRangeDesc')} />
             ) : (
               <div className="space-y-4">
                 {rollupData?.rollup?.map((day: {
@@ -725,7 +723,7 @@ const EodPage = () => {
                       <div className="flex items-center gap-3">
                         <div className="flex items-center gap-1.5 text-xs text-gray-500">
                           <TrendingUp size={12} className="text-indigo-400" />
-                          Avg <strong className="text-gray-700">{day.avgProgress}%</strong>
+                          {t('eod.avgProgress')} <strong className="text-gray-700">{day.avgProgress}%</strong>
                         </div>
                         <span className="text-xs text-gray-500 bg-white dark:bg-gray-700/60 dark:text-gray-300 px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-600">
                           {day.entryCount} update{day.entryCount !== 1 ? 's' : ''}
@@ -753,18 +751,18 @@ const EodPage = () => {
                             </div>
                             <div className="grid grid-cols-1 gap-1.5">
                               <div className="flex gap-2">
-                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-20 shrink-0">Done</span>
+                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-20 shrink-0">{t('eod.form.accomplished')}</span>
                                 <p className="text-sm text-gray-700 leading-snug">{entry.accomplishments}</p>
                               </div>
                               {entry.plannedTomorrow && (
                                 <div className="flex gap-2">
-                                  <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider mt-0.5 w-20 shrink-0">Tomorrow</span>
+                                  <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider mt-0.5 w-20 shrink-0">{t('eod.form.planned')}</span>
                                   <p className="text-sm text-gray-700 leading-snug">{entry.plannedTomorrow}</p>
                                 </div>
                               )}
                               {entry.blockers && (
                                 <div className="flex gap-2">
-                                  <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-20 shrink-0">Blockers</span>
+                                  <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-20 shrink-0">{t('eod.form.blockers')}</span>
                                   <p className="text-sm text-red-700 leading-snug">{entry.blockers}</p>
                                 </div>
                               )}
@@ -786,7 +784,7 @@ const EodPage = () => {
             <div className="flex items-start gap-2.5 p-3 bg-violet-50 border border-violet-100 rounded-xl text-xs text-violet-700">
               <UsersIcon size={14} className="mt-0.5 flex-shrink-0" />
               <span>
-                Showing EOD submissions from members of teams you're in or lead. Use this to track end-of-day progress across your team.
+                {t('eod.teamViewInfo')}
               </span>
             </div>
 
@@ -796,10 +794,10 @@ const EodPage = () => {
             <Card>
               <div className="flex flex-wrap items-center gap-2 mb-3">
                 {[
-                  { key: 'today',     label: 'Today' },
-                  { key: 'yesterday', label: 'Yesterday' },
-                  { key: 'week',      label: 'This Week' },
-                  { key: 'all',       label: 'All Time' },
+                  { key: 'today',     label: t('common.today') },
+                  { key: 'yesterday', label: t('common.yesterday') },
+                  { key: 'week',      label: t('common.thisWeek') },
+                  { key: 'all',       label: t('common.all') },
                 ].map((p) => (
                   <button
                     key={p.key}
@@ -816,7 +814,7 @@ const EodPage = () => {
                 ))}
                 {teamActivePreset === 'custom' && (
                   <span className="px-3 py-1.5 text-xs font-medium rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
-                    Custom
+                    {t('eod.customPreset')}
                   </span>
                 )}
                 {teamHasFilter && (
@@ -824,16 +822,16 @@ const EodPage = () => {
                     type="button"
                     onClick={clearTeamFilters}
                     className="ml-auto px-3 py-1.5 text-xs font-medium rounded-full border border-red-200 text-red-600 bg-ds-surface hover:bg-red-50 transition-colors"
-                    title="Reset filters back to today"
+                    title={t('common.reset')}
                   >
-                    Clear filters
+                    {t('common.clear')}
                   </button>
                 )}
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div>
-                  <label className="form-label">From</label>
+                  <label className="form-label">{t('leave.from')}</label>
                   <input
                     type="date"
                     className="form-input"
@@ -842,7 +840,7 @@ const EodPage = () => {
                   />
                 </div>
                 <div>
-                  <label className="form-label">To</label>
+                  <label className="form-label">{t('leave.to')}</label>
                   <input
                     type="date"
                     className="form-input"
@@ -851,26 +849,26 @@ const EodPage = () => {
                   />
                 </div>
                 <div>
-                  <label className="form-label">Project</label>
+                  <label className="form-label">{t('common.filter')}</label>
                   <select
                     className="form-select"
                     value={teamProjectId}
                     onChange={(e) => setTeamProjectId(e.target.value)}
                   >
-                    <option value="">All projects</option>
+                    <option value="">{t('eod.allProjects')}</option>
                     {(projects as Array<{ id: string; name: string }>).map((p) => (
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="form-label">User</label>
+                  <label className="form-label">{t('admin.users.title')}</label>
                   <select
                     className="form-select"
                     value={teamUserId}
                     onChange={(e) => setTeamUserId(e.target.value)}
                   >
-                    <option value="">All users</option>
+                    <option value="">{t('eod.allUsers')}</option>
                     {teamUserOptions.map((u) => (
                       <option key={u.id} value={u.id}>{u.name}</option>
                     ))}
@@ -883,8 +881,8 @@ const EodPage = () => {
               <PageLoader />
             ) : (teamEods as EodEntry[]).length === 0 ? (
               <EmptyState
-                title="No team EODs in this range"
-                description="Try widening the date range or clearing the user / project filter."
+                title={t('eod.noEntries')}
+                description={t('common.noResults')}
               />
             ) : (
               <div className="space-y-3">
@@ -893,13 +891,13 @@ const EodPage = () => {
                     <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
                       <div className="flex items-center gap-3 min-w-0">
                         <UserAvatar
-                          name={entry.userName || 'Team member'}
+                          name={entry.userName || t('eod.teamMember')}
                           avatarUrl={entry.userAvatarUrl}
                           size="md"
                         />
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-gray-900 truncate">
-                            {entry.userName || 'Team member'}
+                            {entry.userName || t('eod.teamMember')}
                           </p>
                           <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                             {entry.projectName && (
@@ -909,7 +907,7 @@ const EodPage = () => {
                             )}
                             {typeof entry.progressPercentage === 'number' && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">
-                                {entry.progressPercentage}% done
+                                {t('eod.donePct', { pct: entry.progressPercentage })}
                               </span>
                             )}
                           </div>
@@ -922,19 +920,19 @@ const EodPage = () => {
                     <div className="grid grid-cols-1 gap-1.5">
                       {entry.accomplishments && (
                         <div className="flex gap-2">
-                          <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider mt-0.5 w-24 shrink-0">Accomplished</span>
+                          <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider mt-0.5 w-24 shrink-0">{t('eod.form.accomplished')}</span>
                           <p className="text-sm text-gray-700 leading-snug">{entry.accomplishments}</p>
                         </div>
                       )}
                       {entry.plannedTomorrow && (
                         <div className="flex gap-2">
-                          <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Tomorrow</span>
+                          <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">{t('eod.form.planned')}</span>
                           <p className="text-sm text-gray-700 leading-snug">{entry.plannedTomorrow}</p>
                         </div>
                       )}
                       {entry.blockers && (
                         <div className="flex gap-2">
-                          <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Blockers</span>
+                          <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">{t('eod.form.blockers')}</span>
                           <p className="text-sm text-red-700 leading-snug">{entry.blockers}</p>
                         </div>
                       )}
@@ -949,10 +947,10 @@ const EodPage = () => {
               <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border border-ds-border rounded-xl bg-ds-surface-hover">
                 <div className="flex items-center gap-4 text-xs text-ds-text-muted">
                   <span>
-                    Showing <strong className="text-ds-text">{((teamPage - 1) * teamPageSize) + 1}–{Math.min(teamPage * teamPageSize, teamTotal)}</strong> of <strong className="text-ds-text">{teamTotal}</strong> EODs
+                    {t('eod.showingRange', { from: ((teamPage - 1) * teamPageSize) + 1, to: Math.min(teamPage * teamPageSize, teamTotal), total: teamTotal })}
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <label htmlFor="team-eod-page-size" className="text-ds-text-muted">Rows per page:</label>
+                    <label htmlFor="team-eod-page-size" className="text-ds-text-muted">{t('eod.rowsPerPage')}</label>
                     <select
                       id="team-eod-page-size"
                       value={teamPageSize}
@@ -972,13 +970,13 @@ const EodPage = () => {
                     disabled={teamPage === 1}
                     onClick={() => setTeamPage(1)}
                     className="px-2 py-1 text-xs border border-ds-border rounded hover:bg-ds-surface disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="First page"
+                    title={t('common.previous')}
                   >«</button>
                   <button
                     disabled={teamPage === 1}
                     onClick={() => setTeamPage((p) => Math.max(1, p - 1))}
                     className="px-2 py-1 text-xs border border-ds-border rounded hover:bg-ds-surface disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="Previous page"
+                    title={t('common.previous')}
                   >←</button>
                   {Array.from({ length: teamTotalPages }, (_, i) => i + 1)
                     .filter((p) => p === 1 || p === teamTotalPages || Math.abs(p - teamPage) <= 1)
@@ -1006,13 +1004,13 @@ const EodPage = () => {
                     disabled={teamPage >= teamTotalPages}
                     onClick={() => setTeamPage((p) => Math.min(teamTotalPages, p + 1))}
                     className="px-2 py-1 text-xs border border-ds-border rounded hover:bg-ds-surface disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="Next page"
+                    title={t('common.next')}
                   >→</button>
                   <button
                     disabled={teamPage >= teamTotalPages}
                     onClick={() => setTeamPage(teamTotalPages)}
                     className="px-2 py-1 text-xs border border-ds-border rounded hover:bg-ds-surface disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="Last page"
+                    title={t('common.next')}
                   >»</button>
                 </div>
               </div>

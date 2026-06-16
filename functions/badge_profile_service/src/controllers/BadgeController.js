@@ -129,7 +129,7 @@ class BadgeController {
       // or links into a recipient's inbox.
       await this.notif.send({
         toEmail: userRows[0].email,
-        subject: `[Delivery Sync] You earned a badge: ${badge.name}!`,
+        subject: `You earned a badge: ${badge.name}!`,
         htmlBody: `<p>Hi ${_escapeHtml(userRows[0].name)}, congratulations! You have been awarded the <strong>${_escapeHtml(badge.name)}</strong> (${_escapeHtml(badge.level)}) badge. Reason: ${_escapeHtml(reason)}</p>`,
       });
       await this.notif.sendInApp({ tenantId: req.tenantId, userId: user_id, title: 'Badge Awarded!', message: `You earned the "${badge.name}" badge`, type: NOTIFICATION_TYPE.BADGE_AWARDED, entityType: 'BADGE', entityId: req.params.badgeId });
