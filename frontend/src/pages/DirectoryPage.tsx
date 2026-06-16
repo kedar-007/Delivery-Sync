@@ -5,7 +5,7 @@ import {
   ChevronRight, Edit2, X, Upload, FileText, Camera, BarChart2,
   Phone, Calendar, Mail,
 } from 'lucide-react';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
@@ -16,6 +16,7 @@ import Badge from '../components/ui/Badge';
 import EmptyState from '../components/ui/EmptyState';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import UserAvatar from '../components/ui/UserAvatar';
+import UserPicker from '../components/ui/UserPicker';
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import PerformanceModal from '../components/ui/PerformanceModal';
@@ -180,6 +181,7 @@ const ProfileDetailModal = ({
   managerName?: string;
   managerAvatarUrl?: string;
 }) => {
+  const { t } = useI18n();
   const { data } = useProfile(userId);
   const profile: DirectoryProfile | undefined = data?.data ?? data;
 
@@ -188,7 +190,7 @@ const ProfileDetailModal = ({
   const skills = parseSkills(profile?.skills);
 
   return (
-    <Modal open={open} onClose={onClose} title="Employee Profile" size="xl">
+    <Modal open={open} onClose={onClose} title={t('directory.card.viewProfile')} size="xl">
       {!profile ? (
         <div className="py-10 flex justify-center">
           <div className="animate-spin h-6 w-6 border-2 border-blue-500 border-t-transparent rounded-full" />
@@ -233,7 +235,7 @@ const ProfileDetailModal = ({
                 <div className="flex items-center gap-2">
                   <Mail size={13} className="text-gray-400 shrink-0" />
                   <div className="min-w-0">
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Email</p>
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{t('profile.email')}</p>
                     <a href={`mailto:${profile.email}`} className="text-sm text-gray-800 hover:text-blue-600 truncate block">
                       {profile.email}
                     </a>
@@ -369,7 +371,7 @@ const ProfileDetailModal = ({
       )}
       <ModalActions>
         <Button variant="outline" onClick={onClose}>
-          Close
+          {t('common.close')}
         </Button>
       </ModalActions>
     </Modal>
@@ -379,6 +381,7 @@ const ProfileDetailModal = ({
 // ─── Directory Tab ────────────────────────────────────────────────────────────
 
 const DirectoryTab = () => {
+  const { t } = useI18n();
   const { user } = useAuth();
   // AI_TEAM_ANALYSIS = can analyze others; AI_PERFORMANCE alone = self-only via profile page
   const canAnalyzeOthers = hasPermission(user, PERMISSIONS.AI_TEAM_ANALYSIS);
@@ -406,7 +409,7 @@ const DirectoryTab = () => {
 
   if (isLoading) return <PageSkeleton />;
   if (error)
-    return <Alert type="error" message="Failed to load directory." className="m-6" />;
+    return <Alert type="error" message={t('errors.loadFailed')} className="m-6" />;
 
   return (
     <div className="space-y-5">
@@ -415,7 +418,7 @@ const DirectoryTab = () => {
         <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
         <input
           type="text"
-          placeholder="Search by name, department, designation…"
+          placeholder={t('directory.searchPlaceholder')}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -433,8 +436,8 @@ const DirectoryTab = () => {
       {/* Grid */}
       {filtered.length === 0 ? (
         <EmptyState
-          title="No employees found"
-          description="Try a different search term."
+          title={t('directory.noResults')}
+          description={t('common.noResults')}
           icon={<User size={36} />}
         />
       ) : (
@@ -510,14 +513,14 @@ const DirectoryTab = () => {
                       ))}
                       {extra > 0 && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-gray-100 text-gray-500 text-xs">
-                          +{extra} more
+                          +{extra} {t('common.moreItems')}
                         </span>
                       )}
                     </div>
                   )}
                   <div className="flex items-center justify-between w-full mt-auto gap-2">
                     <div className="flex items-center gap-1 text-xs text-blue-600">
-                      <span>View profile</span>
+                      <span>{t('directory.card.viewProfile')}</span>
                       <ChevronRight size={12} />
                     </div>
                     {canAnalyzeOthers && (
@@ -527,9 +530,9 @@ const DirectoryTab = () => {
                           setAnalyzeTarget({ id: profile.user_id, name: profile.name, avatarUrl: profile.avatar_url });
                         }}
                         className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium px-2 py-0.5 rounded-lg hover:bg-indigo-50 transition-colors"
-                        title="Analyze performance"
+                        title={t('ai.performance.title')}
                       >
-                        <BarChart2 size={12} /> Analyze
+                        <BarChart2 size={12} /> {t('common.view')}
                       </button>
                     )}
                   </div>
@@ -566,6 +569,7 @@ const DirectoryTab = () => {
 // ─── Leaderboard Tab ──────────────────────────────────────────────────────────
 
 const LeaderboardTab = () => {
+  const { t } = useI18n();
   const { data, isLoading, error } = useBadgeLeaderboard();
   const entries: LeaderboardEntry[] = useMemo(() => {
     const raw = data?.data ?? data ?? [];
@@ -574,12 +578,12 @@ const LeaderboardTab = () => {
 
   if (isLoading) return <PageSkeleton />;
   if (error)
-    return <Alert type="error" message="Failed to load leaderboard." className="m-6" />;
+    return <Alert type="error" message={t('errors.loadFailed')} className="m-6" />;
   if (entries.length === 0)
     return (
       <EmptyState
-        title="No badges awarded yet"
-        description="Start awarding badges to build the leaderboard."
+        title={t('common.noData')}
+        description={t('common.noResults')}
         icon={<Trophy size={36} />}
       />
     );
@@ -633,7 +637,7 @@ const LeaderboardTab = () => {
                   </div>
                 ))}
                 {entry.badges.length > 3 && (
-                  <span className="text-xs text-amber-600 font-medium">+{entry.badges.length - 3} more</span>
+                  <span className="text-xs text-amber-600 font-medium">+{entry.badges.length - 3} {t('common.moreItems')}</span>
                 )}
               </div>
             )}
@@ -695,6 +699,7 @@ const LeaderboardTab = () => {
 // ─── Badges Tab (Admin) ───────────────────────────────────────────────────────
 
 const BadgesTab = () => {
+  const { t } = useI18n();
   const { data: badgesData, isLoading, error } = useBadges();
   const { data: dirData } = useDirectory();
   const createBadge = useCreateBadge();
@@ -751,7 +756,7 @@ const BadgesTab = () => {
       createForm.reset();
 
     } catch (e: unknown) {
-      setCreateError((e as Error).message || 'Failed to create badge');
+      setCreateError((e as Error).message || t('errors.saveFailed'));
     }
   };
 
@@ -763,13 +768,13 @@ const BadgesTab = () => {
       setAwardTarget(null);
       awardForm.reset();
     } catch (e: unknown) {
-      setAwardError((e as Error).message ?? 'Failed to award badge.');
+      setAwardError((e as Error).message ?? t('errors.saveFailed'));
     }
   };
 
   if (isLoading) return <PageSkeleton />;
   if (error)
-    return <Alert type="error" message="Failed to load badges." className="m-6" />;
+    return <Alert type="error" message={t('errors.loadFailed')} className="m-6" />;
 
   return (
     <div className="space-y-5">
@@ -783,14 +788,14 @@ const BadgesTab = () => {
           icon={<Plus size={14} />}
           onClick={() => setShowCreate(true)}
         >
-          Create Badge
+          {t('common.create')}
         </Button>
       </div>
 
       {badges.length === 0 ? (
         <EmptyState
-          title="No badges defined"
-          description="Create your first badge to start recognizing team members."
+          title={t('common.noData')}
+          description={t('common.noResults')}
           icon={<Award size={36} />}
           action={
             <Button
@@ -799,7 +804,7 @@ const BadgesTab = () => {
               icon={<Plus size={14} />}
               onClick={() => setShowCreate(true)}
             >
-              Create Badge
+              {t('common.create')}
             </Button>
           }
         />
@@ -843,7 +848,7 @@ const BadgesTab = () => {
                   setAwardError('');
                 }}
               >
-                Award Badge
+                {t('common.assign')}
               </Button>
             </Card>
           ))}
@@ -858,7 +863,7 @@ const BadgesTab = () => {
           setCreateError('');
           createForm.reset();
         }}
-        title="Create Badge"
+        title={t('common.create')}
         size="md"
       >
         <form onSubmit={createForm.handleSubmit(onCreateSubmit)} className="space-y-4">
@@ -880,10 +885,10 @@ const BadgesTab = () => {
             {/* Name */}
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
-                Name <span className="text-red-500">*</span>
+                {t('common.name')} <span className="text-red-500">*</span>
               </label>
               <input
-                {...createForm.register('name', { required: 'Name is required' })}
+                {...createForm.register('name', { required: t('validation.required') })}
                 placeholder="e.g. Go-Getter"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
               />
@@ -901,7 +906,7 @@ const BadgesTab = () => {
               Category <span className="text-red-500">*</span>
             </label>
             <input
-              {...createForm.register('category', { required: 'Category is required' })}
+              {...createForm.register('category', { required: t('validation.required') })}
               placeholder="e.g. Performance, Culture"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
             />
@@ -915,7 +920,7 @@ const BadgesTab = () => {
           {/* Description */}
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">
-              Description
+              {t('common.description')}
             </label>
             <textarea
               {...createForm.register('description')}
@@ -962,7 +967,7 @@ const BadgesTab = () => {
                 createForm.reset();
               }}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
 
             <Button
@@ -970,7 +975,7 @@ const BadgesTab = () => {
               variant="primary"
               loading={createForm.formState.isSubmitting}
             >
-              Create Badge
+              {t('common.create')}
             </Button>
           </ModalActions>
         </form>
@@ -984,7 +989,7 @@ const BadgesTab = () => {
           setAwardError('');
           awardForm.reset();
         }}
-        title={`Award "${awardTarget?.name ?? ''}"`}
+        title={`${t('common.assign')} "${awardTarget?.name ?? ''}"`}
         size="sm"
       >
         <form onSubmit={awardForm.handleSubmit(onAwardSubmit)} className="space-y-4">
@@ -993,18 +998,24 @@ const BadgesTab = () => {
             <label className="block text-xs font-medium text-gray-700 mb-1">
               Employee <span className="text-red-500">*</span>
             </label>
-            <select
-              {...awardForm.register('user_id', { required: 'Please select an employee' })}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-ds-surface dark:text-ds-text"
-            >
-              <option value="">Select employee…</option>
-              {employees.map((e) => (
-                <option key={e.user_id} value={e.user_id}>
-                  {e.name}
-                  {e.designation ? ` — ${e.designation}` : ''}
-                </option>
-              ))}
-            </select>
+            <Controller
+              name="user_id"
+              control={awardForm.control}
+              rules={{ required: t('validation.required') }}
+              defaultValue=""
+              render={({ field }) => (
+                <UserPicker
+                  users={employees.map((e) => ({
+                    id: e.user_id,
+                    name: e.name,
+                    role: e.designation,
+                  }))}
+                  value={field.value ?? ''}
+                  onChange={field.onChange}
+                  placeholder={t('common.searchPlaceholder')}
+                />
+              )}
+            />
             {awardForm.formState.errors.user_id && (
               <p className="text-xs text-red-600 mt-1">
                 {awardForm.formState.errors.user_id.message}
@@ -1013,7 +1024,7 @@ const BadgesTab = () => {
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">
-              Note (optional)
+              {t('common.notes')} {t('common.optional2')}
             </label>
             <input
               {...awardForm.register('reason')}
@@ -1027,14 +1038,14 @@ const BadgesTab = () => {
               type="button"
               onClick={() => setAwardTarget(null)}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="primary"
               type="submit"
               loading={awardForm.formState.isSubmitting}
             >
-              Award
+              {t('common.assign')}
             </Button>
           </ModalActions>
         </form>
@@ -1046,6 +1057,7 @@ const BadgesTab = () => {
 // ─── My Profile Tab ───────────────────────────────────────────────────────────
 
 const MyProfileTab = () => {
+  const { t } = useI18n();
   const { data, isLoading, error } = useMyProfile();
   const updateProfile = useUpdateMyProfile();
   const uploadFile = useUploadProfileFile();
@@ -1064,9 +1076,9 @@ const MyProfileTab = () => {
     setUploadSuccess('');
     try {
       await uploadFile.mutateAsync({ file, type });
-      setUploadSuccess(`${type === 'photo' ? 'Profile photo' : 'Resume'} uploaded successfully.`);
+      setUploadSuccess(type === 'photo' ? t('profile.pictureUpdated') : t('common.success'));
     } catch (e: unknown) {
-      setUploadError((e as Error).message ?? 'Upload failed.');
+      setUploadError((e as Error).message ?? t('errors.saveFailed'));
     }
   };
 
@@ -1114,20 +1126,20 @@ const MyProfileTab = () => {
       setSaveSuccess(true);
       setEditing(false);
     } catch (e: unknown) {
-      setSaveError((e as Error).message ?? 'Failed to save profile.');
+      setSaveError((e as Error).message ?? t('errors.saveFailed'));
     }
   };
 
   if (isLoading) return <PageSkeleton />;
   if (error)
-    return <Alert type="error" message="Failed to load your profile." className="m-6" />;
+    return <Alert type="error" message={t('errors.loadFailed')} className="m-6" />;
 
   const profileSkills = parseSkills(profile?.skills);
 
   return (
     <div className="max-w-2xl space-y-5">
       {saveSuccess && (
-        <Alert type="success" message="Profile updated successfully." />
+        <Alert type="success" message={t('common.updateSuccess')} />
       )}
 
       {(uploadError || uploadSuccess) && (
@@ -1142,14 +1154,14 @@ const MyProfileTab = () => {
           <div className="p-3 border border-dashed border-gray-300 rounded-lg">
             <div className="flex items-center gap-2 mb-2">
               <Camera size={14} className="text-blue-500" />
-              <span className="text-xs font-medium text-gray-700">Profile Photo</span>
+              <span className="text-xs font-medium text-gray-700">{t('profile.picture')}</span>
             </div>
             {(profile as any)?.avatar_url && (
               <img src={(profile as any).avatar_url} alt="avatar" className="w-12 h-12 rounded-full object-cover mb-2 border border-gray-100" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
             )}
             <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors">
               <Upload size={12} />
-              {uploadFile.isPending ? 'Uploading…' : 'Upload Photo'}
+              {uploadFile.isPending ? t('common.loading') : t('profile.uploadPhoto')}
               <input type="file" accept="image/*" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileUpload(f, 'photo'); }} />
             </label>
           </div>
@@ -1167,7 +1179,7 @@ const MyProfileTab = () => {
             )}
             <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-green-50 text-green-700 border border-green-200 rounded-lg hover:bg-green-100 transition-colors">
               <Upload size={12} />
-              {uploadFile.isPending ? 'Uploading…' : 'Upload Resume'}
+              {uploadFile.isPending ? t('common.loading') : t('common.upload')}
               <input type="file" accept=".pdf,.doc,.docx" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileUpload(f, 'resume'); }} />
             </label>
           </div>
@@ -1199,7 +1211,7 @@ const MyProfileTab = () => {
               icon={<Edit2 size={13} />}
               onClick={() => setEditing(true)}
             >
-              Edit
+              {t('common.edit')}
             </Button>
           </div>
 
@@ -1210,7 +1222,7 @@ const MyProfileTab = () => {
                 <div className="flex items-center gap-2">
                   <Mail size={13} className="text-gray-400 shrink-0" />
                   <div className="min-w-0">
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Email</p>
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{t('profile.email')}</p>
                     <a href={`mailto:${(profile as any).email}`} className="text-sm text-gray-800 hover:text-blue-600 truncate block">
                       {(profile as any).email}
                     </a>
@@ -1250,7 +1262,7 @@ const MyProfileTab = () => {
               <p className="text-sm text-gray-700 leading-relaxed">{profile.bio}</p>
             </div>
           ) : (
-            <p className="text-sm text-gray-400 italic mb-4">No bio added yet.</p>
+            <p className="text-sm text-gray-400 italic mb-4">{t('common.noData')}</p>
           )}
 
           {profileSkills.length > 0 && (
@@ -1269,13 +1281,13 @@ const MyProfileTab = () => {
       ) : (
         <Card>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <h3 className="text-sm font-semibold text-gray-900">Edit Profile</h3>
+            <h3 className="text-sm font-semibold text-gray-900">{t('common.edit')} {t('profile.title')}</h3>
             {saveError && <Alert type="error" message={saveError} />}
 
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Designation
+                  {t('profile.role')}
                 </label>
                 <input
                   {...register('designation')}
@@ -1285,7 +1297,7 @@ const MyProfileTab = () => {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Department
+                  {t('directory.filters.department')}
                 </label>
                 <input
                   {...register('department')}
@@ -1354,7 +1366,7 @@ const MyProfileTab = () => {
                   size="sm"
                   onClick={addSkill}
                 >
-                  Add
+                  {t('common.add')}
                 </Button>
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -1374,7 +1386,7 @@ const MyProfileTab = () => {
                   </span>
                 ))}
                 {skills.length === 0 && (
-                  <span className="text-xs text-gray-400">No skills added yet.</span>
+                  <span className="text-xs text-gray-400">{t('common.noData')}</span>
                 )}
               </div>
             </div>
@@ -1385,7 +1397,7 @@ const MyProfileTab = () => {
                 type="submit"
                 loading={isSubmitting}
               >
-                Save Changes
+                {t('profile.saveChanges')}
               </Button>
               <Button
                 variant="outline"
@@ -1395,7 +1407,7 @@ const MyProfileTab = () => {
                   setSaveError('');
                 }}
               >
-                Cancel
+                {t('common.cancel')}
               </Button>
             </div>
           </form>
@@ -1414,13 +1426,20 @@ const DirectoryPage = () => {
   const [activeTab, setActiveTab] = useState<Tab>('Directory');
 
   const canManageBadges = hasPermission(user, PERMISSIONS.BADGE_WRITE);
-  const visibleTabs = TABS.filter((t) => t !== 'Badges' || canManageBadges);
+  const visibleTabs = TABS.filter((tab) => tab !== 'Badges' || canManageBadges);
+
+  const tabLabels: Record<Tab, string> = {
+    Directory: t('nav.directory'),
+    Leaderboard: t('directory.orgChart'),
+    Badges: t('dashboard.badges.title'),
+    'My Profile': t('profile.title'),
+  };
 
   return (
     <Layout>
       <Header
         title={t('nav.directory')}
-        subtitle="Browse employees, view profiles, and celebrate achievements"
+        subtitle={t('directory.title')}
       />
       <div className="p-6 space-y-6">
         {/* Tab bar */}
@@ -1434,7 +1453,7 @@ const DirectoryPage = () => {
                 : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
                 }`}
             >
-              {tab}
+              {tabLabels[tab]}
             </button>
           ))}
         </div>

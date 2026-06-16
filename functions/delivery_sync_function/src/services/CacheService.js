@@ -234,6 +234,37 @@ class CacheService {
     stats.lastError      = null;
   }
 
+  /**
+   * Bust the auth-context cache for one user across ALL microservices.
+   *
+   * Every service maintains its own scoped auth-ctx key so a permission change
+   * in delivery_sync_function must also clear the user's cached context in
+   * people_service, task_sprint_service, etc. — otherwise those services keep
+   * serving stale permissions until their individual TTLs expire.
+   *
+   * Call this whenever any of the following change for a user:
+   *   - Catalyst role (TEAM_MEMBER / TENANT_ADMIN)
+   *   - Org-role assignment (user_org_roles table)
+   *   - Per-user permission overrides (permission_overrides table)
+   *   - Org-role permissions change (setRolePermissions — iterate all members)
+   */
+  static async invalidateUserAuthCtx(catalystApp, userId) {
+    try {
+      const cache = new CacheService(catalystApp);
+      const uid = String(userId);
+      await Promise.allSettled([
+        cache.invalidate(`authCtx:v1:${uid}`),           // delivery_sync_function
+        cache.invalidate(`authCtx:people:v1:${uid}`),    // people_service
+        cache.invalidate(`authCtx:tasks:v1:${uid}`),     // task_sprint_service
+        cache.invalidate(`authCtx:assets:v1:${uid}`),    // asset_service
+        cache.invalidate(`authCtx:reports:v1:${uid}`),   // reporting_service
+        cache.invalidate(`authCtx:badges:v1:${uid}`),    // badge_profile_service
+        cache.invalidate(`authCtx:admin:v1:${uid}`),     // admin_config_service
+        cache.invalidate(`authCtx:time:v1:${uid}`),      // time_tracking_service
+      ]);
+    } catch (_) {}
+  }
+
   /** Catalyst Cache dev-env limits (exported for callers that want to pre-check). */
   static get LIMITS() {
     return { MAX_ITEM_CHARS, MAX_KEY_CHARS };

@@ -248,6 +248,7 @@ function TaskFormModal({
   const { data: usersData = [] } = useUsers();
   const users = usersData as TenantUser[];
 
+  const { t } = useI18n();
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<TaskFormData>({
     defaultValues: { type: 'TASK', priority: 'MEDIUM', status: 'TODO' },
   });
@@ -305,23 +306,23 @@ function TaskFormModal({
   });
 
   return (
-    <Modal open={open} onClose={onClose} title={editing ? 'Edit Task' : 'New Task'} size="lg">
+    <Modal open={open} onClose={onClose} title={editing ? t('tasks.modal.editTitle') : t('tasks.modal.createTitle')} size="lg">
       <form onSubmit={onSubmit} className="space-y-4">
         {formError && <Alert type="error" message={formError} />}
 
         <div>
-          <label className="form-label">Title *</label>
-          <input className="form-input" placeholder="Task title" {...register('title', { required: 'Title is required' })} />
+          <label className="form-label">{t('tasks.modal.titleLabel')} *</label>
+          <input className="form-input" placeholder="Task title" {...register('title', { required: t('validation.required') })} />
           {errors.title && <p className="text-xs text-red-600 mt-1">{errors.title.message}</p>}
         </div>
 
         <div>
-          <label className="form-label">Description</label>
+          <label className="form-label">{t('tasks.modal.descLabel')}</label>
           <textarea className="form-textarea" rows={3} placeholder="Describe what needs to be done…" {...register('description')} />
         </div>
 
         <div>
-          <label className="form-label">Project <span className="text-gray-400 font-normal">(optional)</span></label>
+          <label className="form-label">{t('tasks.modal.project')} <span className="text-gray-400 font-normal">(optional)</span></label>
           <select className="form-select" {...register('project_id')}>
             <option value="">No project</option>
             {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -340,32 +341,32 @@ function TaskFormModal({
             </select>
           </div>
           <div>
-            <label className="form-label">Priority</label>
+            <label className="form-label">{t('tasks.modal.priority')}</label>
             <select className="form-select" {...register('priority')}>
-              <option value="CRITICAL">Critical</option>
-              <option value="HIGH">High</option>
-              <option value="MEDIUM">Medium</option>
-              <option value="LOW">Low</option>
+              <option value="CRITICAL">{t('tasks.priority.critical')}</option>
+              <option value="HIGH">{t('tasks.priority.high')}</option>
+              <option value="MEDIUM">{t('tasks.priority.medium')}</option>
+              <option value="LOW">{t('tasks.priority.low')}</option>
             </select>
           </div>
           <div>
-            <label className="form-label">Status</label>
+            <label className="form-label">{t('tasks.modal.status')}</label>
             <select className="form-select" {...register('status')}>
-              <option value="TODO">To Do</option>
-              <option value="IN_PROGRESS">In Progress</option>
-              <option value="IN_REVIEW">In Review</option>
-              <option value="DONE">Done</option>
+              <option value="TODO">{t('tasks.status.todo')}</option>
+              <option value="IN_PROGRESS">{t('tasks.status.inProgress')}</option>
+              <option value="IN_REVIEW">{t('tasks.status.inReview')}</option>
+              <option value="DONE">{t('tasks.status.done')}</option>
             </select>
           </div>
         </div>
 
         <div>
-          <label className="form-label">Due Date *</label>
+          <label className="form-label">{t('tasks.modal.dueDate')} *</label>
           <input
             type="date"
             className="form-input"
             min={new Date().toISOString().split('T')[0]}
-            {...register('due_date', { required: 'Due date is required' })}
+            {...register('due_date', { required: t('validation.required') })}
           />
           {errors.due_date && <p className="form-error">{errors.due_date.message as string}</p>}
         </div>
@@ -411,9 +412,9 @@ function TaskFormModal({
         </div>
 
         <ModalActions>
-          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" type="button" onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="submit" variant="primary" loading={isSubmitting || createTask.isPending || updateTask.isPending}>
-            {editing ? 'Save Changes' : 'Create Task'}
+            {editing ? 'Save Changes' : t('tasks.modal.create')}
           </Button>
         </ModalActions>
       </form>
@@ -1268,7 +1269,7 @@ export default function MyTasksPage() {
         subtitle={`${allMyTasks.length} task${allMyTasks.length !== 1 ? 's' : ''} assigned to you`}
         actions={canCreateTask ? (
           <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={openCreate}>
-            New Task
+            {t('tasks.new')}
           </Button>
         ) : undefined}
       />
@@ -1309,17 +1310,17 @@ export default function MyTasksPage() {
           <div className="flex flex-wrap gap-3 p-4 bg-gray-50 rounded-xl border border-gray-100">
             <select className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 outline-none" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
               <option value="">All Statuses</option>
-              <option value="TODO">To Do</option>
-              <option value="IN_PROGRESS">In Progress</option>
-              <option value="IN_REVIEW">In Review</option>
-              <option value="DONE">Done</option>
+              <option value="TODO">{t('tasks.status.todo')}</option>
+              <option value="IN_PROGRESS">{t('tasks.status.inProgress')}</option>
+              <option value="IN_REVIEW">{t('tasks.status.inReview')}</option>
+              <option value="DONE">{t('tasks.status.done')}</option>
             </select>
             <select className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 outline-none" value={filterPriority} onChange={(e) => setFilterPriority(e.target.value)}>
               <option value="">All Priorities</option>
-              <option value="CRITICAL">Critical</option>
-              <option value="HIGH">High</option>
-              <option value="MEDIUM">Medium</option>
-              <option value="LOW">Low</option>
+              <option value="CRITICAL">{t('tasks.priority.critical')}</option>
+              <option value="HIGH">{t('tasks.priority.high')}</option>
+              <option value="MEDIUM">{t('tasks.priority.medium')}</option>
+              <option value="LOW">{t('tasks.priority.low')}</option>
             </select>
             <select className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 outline-none" value={filterProject} onChange={(e) => setFilterProject(e.target.value)}>
               <option value="">All Projects</option>
@@ -1347,7 +1348,7 @@ export default function MyTasksPage() {
         {/* Task list */}
         {filtered.length === 0 ? (
           <EmptyState
-            title="No tasks found"
+            title={t('tasks.noTasks')}
             description={
               hasActiveFilters          ? 'Try adjusting your filters.'
               : activeTab === 'due_soon'    ? 'No tasks due in the next 7 days.'
@@ -1397,7 +1398,7 @@ export default function MyTasksPage() {
                 disabled={page === 1}
                 className="px-2.5 py-1 text-xs rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                Prev
+                {t('common.previous')}
               </button>
               {Array.from({ length: Math.min(5, Math.ceil(filtered.length/PAGE_SIZE)) }, (_, i) => {
                 const pg = i + 1;
@@ -1413,7 +1414,7 @@ export default function MyTasksPage() {
                 disabled={page >= Math.ceil(filtered.length/PAGE_SIZE)}
                 className="px-2.5 py-1 text-xs rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                Next
+                {t('common.next')}
               </button>
             </div>
           </div>
@@ -1593,6 +1594,7 @@ function TaskRow({
   onOpen:         (t: Task) => void;
   canEdit:        boolean;
 }) {
+  const { t } = useI18n();
   const priCfg  = PRIORITY_CONFIG[task.priority] ?? PRIORITY_CONFIG.MEDIUM;
   const project = projects.find((p) => p.id === task.projectId);
   const isDue   = task.dueDate && isPast(new Date(task.dueDate)) && task.status !== 'DONE';
@@ -1661,10 +1663,10 @@ function TaskRow({
           value={task.status}
           onChange={(e) => onStatusChange(task, e.target.value)}
           onClick={(e) => e.stopPropagation()}>
-          <option value="TODO">To Do</option>
-          <option value="IN_PROGRESS">In Progress</option>
-          <option value="IN_REVIEW">In Review</option>
-          <option value="DONE">Done</option>
+          <option value="TODO">{t('tasks.status.todo')}</option>
+          <option value="IN_PROGRESS">{t('tasks.status.inProgress')}</option>
+          <option value="IN_REVIEW">{t('tasks.status.inReview')}</option>
+          <option value="DONE">{t('tasks.status.done')}</option>
         </select>
       </td>
 

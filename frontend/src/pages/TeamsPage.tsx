@@ -101,6 +101,7 @@ const TeamCard = ({
   onEdit: (t: any) => void;
   onDelete: (t: any) => void;
 }) => {
+  const { t } = useI18n();
   // Eagerly load member previews
   const { data: detail } = useTeam(team.id);
   const previewMembers = (detail?.members ?? []).slice(0, 5);
@@ -194,7 +195,7 @@ const TeamCard = ({
               )}
             </div>
             <span className="text-xs text-gray-400">
-              {memberCount} {memberCount === 1 ? 'member' : 'members'}
+              {t('teams.members', { count: memberCount })}
             </span>
           </div>
           <div className="flex items-center gap-0.5 text-xs text-blue-500 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
@@ -215,6 +216,7 @@ const TeamDetailModal = ({
   onClose: () => void;
   onManageMembers: (t: any) => void;
 }) => {
+  const { t } = useI18n();
   const { data: detail } = useTeam(team.id);
   const members = detail?.members ?? [];
 
@@ -260,7 +262,7 @@ const TeamDetailModal = ({
               icon={<UserPlus size={13} />}
               className="bg-white/20 hover:bg-white/30 text-white border-white/30 shrink-0 ml-3"
             >
-              Add Members
+              {t('teams.addMember')}
             </Button>
           )}
         </div>
@@ -364,14 +366,14 @@ const TeamDetailModal = ({
       </div>
 
       {!detail ? (
-        <div className="py-8 text-center text-sm text-gray-400">Loading members…</div>
+        <div className="py-8 text-center text-sm text-gray-400">{t('common.loading')}</div>
       ) : members.length === 0 ? (
         <div className="py-12 text-center">
           <Users size={32} className="mx-auto mb-3 text-gray-200" />
-          <p className="text-sm text-gray-400">No members yet.</p>
+          <p className="text-sm text-gray-400">{t('teams.noTeams')}</p>
           {canWrite && (
             <Button size="sm" icon={<UserPlus size={13} />} onClick={() => { onClose(); onManageMembers(team); }} className="mt-3">
-              Add First Member
+              {t('teams.addMember')}
             </Button>
           )}
         </div>
@@ -381,7 +383,7 @@ const TeamDetailModal = ({
           {teamLeads.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1">
-                <Crown size={11} className="text-amber-500" /> Team Leads
+                <Crown size={11} className="text-amber-500" /> {t('teams.lead')}s
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {teamLeads.map((m: any) => (
@@ -397,7 +399,7 @@ const TeamDetailModal = ({
           {others.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1">
-                <Shield size={11} /> Team Members
+                <Shield size={11} /> {t('teams.membersLabel')}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {others.map((m: any) => (
@@ -410,7 +412,7 @@ const TeamDetailModal = ({
       )}
 
       <ModalActions>
-        <Button variant="outline" onClick={onClose}>Close</Button>
+        <Button variant="outline" onClick={onClose}>{t('common.close')}</Button>
       </ModalActions>
     </Modal>
   );
@@ -571,7 +573,7 @@ const TeamsPage = () => {
         actions={
           canWrite ? (
             <Button size="sm" icon={<Plus size={14} />} onClick={() => setShowCreate(true)}>
-              New Team
+              {t('teams.new')}
             </Button>
           ) : undefined
         }
@@ -594,10 +596,10 @@ const TeamsPage = () => {
           <Card>
             <div className="py-12 text-center">
               <Users size={32} className="mx-auto mb-3 text-gray-300" />
-              <p className="text-sm text-gray-500 mb-4">No teams yet.</p>
+              <p className="text-sm text-gray-500 mb-4">{t('teams.noTeams')}</p>
               {canWrite && (
                 <Button size="sm" icon={<Plus size={14} />} onClick={() => setShowCreate(true)}>
-                  Create First Team
+                  {t('teams.new')}
                 </Button>
               )}
             </div>
@@ -630,7 +632,7 @@ const TeamsPage = () => {
       )}
 
       {/* Create Team Modal */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); createForm.reset(); setCreateError(''); }} title="Create New Team" size="lg">
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); createForm.reset(); setCreateError(''); }} title={t('teams.modal.createTitle')} size="lg">
         <form onSubmit={createForm.handleSubmit(handleCreate)} className="space-y-4">
           {createError && <Alert type="error" message={createError} />}
 
@@ -701,8 +703,8 @@ const TeamsPage = () => {
           </div>
 
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button type="submit" loading={createForm.formState.isSubmitting} icon={<Plus size={16} />}>Create Team</Button>
+            <Button variant="outline" type="button" onClick={() => setShowCreate(false)}>{t('common.cancel')}</Button>
+            <Button type="submit" loading={createForm.formState.isSubmitting} icon={<Plus size={16} />}>{t('teams.modal.create')}</Button>
           </ModalActions>
         </form>
       </Modal>
@@ -764,8 +766,8 @@ const TeamsPage = () => {
               </div>
             </div>
             <ModalActions>
-              <Button variant="outline" type="button" onClick={() => setEditTeam(null)}>Cancel</Button>
-              <Button type="submit" loading={editForm.formState.isSubmitting}>Save Changes</Button>
+              <Button variant="outline" type="button" onClick={() => setEditTeam(null)}>{t('common.cancel')}</Button>
+              <Button type="submit" loading={editForm.formState.isSubmitting}>{t('common.save')}</Button>
             </ModalActions>
           </form>
         </Modal>
@@ -780,7 +782,7 @@ const TeamsPage = () => {
             {/* Add member form */}
             {canWrite && (
               <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Add New Member</p>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">{t('teams.addMember')}</p>
                 <form onSubmit={memberForm.handleSubmit(handleAddMember)} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
                   <div className="sm:col-span-2">
                     <label className="form-label">User</label>
@@ -809,7 +811,7 @@ const TeamsPage = () => {
                   </div>
                   <div className="sm:col-span-3 flex justify-end">
                     <Button type="submit" size="sm" icon={<UserPlus size={14} />} loading={memberForm.formState.isSubmitting}>
-                      Add to Team
+                      {t('teams.addMember')}
                     </Button>
                   </div>
                 </form>
@@ -819,11 +821,11 @@ const TeamsPage = () => {
             {/* Current members */}
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                Current Members ({(manageDetail?.members ?? []).length})
+                {t('teams.membersLabel')} ({(manageDetail?.members ?? []).length})
               </p>
               <div className="divide-y divide-gray-50 max-h-80 overflow-y-auto rounded-xl border border-gray-100">
                 {(manageDetail?.members ?? []).length === 0 ? (
-                  <p className="text-sm text-gray-400 py-6 text-center">No members yet.</p>
+                  <p className="text-sm text-gray-400 py-6 text-center">{t('teams.noTeams')}</p>
                 ) : (
                   (manageDetail?.members ?? []).map((m: any) => (
                     <div key={m.id} className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors">
@@ -863,7 +865,7 @@ const TeamsPage = () => {
             </div>
 
             <ModalActions>
-              <Button variant="outline" onClick={() => setManageTeam(null)}>Done</Button>
+              <Button variant="outline" onClick={() => setManageTeam(null)}>{t('common.close')}</Button>
             </ModalActions>
           </div>
         </Modal>

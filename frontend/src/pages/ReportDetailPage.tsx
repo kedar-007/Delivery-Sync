@@ -9,6 +9,7 @@ import { usePublicReport } from '../hooks/useReports';
 import { RAGBadge, StatusBadge } from '../components/ui/Badge';
 import { PageLoader } from '../components/ui/Spinner';
 import { ReportSummary } from '../types';
+import { useI18n } from '../contexts/I18nContext';
 
 // ── Stat card ─────────────────────────────────────────────────────────────────
 const Stat = ({ label, value, sub, color = 'blue' }: {
@@ -55,6 +56,7 @@ const Ring = ({ pct, color }: { pct: number; color: string }) => {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 const ReportDetailPage = () => {
+  const { t } = useI18n();
   const { reportId, tenantSlug } = useParams<{ reportId: string; tenantSlug: string }>();
   const { data: report, isLoading } = usePublicReport(reportId ?? '');
   const [copied, setCopied] = useState(false);
@@ -74,9 +76,9 @@ const ReportDetailPage = () => {
   if (!report) return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-4">
       <FileText size={48} className="text-gray-300" />
-      <p className="text-gray-500 text-sm">Report not found or you don't have access.</p>
+      <p className="text-gray-500 text-sm">{t('reports.notFound')}</p>
       <Link to={`/${tenantSlug}/reports`} className="text-blue-600 text-sm hover:underline flex items-center gap-1">
-        <ArrowLeft size={14} /> Back to Reports
+        <ArrowLeft size={14} /> {t('common.back')} {t('nav.reports')}
       </Link>
     </div>
   );
@@ -91,7 +93,7 @@ const ReportDetailPage = () => {
         <div className="max-w-5xl mx-auto px-6 py-3 flex items-center gap-4">
           <Link to={`/${tenantSlug}/reports`}
             className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors">
-            <ArrowLeft size={16} /> Reports
+            <ArrowLeft size={16} /> {t('nav.reports')}
           </Link>
           <div className="h-4 w-px bg-gray-200" />
           <div className="flex-1 min-w-0">
@@ -101,7 +103,7 @@ const ReportDetailPage = () => {
           {s.ragStatus && <RAGBadge status={s.ragStatus} />}
           <button onClick={copyLink}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors text-gray-600 shrink-0">
-            {copied ? <><CheckCheck size={13} className="text-green-600" /> Copied!</> : <><LinkIcon size={13} /> Share link</>}
+            {copied ? <><CheckCheck size={13} className="text-green-600" /> {t('reports.copied')}</> : <><LinkIcon size={13} /> {t('reports.shareLink')}</>}
           </button>
         </div>
       </div>
@@ -117,22 +119,22 @@ const ReportDetailPage = () => {
           <div className="relative flex flex-col sm:flex-row items-start justify-between gap-6">
             <div>
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/20 text-xs font-medium mb-4">
-                <Calendar size={12} /> {report.reportType} Report
+                <Calendar size={12} /> {report.reportType} {t('nav.reports')}
               </div>
-              <h1 className="text-3xl font-bold mb-2">{s.projectName ?? 'Delivery Report'}</h1>
+              <h1 className="text-3xl font-bold mb-2">{s.projectName ?? t('reports.title')}</h1>
               <p className="text-blue-200/70 text-sm flex items-center gap-2">
                 <Clock size={14} />
-                Period: {s.period?.start ?? report.periodStart} — {s.period?.end ?? report.periodEnd}
+                {t('reports.period')}: {s.period?.start ?? report.periodStart} — {s.period?.end ?? report.periodEnd}
               </p>
             </div>
             <div className="flex items-center gap-6 shrink-0">
               <div className="text-center">
                 <Ring pct={s.actions?.completionRate ?? 0} color="#60a5fa" />
-                <p className="text-xs text-blue-300/70 mt-1">Action<br />completion</p>
+                <p className="text-xs text-blue-300/70 mt-1">{t('reports.actionCompletion')}</p>
               </div>
               <div className="text-center">
                 <Ring pct={s.eods?.avgProgressPercentage ?? 0} color="#a78bfa" />
-                <p className="text-xs text-blue-300/70 mt-1">Avg<br />progress</p>
+                <p className="text-xs text-blue-300/70 mt-1">{t('reports.avgProgress')}</p>
               </div>
             </div>
           </div>
@@ -140,20 +142,20 @@ const ReportDetailPage = () => {
 
         {/* KPI grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-          <Stat label="Standups" value={s.standups?.total ?? 0}
-            sub={`${s.standups?.submissionRate ?? '0%'} rate`} color="blue" />
-          <Stat label="Contributors" value={s.standups?.uniqueContributors ?? 0}
-            sub="Unique members" color="purple" />
-          <Stat label="EOD Reports" value={s.eods?.total ?? 0}
-            sub={`${s.eods?.avgProgressPercentage ?? 0}% avg progress`} color="purple" />
-          <Stat label="Actions" value={`${s.actions?.completed ?? 0}/${s.actions?.total ?? 0}`}
-            sub={`${s.actions?.overdue ?? 0} overdue`}
+          <Stat label={t('standup.title')} value={s.standups?.total ?? 0}
+            sub={`${s.standups?.submissionRate ?? '0%'} ${t('reports.submissionRate').toLowerCase()}`} color="blue" />
+          <Stat label={t('reports.contributors')} value={s.standups?.uniqueContributors ?? 0}
+            sub={t('reports.uniqueContributors')} color="purple" />
+          <Stat label={t('eod.title')} value={s.eods?.total ?? 0}
+            sub={`${s.eods?.avgProgressPercentage ?? 0}% ${t('reports.avgProgress').toLowerCase()}`} color="purple" />
+          <Stat label={t('actions.title')} value={`${s.actions?.completed ?? 0}/${s.actions?.total ?? 0}`}
+            sub={`${s.actions?.overdue ?? 0} ${t('actions.status.overdue').toLowerCase()}`}
             color={(s.actions?.overdue ?? 0) > 0 ? 'red' : 'green'} />
-          <Stat label="Open Blockers" value={s.blockers?.open ?? 0}
-            sub={`${s.blockers?.critical ?? 0} critical`}
+          <Stat label={t('reports.openBlockers')} value={s.blockers?.open ?? 0}
+            sub={`${s.blockers?.critical ?? 0} ${t('statuses.critical').toLowerCase()}`}
             color={(s.blockers?.critical ?? 0) > 0 ? 'red' : 'amber'} />
-          <Stat label="Milestones" value={`${s.milestones?.completed ?? 0}/${s.milestones?.total ?? 0}`}
-            sub={`${s.milestones?.delayed ?? 0} delayed`}
+          <Stat label={t('milestones.title')} value={`${s.milestones?.completed ?? 0}/${s.milestones?.total ?? 0}`}
+            sub={`${s.milestones?.delayed ?? 0} ${t('reports.delayed').toLowerCase()}`}
             color={(s.milestones?.delayed ?? 0) > 0 ? 'red' : 'green'} />
         </div>
 
@@ -161,13 +163,13 @@ const ReportDetailPage = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
           {/* Actions breakdown */}
-          <Section icon={<CheckSquare size={16} />} title="Actions">
+          <Section icon={<CheckSquare size={16} />} title={t('actions.title')}>
             <div className="space-y-3">
               {[
-                { label: 'Total', value: s.actions?.total ?? 0, color: 'text-gray-900' },
-                { label: 'Completed', value: s.actions?.completed ?? 0, color: 'text-green-600' },
-                { label: 'Open', value: s.actions?.open ?? 0, color: 'text-blue-600' },
-                { label: 'Overdue', value: s.actions?.overdue ?? 0, color: 'text-red-600' },
+                { label: t('common.total'), value: s.actions?.total ?? 0, color: 'text-gray-900' },
+                { label: t('statuses.completed'), value: s.actions?.completed ?? 0, color: 'text-green-600' },
+                { label: t('statuses.open'), value: s.actions?.open ?? 0, color: 'text-blue-600' },
+                { label: t('actions.status.overdue'), value: s.actions?.overdue ?? 0, color: 'text-red-600' },
               ].map(({ label, value, color }) => (
                 <div key={label} className="flex items-center justify-between">
                   <span className="text-sm text-gray-600">{label}</span>
@@ -176,7 +178,7 @@ const ReportDetailPage = () => {
               ))}
               <div className="pt-2 border-t border-gray-100">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-gray-500">Completion rate</span>
+                  <span className="text-xs text-gray-500">{t('reports.completionRate')}</span>
                   <span className="text-xs font-semibold text-gray-700">{s.actions?.completionRate ?? 0}%</span>
                 </div>
                 <div className="w-full bg-gray-100 rounded-full h-2">
@@ -187,7 +189,7 @@ const ReportDetailPage = () => {
             </div>
             {(s.overdueActionsPreview?.length ?? 0) > 0 && (
               <div className="mt-4 pt-4 border-t border-gray-100">
-                <p className="text-xs font-semibold text-red-600 uppercase tracking-wide mb-2">Overdue Actions</p>
+                <p className="text-xs font-semibold text-red-600 uppercase tracking-wide mb-2">{t('reports.overdueActions')}</p>
                 {s.overdueActionsPreview!.map((a, i) => (
                   <div key={i} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
                     <span className="text-sm text-gray-700 truncate pr-2">{a.title}</span>
@@ -199,13 +201,13 @@ const ReportDetailPage = () => {
           </Section>
 
           {/* Blockers breakdown */}
-          <Section icon={<AlertTriangle size={16} />} title="Blockers">
+          <Section icon={<AlertTriangle size={16} />} title={t('blockers.title')}>
             <div className="space-y-3">
               {[
-                { label: 'Total', value: s.blockers?.total ?? 0, color: 'text-gray-900' },
-                { label: 'Open', value: s.blockers?.open ?? 0, color: 'text-amber-600' },
-                { label: 'Resolved', value: s.blockers?.resolved ?? 0, color: 'text-green-600' },
-                { label: 'Critical', value: s.blockers?.critical ?? 0, color: 'text-red-600' },
+                { label: t('common.total'), value: s.blockers?.total ?? 0, color: 'text-gray-900' },
+                { label: t('statuses.open'), value: s.blockers?.open ?? 0, color: 'text-amber-600' },
+                { label: t('statuses.resolved'), value: s.blockers?.resolved ?? 0, color: 'text-green-600' },
+                { label: t('statuses.critical'), value: s.blockers?.critical ?? 0, color: 'text-red-600' },
               ].map(({ label, value, color }) => (
                 <div key={label} className="flex items-center justify-between">
                   <span className="text-sm text-gray-600">{label}</span>
@@ -215,7 +217,7 @@ const ReportDetailPage = () => {
             </div>
             {(s.keyBlockers?.length ?? 0) > 0 && (
               <div className="mt-4 pt-4 border-t border-gray-100">
-                <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-2">Key Blockers</p>
+                <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-2">{t('reports.keyBlockers')}</p>
                 {s.keyBlockers!.map((b, i) => (
                   <div key={i} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
                     <span className="text-sm text-gray-700 truncate pr-2">{b.title}</span>
@@ -227,13 +229,13 @@ const ReportDetailPage = () => {
           </Section>
 
           {/* Milestones */}
-          <Section icon={<Milestone size={16} />} title="Milestones">
+          <Section icon={<Milestone size={16} />} title={t('milestones.title')}>
             <div className="space-y-3">
               {[
-                { label: 'Total', value: s.milestones?.total ?? 0, color: 'text-gray-900' },
-                { label: 'Completed', value: s.milestones?.completed ?? 0, color: 'text-green-600' },
-                { label: 'Delayed', value: s.milestones?.delayed ?? 0, color: 'text-red-600' },
-                { label: 'Upcoming', value: s.milestones?.upcoming ?? 0, color: 'text-blue-600' },
+                { label: t('common.total'), value: s.milestones?.total ?? 0, color: 'text-gray-900' },
+                { label: t('statuses.completed'), value: s.milestones?.completed ?? 0, color: 'text-green-600' },
+                { label: t('reports.delayed'), value: s.milestones?.delayed ?? 0, color: 'text-red-600' },
+                { label: t('reports.upcoming'), value: s.milestones?.upcoming ?? 0, color: 'text-blue-600' },
               ].map(({ label, value, color }) => (
                 <div key={label} className="flex items-center justify-between">
                   <span className="text-sm text-gray-600">{label}</span>
@@ -243,7 +245,7 @@ const ReportDetailPage = () => {
             </div>
             {(s.upcomingMilestones?.length ?? 0) > 0 && (
               <div className="mt-4 pt-4 border-t border-gray-100">
-                <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-2">Upcoming</p>
+                <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-2">{t('reports.upcoming')}</p>
                 {s.upcomingMilestones!.map((m, i) => (
                   <div key={i} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
                     <span className="text-sm text-gray-700 truncate pr-2">{m.title}</span>
@@ -258,27 +260,27 @@ const ReportDetailPage = () => {
           </Section>
 
           {/* Team engagement */}
-          <Section icon={<Users size={16} />} title="Team Engagement">
+          <Section icon={<Users size={16} />} title={t('reports.teamEngagement')}>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Standup submissions</span>
+                <span className="text-sm text-gray-600">{t('reports.standupSubmissions')}</span>
                 <span className="text-sm font-semibold text-gray-900">{s.standups?.total ?? 0}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Unique contributors</span>
+                <span className="text-sm text-gray-600">{t('reports.uniqueContributors')}</span>
                 <span className="text-sm font-semibold text-gray-900">{s.standups?.uniqueContributors ?? 0}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">EOD reports</span>
+                <span className="text-sm text-gray-600">{t('eod.title')}</span>
                 <span className="text-sm font-semibold text-gray-900">{s.eods?.total ?? 0}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Decisions logged</span>
+                <span className="text-sm text-gray-600">{t('reports.decisionsLogged')}</span>
                 <span className="text-sm font-semibold text-gray-900">{s.decisionsCount ?? 0}</span>
               </div>
               <div className="pt-2 border-t border-gray-100">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-gray-500">Submission rate</span>
+                  <span className="text-xs text-gray-500">{t('reports.submissionRate')}</span>
                   <span className="text-xs font-semibold text-gray-700">{s.standups?.submissionRate ?? '0%'}</span>
                 </div>
                 <div className="w-full bg-gray-100 rounded-full h-2">
@@ -293,7 +295,7 @@ const ReportDetailPage = () => {
         {/* Footer */}
         <div className="text-center pb-8">
           <p className="text-xs text-gray-400">
-            Generated by DSV OpsPulse · {report.reportType} Report · {report.periodStart} to {report.periodEnd}
+            {t('reports.generatedBy')} · {report.reportType} {t('nav.reports')} · {report.periodStart} to {report.periodEnd}
           </p>
         </div>
       </div>

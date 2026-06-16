@@ -129,6 +129,7 @@ interface AnnouncementCardProps {
 const AnnouncementCard = ({ announcement: a, canManage, onEdit, onDelete }: AnnouncementCardProps) => {
   const [expanded, setExpanded] = useState(false);
   const markRead = useMarkAnnouncementRead();
+  const { t } = useI18n();
 
   const handleToggle = () => {
     if (!expanded && !a.isRead) markRead.mutate(a.id);
@@ -194,7 +195,9 @@ const AnnouncementCard = ({ announcement: a, canManage, onEdit, onDelete }: Anno
                 </span>
               </Badge>
               {a.priority !== 'NORMAL' && (
-                <Badge variant={priorityVariant(a.priority)}>{a.priority}</Badge>
+                <Badge variant={priorityVariant(a.priority)}>
+                  {a.priority === 'HIGH' ? t('announcements.priority.high') : a.priority === 'CRITICAL' ? t('common.critical') : a.priority}
+                </Badge>
               )}
             </div>
           </div>
@@ -202,7 +205,7 @@ const AnnouncementCard = ({ announcement: a, canManage, onEdit, onDelete }: Anno
           {/* Target info */}
           {a.type === 'ROLE_TARGETED' && a.targetRoles && a.targetRoles.length > 0 && (
             <p className="text-xs text-blue-600 mb-1">
-              Roles: {a.targetRoles.join(', ')}
+              {t('announcements.modal.targetAudience')}: {a.targetRoles.join(', ')}
             </p>
           )}
 
@@ -215,7 +218,7 @@ const AnnouncementCard = ({ announcement: a, canManage, onEdit, onDelete }: Anno
               <span>{formatRelative(a.createdAt)}</span>
               {a.authorName && <span>· {a.authorName}</span>}
               {a.expiresAt && (
-                <span className="text-amber-600">· Expires {formatDate(a.expiresAt)}</span>
+                <span className="text-amber-600">· {t('announcements.modal.expiresAt')} {formatDate(a.expiresAt)}</span>
               )}
             </div>
             <div className="flex items-center gap-1">
@@ -261,6 +264,7 @@ const AnnouncementModal = ({ open, onClose, editing }: AnnouncementModalProps) =
   const [formError, setFormError] = useState('');
   const [targetRoles, setTargetRoles] = useState<string[]>([]);
   const [targetUserIds, setTargetUserIds] = useState<string[]>([]);
+  const { t } = useI18n();
 
   const createAnnouncement = useCreateAnnouncement();
   const updateAnnouncement = useUpdateAnnouncement();
@@ -336,29 +340,29 @@ const AnnouncementModal = ({ open, onClose, editing }: AnnouncementModalProps) =
     <Modal
       open={open}
       onClose={onClose}
-      title={editing ? 'Edit Announcement' : 'New Announcement'}
+      title={editing ? t('announcements.modal.editTitle') : t('announcements.modal.createTitle')}
       size="lg"
     >
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         {formError && <Alert type="error" message={formError} />}
 
         <div>
-          <label className="form-label">Title *</label>
+          <label className="form-label">{t('announcements.modal.titleLabel')} *</label>
           <input
             className="form-input"
-            placeholder="Announcement title…"
-            {...register('title', { required: 'Title is required' })}
+            placeholder={t('announcements.modal.titleLabel') + '…'}
+            {...register('title', { required: t('validation.required') })}
           />
           {errors.title && <p className="form-error">{errors.title.message}</p>}
         </div>
 
         <div>
-          <label className="form-label">Content *</label>
+          <label className="form-label">{t('announcements.modal.content')} *</label>
           <textarea
             className="form-textarea"
             rows={4}
-            placeholder="Write your announcement here…"
-            {...register('content', { required: 'Content is required' })}
+            placeholder={t('announcements.modal.content') + '…'}
+            {...register('content', { required: t('validation.required') })}
           />
           {errors.content && <p className="form-error">{errors.content.message}</p>}
         </div>
@@ -366,7 +370,7 @@ const AnnouncementModal = ({ open, onClose, editing }: AnnouncementModalProps) =
         {/* Type + Subtype row */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="form-label">Audience</label>
+            <label className="form-label">{t('announcements.modal.targetAudience')}</label>
             <select className="form-select" {...register('type')}>
               <option value="GLOBAL">🌐 Global (everyone)</option>
               <option value="ROLE_TARGETED">👥 Role Targeted</option>
@@ -374,7 +378,7 @@ const AnnouncementModal = ({ open, onClose, editing }: AnnouncementModalProps) =
             </select>
           </div>
           <div>
-            <label className="form-label">Announcement Type</label>
+            <label className="form-label">{t('common.type')}</label>
             <select className="form-select" {...register('subtype')}>
               <option value="GENERAL">📢 General</option>
               <option value="INTERNAL">🔔 Internal (banner)</option>
@@ -386,7 +390,7 @@ const AnnouncementModal = ({ open, onClose, editing }: AnnouncementModalProps) =
         {/* Role targeting */}
         {selectedType === 'ROLE_TARGETED' && (
           <div>
-            <label className="form-label">Target Roles *</label>
+            <label className="form-label">{t('announcements.modal.targetAudience')} *</label>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
               {ALL_ROLES.map(r => (
                 <label key={r.value} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 hover:text-gray-900">
@@ -401,7 +405,7 @@ const AnnouncementModal = ({ open, onClose, editing }: AnnouncementModalProps) =
               ))}
             </div>
             {targetRoles.length === 0 && (
-              <p className="text-xs text-amber-600 mt-1">Select at least one role</p>
+              <p className="text-xs text-amber-600 mt-1">{t('validation.required')}</p>
             )}
           </div>
         )}
@@ -409,7 +413,7 @@ const AnnouncementModal = ({ open, onClose, editing }: AnnouncementModalProps) =
         {/* User targeting */}
         {selectedType === 'USER_TARGETED' && (
           <div>
-            <label className="form-label">Target Users *</label>
+            <label className="form-label">{t('announcements.modal.targetAudience')} *</label>
             <div className="max-h-40 overflow-y-auto p-2 bg-gray-50 rounded-lg border border-gray-200 space-y-1">
               {(usersData as Array<{ id: string; name: string; email: string }>).map(u => (
                 <label key={u.id} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 hover:text-gray-900 px-2 py-1 rounded hover:bg-gray-100">
@@ -425,7 +429,7 @@ const AnnouncementModal = ({ open, onClose, editing }: AnnouncementModalProps) =
               ))}
             </div>
             {targetUserIds.length === 0 && (
-              <p className="text-xs text-amber-600 mt-1">Select at least one user</p>
+              <p className="text-xs text-amber-600 mt-1">{t('validation.required')}</p>
             )}
           </div>
         )}
@@ -435,7 +439,7 @@ const AnnouncementModal = ({ open, onClose, editing }: AnnouncementModalProps) =
           <div>
             <label className="form-label">Festival</label>
             <select className="form-select" {...register('festival_key')}>
-              <option value="">Select festival…</option>
+              <option value="">{t('common.searchPlaceholder')}</option>
               {FESTIVAL_OPTIONS.map(f => (
                 <option key={f.value} value={f.value}>{f.label}</option>
               ))}
@@ -455,15 +459,15 @@ const AnnouncementModal = ({ open, onClose, editing }: AnnouncementModalProps) =
         {/* Priority + Expires */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="form-label">Priority</label>
+            <label className="form-label">{t('announcements.modal.priority')}</label>
             <select className="form-select" {...register('priority')}>
-              <option value="NORMAL">Normal</option>
-              <option value="HIGH">High</option>
-              <option value="CRITICAL">Critical</option>
+              <option value="NORMAL">{t('announcements.priority.low')}</option>
+              <option value="HIGH">{t('announcements.priority.high')}</option>
+              <option value="CRITICAL">{t('common.critical')}</option>
             </select>
           </div>
           <div>
-            <label className="form-label">Expires At</label>
+            <label className="form-label">{t('announcements.modal.expiresAt')}</label>
             <input type="date" className="form-input" {...register('expires_at')} />
           </div>
         </div>
@@ -482,9 +486,9 @@ const AnnouncementModal = ({ open, onClose, editing }: AnnouncementModalProps) =
         </div>
 
         <ModalActions>
-          <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" type="button" onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="submit" loading={isSubmitting}>
-            {editing ? 'Save Changes' : 'Publish'}
+            {editing ? t('announcements.modal.save') : t('announcements.modal.create')}
           </Button>
         </ModalActions>
       </form>
@@ -546,7 +550,7 @@ const AnnouncementsPage = () => {
         }
         actions={
           canManage ? (
-            <Button onClick={openCreate} icon={<Plus size={16} />}>New Announcement</Button>
+            <Button onClick={openCreate} icon={<Plus size={16} />}>{t('announcements.new')}</Button>
           ) : undefined
         }
       />
@@ -556,12 +560,12 @@ const AnnouncementsPage = () => {
 
         {announcements.length === 0 ? (
           <EmptyState
-            title="No announcements"
-            description="Important updates and news will appear here."
+            title={t('announcements.noAnnouncements')}
+            description={t('announcements.noAnnouncements')}
             icon={<Bell size={40} />}
             action={
               canManage ? (
-                <Button onClick={openCreate} icon={<Plus size={16} />}>Create First Announcement</Button>
+                <Button onClick={openCreate} icon={<Plus size={16} />}>{t('announcements.modal.create')}</Button>
               ) : undefined
             }
           />
@@ -585,17 +589,17 @@ const AnnouncementsPage = () => {
       <Modal
         open={!!deleteTarget}
         onClose={() => { setDeleteTarget(null); setDeleteError(''); }}
-        title="Delete Announcement"
+        title={t('common.confirmDeleteTitle')}
         size="sm"
       >
         <div className="space-y-4">
           {deleteError && <Alert type="error" message={deleteError} />}
           <p className="text-sm text-gray-600">
-            Are you sure you want to delete this announcement? This action cannot be undone.
+            {t('common.confirmDeleteDesc')}
           </p>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-            <Button variant="danger" loading={deleteAnnouncement.isPending} onClick={handleDelete}>Delete</Button>
+            <Button variant="outline" type="button" onClick={() => setDeleteTarget(null)}>{t('common.cancel')}</Button>
+            <Button variant="danger" loading={deleteAnnouncement.isPending} onClick={handleDelete}>{t('common.delete')}</Button>
           </ModalActions>
         </div>
       </Modal>

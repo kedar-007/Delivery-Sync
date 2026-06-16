@@ -30,6 +30,7 @@ type TabKey =
 interface TabDef {
   key: TabKey;
   label: string;
+  labelKey: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
   color: string;
   activeColor: string;
@@ -41,6 +42,7 @@ const TABS: TabDef[] = [
   {
     key: 'office-locations',
     label: 'Office Locations',
+    labelKey: 'settings.officeLocations',
     icon: MapPin,
     color: 'text-blue-500',
     activeColor: 'bg-blue-50 text-blue-700 border-blue-100',
@@ -50,6 +52,7 @@ const TABS: TabDef[] = [
   {
     key: 'leave-types',
     label: 'Leave Types',
+    labelKey: 'settings.leaveTypes',
     icon: CalendarDays,
     color: 'text-emerald-500',
     activeColor: 'bg-emerald-50 text-emerald-700 border-emerald-100',
@@ -59,6 +62,7 @@ const TABS: TabDef[] = [
   {
     key: 'leave-balances',
     label: 'Leave Balances',
+    labelKey: 'settings.leaveBalances',
     icon: BarChart2,
     color: 'text-violet-500',
     activeColor: 'bg-violet-50 text-violet-700 border-violet-100',
@@ -68,6 +72,7 @@ const TABS: TabDef[] = [
   {
     key: 'company-calendar',
     label: 'Company Calendar',
+    labelKey: 'settings.companyCalendar',
     icon: Building2,
     color: 'text-red-500',
     activeColor: 'bg-red-50 text-red-700 border-red-100',
@@ -77,6 +82,7 @@ const TABS: TabDef[] = [
   {
     key: 'leave-accrual-policy',
     label: 'Accrual Policy',
+    labelKey: 'settings.accrualPolicy',
     icon: TrendingUp,
     color: 'text-orange-500',
     activeColor: 'bg-orange-50 text-orange-700 border-orange-100',
@@ -86,6 +92,7 @@ const TABS: TabDef[] = [
   {
     key: 'ip-restrictions',
     label: 'IP Restrictions',
+    labelKey: 'settings.ipRestrictions',
     icon: Wifi,
     color: 'text-indigo-500',
     activeColor: 'bg-indigo-50 text-indigo-700 border-indigo-100',
@@ -95,6 +102,7 @@ const TABS: TabDef[] = [
   {
     key: 'geo-restrictions',
     label: 'Geo Restrictions',
+    labelKey: 'settings.geoRestrictions',
     icon: Globe,
     color: 'text-teal-500',
     activeColor: 'bg-teal-50 text-teal-700 border-teal-100',
@@ -104,6 +112,7 @@ const TABS: TabDef[] = [
   {
     key: 'zone-restrictions',
     label: 'Zone Restrictions',
+    labelKey: 'settings.zoneRestrictions',
     icon: Target,
     color: 'text-purple-500',
     activeColor: 'bg-purple-50 text-purple-700 border-purple-100',
@@ -113,6 +122,7 @@ const TABS: TabDef[] = [
   {
     key: 'work-shifts',
     label: 'Work Shifts',
+    labelKey: 'settings.workShifts',
     icon: Clock,
     color: 'text-amber-500',
     activeColor: 'bg-amber-50 text-amber-700 border-amber-100',
@@ -153,8 +163,8 @@ const PeopleSettingsPage = () => {
   return (
     <Layout>
       <Header
-        title="People Settings"
-        subtitle="Manage office locations, leave policies, calendars and attendance security"
+        title={t('nav.peopleSettings')}
+        subtitle={t('settings.peopleSettingsSubtitle')}
       />
 
       {visibleTabs.length === 0 ? (
@@ -162,9 +172,9 @@ const PeopleSettingsPage = () => {
           <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center mb-3">
             <Lock size={22} className="text-gray-400" />
           </div>
-          <p className="text-sm font-medium text-gray-700">No access</p>
+          <p className="text-sm font-medium text-gray-700">{t('errors.forbidden')}</p>
           <p className="text-xs text-gray-400 mt-1 max-w-xs">
-            You need Leave Admin or IP Config permissions to manage people settings.
+            {t('errors.unauthorized')}
           </p>
         </div>
       ) : (
@@ -176,7 +186,7 @@ const PeopleSettingsPage = () => {
               {leaveTabsDefs.length > 0 && (
                 <>
                   <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest px-3 pt-2 pb-1">
-                    Leave &amp; HR
+                    {t('settings.leaveHr')}
                   </p>
                   {leaveTabsDefs.map((tab) => {
                     const Icon = tab.icon;
@@ -193,7 +203,7 @@ const PeopleSettingsPage = () => {
                         ].join(' ')}
                       >
                         <Icon size={15} className={active ? undefined : tab.color} />
-                        {tab.label}
+                        {t(tab.labelKey)}
                       </button>
                     );
                   })}
@@ -203,7 +213,7 @@ const PeopleSettingsPage = () => {
               {securityTabsDefs.length > 0 && (
                 <>
                   <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest px-3 pt-4 pb-1">
-                    Attendance Security
+                    {t('settings.attendanceSecurity')}
                   </p>
                   {securityTabsDefs.map((tab) => {
                     const Icon = tab.icon;
@@ -220,7 +230,7 @@ const PeopleSettingsPage = () => {
                         ].join(' ')}
                       >
                         <Icon size={15} className={active ? undefined : tab.color} />
-                        {tab.label}
+                        {t(tab.labelKey)}
                       </button>
                     );
                   })}
@@ -231,10 +241,10 @@ const PeopleSettingsPage = () => {
             <div className="mt-6 bg-amber-50 border border-amber-100 rounded-xl p-3">
               <div className="flex items-center gap-1.5 mb-1.5">
                 <Info size={12} className="text-amber-600" />
-                <span className="text-xs font-semibold text-amber-700">Admin Only</span>
+                <span className="text-xs font-semibold text-amber-700">{t('settings.adminOnly')}</span>
               </div>
               <p className="text-xs text-amber-600">
-                Changes here affect all employees. Review before saving.
+                {t('settings.adminOnlyDesc')}
               </p>
             </div>
           </div>
@@ -243,7 +253,7 @@ const PeopleSettingsPage = () => {
           <div className="flex-1 min-w-0">
             {current && (
               <div className="mb-5">
-                <h2 className="text-base font-semibold text-gray-900">{current.label}</h2>
+                <h2 className="text-base font-semibold text-gray-900">{t(current.labelKey)}</h2>
               </div>
             )}
 

@@ -372,8 +372,8 @@ class TaskController {
         const owner = ownerRows[0];
         if (owner && owner.email) {
           const subject = isDone
-            ? `[Delivery Sync] Task completed: ${task.title}`
-            : `[Delivery Sync] Task status changed: ${task.title}`;
+            ? `Task completed: ${task.title}`
+            : `Task status changed: ${task.title}`;
           const htmlBody = `
             <p>Hi ${owner.name || 'there'},</p>
             <p>

@@ -135,7 +135,7 @@ const BlockersPage = () => {
         subtitle={`${openBlockers.length} open · ${resolvedBlockers.length} resolved`}
         actions={
           canWrite ? (
-            <Button onClick={() => setShowCreate(true)}>New Blocker</Button>
+            <Button onClick={() => setShowCreate(true)}>{t('blockers.new')}</Button>
           ) : (
             <span className="text-sm text-gray-400">No permission to raise blockers</span>
           )
@@ -151,7 +151,7 @@ const BlockersPage = () => {
             value={filterProject}
             onChange={(e) => setFilterProject(e.target.value)}
           >
-            <option value="">All Projects</option>
+            <option value="">{t('common.all')} Projects</option>
             {projects.map((p: { id: string; name: string }) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
@@ -161,7 +161,7 @@ const BlockersPage = () => {
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
           >
-            <option value="">All Statuses</option>
+            <option value="">{t('common.all')} Statuses</option>
             {['OPEN', 'IN_PROGRESS', 'ESCALATED', 'RESOLVED'].map((s) => (
               <option key={s} value={s}>{s}</option>
             ))}
@@ -171,11 +171,11 @@ const BlockersPage = () => {
         {/* Table */}
         {blockers.length === 0 ? (
           <EmptyState
-            title="No blockers"
-            description="No blockers at the moment."
+            title={t('blockers.noBlockers')}
+            description={t('blockers.noBlockersDesc')}
             action={
               canWrite ? (
-                <Button onClick={() => setShowCreate(true)}>Raise Blocker</Button>
+                <Button onClick={() => setShowCreate(true)}>{t('blockers.new')}</Button>
               ) : undefined
             }
           />
@@ -185,12 +185,12 @@ const BlockersPage = () => {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50">
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Title</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Severity</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Owner</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('common.title')}</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('common.priority')}</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('common.status')}</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('blockers.modal.owner')}</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Age</th>
-                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('common.actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -213,7 +213,7 @@ const BlockersPage = () => {
                                 type="button"
                                 onClick={(e) => openRename(e, b)}
                                 className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-all flex-shrink-0 text-xs"
-                                title="Rename blocker"
+                                title={t('blockers.modal.renameTitle')}
                               >
                                 ✎
                               </button>
@@ -260,11 +260,11 @@ const BlockersPage = () => {
                               size="sm"
                               onClick={(e) => { e.stopPropagation(); setResolvingBlocker(b); }}
                             >
-                              Resolve
+                              {t('common.resolve')}
                             </Button>
                           )}
                           {b.resolution && (
-                            <span className="text-xs text-green-600 font-medium">Resolved</span>
+                            <span className="text-xs text-green-600 font-medium">{t('blockers.status.resolved')}</span>
                           )}
                         </td>
                       </tr>
@@ -278,7 +278,7 @@ const BlockersPage = () => {
       </div>
 
       {/* Detail Modal */}
-      <Modal open={!!viewingBlocker} onClose={() => setViewingBlocker(null)} title="Blocker Details">
+      <Modal open={!!viewingBlocker} onClose={() => setViewingBlocker(null)} title={t('blockers.title')}>
         {viewingBlocker && (
           <div className="space-y-4">
             <div className="flex items-center gap-2 flex-wrap">
@@ -294,19 +294,19 @@ const BlockersPage = () => {
                 <div className="flex items-center gap-2">
                   <UserAvatar name={u.name} avatarUrl={u.avatarUrl} size="sm" />
                   <div>
-                    <p className="text-xs text-gray-500">Owner</p>
+                    <p className="text-xs text-gray-500">{t('blockers.modal.owner')}</p>
                     <p className="text-sm font-medium text-gray-800">{u.name}</p>
                   </div>
                 </div>
               ) : null;
             })()}
             <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Description</p>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">{t('common.description')}</p>
               <p className="text-sm text-gray-700">{viewingBlocker.description || '—'}</p>
             </div>
             {viewingBlocker.resolution && (
               <div className="p-3 bg-green-50 rounded-lg">
-                <p className="text-xs font-medium text-green-700 mb-1">Resolution</p>
+                <p className="text-xs font-medium text-green-700 mb-1">{t('blockers.modal.resolution')}</p>
                 <p className="text-sm text-green-800">{viewingBlocker.resolution}</p>
                 {viewingBlocker.resolvedDate && (
                   <p className="text-xs text-green-500 mt-1">{viewingBlocker.resolvedDate}</p>
@@ -316,7 +316,7 @@ const BlockersPage = () => {
             {viewingBlocker.status !== 'RESOLVED' && (
               <div className="flex justify-end pt-2">
                 <Button onClick={() => { setResolvingBlocker(viewingBlocker); setViewingBlocker(null); }}>
-                  Resolve
+                  {t('common.resolve')}
                 </Button>
               </div>
             )}
@@ -328,15 +328,15 @@ const BlockersPage = () => {
       <Modal
         open={showCreate}
         onClose={() => { setShowCreate(false); createForm.reset(); setCreateError(''); }}
-        title="Raise Blocker"
+        title={t('blockers.modal.createTitle')}
         size="lg"
       >
         <form onSubmit={createForm.handleSubmit(onCreateSubmit)} className="space-y-4">
           {createError && <Alert type="error" message={createError} />}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="form-label">Project *</label>
-              <select className="form-select" {...createForm.register('project_id', { required: 'Required' })}>
+              <label className="form-label">{t('blockers.modal.project')}</label>
+              <select className="form-select" {...createForm.register('project_id', { required: t('validation.required') })}>
                 <option value="">Select…</option>
                 {projects.map((p: { id: string; name: string }) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
@@ -344,7 +344,7 @@ const BlockersPage = () => {
               </select>
             </div>
             <div>
-              <label className="form-label">Severity</label>
+              <label className="form-label">{t('blockers.modal.severity')}</label>
               <select className="form-select" {...createForm.register('severity')}>
                 {['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map((s) => (
                   <option key={s} value={s}>{s}</option>
@@ -353,15 +353,15 @@ const BlockersPage = () => {
             </div>
           </div>
           <div>
-            <label className="form-label">Blocker Title *</label>
+            <label className="form-label">{t('blockers.modal.titleLabel')}</label>
             <input
               className="form-input"
               placeholder="What is blocked?"
-              {...createForm.register('title', { required: 'Required' })}
+              {...createForm.register('title', { required: t('validation.required') })}
             />
           </div>
           <div>
-            <label className="form-label">Description</label>
+            <label className="form-label">{t('blockers.modal.descLabel')}</label>
             <textarea
               className="form-textarea"
               rows={3}
@@ -370,19 +370,19 @@ const BlockersPage = () => {
             />
           </div>
           <div>
-            <label className="form-label">Owner *</label>
+            <label className="form-label">{t('blockers.modal.owner')}</label>
             <Controller
               name="owner_user_id"
               control={createForm.control}
-              rules={{ required: 'Required' }}
+              rules={{ required: t('validation.required') }}
               render={({ field }) => (
                 <UserPicker users={users} value={field.value} onChange={field.onChange} placeholder="Assign to…" />
               )}
             />
           </div>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button type="submit" loading={createForm.formState.isSubmitting} variant="danger">Raise Blocker</Button>
+            <Button variant="outline" type="button" onClick={() => setShowCreate(false)}>{t('common.cancel')}</Button>
+            <Button type="submit" loading={createForm.formState.isSubmitting} variant="danger">{t('blockers.modal.create')}</Button>
           </ModalActions>
         </form>
       </Modal>
@@ -391,22 +391,22 @@ const BlockersPage = () => {
       <Modal
         open={!!resolvingBlocker}
         onClose={() => setResolvingBlocker(null)}
-        title="Resolve Blocker"
+        title={t('blockers.modal.resolveTitle')}
       >
         <p className="text-sm text-gray-600 mb-4 font-medium">{resolvingBlocker?.title}</p>
         <form onSubmit={resolveForm.handleSubmit(onResolveSubmit)} className="space-y-4">
           <div>
-            <label className="form-label">Resolution *</label>
+            <label className="form-label">{t('blockers.modal.resolution')}</label>
             <textarea
               className="form-textarea"
               rows={3}
               placeholder="How was this resolved?"
-              {...resolveForm.register('resolution', { required: 'Required' })}
+              {...resolveForm.register('resolution', { required: t('validation.required') })}
             />
           </div>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setResolvingBlocker(null)}>Cancel</Button>
-            <Button type="submit" loading={resolveForm.formState.isSubmitting} variant="primary">Mark Resolved</Button>
+            <Button variant="outline" type="button" onClick={() => setResolvingBlocker(null)}>{t('common.cancel')}</Button>
+            <Button type="submit" loading={resolveForm.formState.isSubmitting} variant="primary">{t('blockers.modal.resolve')}</Button>
           </ModalActions>
         </form>
       </Modal>
@@ -415,19 +415,19 @@ const BlockersPage = () => {
       <Modal
         open={!!renamingBlocker}
         onClose={() => { setRenamingBlocker(null); resetRename(); setRenameError(''); }}
-        title="Rename Blocker"
+        title={t('blockers.modal.renameTitle')}
         size="sm"
       >
         <form onSubmit={handleRenameSubmit(onRename)} className="space-y-4">
           {renameError && <Alert type="error" message={renameError} />}
           <div>
-            <label className="form-label">Blocker Title *</label>
+            <label className="form-label">{t('blockers.modal.titleLabel')}</label>
             <input
               className="form-input"
               autoFocus
               {...registerRename('title', {
-                required: 'Required',
-                validate: (v) => v.trim().length > 0 || 'Title cannot be blank',
+                required: t('validation.required'),
+                validate: (v) => v.trim().length > 0 || t('validation.cannotBeBlank'),
               })}
             />
             {renameErrors.title && (
@@ -436,9 +436,9 @@ const BlockersPage = () => {
           </div>
           <ModalActions>
             <Button variant="outline" type="button" onClick={() => { setRenamingBlocker(null); resetRename(); }}>
-              Cancel
+              {t('common.cancel')}
             </Button>
-            <Button type="submit" loading={isRenaming}>Save</Button>
+            <Button type="submit" loading={isRenaming}>{t('blockers.modal.save')}</Button>
           </ModalActions>
         </form>
       </Modal>

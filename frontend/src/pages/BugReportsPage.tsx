@@ -133,6 +133,7 @@ function detectType(file: File): 'IMAGE' | 'VIDEO' | 'FILE' {
 // skeleton sits on top via absolute positioning so the wrapper keeps a
 // stable size during the load.
 const AttachmentImage: React.FC<{ src: string; alt: string; maxHeight?: string }> = ({ src, alt, maxHeight = 'h-32' }) => {
+  const { t } = useI18n();
   const [loaded, setLoaded] = useState(false);
   const [error, setError]   = useState(false);
   return (
@@ -160,7 +161,7 @@ const AttachmentImage: React.FC<{ src: string; alt: string; maxHeight?: string }
       {error && (
         <div className={`absolute inset-0 ${maxHeight} w-32 bg-red-50 border border-red-100 flex flex-col items-center justify-center text-[10px] text-red-400 gap-1 rounded-sm`}>
           <AlertCircle size={14} />
-          <span>Could not load</span>
+          <span>{t('errors.loadFailed')}</span>
         </div>
       )}
     </div>
@@ -172,6 +173,7 @@ const AttachmentImage: React.FC<{ src: string; alt: string; maxHeight?: string }
 // renders images inline, videos with a player, and other files as download
 // chips. Mirrors the pattern used by the super-admin slider.
 const BugReportAttachments: React.FC<{ reportId: string; replyAt?: string | null }> = ({ reportId, replyAt }) => {
+  const { t } = useI18n();
   const { data, isLoading, isError } = useQuery({
     queryKey: ['bug-detail', reportId],
     queryFn:  () => bugApi.get(reportId).then((d: any) => d),
@@ -187,21 +189,21 @@ const BugReportAttachments: React.FC<{ reportId: string; replyAt?: string | null
   const replyMs = replyAt ? new Date(replyAt).getTime() : 0;
   const originals = replyMs
     ? allAttachments.filter((a: any) => {
-        const t = a.CREATEDTIME ? new Date(a.CREATEDTIME).getTime() : 0;
+        const ts = a.CREATEDTIME ? new Date(a.CREATEDTIME).getTime() : 0;
         // Allow a 30-second grace so attachments uploaded right after the
         // reply still count as reply attachments, not original.
-        return !t || t < replyMs - 30_000;
+        return !ts || ts < replyMs - 30_000;
       })
     : allAttachments;
   const replyAttachments = replyMs
     ? allAttachments.filter((a: any) => {
-        const t = a.CREATEDTIME ? new Date(a.CREATEDTIME).getTime() : 0;
-        return t >= replyMs - 30_000;
+        const ts = a.CREATEDTIME ? new Date(a.CREATEDTIME).getTime() : 0;
+        return ts >= replyMs - 30_000;
       })
     : [];
 
-  if (isLoading) return <p className="text-xs text-gray-400">Loading attachments…</p>;
-  if (isError)   return <p className="text-xs text-red-400">Could not load attachments.</p>;
+  if (isLoading) return <p className="text-xs text-gray-400">{t('common.loading')}</p>;
+  if (isError)   return <p className="text-xs text-red-400">{t('errors.loadFailed')}</p>;
   if (allAttachments.length === 0) return null;
 
   const renderOne = (att: any) => {
@@ -253,7 +255,7 @@ const BugReportAttachments: React.FC<{ reportId: string; replyAt?: string | null
         <div>
           <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
             <Paperclip size={12} className="text-gray-400" />
-            Attachments ({originals.length})
+            {t('common.upload')} ({originals.length})
           </p>
           <div className="flex flex-wrap gap-2.5">
             {originals.map(renderOne)}
@@ -280,6 +282,7 @@ const BugReportAttachments: React.FC<{ reportId: string; replyAt?: string | null
 const DetailModal = ({ report, isAdmin, open, onClose }: {
   report: BugReport | null; isAdmin: boolean; open: boolean; onClose: () => void;
 }) => {
+  const { t } = useI18n();
   const update        = useUpdateBugReport();
   const resolve       = useResolveBugReport();
   const reply         = useReplyBugReport();
@@ -313,16 +316,16 @@ const DetailModal = ({ report, isAdmin, open, onClose }: {
     setError(''); setSuccess('');
     try {
       await update.mutateAsync({ id: report.ROWID, data: { status: status as BugReport['status'] } });
-      setSuccess('Status updated');
+      setSuccess(t('common.updateSuccess'));
     } catch (err: unknown) { setError((err as Error).message); }
   };
 
   const handleReply = async () => {
-    if (!report?.ROWID || !notes.trim()) { setError('Note is required'); return; }
+    if (!report?.ROWID || !notes.trim()) { setError(t('validation.required')); return; }
     setError(''); setSuccess('');
     try {
       await reply.mutateAsync({ id: report.ROWID, resolution_notes: notes });
-      setSuccess('Note saved and visible to the reporter');
+      setSuccess(t('common.saveSuccess'));
     } catch (err: unknown) { setError((err as Error).message); }
   };
 
@@ -331,7 +334,7 @@ const DetailModal = ({ report, isAdmin, open, onClose }: {
     setError(''); setSuccess('');
     try {
       await resolve.mutateAsync({ id: report.ROWID, resolution_notes: notes });
-      setSuccess('Report marked as resolved — reporter notified');
+      setSuccess(t('common.updateSuccess'));
       setStatus('RESOLVED');
     } catch (err: unknown) { setError((err as Error).message); }
   };
@@ -365,7 +368,7 @@ const DetailModal = ({ report, isAdmin, open, onClose }: {
   };
 
   const handleReporterReply = async () => {
-    if (!report?.ROWID || !replyText.trim()) { setReplyError('Reply cannot be empty'); return; }
+    if (!report?.ROWID || !replyText.trim()) { setReplyError(t('validation.cannotBeBlank')); return; }
     setReplyError(''); setReplySuccess('');
     try {
       await reporterReply.mutateAsync({ id: report.ROWID, reply: replyText });
@@ -383,13 +386,13 @@ const DetailModal = ({ report, isAdmin, open, onClose }: {
             });
             setReplyAttachments((prev) => prev.map((a) => a.id === att.id ? { ...a, uploading: false } : a));
           } catch (_) {
-            setReplyAttachments((prev) => prev.map((a) => a.id === att.id ? { ...a, uploading: false, error: 'Upload failed' } : a));
+            setReplyAttachments((prev) => prev.map((a) => a.id === att.id ? { ...a, uploading: false, error: t('errors.saveFailed') } : a));
           }
         }
         setUploadingFiles(false);
       }
 
-      setReplySuccess('Your reply has been submitted — the admin team can see it');
+      setReplySuccess(t('common.saveSuccess'));
       setReplyAttachments([]);
     } catch (err: unknown) { setReplyError((err as Error).message); }
   };
@@ -419,7 +422,7 @@ const DetailModal = ({ report, isAdmin, open, onClose }: {
       <div className="space-y-4">
         {/* Description */}
         <div className="bg-gray-50 rounded-xl border border-gray-100 p-4">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Description</p>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">{t('common.description')}</p>
           <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{report.description}</p>
         </div>
 
@@ -469,7 +472,7 @@ const DetailModal = ({ report, isAdmin, open, onClose }: {
               <div className="bg-green-50 border border-green-200 rounded-xl p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <MessageSquare size={13} className="text-green-600" />
-                  <p className="text-xs font-semibold text-green-700 uppercase tracking-wider">Admin Note</p>
+                  <p className="text-xs font-semibold text-green-700 uppercase tracking-wider">{t('admin.title')} {t('common.notes')}</p>
                 </div>
                 <p className="text-sm text-green-800 whitespace-pre-wrap leading-relaxed">{report.resolution_notes}</p>
                 {report.resolved_by && (
@@ -497,7 +500,7 @@ const DetailModal = ({ report, isAdmin, open, onClose }: {
               <div className="flex items-center gap-2">
                 <Reply size={14} className="text-indigo-500" />
                 <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wider">
-                  {report.reporter_reply ? 'Update Your Reply' : 'Add a Reply'}
+                  {report.reporter_reply ? t('common.update') + ' Your Reply' : t('common.add') + ' a Reply'}
                 </p>
               </div>
               <p className="text-xs text-gray-500">
@@ -559,14 +562,14 @@ const DetailModal = ({ report, isAdmin, open, onClose }: {
                   loading={reporterReply.isPending || uploadingFiles}
                   icon={<Send size={13} />}
                 >
-                  {report.reporter_reply ? 'Update Reply' : 'Submit Reply'}
+                  {report.reporter_reply ? t('common.update') : t('common.submit')}
                 </Button>
                 <button
                   type="button"
                   onClick={() => replyFileRef.current?.click()}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                 >
-                  <Upload size={13} /> Attach files
+                  <Upload size={13} /> {t('common.upload')}
                 </button>
                 {replyAttachments.length > 0 && (
                   <span className="text-xs text-gray-400">{replyAttachments.length} file{replyAttachments.length > 1 ? 's' : ''} selected</span>
@@ -605,28 +608,28 @@ const DetailModal = ({ report, isAdmin, open, onClose }: {
             )}
 
             <div className="border-t border-gray-100 pt-4 space-y-3">
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Admin Actions</p>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">{t('admin.title')} {t('common.actions')}</p>
 
               {/* Status changer */}
               <div className="flex items-center gap-2">
                 <select className="form-select flex-1" value={status}
                   onChange={(e) => setStatus(e.target.value)}>
-                  <option value="OPEN">Open</option>
+                  <option value="OPEN">{t('bugs.status.open')}</option>
                   <option value="IN_REVIEW">In Review</option>
-                  <option value="RESOLVED">Resolved</option>
-                  <option value="CLOSED">Closed</option>
+                  <option value="RESOLVED">{t('bugs.status.resolved')}</option>
+                  <option value="CLOSED">{t('bugs.status.closed')}</option>
                   <option value="DUPLICATE">Duplicate</option>
                 </select>
                 <Button variant="outline" size="sm" onClick={handleStatusUpdate}
                   loading={update.isPending} icon={<RotateCcw size={13} />}>
-                  Update Status
+                  {t('common.update')}
                 </Button>
               </div>
 
               {/* Resolution note */}
               <div>
                 <label className="form-label">
-                  Resolution Note <span className="text-gray-400 font-normal">(visible to reporter)</span>
+                  Resolution Note <span className="text-gray-400 font-normal">({t('common.optional')})</span>
                 </label>
                 <textarea className="form-input min-h-[80px] resize-y text-sm"
                   placeholder="Describe what was done or what the reporter should try…"
@@ -636,7 +639,7 @@ const DetailModal = ({ report, isAdmin, open, onClose }: {
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" onClick={handleReply}
                   loading={reply.isPending} icon={<MessageSquare size={13} />}>
-                  Save Note
+                  {t('common.save')}
                 </Button>
                 {report.status !== 'RESOLVED' && report.status !== 'CLOSED' && (
                   <Button size="sm"
@@ -644,7 +647,7 @@ const DetailModal = ({ report, isAdmin, open, onClose }: {
                     onClick={handleResolve}
                     loading={resolve.isPending}
                     icon={<CheckCircle2 size={13} />}>
-                    Mark Resolved
+                    {t('common.resolve')}
                   </Button>
                 )}
               </div>
@@ -654,7 +657,7 @@ const DetailModal = ({ report, isAdmin, open, onClose }: {
       </div>
 
       <ModalActions>
-        <Button variant="outline" onClick={onClose}>Close</Button>
+        <Button variant="outline" onClick={onClose}>{t('common.close')}</Button>
       </ModalActions>
     </Modal>
   );
@@ -673,6 +676,7 @@ const STATUS_SELECT_CLASS: Record<string, string> = {
 const ReportCard = ({ report, isAdmin, onClick }: {
   report: BugReport; isAdmin: boolean; onClick: () => void;
 }) => {
+  const { t } = useI18n();
   const update = useUpdateBugReport();
 
   const handleStatusChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -713,10 +717,10 @@ const ReportCard = ({ report, isAdmin, onClick }: {
                 disabled={update.isPending}
                 className={`text-xs font-semibold rounded-full border px-2.5 py-0.5 cursor-pointer outline-none transition-colors appearance-none disabled:opacity-60 ${STATUS_SELECT_CLASS[report.status ?? 'OPEN'] ?? STATUS_SELECT_CLASS.OPEN}`}
               >
-                <option value="OPEN">Open</option>
+                <option value="OPEN">{t('bugs.status.open')}</option>
                 <option value="IN_REVIEW">In Review</option>
-                <option value="RESOLVED">Resolved</option>
-                <option value="CLOSED">Closed</option>
+                <option value="RESOLVED">{t('bugs.status.resolved')}</option>
+                <option value="CLOSED">{t('bugs.status.closed')}</option>
                 <option value="DUPLICATE">Duplicate</option>
               </select>
             </div>
@@ -747,7 +751,7 @@ const ReportCard = ({ report, isAdmin, onClick }: {
           )}
           {report.resolution_notes && (
             <span className="flex items-center gap-1 text-green-600">
-              <MessageSquare size={11} />Has note
+              <MessageSquare size={11} />{t('common.notes')}
             </span>
           )}
           {report.reporter_reply && (
@@ -766,6 +770,7 @@ const ReportCard = ({ report, isAdmin, onClick }: {
 // ─── Config panel ─────────────────────────────────────────────────────────────
 
 const ConfigPanel = ({ onClose }: { onClose: () => void }) => {
+  const { t } = useI18n();
   const { data: rawConfig } = useBugConfig();
   const saveConfig = useSaveBugConfig();
   const [enabled, setEnabled] = useState<boolean>(true);
@@ -794,7 +799,7 @@ const ConfigPanel = ({ onClose }: { onClose: () => void }) => {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Settings size={16} className="text-gray-500" />
-          <span className="text-sm font-bold text-gray-700">Bug Reporting Settings</span>
+          <span className="text-sm font-bold text-gray-700">{t('bugs.title')} {t('nav.settings')}</span>
         </div>
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded-lg hover:bg-gray-100">
           <X size={15} />
@@ -802,7 +807,7 @@ const ConfigPanel = ({ onClose }: { onClose: () => void }) => {
       </div>
 
       {error && <Alert type="error" message={error} className="mb-3" />}
-      {saved && <Alert type="success" message="Settings saved" className="mb-3" />}
+      {saved && <Alert type="success" message={t('common.saveSuccess')} className="mb-3" />}
 
       <div className="flex items-center justify-between p-4 rounded-xl border border-gray-200 bg-gray-50">
         <div>
@@ -899,12 +904,12 @@ export default function BugReportsPage() {
             {isAdmin && (
               <Button variant="outline" size="sm" icon={<Settings size={14} />}
                 onClick={() => setShowConfig((v) => !v)}>
-                Settings
+                {t('nav.settings')}
               </Button>
             )}
             {isEnabled && (
               <Button size="sm" icon={<Plus size={14} />} onClick={() => setShowSubmit(true)}>
-                Report Issue
+                {t('bugs.new')}
               </Button>
             )}
           </div>
@@ -928,21 +933,21 @@ export default function BugReportsPage() {
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatCard label="Total"     value={stats.total}    accent="bg-indigo-50"  icon={<Bug size={18} className="text-indigo-500" />} />
-          <StatCard label="Open"      value={stats.open}     accent="bg-gray-100"   icon={<Circle size={18} className="text-gray-500" />} />
+          <StatCard label={t('common.total')}    value={stats.total}    accent="bg-indigo-50"  icon={<Bug size={18} className="text-indigo-500" />} />
+          <StatCard label={t('bugs.status.open')}     value={stats.open}     accent="bg-gray-100"   icon={<Circle size={18} className="text-gray-500" />} />
           <StatCard label="In Review" value={stats.inReview} accent="bg-blue-50"    icon={<Clock size={18} className="text-blue-500" />} />
-          <StatCard label="Resolved"  value={stats.resolved} accent="bg-green-50"   icon={<CheckCircle2 size={18} className="text-green-500" />} />
+          <StatCard label={t('bugs.status.resolved')} value={stats.resolved} accent="bg-green-50"   icon={<CheckCircle2 size={18} className="text-green-500" />} />
         </div>
 
         {/* Tabs (admin only) */}
         {isAdmin && (
           <div className="flex gap-1 bg-gray-100 dark:bg-gray-700/50 rounded-xl p-1 w-fit">
-            {(['mine', 'all'] as const).map((t) => (
-              <button key={t} onClick={() => setTab(t)}
+            {(['mine', 'all'] as const).map((tabKey) => (
+              <button key={tabKey} onClick={() => setTab(tabKey)}
                 className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                  tab === t ? 'bg-white dark:bg-gray-600 shadow-sm text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                  tab === tabKey ? 'bg-white dark:bg-gray-600 shadow-sm text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                 }`}>
-                {t === 'mine' ? 'My Reports' : `All Reports${allReports.length ? ` (${allReports.length})` : ''}`}
+                {tabKey === 'mine' ? 'My Reports' : `All Reports${allReports.length ? ` (${allReports.length})` : ''}`}
               </button>
             ))}
           </div>
@@ -953,23 +958,23 @@ export default function BugReportsPage() {
           <div className="relative">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
             <input
-              type="text" placeholder="Search reports…" value={search}
+              type="text" placeholder={t('common.searchPlaceholder')} value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-8 pr-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white dark:bg-ds-surface dark:text-ds-text w-52"
             />
           </div>
           <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
             className="py-2 pl-3 pr-8 text-sm border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white dark:bg-ds-surface text-gray-600 dark:text-ds-text">
-            <option value="">All Statuses</option>
-            <option value="OPEN">Open</option>
+            <option value="">{t('common.all')} Statuses</option>
+            <option value="OPEN">{t('bugs.status.open')}</option>
             <option value="IN_REVIEW">In Review</option>
-            <option value="RESOLVED">Resolved</option>
-            <option value="CLOSED">Closed</option>
+            <option value="RESOLVED">{t('bugs.status.resolved')}</option>
+            <option value="CLOSED">{t('bugs.status.closed')}</option>
             <option value="DUPLICATE">Duplicate</option>
           </select>
           <select value={filterType} onChange={(e) => setFilterType(e.target.value)}
             className="py-2 pl-3 pr-8 text-sm border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white dark:bg-ds-surface text-gray-600 dark:text-ds-text">
-            <option value="">All Types</option>
+            <option value="">{t('common.all')} {t('common.type')}s</option>
             <option value="BUG">Bug</option>
             <option value="ISSUE">Issue</option>
             <option value="FEEDBACK">Feedback</option>
@@ -977,16 +982,16 @@ export default function BugReportsPage() {
           </select>
           <select value={filterSev} onChange={(e) => setFilterSev(e.target.value)}
             className="py-2 pl-3 pr-8 text-sm border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white dark:bg-ds-surface text-gray-600 dark:text-ds-text">
-            <option value="">All Severities</option>
-            <option value="CRITICAL">Critical</option>
-            <option value="HIGH">High</option>
-            <option value="MEDIUM">Medium</option>
-            <option value="LOW">Low</option>
+            <option value="">{t('common.all')} Severities</option>
+            <option value="CRITICAL">{t('bugs.severity.critical')}</option>
+            <option value="HIGH">{t('bugs.severity.high')}</option>
+            <option value="MEDIUM">{t('bugs.severity.medium')}</option>
+            <option value="LOW">{t('bugs.severity.low')}</option>
           </select>
           {(filterStatus || filterType || filterSev || search) && (
             <button onClick={() => { setSearch(''); setFilterStatus(''); setFilterType(''); setFilterSev(''); }}
               className="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-500 dark:text-gray-400 hover:text-red-600 border border-gray-200 dark:border-gray-600 rounded-lg bg-ds-surface transition-colors">
-              <X size={12} />Clear
+              <X size={12} />{t('common.clear')}
             </button>
           )}
         </div>
@@ -995,14 +1000,14 @@ export default function BugReportsPage() {
         {filtered.length === 0 ? (
           <EmptyState
             icon={<Bug size={40} className="text-gray-300" />}
-            title={search || filterStatus || filterType || filterSev ? 'No reports match your filters' : 'No reports yet'}
+            title={search || filterStatus || filterType || filterSev ? t('common.noResults') : t('bugs.noBugs')}
             description={isEnabled
               ? (search || filterStatus || filterType || filterSev
                   ? 'Try adjusting your filters'
                   : 'When you report a bug or issue, it will appear here')
               : 'Bug reporting is currently disabled'}
             action={isEnabled && !search && !filterStatus && !filterType && !filterSev ? (
-              <Button icon={<Plus size={14} />} onClick={() => setShowSubmit(true)}>Report your first issue</Button>
+              <Button icon={<Plus size={14} />} onClick={() => setShowSubmit(true)}>{t('bugs.new')}</Button>
             ) : undefined}
           />
         ) : (
@@ -1032,7 +1037,7 @@ export default function BugReportsPage() {
                     disabled={safePage <= 1}
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                   >
-                    Previous
+                    {t('common.previous')}
                   </Button>
                   <span className="text-xs text-gray-600 px-2">
                     Page <span className="font-semibold text-gray-900">{safePage}</span> of {totalPages}
@@ -1043,7 +1048,7 @@ export default function BugReportsPage() {
                     disabled={safePage >= totalPages}
                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   >
-                    Next
+                    {t('common.next')}
                   </Button>
                 </div>
               </div>

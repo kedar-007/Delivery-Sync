@@ -125,7 +125,7 @@ class UserController {
         platform_type: 'web',
         template_details: {
           senders_mail: process.env.FROM_EMAIL || 'noreply@deliverysync.app',
-          subject: `Action required: set up your password for ${tenantName} on Delivery Sync`,
+          subject: `Action required: set up your DSV OpsPulse password for ${tenantName}`,
         },
         redirect_url: `${process.env.APP_BASE_URL || req.headers.origin || 'https://your-app.com'}/__catalyst/auth/login`,
       };

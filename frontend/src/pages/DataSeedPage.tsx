@@ -351,7 +351,7 @@ const DataSeedPage = () => {
               Current Record Counts
             </h3>
             <Button variant="ghost" size="sm" icon={<RefreshCw size={14} />} onClick={() => refetch()} loading={statsLoading}>
-              Refresh
+              {t('common.refresh')}
             </Button>
           </div>
           <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-10 gap-2">
@@ -595,7 +595,7 @@ const DataSeedPage = () => {
             loading={clearMutation.isPending}
             disabled={selectedClearKeys.length === 0}
           >
-            Clear Selected ({selectedClearKeys.length})
+            {t('common.delete')} ({selectedClearKeys.length})
           </Button>
         </Card>
       </div>

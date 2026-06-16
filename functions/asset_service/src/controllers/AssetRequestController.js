@@ -321,7 +321,7 @@ class AssetRequestController {
       });
       await this.notif.send({
         toEmail: requesterRows[0].email,
-        subject: '[Delivery Sync] Your asset request has been approved',
+        subject: 'Your asset request has been approved',
         htmlBody: this.notif._assetApprovedTemplate(requesterRows[0].name, approverName, categoryName, approval_message, req.params.requestId),
       });
     }
@@ -340,7 +340,7 @@ class AssetRequestController {
         });
         await this.notif.send({
           toEmail: opsUser.email,
-          subject: `[Delivery Sync] Asset request assigned — ${categoryName}`,
+          subject: `Asset request assigned — ${categoryName}`,
           htmlBody: this.notif._assetOpsAssignedTemplate(opsUser.name, approverName, requesterName, categoryName, approval_message, req.params.requestId),
         });
       }
@@ -434,7 +434,7 @@ class AssetRequestController {
       });
       await this.notif.send({
         toEmail: opsUser.email,
-        subject: `[Delivery Sync] Asset request assigned — ${categoryName}`,
+        subject: `Asset request assigned — ${categoryName}`,
         htmlBody: this.notif._assetOpsAssignedTemplate(opsUser.name, assignerName, requesterName, categoryName, message, req.params.requestId),
       });
     }
@@ -549,7 +549,7 @@ class AssetRequestController {
       });
       await this.notif.send({
         toEmail: requesterRows[0].email,
-        subject: `[Delivery Sync] Your asset "${asset.name}" is ready for pickup`,
+        subject: `Your asset "${asset.name}" is ready for pickup`,
         htmlBody: this.notif._assetHandoverTemplate(
           requesterRows[0].name, handoverName, asset.name,
           device_id, device_username, device_password, notes, req.params.requestId,
@@ -567,7 +567,7 @@ class AssetRequestController {
       });
       await this.notif.send({
         toEmail: approverRows[0].email,
-        subject: `[Delivery Sync] Asset handed over to ${requesterName}`,
+        subject: `Asset handed over to ${requesterName}`,
         htmlBody: this.notif._assetHandoverManagerTemplate(
           approverRows[0].name, handoverName, requesterName, asset.name, notes, req.params.requestId,
         ),

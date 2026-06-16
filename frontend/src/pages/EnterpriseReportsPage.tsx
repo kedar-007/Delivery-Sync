@@ -149,6 +149,7 @@ const currentMonthParam = () => ({
 // ─── Executive Brief Tab ──────────────────────────────────────────────────────
 
 const ExecutiveBriefTab = () => {
+  const { t } = useI18n();
   const { data, isLoading, error } = useExecutiveBrief();
   const generatePdf = useGeneratePdfExport();
 
@@ -168,7 +169,7 @@ const ExecutiveBriefTab = () => {
       setExportResult((result?.data ?? result) as PdfResult);
       setShowExport(true);
     } catch (e: unknown) {
-      setExportError((e as Error).message ?? 'Export failed.');
+      setExportError((e as Error).message ?? t('errors.generic'));
       setShowExport(true);
     }
   };
@@ -176,49 +177,49 @@ const ExecutiveBriefTab = () => {
   if (isLoading) return <PageSkeleton />;
   if (error)
     return (
-      <Alert type="error" message="Failed to load executive brief." className="m-6" />
+      <Alert type="error" message={t('errors.loadFailed')} className="m-6" />
     );
 
   const trends = brief?.trends ?? {};
 
   const stats = [
     {
-      label: 'Active Projects',
+      label: t('dashboard.projectHealth.active'),
       value: brief?.active_projects ?? 0,
       trend: trends.active_projects,
       icon: <BarChart2 size={18} />,
       color: 'blue' as const,
     },
     {
-      label: 'On-Track %',
+      label: t('dashboard.projectHealth.healthy'),
       value: `${fmt(brief?.on_track_pct ?? 0, 0)}%`,
       trend: trends.on_track_pct,
       icon: <CheckCircle size={18} />,
       color: 'green' as const,
     },
     {
-      label: 'Total Headcount',
+      label: t('common.total'),
       value: brief?.total_headcount ?? 0,
       trend: trends.total_headcount,
       icon: <Users size={18} />,
       color: 'purple' as const,
     },
     {
-      label: 'Attendance Rate (Month)',
+      label: t('attendance.title'),
       value: `${fmt(brief?.attendance_rate ?? 0, 0)}%`,
       trend: trends.attendance_rate,
       icon: <Activity size={18} />,
       color: 'amber' as const,
     },
     {
-      label: 'Billable Hours (Month)',
+      label: t('timeTracking.billable'),
       value: fmt(brief?.billable_hours ?? 0, 0),
       trend: trends.billable_hours,
       icon: <Clock size={18} />,
       color: 'blue' as const,
     },
     {
-      label: 'Asset Utilization %',
+      label: t('common.percentage'),
       value: `${fmt(brief?.asset_utilization_pct ?? 0, 0)}%`,
       trend: trends.asset_utilization_pct,
       icon: <Package size={18} />,
@@ -236,7 +237,7 @@ const ExecutiveBriefTab = () => {
           loading={generatePdf.isPending}
           onClick={handleExport}
         >
-          Export to PDF
+          {t('common.export')}
         </Button>
       </div>
 
@@ -268,18 +269,18 @@ const ExecutiveBriefTab = () => {
           setExportResult(null);
           setExportError('');
         }}
-        title="Export Report"
+        title={t('common.export')}
         size="sm"
       >
         {exportError ? (
           <Alert type="error" message={exportError} />
         ) : (
           <div className="space-y-3">
-            <Alert type="success" message="Your PDF report has been generated." />
+            <Alert type="success" message={t('common.success')} />
             {(exportResult?.share_link ?? exportResult?.url) && (
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Share Link
+                  {t('common.view')}
                 </label>
                 <div className="flex items-center gap-2">
                   <input
@@ -296,7 +297,7 @@ const ExecutiveBriefTab = () => {
                       );
                     }}
                   >
-                    Copy
+                    {t('common.download')}
                   </Button>
                 </div>
               </div>
@@ -312,7 +313,7 @@ const ExecutiveBriefTab = () => {
               setExportError('');
             }}
           >
-            Done
+            {t('common.close')}
           </Button>
         </ModalActions>
       </Modal>
@@ -323,6 +324,7 @@ const ExecutiveBriefTab = () => {
 // ─── Delivery Health Tab ──────────────────────────────────────────────────────
 
 const DeliveryHealthTab = () => {
+  const { t } = useI18n();
   const [dateFrom, setDateFrom] = useState(
     format(startOfMonth(new Date()), 'yyyy-MM-dd')
   );
@@ -343,7 +345,7 @@ const DeliveryHealthTab = () => {
   if (isLoading) return <PageSkeleton />;
   if (error)
     return (
-      <Alert type="error" message="Failed to load delivery health." className="m-6" />
+      <Alert type="error" message={t('errors.loadFailed')} className="m-6" />
     );
 
   return (
@@ -351,7 +353,7 @@ const DeliveryHealthTab = () => {
       {/* Date filter */}
       <div className="flex items-center gap-3 flex-wrap">
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">From</label>
+          <label className="block text-xs font-medium text-gray-600 mb-1">{t('reports.filters.dateRange')}</label>
           <input
             type="date"
             value={dateFrom}
@@ -360,7 +362,7 @@ const DeliveryHealthTab = () => {
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">To</label>
+          <label className="block text-xs font-medium text-gray-600 mb-1">{t('projects.modal.endDate')}</label>
           <input
             type="date"
             value={dateTo}
@@ -372,8 +374,8 @@ const DeliveryHealthTab = () => {
 
       {projects.length === 0 ? (
         <EmptyState
-          title="No project data"
-          description="No delivery data found for the selected period."
+          title={t('projects.noProjects')}
+          description={t('projects.noProjectsDesc')}
         />
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -382,22 +384,22 @@ const DeliveryHealthTab = () => {
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
                   <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">
-                    Project
+                    {t('reports.filters.project')}
                   </th>
                   <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">
-                    Status
+                    {t('common.status')}
                   </th>
                   <th className="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">
-                    Tasks
+                    {t('tasks.title')}
                   </th>
                   <th className="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">
-                    Done
+                    {t('statuses.done')}
                   </th>
                   <th className="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">
-                    Overdue
+                    {t('tasks.overdue')}
                   </th>
                   <th className="px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider min-w-[160px]">
-                    Health Score
+                    {t('dashboard.projectHealth.deliveryHealth')}
                   </th>
                 </tr>
               </thead>
@@ -458,6 +460,7 @@ const DeliveryHealthTab = () => {
 // ─── People Tab ───────────────────────────────────────────────────────────────
 
 const PeopleTab = () => {
+  const { t } = useI18n();
   const now = new Date();
   const [month, setMonth] = useState(String(now.getMonth() + 1));
   const [year, setYear] = useState(String(now.getFullYear()));
@@ -485,10 +488,9 @@ const PeopleTab = () => {
     [deptHeadcounts]
   );
 
-  const months = [
-    'January','February','March','April','May','June',
-    'July','August','September','October','November','December',
-  ];
+  const months = Array.from({ length: 12 }, (_, i) =>
+    new Intl.DateTimeFormat(undefined, { month: 'long' }).format(new Date(2000, i, 1))
+  );
   const years = Array.from({ length: 5 }, (_, i) =>
     String(now.getFullYear() - i)
   );
@@ -498,7 +500,7 @@ const PeopleTab = () => {
       {/* Month/Year filter */}
       <div className="flex items-center gap-3 flex-wrap">
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Month</label>
+          <label className="block text-xs font-medium text-gray-600 mb-1">{t('timeTracking.thisMonth')}</label>
           <select
             value={month}
             onChange={(e) => setMonth(e.target.value)}
@@ -512,7 +514,7 @@ const PeopleTab = () => {
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Year</label>
+          <label className="block text-xs font-medium text-gray-600 mb-1">{t('common.filter')}</label>
           <select
             value={year}
             onChange={(e) => setYear(e.target.value)}
@@ -530,7 +532,7 @@ const PeopleTab = () => {
       {/* Headcount by Department */}
       <Card>
         <h3 className="text-sm font-semibold text-gray-900 mb-4">
-          Headcount by Department
+          {t('reports.teamActivity.title')}
         </h3>
         {loadingPeople ? (
           <div className="space-y-3">
@@ -543,8 +545,8 @@ const PeopleTab = () => {
           </div>
         ) : deptHeadcounts.length === 0 ? (
           <EmptyState
-            title="No department data"
-            description="No headcount data available."
+            title={t('common.noData')}
+            description={t('common.noResults')}
           />
         ) : (
           <div className="space-y-3">
@@ -571,14 +573,14 @@ const PeopleTab = () => {
       {/* Attendance Summary */}
       <Card>
         <h3 className="text-sm font-semibold text-gray-900 mb-4">
-          Attendance Summary
+          {t('attendance.title')}
         </h3>
         {loadingAttendance ? (
           <PageSkeleton />
         ) : attendanceRows.length === 0 ? (
           <EmptyState
-            title="No attendance data"
-            description="No attendance records for the selected period."
+            title={t('common.noData')}
+            description={t('common.noResults')}
           />
         ) : (
           <div className="overflow-x-auto">
@@ -586,19 +588,19 @@ const PeopleTab = () => {
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
                   <th className="text-left px-3 py-2.5 font-semibold text-gray-600 text-xs uppercase tracking-wider">
-                    Employee
+                    {t('directory.title')}
                   </th>
                   <th className="text-right px-3 py-2.5 font-semibold text-gray-600 text-xs uppercase tracking-wider">
-                    Present
+                    {t('attendance.summary.present')}
                   </th>
                   <th className="text-right px-3 py-2.5 font-semibold text-gray-600 text-xs uppercase tracking-wider">
-                    Absent
+                    {t('attendance.summary.absent')}
                   </th>
                   <th className="text-right px-3 py-2.5 font-semibold text-gray-600 text-xs uppercase tracking-wider">
-                    WFH
+                    {t('attendance.summary.wfh')}
                   </th>
                   <th className="text-right px-3 py-2.5 font-semibold text-gray-600 text-xs uppercase tracking-wider">
-                    Avg Hours
+                    {t('attendance.summary.totalHours')}
                   </th>
                 </tr>
               </thead>
@@ -634,6 +636,7 @@ const PeopleTab = () => {
 // ─── Time Tab ─────────────────────────────────────────────────────────────────
 
 const TimeTab = () => {
+  const { t } = useI18n();
   const [dateFrom, setDateFrom] = useState(
     format(startOfMonth(new Date()), 'yyyy-MM-dd')
   );
@@ -665,7 +668,7 @@ const TimeTab = () => {
   if (isLoading) return <PageSkeleton />;
   if (error)
     return (
-      <Alert type="error" message="Failed to load time summary." className="m-6" />
+      <Alert type="error" message={t('errors.loadFailed')} className="m-6" />
     );
 
   return (
@@ -673,7 +676,7 @@ const TimeTab = () => {
       {/* Date filter */}
       <div className="flex items-center gap-3 flex-wrap">
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">From</label>
+          <label className="block text-xs font-medium text-gray-600 mb-1">{t('reports.filters.dateRange')}</label>
           <input
             type="date"
             value={dateFrom}
@@ -682,7 +685,7 @@ const TimeTab = () => {
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">To</label>
+          <label className="block text-xs font-medium text-gray-600 mb-1">{t('projects.modal.endDate')}</label>
           <input
             type="date"
             value={dateTo}
@@ -694,25 +697,25 @@ const TimeTab = () => {
 
       {/* By User */}
       <Card>
-        <h3 className="text-sm font-semibold text-gray-900 mb-4">Hours by Employee</h3>
+        <h3 className="text-sm font-semibold text-gray-900 mb-4">{t('timeTracking.totalHours')}</h3>
         {userRows.length === 0 ? (
-          <EmptyState title="No time data" description="No tracked hours for the selected range." />
+          <EmptyState title={t('timeTracking.noLogs')} description={t('common.noResults')} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
                   <th className="text-left px-3 py-2.5 font-semibold text-gray-600 text-xs uppercase tracking-wider">
-                    Employee
+                    {t('directory.title')}
                   </th>
                   <th className="text-right px-3 py-2.5 font-semibold text-gray-600 text-xs uppercase tracking-wider">
-                    Total Hours
+                    {t('timeTracking.totalHours')}
                   </th>
                   <th className="text-right px-3 py-2.5 font-semibold text-gray-600 text-xs uppercase tracking-wider">
-                    Billable Hours
+                    {t('timeTracking.billable')}
                   </th>
                   <th className="text-right px-3 py-2.5 font-semibold text-gray-600 text-xs uppercase tracking-wider">
-                    Billable %
+                    {t('common.percentage')}
                   </th>
                 </tr>
               </thead>
@@ -759,7 +762,7 @@ const TimeTab = () => {
       {projectRows.length > 0 && (
         <Card>
           <h3 className="text-sm font-semibold text-gray-900 mb-4">
-            Hours by Project
+            {t('reports.filters.project')}
           </h3>
           <div className="space-y-3">
             {projectRows.map((p) => (
@@ -792,6 +795,7 @@ const TimeTab = () => {
 // ─── Assets Tab ───────────────────────────────────────────────────────────────
 
 const AssetsTab = () => {
+  const { t } = useI18n();
   const { data, isLoading, error } = useAssetSummaryReport();
 
   const assetStatus: AssetStatus = useMemo(
@@ -820,30 +824,30 @@ const AssetsTab = () => {
   if (isLoading) return <PageSkeleton />;
   if (error)
     return (
-      <Alert type="error" message="Failed to load asset summary." className="m-6" />
+      <Alert type="error" message={t('errors.loadFailed')} className="m-6" />
     );
 
   const statusCards = [
     {
-      label: 'Available',
+      label: t('assets.status.available'),
       value: assetStatus.available,
       color: 'green' as const,
       icon: <CheckCircle size={18} />,
     },
     {
-      label: 'Assigned',
+      label: t('statuses.checkedOut'),
       value: assetStatus.assigned,
       color: 'blue' as const,
       icon: <Users size={18} />,
     },
     {
-      label: 'In Maintenance',
+      label: t('assets.status.maintenance'),
       value: assetStatus.maintenance,
       color: 'amber' as const,
       icon: <Activity size={18} />,
     },
     {
-      label: 'Retired',
+      label: t('assets.status.retired'),
       value: assetStatus.retired,
       color: 'red' as const,
       icon: <Package size={18} />,
@@ -869,14 +873,14 @@ const AssetsTab = () => {
       {maintenanceDue.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-sm font-semibold text-gray-900">
-            Maintenance Due Alerts
+            {t('assets.status.maintenance')}
           </h3>
           {maintenanceDue.map((item) => (
             <Alert
               key={item.asset_id}
               type="warning"
-              message={`${item.asset_name} — Due ${item.due_date}${
-                item.assigned_to ? ` (assigned to ${item.assigned_to})` : ''
+              message={`${item.asset_name} — ${item.due_date}${
+                item.assigned_to ? ` (${item.assigned_to})` : ''
               }`}
             />
           ))}
@@ -887,23 +891,23 @@ const AssetsTab = () => {
       {categories.length > 0 && (
         <Card>
           <h3 className="text-sm font-semibold text-gray-900 mb-4">
-            By Category
+            {t('assets.modal.category')}
           </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
                   <th className="text-left px-3 py-2.5 font-semibold text-gray-600 text-xs uppercase tracking-wider">
-                    Category
+                    {t('assets.modal.category')}
                   </th>
                   <th className="text-right px-3 py-2.5 font-semibold text-gray-600 text-xs uppercase tracking-wider">
-                    Total
+                    {t('common.total')}
                   </th>
                   <th className="text-right px-3 py-2.5 font-semibold text-gray-600 text-xs uppercase tracking-wider">
-                    Assigned
+                    {t('statuses.checkedOut')}
                   </th>
                   <th className="text-right px-3 py-2.5 font-semibold text-gray-600 text-xs uppercase tracking-wider">
-                    Available
+                    {t('assets.status.available')}
                   </th>
                 </tr>
               </thead>
@@ -932,8 +936,8 @@ const AssetsTab = () => {
 
       {categories.length === 0 && maintenanceDue.length === 0 && (
         <EmptyState
-          title="No asset data"
-          description="Asset breakdown will appear here once assets are tracked."
+          title={t('assets.noAssets')}
+          description={t('common.noData')}
           icon={<Package size={36} />}
         />
       )}
@@ -948,11 +952,19 @@ const EnterpriseReportsPage = () => {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const [activeTab, setActiveTab] = useState<Tab>('Executive Brief');
 
+  const TAB_LABELS: Record<Tab, string> = {
+    'Executive Brief': t('nav.executive'),
+    'Delivery Health': t('dashboard.projectHealth.deliveryHealth'),
+    'People': t('nav.people'),
+    'Time': t('nav.timeTracking'),
+    'Assets': t('nav.assets'),
+  };
+
   return (
     <Layout>
       <Header
         title={t('nav.reports')}
-        subtitle="Executive-level cross-domain insights and analytics"
+        subtitle={t('reports.aiInsights.subtitle')}
       />
       <div className="p-6 space-y-6">
         {/* Tab bar */}
@@ -967,7 +979,7 @@ const EnterpriseReportsPage = () => {
                   : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
               }`}
             >
-              {tab}
+              {TAB_LABELS[tab]}
             </button>
           ))}
         </div>

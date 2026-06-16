@@ -51,6 +51,7 @@ module.exports = async (jobRequest, context) => {
     console.log('[team_reminder] params:', JSON.stringify(params));
 
     const { team_id, tenant_id, type, time, team_name, timezone } = params;
+    let tenantSlug = '';
 
     if (!team_id || !tenant_id || !type) {
       console.error('[team_reminder] Missing required params — aborting');
@@ -82,10 +83,11 @@ module.exports = async (jobRequest, context) => {
     let isMandatoryHoliday = false;
     try {
       const tenantRows = await zcql.executeZCQLQuery(
-        `SELECT settings FROM tenants WHERE ROWID = '${tenant_id}' LIMIT 1`
+        `SELECT settings, slug FROM tenants WHERE ROWID = '${tenant_id}' LIMIT 1`
       );
       const settings = JSON.parse(tenantRows?.[0]?.tenants?.settings || '{}');
       weekendPolicyObj = settings?.weekendPolicy || { default: 'all_off', perLocation: {} };
+      tenantSlug = tenantRows?.[0]?.tenants?.slug || '';
     } catch (e) {
       console.warn('[team_reminder] Could not fetch tenant settings, defaulting to all_off:', e.message);
     }
@@ -164,6 +166,11 @@ module.exports = async (jobRequest, context) => {
       ? `Your standup for ${label} starts at ${time}. Submit your update now!`
       : `Your EOD update for ${label} is due at ${time}. Wrap it up before you sign off!`;
 
+    const APP_URL = (process.env.APP_URL || 'https://delivery-sync-60040289923.development.catalystserverless.in').replace(/\/$/, '');
+    const slugPart  = tenantSlug ? `/${String(tenantSlug).replace(/^\/+|\/+$/g, '')}` : '';
+    const standupUrl = `${APP_URL}/app/#${slugPart}/standup`;
+    const eodUrl     = `${APP_URL}/app/#${slugPart}/eod`;
+
     let emailsSent = 0, notifsSent = 0, skippedWeekend = 0;
 
     for (const member of members) {
@@ -205,11 +212,11 @@ module.exports = async (jobRequest, context) => {
             from_email: fromEmail,
             to_email:   [user.email],
             subject:    isStandup
-              ? `[Delivery Sync] Standup reminder – ${label}`
-              : `[Delivery Sync] EOD update reminder – ${label}`,
+              ? `Standup reminder – ${label}`
+              : `EOD update reminder – ${label}`,
             content:    isStandup
-              ? _standupEmailHtml(user.name || 'Team member', label, today)
-              : _eodEmailHtml(user.name || 'Team member', label, today),
+              ? _standupEmailHtml(user.name || 'Team member', label, today, time, standupUrl)
+              : _eodEmailHtml(user.name || 'Team member', label, today, time, eodUrl),
             html_mode:  true,
           });
           emailsSent++;
@@ -232,19 +239,25 @@ module.exports = async (jobRequest, context) => {
 
 // ─── Email templates ──────────────────────────────────────────────────────────
 
-function _standupEmailHtml(name, teamName, date) {
+function _standupEmailHtml(name, teamName, date, time, standupUrl) {
+  const timeBanner = time
+    ? `<div style="background:#eff6ff;border-left:4px solid #1d4ed8;border-radius:0 8px 8px 0;padding:12px 16px;margin-bottom:18px;">
+        <p style="margin:0;font-size:14px;color:#1e40af;font-weight:600;">&#128337;&nbsp; Your standup starts in 15 minutes at ${time}.</p>
+      </div>`
+    : '';
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
   <div style="max-width:560px;margin:32px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);">
     <div style="background:#1d4ed8;padding:28px 32px;">
-      <p style="margin:0;color:#bfdbfe;font-size:12px;letter-spacing:.08em;text-transform:uppercase;">Delivery Sync</p>
+      <p style="margin:0;color:#bfdbfe;font-size:12px;letter-spacing:.08em;text-transform:uppercase;">DSV OpsPulse</p>
       <h1 style="margin:6px 0 0;color:#fff;font-size:20px;font-weight:700;">Standup Reminder</h1>
       <p style="margin:4px 0 0;color:#93c5fd;font-size:13px;">${teamName} &middot; ${date}</p>
     </div>
     <div style="padding:28px 32px;">
       <p style="font-size:15px;color:#374151;margin:0 0 16px;">Hi <strong>${name}</strong>,</p>
+      ${timeBanner}
       <p style="font-size:14px;color:#6b7280;margin:0 0 20px;">
         This is your daily reminder to submit your <strong style="color:#374151;">standup update</strong> for today.
         Keeping the team aligned starts with a quick update from everyone.
@@ -257,30 +270,37 @@ function _standupEmailHtml(name, teamName, date) {
         <tr><td style="padding:10px 16px;font-size:13px;color:#6b7280;">Type</td>
             <td style="padding:10px 16px;font-size:13px;color:#111827;">Daily Standup</td></tr>
       </table>
-      <p style="font-size:13px;color:#6b7280;margin:0 0 24px;">Just a few lines on what you did yesterday, what you're doing today, and any blockers. It takes less than 2 minutes!</p>
-      <a href="/standup" style="display:inline-block;background:#1d4ed8;color:#fff;font-size:14px;font-weight:600;padding:12px 28px;border-radius:6px;text-decoration:none;">Submit Standup</a>
+      <p style="font-size:13px;color:#6b7280;margin:0 0 12px;">Just a few lines on what you did yesterday, what you're doing today, and any blockers. It takes less than 2 minutes!</p>
+      <p style="font-size:13px;color:#374151;font-weight:500;margin:0 0 24px;">Open the app and add your standup records before your meeting starts.</p>
+      <a href="${standupUrl}" style="display:inline-block;background:#1d4ed8;color:#fff;font-size:14px;font-weight:600;padding:12px 28px;border-radius:6px;text-decoration:none;">Submit My Standup</a>
     </div>
     <div style="padding:16px 32px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center;">
-      <p style="margin:0;font-size:12px;color:#9ca3af;">Delivery Sync &middot; You're receiving this because your team has daily standups configured.</p>
+      <p style="margin:0;font-size:12px;color:#9ca3af;">DSV OpsPulse &middot; You're receiving this because your team has daily standups configured.</p>
     </div>
   </div>
 </body>
 </html>`;
 }
 
-function _eodEmailHtml(name, teamName, date) {
+function _eodEmailHtml(name, teamName, date, time, eodUrl) {
+  const timeBanner = time
+    ? `<div style="background:#ecfdf5;border-left:4px solid #059669;border-radius:0 8px 8px 0;padding:12px 16px;margin-bottom:18px;">
+        <p style="margin:0;font-size:14px;color:#065f46;font-weight:600;">&#128337;&nbsp; Your EOD is due in 15 minutes at ${time}.</p>
+      </div>`
+    : '';
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
   <div style="max-width:560px;margin:32px auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);">
     <div style="background:#059669;padding:28px 32px;">
-      <p style="margin:0;color:#a7f3d0;font-size:12px;letter-spacing:.08em;text-transform:uppercase;">Delivery Sync</p>
+      <p style="margin:0;color:#a7f3d0;font-size:12px;letter-spacing:.08em;text-transform:uppercase;">DSV OpsPulse</p>
       <h1 style="margin:6px 0 0;color:#fff;font-size:20px;font-weight:700;">EOD Update Reminder</h1>
       <p style="margin:4px 0 0;color:#6ee7b7;font-size:13px;">${teamName} &middot; ${date}</p>
     </div>
     <div style="padding:28px 32px;">
       <p style="font-size:15px;color:#374151;margin:0 0 16px;">Hi <strong>${name}</strong>,</p>
+      ${timeBanner}
       <p style="font-size:14px;color:#6b7280;margin:0 0 20px;">
         Don't forget to wrap up your day with an <strong style="color:#374151;">EOD update</strong>!
         It helps leadership stay informed and feeds into your weekly reports automatically.
@@ -293,11 +313,12 @@ function _eodEmailHtml(name, teamName, date) {
         <tr><td style="padding:10px 16px;font-size:13px;color:#6b7280;">Type</td>
             <td style="padding:10px 16px;font-size:13px;color:#111827;">End-of-Day Update</td></tr>
       </table>
-      <p style="font-size:13px;color:#6b7280;margin:0 0 24px;">Share what you completed today, any pending items, and note any blockers before you sign off.</p>
-      <a href="/eod" style="display:inline-block;background:#059669;color:#fff;font-size:14px;font-weight:600;padding:12px 28px;border-radius:6px;text-decoration:none;">Submit EOD Update</a>
+      <p style="font-size:13px;color:#6b7280;margin:0 0 12px;">Share what you completed today, any pending items, and note any blockers before you sign off.</p>
+      <p style="font-size:13px;color:#374151;font-weight:500;margin:0 0 24px;">Open the app and add your EOD records before wrapping up for the day.</p>
+      <a href="${eodUrl}" style="display:inline-block;background:#059669;color:#fff;font-size:14px;font-weight:600;padding:12px 28px;border-radius:6px;text-decoration:none;">Submit My EOD Update</a>
     </div>
     <div style="padding:16px 32px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center;">
-      <p style="margin:0;font-size:12px;color:#9ca3af;">Delivery Sync &middot; You're receiving this because your team has daily EOD updates configured.</p>
+      <p style="margin:0;font-size:12px;color:#9ca3af;">DSV OpsPulse &middot; You're receiving this because your team has daily EOD updates configured.</p>
     </div>
   </div>
 </body>

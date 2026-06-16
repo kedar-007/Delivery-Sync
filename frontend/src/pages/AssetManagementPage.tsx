@@ -261,6 +261,7 @@ interface RejectModalProps {
 }
 
 const RejectModal = ({ open, onClose, onConfirm, title = 'Reject Request' }: RejectModalProps) => {
+  const { t } = useI18n();
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -286,19 +287,19 @@ const RejectModal = ({ open, onClose, onConfirm, title = 'Reject Request' }: Rej
     <Modal open={open} onClose={onClose} title={title} size="sm">
       {error && <Alert type="error" message={error} className="mb-3" />}
       <div>
-        <label className="form-label">Reason for rejection</label>
+        <label className="form-label">{t('blockers.modal.resolution')}</label>
         <textarea
           className="form-textarea"
           rows={3}
-          placeholder="Explain why this request is being rejected…"
+          placeholder={t('common.notes')}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
         />
       </div>
       <ModalActions>
-        <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
+        <Button variant="outline" type="button" onClick={onClose}>{t('common.cancel')}</Button>
         <Button variant="danger" onClick={handleConfirm} loading={loading} icon={<XCircle size={16} />}>
-          Reject
+          {t('common.reject')}
         </Button>
       </ModalActions>
     </Modal>
@@ -315,6 +316,7 @@ interface AssetModalProps {
 }
 
 const AssetModal = ({ open, onClose, asset, categories }: AssetModalProps) => {
+  const { t } = useI18n();
   const [error, setError] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const createAsset = useCreateAsset();
@@ -372,25 +374,25 @@ const AssetModal = ({ open, onClose, asset, categories }: AssetModalProps) => {
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={asset ? 'Edit Asset' : 'Add Asset'} size="md">
+    <Modal open={open} onClose={onClose} title={asset ? t('assets.modal.editTitle') : t('assets.modal.createTitle')} size="md">
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         {error && <Alert type="error" message={error} />}
 
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
-            <label className="form-label">Asset Name *</label>
+            <label className="form-label">{t('assets.modal.nameLabel')}</label>
             <input
               className="form-input"
               placeholder="e.g. MacBook Pro 14-inch"
-              {...register('name', { required: 'Asset name is required' })}
+              {...register('name', { required: t('validation.required') })}
             />
             {errors.name && <p className="text-xs text-red-600 mt-1">{errors.name.message}</p>}
           </div>
 
           <div>
-            <label className="form-label">Category *</label>
-            <select className="form-select" {...register('category_id', { required: 'Category is required' })}>
-              <option value="">Select category…</option>
+            <label className="form-label">{t('assets.modal.category')}</label>
+            <select className="form-select" {...register('category_id', { required: t('validation.required') })}>
+              <option value="">{t('assets.selectCategory')}</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
@@ -399,17 +401,17 @@ const AssetModal = ({ open, onClose, asset, categories }: AssetModalProps) => {
           </div>
 
           <div>
-            <label className="form-label">Asset Tag *</label>
+            <label className="form-label">{t('assets.modal.serialNumber')}</label>
             <input
               className="form-input"
               placeholder="e.g. ASSET-001"
-              {...register('asset_tag', { required: !asset ? 'Asset tag is required' : false })}
+              {...register('asset_tag', { required: !asset ? t('validation.required') : false })}
             />
             {errors.asset_tag && <p className="text-xs text-red-600 mt-1">{errors.asset_tag.message}</p>}
           </div>
 
           <div>
-            <label className="form-label">Serial Number</label>
+            <label className="form-label">{t('assets.modal.serialNumber')}</label>
             <input
               className="form-input"
               placeholder="e.g. ABC123XYZ"
@@ -418,12 +420,12 @@ const AssetModal = ({ open, onClose, asset, categories }: AssetModalProps) => {
           </div>
 
           <div>
-            <label className="form-label">Purchase Date</label>
+            <label className="form-label">{t('assets.purchaseDate')}</label>
             <input type="date" className="form-input" {...register('purchase_date')} />
           </div>
 
           <div>
-            <label className="form-label">Purchase Value</label>
+            <label className="form-label">{t('assets.purchaseValue')}</label>
             <input
               type="number"
               step="0.01"
@@ -435,17 +437,17 @@ const AssetModal = ({ open, onClose, asset, categories }: AssetModalProps) => {
           </div>
 
           <div className="col-span-2">
-            <label className="form-label">Warranty Expiry</label>
+            <label className="form-label">{t('assets.warrantyExpiry')}</label>
             <input type="date" className="form-input" {...register('warranty_expiry')} />
           </div>
 
           <div className="col-span-2">
-            <label className="form-label">Notes <span className="text-gray-400 font-normal">(optional)</span></label>
+            <label className="form-label">{t('common.notes')} <span className="text-gray-400 font-normal">{t('common.optional2')}</span></label>
             <textarea className="form-textarea" rows={2} {...register('notes')} />
           </div>
 
           <div className="col-span-2">
-            <label className="form-label">Asset Image <span className="text-gray-400 font-normal">(optional, uploaded to Stratus)</span></label>
+            <label className="form-label">{t('common.upload')} <span className="text-gray-400 font-normal">{t('common.optional2')}</span></label>
             <input
               type="file"
               accept="image/*"
@@ -457,9 +459,9 @@ const AssetModal = ({ open, onClose, asset, categories }: AssetModalProps) => {
         </div>
 
         <ModalActions>
-          <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" type="button" onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="submit" loading={isSubmitting} icon={<Package size={16} />}>
-            {asset ? 'Save Changes' : 'Add Asset'}
+            {asset ? t('assets.modal.save') : t('assets.modal.create')}
           </Button>
         </ModalActions>
       </form>
@@ -488,6 +490,7 @@ const conditionColor = (c?: string) => {
 };
 
 const RequestModal = ({ open, onClose, categories, availableAssets, editRequest }: RequestModalProps) => {
+  const { t } = useI18n();
   const isEditMode = !!editRequest;
   const [step, setStep] = useState<1 | 2>(1);
   const [filterCat, setFilterCat] = useState('');
@@ -581,11 +584,11 @@ const RequestModal = ({ open, onClose, categories, availableAssets, editRequest 
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={isEditMode ? 'Edit Asset Request' : 'Request New Asset'} size="xl">
+    <Modal open={open} onClose={onClose} title={isEditMode ? t('assets.modal.editTitle') : t('assets.new')} size="xl">
       {/* Step progress — hidden in edit mode */}
       {!isEditMode && (
         <div className="flex items-center gap-2 mb-5">
-          {[{ n: 1, label: 'Browse & Select' }, { n: 2, label: 'Request Details' }].map(({ n, label }, i) => (
+          {[{ n: 1, label: t('assets.browseSelect') }, { n: 2, label: t('assets.requestDetails') }].map(({ n, label }, i) => (
             <React.Fragment key={n}>
               <div className={`flex items-center gap-1.5 ${step === n ? 'text-indigo-600' : step > n ? 'text-green-600' : 'text-gray-400'}`}>
                 <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border-2 ${
@@ -608,7 +611,7 @@ const RequestModal = ({ open, onClose, categories, availableAssets, editRequest 
         <div className="space-y-4">
           {/* Category chips */}
           <div>
-            <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">Filter by Category</p>
+            <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">{t('assets.filterByCategory')}</p>
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -617,7 +620,7 @@ const RequestModal = ({ open, onClose, categories, availableAssets, editRequest 
                   !filterCat ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
                 }`}
               >
-                All ({(availableAssets as Asset[]).length})
+                {t('common.all')} ({(availableAssets as Asset[]).length})
               </button>
               {categories.map((c) => {
                 const count = (availableAssets as Asset[]).filter((a) => String(a.categoryId) === c.id).length;
@@ -651,7 +654,7 @@ const RequestModal = ({ open, onClose, categories, availableAssets, editRequest 
                   <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
                     <Package size={20} className="text-amber-500" />
                   </div>
-                  <p className="text-sm font-semibold text-amber-800">No stock available in this category</p>
+                  <p className="text-sm font-semibold text-amber-800">{t('assets.noStockInCategory')}</p>
                   <p className="text-xs text-amber-600 max-w-xs leading-relaxed">
                     There are currently no available assets in <strong>{selCatName}</strong>.
                     You can still submit a request — the ops team will be notified and procure one for you.
@@ -662,7 +665,7 @@ const RequestModal = ({ open, onClose, categories, availableAssets, editRequest 
                         ? 'bg-amber-600 text-white border-amber-600'
                         : 'bg-white text-amber-700 border-amber-400 hover:bg-amber-50'
                     }`}>
-                    {anyInCat ? '✓ Request submitted to ops team' : 'Submit request anyway'}
+                    {anyInCat ? t('assets.requestSubmittedOps') : t('assets.submitAnyway')}
                   </button>
                 </div>
               </div>
@@ -681,8 +684,8 @@ const RequestModal = ({ open, onClose, categories, availableAssets, editRequest 
                       <Package size={18} className="text-gray-400" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-gray-700">Any available</p>
-                      <p className="text-xs text-gray-400">Admin will pick the best match</p>
+                      <p className="text-sm font-semibold text-gray-700">{t('assets.anyAvailable')}</p>
+                      <p className="text-xs text-gray-400">{t('assets.adminWillPick')}</p>
                     </div>
                     {anyInCat && <CheckCircle2 size={16} className="text-indigo-600 ml-auto shrink-0" />}
                   </button>
@@ -734,14 +737,14 @@ const RequestModal = ({ open, onClose, categories, availableAssets, editRequest 
           </div>
 
           <ModalActions>
-            <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
+            <Button variant="outline" type="button" onClick={onClose}>{t('common.cancel')}</Button>
             <Button
               type="button"
               onClick={handleNext}
               disabled={!filterCat && !selectedAsset}
               icon={<ChevronRight size={14} />}
             >
-              Next: Request Details
+              {t('assets.nextRequestDetails')}
             </Button>
           </ModalActions>
         </div>
@@ -773,18 +776,18 @@ const RequestModal = ({ open, onClose, categories, availableAssets, editRequest 
               )}
             </div>
             <button type="button" onClick={() => setStep(1)} className="text-xs text-indigo-500 hover:text-indigo-700 font-medium shrink-0">
-              Change
+              {t('common.edit')}
             </button>
           </div>
 
           {/* Reason */}
           <div>
-            <label className="form-label">Reason <span className="text-red-500">*</span></label>
+            <label className="form-label">{t('blockers.modal.descLabel')} <span className="text-red-500">*</span></label>
             <textarea
               className="form-textarea"
               rows={3}
               placeholder="Why do you need this asset? Describe your use case…"
-              {...register('reason', { required: 'Reason is required' })}
+              {...register('reason', { required: t('validation.required') })}
             />
             {errors.reason && <p className="text-xs text-red-600 mt-1">{errors.reason.message}</p>}
           </div>
@@ -792,7 +795,7 @@ const RequestModal = ({ open, onClose, categories, availableAssets, editRequest 
           {/* Priority + Needed by */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="form-label">Priority</label>
+              <label className="form-label">{t('common.priority')}</label>
               <div className="flex gap-2 mt-1">
                 {(['LOW', 'MEDIUM', 'HIGH'] as Priority[]).map((p) => (
                   <label key={p} className="flex-1 cursor-pointer">
@@ -812,14 +815,14 @@ const RequestModal = ({ open, onClose, categories, availableAssets, editRequest 
             </div>
 
             <div>
-              <label className="form-label">Needed By <span className="text-gray-400 font-normal">(optional)</span></label>
+              <label className="form-label">{t('common.dueDate')} <span className="text-gray-400 font-normal">{t('common.optional2')}</span></label>
               <input type="date" className="form-input" {...register('needed_by')} />
             </div>
           </div>
 
           {/* Notes */}
           <div>
-            <label className="form-label">Additional Notes <span className="text-gray-400 font-normal">(optional)</span></label>
+            <label className="form-label">{t('common.notes')} <span className="text-gray-400 font-normal">{t('common.optional2')}</span></label>
             <textarea
               className="form-textarea"
               rows={2}
@@ -830,10 +833,10 @@ const RequestModal = ({ open, onClose, categories, availableAssets, editRequest 
 
           <ModalActions>
             {!isEditMode && (
-              <Button variant="outline" type="button" onClick={() => setStep(1)}>Back</Button>
+              <Button variant="outline" type="button" onClick={() => setStep(1)}>{t('common.back')}</Button>
             )}
             <Button type="submit" loading={isSubmitting} icon={isEditMode ? <Edit2 size={16} /> : <Plus size={16} />}>
-              {isEditMode ? 'Save Changes' : 'Submit Request'}
+              {isEditMode ? t('assets.modal.save') : t('common.submit')}
             </Button>
           </ModalActions>
         </form>
@@ -851,6 +854,7 @@ interface MaintenanceModalProps {
 }
 
 const MaintenanceModal = ({ open, onClose, assets }: MaintenanceModalProps) => {
+  const { t } = useI18n();
   const [error, setError] = useState('');
   const scheduleMaintenance = useScheduleMaintenance();
 
@@ -878,14 +882,14 @@ const MaintenanceModal = ({ open, onClose, assets }: MaintenanceModalProps) => {
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Schedule Maintenance" size="md">
+    <Modal open={open} onClose={onClose} title={t('assets.modal.createTitle')} size="md">
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         {error && <Alert type="error" message={error} />}
 
         <div>
-          <label className="form-label">Asset *</label>
-          <select className="form-select" {...register('asset_id', { required: 'Asset is required' })}>
-            <option value="">Select asset…</option>
+          <label className="form-label">{t('assets.modal.nameLabel')}</label>
+          <select className="form-select" {...register('asset_id', { required: t('validation.required') })}>
+            <option value="">{t('assets.selectAsset')}</option>
             {assets.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.assetName}{a.serialNumber ? ` · ${a.serialNumber}` : ''}
@@ -896,34 +900,34 @@ const MaintenanceModal = ({ open, onClose, assets }: MaintenanceModalProps) => {
         </div>
 
         <div>
-          <label className="form-label">Scheduled Date *</label>
+          <label className="form-label">{t('milestones.modal.dueDate')}</label>
           <input
             type="date"
             className="form-input"
-            {...register('scheduled_date', { required: 'Date is required' })}
+            {...register('scheduled_date', { required: t('validation.required') })}
           />
           {errors.scheduled_date && <p className="text-xs text-red-600 mt-1">{errors.scheduled_date.message}</p>}
         </div>
 
         <div>
-          <label className="form-label">Maintenance Type *</label>
+          <label className="form-label">{t('common.type')}</label>
           <input
             className="form-input"
             placeholder="e.g. Battery replacement, OS upgrade…"
-            {...register('maintenance_type', { required: 'Type is required' })}
+            {...register('maintenance_type', { required: t('validation.required') })}
           />
           {errors.maintenance_type && <p className="text-xs text-red-600 mt-1">{errors.maintenance_type.message}</p>}
         </div>
 
         <div>
-          <label className="form-label">Notes <span className="text-gray-400 font-normal">(optional)</span></label>
+          <label className="form-label">{t('common.notes')} <span className="text-gray-400 font-normal">{t('common.optional2')}</span></label>
           <textarea className="form-textarea" rows={2} {...register('notes')} />
         </div>
 
         <ModalActions>
-          <Button variant="outline" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" type="button" onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="submit" loading={isSubmitting || scheduleMaintenance.isPending} icon={<Wrench size={16} />}>
-            Schedule
+            {t('common.save')}
           </Button>
         </ModalActions>
       </form>
@@ -939,6 +943,7 @@ interface MyAssetsTabProps {
 }
 
 const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
+  const { t } = useI18n();
   const { data: myAssets = [], isLoading, error } = useMyAssets();
   const initiateReturn = useInitiateReturn();
   const [requestModalOpen, setRequestModalOpen] = useState(false);
@@ -982,18 +987,18 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
     <div className="space-y-4">
       <div className="flex justify-end">
         <Button icon={<Plus size={14} />} onClick={() => setRequestModalOpen(true)}>
-          Request New Asset
+          {t('assets.new')}
         </Button>
       </div>
 
       {(myAssets as Asset[]).length === 0 ? (
         <EmptyState
           icon={<Package size={36} />}
-          title="No assets assigned"
-          description="You have no assets currently assigned to you."
+          title={t('assets.noAssets')}
+          description={t('assets.noAssetsDesc')}
           action={
             <Button size="sm" icon={<Plus size={14} />} onClick={() => setRequestModalOpen(true)}>
-              Request Asset
+              {t('assets.new')}
             </Button>
           }
         />
@@ -1037,9 +1042,9 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
                   <div className="bg-amber-100/60 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-2">
                     <Clock size={13} className="text-amber-600 shrink-0 mt-0.5" />
                     <div className="text-xs leading-snug">
-                      <p className="font-semibold text-amber-800">Awaiting ops verification</p>
+                      <p className="font-semibold text-amber-800">{t('assets.awaitingOpsVerification')}</p>
                       <p className="text-amber-700">
-                        You initiated this return{asset.returnAt ? ` on ${safeFormat(asset.returnAt, 'MMM d')}` : ''}. The IT/ops team will confirm receipt and condition.
+                        {t('assets.returnInitiatedDesc')}{asset.returnAt ? ` on ${safeFormat(asset.returnAt, 'MMM d')}` : ''}
                       </p>
                     </div>
                   </div>
@@ -1065,7 +1070,7 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
                     <div className="flex items-center gap-2">
                       <Calendar size={13} className="shrink-0 text-indigo-400" />
                       <div className="flex-1 min-w-0">
-                        <span className="text-xs text-gray-500">Assigned on </span>
+                        <span className="text-xs text-gray-500">{t('assets.assignedOn')} </span>
                         <span className="text-xs font-semibold text-gray-800">{safeFormat(asset.assignedDate, 'MMM d, yyyy')}</span>
                       </div>
                       {asset.daysUsing != null && (
@@ -1080,7 +1085,7 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
                   {(asset.handoverByName || asset.assignedByName) && (
                     <div className="flex items-center gap-2">
                       <Truck size={13} className="shrink-0 text-teal-400" />
-                      <span className="text-xs text-gray-500">Given by </span>
+                      <span className="text-xs text-gray-500">{t('assets.givenBy')} </span>
                       <div className="flex items-center gap-1.5 ml-auto">
                         <UserAvatar name={asset.handoverByName ?? asset.assignedByName ?? ''} size="sm" />
                         <span className="text-xs font-semibold text-gray-800 truncate max-w-[100px]">
@@ -1094,7 +1099,7 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
                   {asset.approvedByName && (
                     <div className="flex items-center gap-2">
                       <CheckCircle2 size={13} className="shrink-0 text-green-400" />
-                      <span className="text-xs text-gray-500">Approved by </span>
+                      <span className="text-xs text-gray-500">{t('assets.approvedBy')} </span>
                       <div className="flex items-center gap-1.5 ml-auto">
                         <UserAvatar name={asset.approvedByName} avatarUrl={asset.approvedByAvatar ?? undefined} size="sm" />
                         <span className="text-xs font-semibold text-gray-800 truncate max-w-[100px]">
@@ -1108,7 +1113,7 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
                   {asset.expectedReturnDate && (
                     <div className="flex items-center gap-2">
                       <Clock size={13} className="shrink-0 text-amber-400" />
-                      <span className="text-xs text-gray-500">Return by </span>
+                      <span className="text-xs text-gray-500">{t('assets.returnBy')} </span>
                       <span className="text-xs font-semibold text-amber-700 ml-auto">
                         {safeFormat(asset.expectedReturnDate, 'MMM d, yyyy')}
                       </span>
@@ -1136,7 +1141,7 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
                         assetTag: asset.assetTag ?? null,
                       })}
                     >
-                      Show QR
+                      {t('assets.scanQr')}
                     </Button>
                   )}
 
@@ -1154,7 +1159,7 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
                   }
                   onClick={() => asset.requestId && setReturnTarget({ requestId: String(asset.requestId), assetName: asset.assetName })}
                 >
-                  {returnPending ? 'Return Pending' : 'Return Asset'}
+                  {returnPending ? t('statuses.pending') : t('assets.checkIn')}
                 </Button>
                 </div>
               </div>
@@ -1172,7 +1177,7 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
       />
 
       {/* Printable QR sticker for the asset the user currently holds. */}
-      <Modal open={qrTarget !== null} onClose={() => setQrTarget(null)} title="Asset QR Sticker" size="sm">
+      <Modal open={qrTarget !== null} onClose={() => setQrTarget(null)} title={t('assets.qrSticker')} size="sm">
         {qrTarget && (
           <div className="space-y-3 flex flex-col items-center">
             <div className="bg-white p-3 rounded-lg border border-gray-200">
@@ -1189,7 +1194,7 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
               <p className="text-xs text-gray-500 font-mono">{qrTarget.assetTag}</p>
             )}
             <p className="text-xs text-gray-500 text-center leading-snug">
-              Print and stick this on the device. Authorised users scan it to look up asset details.
+              {t('assets.qrStickerDesc')}
             </p>
             <Button
               size="sm"
@@ -1204,36 +1209,35 @@ const MyAssetsTab = ({ categories, availableAssets }: MyAssetsTabProps) => {
                 link.click();
               }}
             >
-              Download PNG
+              {t('assets.download')}
             </Button>
           </div>
         )}
       </Modal>
 
       {/* Return confirm modal — initiates the return so ops can verify. */}
-      <Modal open={returnTarget !== null} onClose={() => setReturnTarget(null)} title="Return Asset" size="md">
+      <Modal open={returnTarget !== null} onClose={() => setReturnTarget(null)} title={t('assets.checkIn')} size="md">
         <div className="space-y-3">
           {returnError && <Alert type="error" message={returnError} />}
           <p className="text-sm text-gray-600">
-            Initiating a return marks <strong>{returnTarget?.assetName ?? 'this asset'}</strong> as
-            awaiting collection. The IT/ops team will verify it once they receive the device back.
+            {t('assets.initiateReturnDesc', { name: returnTarget?.assetName ?? t('assets.thisAsset') })}
           </p>
           <div>
-            <label className="form-label">Reason / notes <span className="text-gray-400 font-normal">(optional)</span></label>
+            <label className="form-label">{t('common.notes')} <span className="text-gray-400 font-normal">{t('common.optional2')}</span></label>
             <textarea className="form-textarea" rows={3}
               placeholder="e.g. Leaving the team, upgrading to a new device…"
               value={returnNotes} onChange={(e) => setReturnNotes(e.target.value)} />
           </div>
         </div>
         <ModalActions>
-          <Button variant="outline" onClick={() => setReturnTarget(null)}>Cancel</Button>
+          <Button variant="outline" onClick={() => setReturnTarget(null)}>{t('common.cancel')}</Button>
           <Button
             icon={<RotateCcw size={16} />}
             loading={initiateReturn.isPending}
             onClick={handleReturn}
             className="bg-orange-600 hover:bg-orange-700 text-white"
           >
-            Initiate Return
+            {t('assets.checkIn')}
           </Button>
         </ModalActions>
       </Modal>
@@ -1250,6 +1254,7 @@ interface CategoryManageModalProps {
 }
 
 const CategoryManageModal = ({ open, onClose, categories }: CategoryManageModalProps) => {
+  const { t } = useI18n();
   const createCategory = useCreateCategory();
   const [name, setName] = useState('');
   const [err, setErr] = useState('');
@@ -1264,7 +1269,7 @@ const CategoryManageModal = ({ open, onClose, categories }: CategoryManageModalP
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Manage Categories" size="sm">
+    <Modal open={open} onClose={onClose} title={t('assets.modal.category')} size="sm">
       <div className="space-y-4">
         {err && <Alert type="error" message={err} />}
         <div className="flex gap-2">
@@ -1276,11 +1281,11 @@ const CategoryManageModal = ({ open, onClose, categories }: CategoryManageModalP
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAdd(); } }}
           />
           <Button size="sm" onClick={handleAdd} loading={createCategory.isPending} icon={<Plus size={14} />}>
-            Add
+            {t('common.add')}
           </Button>
         </div>
         {categories.length === 0 ? (
-          <p className="text-sm text-gray-500 text-center py-4">No categories yet. Add one above.</p>
+          <p className="text-sm text-gray-500 text-center py-4">{t('common.noData')}</p>
         ) : (
           <ul className="divide-y divide-gray-100 max-h-56 overflow-y-auto rounded-lg border border-gray-200">
             {categories.map((c) => (
@@ -1290,7 +1295,7 @@ const CategoryManageModal = ({ open, onClose, categories }: CategoryManageModalP
         )}
       </div>
       <ModalActions>
-        <Button variant="outline" onClick={onClose}>Close</Button>
+        <Button variant="outline" onClick={onClose}>{t('common.close')}</Button>
       </ModalActions>
     </Modal>
   );
@@ -1321,6 +1326,7 @@ const parseCSVLine = (line: string): string[] => {
 const BULK_HEADERS = ['name', 'category_id', 'asset_tag', 'serial_number', 'brand', 'model', 'purchase_value', 'purchase_date', 'warranty_expiry', 'location', 'notes'];
 
 const BulkUploadModal = ({ open, onClose, categories }: BulkUploadModalProps) => {
+  const { t } = useI18n();
   const bulkCreate = useBulkCreateAssets();
   const [rows, setRows] = useState<Record<string, string>[]>([]);
   const [parseErr, setParseErr] = useState('');
@@ -1376,7 +1382,7 @@ const BulkUploadModal = ({ open, onClose, categories }: BulkUploadModalProps) =>
     `MacBook Pro 14,${categories[0]?.id ?? 'CATEGORY_ID'},ASSET-001,SN123,Apple,M3 Pro,2500,2026-01-15,2029-01-15,HQ Office,Good condition`;
 
   return (
-    <Modal open={open} onClose={onClose} title="Bulk Upload Assets" size="lg">
+    <Modal open={open} onClose={onClose} title={t('common.upload')} size="lg">
       <div className="space-y-4">
         {/* Template download */}
         <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-100">
@@ -1390,13 +1396,13 @@ const BulkUploadModal = ({ open, onClose, categories }: BulkUploadModalProps) =>
               const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
               a.download = 'assets_template.csv'; a.click();
             }}>
-            Download Template
+            {t('assets.download')}
           </Button>
         </div>
 
         {/* File picker */}
         <div>
-          <label className="form-label">Select CSV File</label>
+          <label className="form-label">{t('common.upload')}</label>
           <input type="file" accept=".csv,text/csv" className="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
             onChange={handleFile} />
         </div>
@@ -1449,10 +1455,10 @@ const BulkUploadModal = ({ open, onClose, categories }: BulkUploadModalProps) =>
         )}
       </div>
       <ModalActions>
-        <Button variant="outline" onClick={onClose}>Close</Button>
+        <Button variant="outline" onClick={onClose}>{t('common.close')}</Button>
         {resolvedRows.length > 0 && !result && (
           <Button icon={<Upload size={14} />} onClick={handleSubmit} loading={bulkCreate.isPending}>
-            Upload {resolvedRows.length} Assets
+            {t('common.upload')} {resolvedRows.length}
           </Button>
         )}
       </ModalActions>
@@ -1467,6 +1473,7 @@ interface InventoryTabProps {
 }
 
 const InventoryTab = ({ categories }: InventoryTabProps) => {
+  const { t } = useI18n();
   const [filterCategory, setFilterCategory] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [invPage, setInvPage] = useState(1);
@@ -1554,10 +1561,10 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
       {/* Stock Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: 'Total Assets',  value: stockSummary.total,     color: 'text-gray-700',   bg: 'bg-gray-50',   border: 'border-gray-200' },
-          { label: 'Available',     value: stockSummary.available,  color: 'text-green-700',  bg: 'bg-green-50',  border: 'border-green-200' },
-          { label: 'Assigned',      value: stockSummary.assigned,   color: 'text-blue-700',   bg: 'bg-blue-50',   border: 'border-blue-200' },
-          { label: 'Maintenance',   value: stockSummary.inMaint,    color: 'text-amber-700',  bg: 'bg-amber-50',  border: 'border-amber-200' },
+          { label: t('assets.title'),                   value: stockSummary.total,     color: 'text-gray-700',   bg: 'bg-gray-50',   border: 'border-gray-200' },
+          { label: t('assets.status.available'),        value: stockSummary.available,  color: 'text-green-700',  bg: 'bg-green-50',  border: 'border-green-200' },
+          { label: t('assets.status.checkedOut'),       value: stockSummary.assigned,   color: 'text-blue-700',   bg: 'bg-blue-50',   border: 'border-blue-200' },
+          { label: t('assets.status.maintenance'),      value: stockSummary.inMaint,    color: 'text-amber-700',  bg: 'bg-amber-50',  border: 'border-amber-200' },
         ].map((s) => (
           <div key={s.label} className={`${s.bg} border ${s.border} rounded-xl px-4 py-3 flex flex-col gap-0.5`}>
             <span className={`text-2xl font-bold ${s.color}`}>{s.value}</span>
@@ -1569,7 +1576,7 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
       {/* Category stock breakdown */}
       {stockSummary.byCat.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-xl px-5 py-4">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Stock by Category</p>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">{t('assets.stockByCategory')}</p>
           <div className="flex flex-wrap gap-2">
             {stockSummary.byCat.map((c) => (
               <div key={c.name}
@@ -1599,7 +1606,7 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
             value={filterCategory}
             onChange={(e) => setFilterCategory(e.target.value)}
           >
-            <option value="">All categories</option>
+            <option value="">{t('common.all')}</option>
             {categories.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
@@ -1611,27 +1618,27 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
           >
-            <option value="">All statuses</option>
-            <option value="AVAILABLE">Available</option>
-            <option value="ASSIGNED">Assigned</option>
-            <option value="MAINTENANCE">Maintenance</option>
-            <option value="RETIRED">Retired</option>
+            <option value="">{t('common.all')}</option>
+            <option value="AVAILABLE">{t('assets.status.available')}</option>
+            <option value="ASSIGNED">{t('assets.status.checkedOut')}</option>
+            <option value="MAINTENANCE">{t('assets.status.maintenance')}</option>
+            <option value="RETIRED">{t('assets.status.retired')}</option>
           </select>
         </div>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h3 className="text-sm font-semibold text-gray-900">Asset Inventory</h3>
+          <h3 className="text-sm font-semibold text-gray-900">{t('assets.title')}</h3>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" icon={<Tag size={14} />} onClick={() => setCatModalOpen(true)}>
-              Categories {categories.length > 0 && <span className="ml-1 text-xs text-gray-500">({categories.length})</span>}
+              {t('assets.modal.category')} {categories.length > 0 && <span className="ml-1 text-xs text-gray-500">({categories.length})</span>}
             </Button>
             <Button size="sm" variant="outline" icon={<Upload size={14} />} onClick={() => setBulkModalOpen(true)}>
-              Upload CSV
+              {t('common.upload')}
             </Button>
             <Button size="sm" icon={<Plus size={14} />} onClick={() => { setEditAsset(null); setModalOpen(true); }}>
-              Add Asset
+              {t('assets.modal.create')}
             </Button>
           </div>
         </div>
@@ -1643,8 +1650,8 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
         ) : enrichedInventory.length === 0 ? (
           <EmptyState
             icon={<Package size={36} />}
-            title="No assets found"
-            description="Add your first asset to start tracking inventory."
+            title={t('assets.noAssets')}
+            description={t('assets.noAssetsDesc')}
           />
         ) : (
           <>
@@ -1652,7 +1659,7 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
             <table className="min-w-full divide-y divide-gray-100">
               <thead className="bg-gray-50/80">
                 <tr>
-                  {['Asset Name', 'Category', 'Serial Number', 'Status', 'Purchase Date', 'Cost', 'Actions'].map((h) => (
+                  {[t('assets.modal.nameLabel'), t('assets.modal.category'), t('assets.modal.serialNumber'), t('common.status'), t('projects.modal.startDate'), t('assets.cost'), t('common.actions')].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
                       {h}
                     </th>
@@ -1693,7 +1700,7 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
                         <button
                           onClick={() => openEdit(asset)}
                           className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors rounded"
-                          title="Edit"
+                          title={t('common.edit')}
                         >
                           <Edit2 size={14} />
                         </button>
@@ -1701,7 +1708,7 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
                           <button
                             onClick={() => setRetireTarget(asset)}
                             className="p-1.5 text-gray-400 hover:text-red-500 transition-colors rounded"
-                            title="Retire asset"
+                            title={t('assets.retireAsset')}
                           >
                             <AlertTriangle size={14} />
                           </button>
@@ -1739,19 +1746,19 @@ const InventoryTab = ({ categories }: InventoryTabProps) => {
       />
 
       {/* Retire confirm modal */}
-      <Modal open={retireTarget !== null} onClose={() => setRetireTarget(null)} title="Retire Asset" size="sm">
+      <Modal open={retireTarget !== null} onClose={() => setRetireTarget(null)} title={t('assets.status.retired')} size="sm">
         <p className="text-sm text-gray-600">
-          Are you sure you want to retire <strong>{retireTarget?.assetName}</strong>? This will mark it as permanently out of service.
+          {t('common.confirmDeleteDesc')} <strong>{retireTarget?.assetName}</strong>
         </p>
         <ModalActions>
-          <Button variant="outline" onClick={() => setRetireTarget(null)}>Cancel</Button>
+          <Button variant="outline" onClick={() => setRetireTarget(null)}>{t('common.cancel')}</Button>
           <Button
             variant="danger"
             icon={<AlertTriangle size={16} />}
             loading={updateAsset.isPending}
             onClick={handleRetire}
           >
-            Retire Asset
+            {t('assets.status.retired')}
           </Button>
         </ModalActions>
       </Modal>
@@ -1769,6 +1776,7 @@ interface ApproveModalProps {
 }
 
 const ApproveModal = ({ open, onClose, request, onDone }: ApproveModalProps) => {
+  const { t } = useI18n();
   const approveRequest = useApproveAssetRequest();
   const { data: allUsers = [] } = useAssignableUsers();
   const { data: orgRoles = [] } = useAssetOrgRoles();
@@ -1815,7 +1823,7 @@ const ApproveModal = ({ open, onClose, request, onDone }: ApproveModalProps) => 
   const hasOps = selectedUsers.length > 0 || selectedRoles.length > 0;
 
   return (
-    <Modal open={open} onClose={onClose} title="Approve Asset Request" size="lg">
+    <Modal open={open} onClose={onClose} title={t('common.approve')} size="lg">
       <div className="space-y-4">
         {error && <Alert type="error" message={error} />}
 
@@ -1831,7 +1839,7 @@ const ApproveModal = ({ open, onClose, request, onDone }: ApproveModalProps) => 
 
         {/* Optional message */}
         <div>
-          <label className="form-label">Approval Note <span className="text-gray-400 font-normal">(optional)</span></label>
+          <label className="form-label">{t('common.notes')} <span className="text-gray-400 font-normal">{t('common.optional2')}</span></label>
           <textarea className="form-textarea" rows={2} placeholder="Any instructions for the ops team or requester…"
             value={message} onChange={(e) => setMessage(e.target.value)} />
         </div>
@@ -1845,7 +1853,7 @@ const ApproveModal = ({ open, onClose, request, onDone }: ApproveModalProps) => 
           >
             <div className="flex items-center gap-2">
               <Truck size={14} className="text-amber-500" />
-              <span className="text-sm font-medium text-gray-800">Assign to Operations Team</span>
+              <span className="text-sm font-medium text-gray-800">{t('assets.assignToOps')}</span>
               {hasOps && (
                 <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">
                   {selectedUsers.length + selectedRoles.length} selected
@@ -1858,13 +1866,13 @@ const ApproveModal = ({ open, onClose, request, onDone }: ApproveModalProps) => 
           {showOpsSection && (
             <div className="border-t border-gray-100 p-4 space-y-4">
               <p className="text-xs text-gray-500">
-                Selected users/roles will be notified via email and in-app to process and hand over this asset.
+                {t('assets.opsNotifyDesc')}
               </p>
 
               {/* Org Roles */}
               {(orgRoles as { id: string; name: string }[]).length > 0 && (
                 <div>
-                  <p className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide flex items-center gap-1.5"><Shield size={11} /> Roles</p>
+                  <p className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide flex items-center gap-1.5"><Shield size={11} /> {t('assets.roles')}</p>
                   <div className="flex flex-wrap gap-2">
                     {(orgRoles as { id: string; name: string }[]).map((role) => (
                       <button key={role.id} type="button"
@@ -1884,7 +1892,7 @@ const ApproveModal = ({ open, onClose, request, onDone }: ApproveModalProps) => 
 
               {/* Individual Users */}
               <div>
-                <p className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide flex items-center gap-1.5"><User size={11} /> Individual Users</p>
+                <p className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide flex items-center gap-1.5"><User size={11} /> {t('assets.individualUsers')}</p>
                 <div className="relative mb-2">
                   <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                   <input className="form-input pl-8 text-sm py-1.5" placeholder="Search users…"
@@ -1912,14 +1920,14 @@ const ApproveModal = ({ open, onClose, request, onDone }: ApproveModalProps) => 
         </div>
 
         <ModalActions>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
           <Button
             onClick={handleApprove}
             loading={approveRequest.isPending}
             icon={<CheckCircle2 size={15} />}
             className="bg-green-600 hover:bg-green-700 text-white"
           >
-            {hasOps ? 'Approve & Assign Ops' : 'Approve'}
+            {hasOps ? t('common.approve') : t('common.approve')}
           </Button>
         </ModalActions>
       </div>
@@ -1938,6 +1946,7 @@ interface HandoverModalProps {
 }
 
 const HandoverModal = ({ open, onClose, request, availableAssets, onDone }: HandoverModalProps) => {
+  const { t } = useI18n();
   const handover = useHandoverAssetRequest();
   const [assetId, setAssetId]           = useState('');
   const [deviceId, setDeviceId]         = useState('');
@@ -1975,7 +1984,7 @@ const HandoverModal = ({ open, onClose, request, availableAssets, onDone }: Hand
   const filteredAssets = availableAssets.filter((a) => !request.categoryId || String(a.categoryId) === request.categoryId);
 
   return (
-    <Modal open={open} onClose={onClose} title="Hand Over Asset" size="2xl">
+    <Modal open={open} onClose={onClose} title={t('assets.checkOut')} size="2xl">
       <div className="space-y-4">
         {error && <Alert type="error" message={error} />}
 
@@ -1985,15 +1994,15 @@ const HandoverModal = ({ open, onClose, request, availableAssets, onDone }: Hand
           <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3 flex items-center gap-3">
             <UserAvatar name={request.requestedByName ?? ''} avatarUrl={request.requestedByAvatar ?? undefined} size="sm" />
             <div>
-              <p className="text-xs text-indigo-500 font-medium">Handing over to</p>
+              <p className="text-xs text-indigo-500 font-medium">{t('assets.handingOverTo')}</p>
               <p className="text-sm font-semibold text-indigo-800">{request.requestedByName ?? '—'}</p>
             </div>
           </div>
 
           <div>
-            <label className="form-label">Select Asset to Hand Over *</label>
+            <label className="form-label">{t('assets.modal.assignTo')}</label>
             <select className="form-select" value={assetId} onChange={(e) => setAssetId(e.target.value)}>
-              <option value="">Choose asset…</option>
+              <option value="">{t('assets.chooseAsset')}</option>
               {filteredAssets.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.assetName}{a.assetTag ? ` (${a.assetTag})` : ''}{a.serialNumber ? ` · ${a.serialNumber}` : ''}
@@ -2018,19 +2027,19 @@ const HandoverModal = ({ open, onClose, request, availableAssets, onDone }: Hand
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="border border-gray-200 rounded-xl p-4 space-y-3">
             <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide flex items-center gap-1.5">
-              <Key size={12} /> Device Credentials <span className="text-gray-400 font-normal normal-case">(optional)</span>
+              <Key size={12} /> {t('assets.deviceCredentials')} <span className="text-gray-400 font-normal normal-case">{t('common.optional2')}</span>
             </p>
             <div>
-              <label className="form-label">Device ID / Serial</label>
+              <label className="form-label">{t('assets.deviceId')}</label>
               <input className="form-input" placeholder="e.g. IMEI, device serial…" value={deviceId} onChange={(e) => setDeviceId(e.target.value)} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="form-label">Username / Login</label>
+                <label className="form-label">{t('assets.deviceUsername')}</label>
                 <input className="form-input" placeholder="Username or email…" value={deviceUsername} onChange={(e) => setDeviceUsername(e.target.value)} />
               </div>
               <div>
-                <label className="form-label">Password</label>
+                <label className="form-label">{t('assets.devicePassword')}</label>
                 <div className="relative">
                   <input
                     className="form-input pr-9"
@@ -2049,17 +2058,17 @@ const HandoverModal = ({ open, onClose, request, availableAssets, onDone }: Hand
           </div>
 
           <div className="flex flex-col">
-            <label className="form-label">Handover Notes <span className="text-gray-400 font-normal">(optional)</span></label>
+            <label className="form-label">{t('common.notes')} <span className="text-gray-400 font-normal">{t('common.optional2')}</span></label>
             <textarea className="form-textarea flex-1 min-h-[160px]" placeholder="Collection point, instructions, accessories included…"
               value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
         </div>
 
         <ModalActions>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
           <Button onClick={handleSubmit} loading={handover.isPending} icon={<Truck size={15} />}
             className="bg-violet-600 hover:bg-violet-700 text-white">
-            Confirm Handover
+            {t('assets.checkOut')}
           </Button>
         </ModalActions>
       </div>
@@ -2089,6 +2098,7 @@ type Condition  = 'GOOD' | 'FAIR' | 'DAMAGED' | 'LOST';
 type Severity   = 'NONE' | 'MINOR' | 'MODERATE' | 'SEVERE';
 
 const VerifyReturnModal = ({ open, onClose, request, onDone }: VerifyReturnModalProps) => {
+  const { t } = useI18n();
   const verify = useVerifyReturn();
   const reject = useRejectReturn();
   const [condition, setCondition] = useState<Condition>('GOOD');
@@ -2170,14 +2180,14 @@ const VerifyReturnModal = ({ open, onClose, request, onDone }: VerifyReturnModal
   if (!request) return null;
 
   return (
-    <Modal open={open} onClose={onClose} title="Verify Asset Return" size="2xl">
+    <Modal open={open} onClose={onClose} title={t('assets.verifyReturn')} size="2xl">
       <div className="space-y-4">
         {error && <Alert type="error" message={error} />}
 
         <div className="bg-gray-50 rounded-xl p-3 flex items-center gap-3">
           <UserAvatar name={request.requestedByName ?? ''} size="sm" />
           <div>
-            <p className="text-xs text-gray-400">Returned by</p>
+            <p className="text-xs text-gray-400">{t('assets.returnedBy')}</p>
             <p className="text-sm font-semibold text-gray-900">{request.requestedByName ?? '—'}</p>
           </div>
           {request.assetName && (
@@ -2192,24 +2202,23 @@ const VerifyReturnModal = ({ open, onClose, request, onDone }: VerifyReturnModal
           <div className="space-y-3">
             <div className="bg-amber-50 border border-amber-100 rounded-xl p-3">
               <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1">
-                Bounce the return back
+                {t('assets.bounceReturnBack')}
               </p>
               <p className="text-xs text-amber-800 leading-snug">
-                Use this when the physical handover is incomplete — wrong device, missing accessories,
-                damage not declared. The request goes back to HANDED_OVER so the requester can re-initiate.
+                {t('assets.bounceReturnDesc')}
               </p>
             </div>
             <div>
-              <label className="form-label">What needs to be fixed? *</label>
+              <label className="form-label">{t('assets.whatNeedsToBeFixed')} <span className="text-red-500">*</span></label>
               <textarea className="form-textarea" rows={3}
                 placeholder="e.g. Returned without the charger. Please bring the original charger to the IT desk."
                 value={rejectionNotes} onChange={(e) => setRejectionNotes(e.target.value)} />
             </div>
             <ModalActions>
-              <Button variant="outline" onClick={() => setShowRejectForm(false)}>Back</Button>
+              <Button variant="outline" onClick={() => setShowRejectForm(false)}>{t('common.back')}</Button>
               <Button onClick={handleReject} loading={reject.isPending}
                 className="bg-amber-600 hover:bg-amber-700 text-white" icon={<RotateCcw size={15} />}>
-                Bounce Back to Requester
+                {t('assets.bounceBackToRequester')}
               </Button>
             </ModalActions>
           </div>
@@ -2220,7 +2229,7 @@ const VerifyReturnModal = ({ open, onClose, request, onDone }: VerifyReturnModal
               {/* LEFT — outcome */}
               <div className="space-y-4">
                 <div>
-                  <label className="form-label">Asset Condition *</label>
+                  <label className="form-label">{t('assets.assetCondition')} <span className="text-red-500">*</span></label>
                   <div className="grid grid-cols-4 gap-2 mt-1">
                     {(['GOOD', 'FAIR', 'DAMAGED', 'LOST'] as const).map((c) => (
                       <button key={c} type="button"
@@ -2238,15 +2247,15 @@ const VerifyReturnModal = ({ open, onClose, request, onDone }: VerifyReturnModal
                     ))}
                   </div>
                   <p className="text-xs text-gray-400 mt-1.5 leading-snug">
-                    GOOD / FAIR → back to inventory · DAMAGED → sent for repair (maintenance record auto-created) · LOST → asset retired.
+                    {t('assets.conditionHelp')}
                   </p>
                 </div>
 
                 {isDamaged && (
                   <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 space-y-3">
-                    <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Damage Report</p>
+                    <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">{t('assets.damageReport')}</p>
                     <div>
-                      <label className="form-label">Severity</label>
+                      <label className="form-label">{t('common.priority')}</label>
                       <div className="grid grid-cols-3 gap-2">
                         {(['MINOR', 'MODERATE', 'SEVERE'] as const).map((s) => (
                           <button key={s} type="button"
@@ -2262,14 +2271,14 @@ const VerifyReturnModal = ({ open, onClose, request, onDone }: VerifyReturnModal
                       </div>
                     </div>
                     <div>
-                      <label className="form-label">Damage Description *</label>
+                      <label className="form-label">{t('assets.damageDescription')} <span className="text-red-500">*</span></label>
                       <textarea className="form-textarea" rows={2}
                         placeholder="Cracked screen, dent on lid, missing keys…"
                         value={damageDescription} onChange={(e) => setDamageDescription(e.target.value)} />
                     </div>
                     {condition === 'DAMAGED' && (
                       <div>
-                        <label className="form-label">Estimated Repair Cost</label>
+                        <label className="form-label">{t('assets.estimatedRepairCost')}</label>
                         <input className="form-input" type="number" min={0} placeholder="0"
                           value={estimatedCost} onChange={(e) => setEstimatedCost(e.target.value)} />
                       </div>
@@ -2282,9 +2291,9 @@ const VerifyReturnModal = ({ open, onClose, request, onDone }: VerifyReturnModal
               <div className="space-y-4">
                 <div>
                   <label className="form-label flex items-center gap-1.5">
-                    <ClipboardCheck size={13} className="text-gray-400" /> Recovery Checklist
+                    <ClipboardCheck size={13} className="text-gray-400" /> {t('assets.recoveryChecklist')}
                   </label>
-                  <p className="text-xs text-gray-400 mb-2">Mark each item as PRESENT or MISSING for partial-recovery tracking.</p>
+                  <p className="text-xs text-gray-400 mb-2">{t('assets.recoveryChecklistDesc')}</p>
                   <div className="space-y-1.5">
                     {DEFAULT_CHECKLIST.map((item) => {
                       const status = checklistState[item];
@@ -2316,7 +2325,7 @@ const VerifyReturnModal = ({ open, onClose, request, onDone }: VerifyReturnModal
                 </div>
 
                 <div>
-                  <label className="form-label">Verification Notes <span className="text-gray-400 font-normal">(optional)</span></label>
+                  <label className="form-label">{t('assets.verificationNotes')} <span className="text-gray-400 font-normal">{t('common.optional2')}</span></label>
                   <textarea className="form-textarea" rows={3} placeholder="Any context for future audit…"
                     value={notes} onChange={(e) => setNotes(e.target.value)} />
                 </div>
@@ -2324,14 +2333,14 @@ const VerifyReturnModal = ({ open, onClose, request, onDone }: VerifyReturnModal
             </div>
 
             <ModalActions>
-              <Button variant="outline" onClick={onClose}>Cancel</Button>
+              <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
               <Button variant="outline" onClick={() => setShowRejectForm(true)}
                 className="text-amber-700 border-amber-300 hover:bg-amber-50"
                 icon={<RotateCcw size={14} />}>
-                Reject Return
+                {t('assets.rejectReturn')}
               </Button>
               <Button onClick={handleSubmit} loading={verify.isPending} icon={<ClipboardCheck size={15} />}>
-                Verify Return
+                {t('assets.verifyReturn')}
               </Button>
             </ModalActions>
           </>
@@ -2354,6 +2363,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
   onActionDone: () => void;
   onEdit?: (req: AssetRequest) => void;
 }) {
+  const { t } = useI18n();
   const rejectRequest  = useRejectAssetRequest();
   const initiateReturn = useInitiateReturn();
   const startProc      = useStartProcessingRequest();
@@ -2423,7 +2433,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
 
   return (
     <>
-      <Modal open={open} onClose={onClose} title="Request Details" size="2xl">
+      <Modal open={open} onClose={onClose} title={t('assets.requestDetails')} size="2xl">
         <div className="space-y-5">
           {/* Status + Priority */}
           <div className="flex items-center gap-2 flex-wrap">
@@ -2442,7 +2452,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
           <div className="space-y-5">
           {/* Requester */}
           <div className="bg-gray-50 rounded-xl p-4">
-            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><User size={12} /> Requested By</p>
+            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><User size={12} /> {t('assets.requestedBy')}</p>
             <div className="flex items-center gap-3">
               <UserAvatar name={req.requestedByName ?? ''} avatarUrl={req.requestedByAvatar ?? undefined} size="md" />
               <div>
@@ -2455,19 +2465,19 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
           {/* Category + Asset */}
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-gray-50 rounded-xl p-4">
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5 flex items-center gap-1.5"><Tag size={12} /> Category</p>
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5 flex items-center gap-1.5"><Tag size={12} /> {t('assets.modal.category')}</p>
               <p className="text-sm font-semibold text-gray-900">{req.categoryName ?? '—'}</p>
             </div>
             <div className="bg-gray-50 rounded-xl p-4">
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5 flex items-center gap-1.5"><Package size={12} /> Asset</p>
-              <p className="text-sm font-semibold text-gray-900">{req.assetName ?? 'Any available'}</p>
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5 flex items-center gap-1.5"><Package size={12} /> {t('nav.assets')}</p>
+              <p className="text-sm font-semibold text-gray-900">{req.assetName ?? t('assets.anyAvailable')}</p>
               {req.assetTag && <p className="text-xs text-gray-400 font-mono mt-0.5">{req.assetTag}</p>}
             </div>
           </div>
 
           {/* Reason */}
           <div>
-            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5 flex items-center gap-1.5"><FileText size={12} /> Reason</p>
+            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5 flex items-center gap-1.5"><FileText size={12} /> {t('assets.reason')}</p>
             <p className="text-sm text-gray-700 bg-gray-50 rounded-xl p-4 leading-relaxed">{req.reason || '—'}</p>
           </div>
 
@@ -2478,14 +2488,14 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
                 <div className="flex items-center gap-3 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
                   <Calendar size={15} className="text-blue-500 shrink-0" />
                   <div>
-                    <p className="text-xs text-blue-500 font-medium">Needed By</p>
+                    <p className="text-xs text-blue-500 font-medium">{t('assets.neededBy')}</p>
                     <p className="text-sm font-semibold text-blue-800">{safeFormat(req.neededBy, 'MMMM d, yyyy')}</p>
                   </div>
                 </div>
               )}
               {req.reqNotes && (
                 <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
-                  <p className="text-xs text-amber-600 font-medium mb-1">Additional Notes</p>
+                  <p className="text-xs text-amber-600 font-medium mb-1">{t('common.notes')}</p>
                   <p className="text-sm text-amber-900">{req.reqNotes}</p>
                 </div>
               )}
@@ -2497,7 +2507,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
           {/* Ops Assignees */}
           {req.opsAssigneeDetails && req.opsAssigneeDetails.length > 0 && (
             <div>
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><Truck size={12} /> Ops Team Assigned</p>
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><Truck size={12} /> {t('assets.opsTeamAssigned')}</p>
               <div className="flex flex-wrap gap-2">
                 {req.opsAssigneeDetails.map((u) => (
                   <div key={u.id} className="flex items-center gap-1.5 bg-blue-50 border border-blue-100 rounded-full px-2.5 py-1">
@@ -2512,7 +2522,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
           {/* Handover details */}
           {req.handoverAt && (
             <div className="bg-teal-50 border border-teal-100 rounded-xl p-4">
-              <p className="text-xs font-medium text-teal-600 uppercase tracking-wide mb-2 flex items-center gap-1.5"><Truck size={12} /> Handed Over</p>
+              <p className="text-xs font-medium text-teal-600 uppercase tracking-wide mb-2 flex items-center gap-1.5"><Truck size={12} /> {t('assets.handedOver')}</p>
               <p className="text-sm text-teal-800">
                 By <strong>{req.handoverByName ?? '—'}</strong> on {safeFormat(req.handoverAt, 'MMM d, yyyy · hh:mm a')}
               </p>
@@ -2524,7 +2534,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
               {req.qrToken && req.status === 'HANDED_OVER' && (isRequester || isOpsUser || canAssign || isApprover) && (
                 <div className="mt-3 border-t border-teal-200 pt-3">
                   <p className="text-xs font-semibold text-teal-700 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                    <QrCode size={12} /> Asset QR Sticker
+                    <QrCode size={12} /> {t('assets.qrSticker')}
                   </p>
                   <div className="flex items-center gap-3 bg-white rounded-lg p-3 border border-teal-200">
                     <div className="shrink-0 bg-white p-1.5 rounded">
@@ -2538,8 +2548,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs text-teal-700 leading-snug">
-                        Print and stick this on the device. Authorised users scan it from the mobile app to see
-                        asset details. Token rotates automatically on return.
+                        {t('assets.qrStickerDescDetail')}
                       </p>
                       <button
                         type="button"
@@ -2554,7 +2563,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
                         }}
                         className="mt-2 text-xs font-semibold text-teal-700 hover:text-teal-900 inline-flex items-center gap-1"
                       >
-                        <Upload size={11} className="rotate-180" /> Download PNG
+                        <Upload size={11} className="rotate-180" /> {t('assets.download')} PNG
                       </button>
                     </div>
                   </div>
@@ -2567,25 +2576,25 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
                   <button onClick={() => setShowCreds((v) => !v)}
                     className="flex items-center gap-1.5 text-xs font-semibold text-teal-600 hover:text-teal-800 transition-colors">
                     <Key size={12} />
-                    {showCreds ? 'Hide' : 'Show'} Device Credentials
+                    {showCreds ? t('common.showLess') : t('common.showMore')} {t('assets.deviceCredentials')}
                   </button>
                   {showCreds && (
                     <div className="mt-2 space-y-1.5">
                       {req.deviceId && (
                         <div className="flex items-center justify-between">
-                          <span className="text-xs text-teal-600">Device ID</span>
+                          <span className="text-xs text-teal-600">{t('assets.deviceId')}</span>
                           <span className="text-xs font-mono font-semibold text-teal-900">{req.deviceId}</span>
                         </div>
                       )}
                       {req.deviceUsername && (
                         <div className="flex items-center justify-between">
-                          <span className="text-xs text-teal-600">Username</span>
+                          <span className="text-xs text-teal-600">{t('assets.deviceUsername')}</span>
                           <span className="text-xs font-mono font-semibold text-teal-900">{req.deviceUsername}</span>
                         </div>
                       )}
                       {req.devicePassword && (
                         <div className="flex items-center justify-between">
-                          <span className="text-xs text-teal-600">Password</span>
+                          <span className="text-xs text-teal-600">{t('assets.devicePassword')}</span>
                           <span className="text-xs font-mono font-semibold text-teal-900">{req.devicePassword}</span>
                         </div>
                       )}
@@ -2599,7 +2608,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
           {/* Return details */}
           {req.returnAt && (
             <div className="bg-orange-50 border border-orange-100 rounded-xl p-4">
-              <p className="text-xs font-medium text-orange-600 uppercase tracking-wide mb-2 flex items-center gap-1.5"><RotateCcw size={12} /> Return Initiated</p>
+              <p className="text-xs font-medium text-orange-600 uppercase tracking-wide mb-2 flex items-center gap-1.5"><RotateCcw size={12} /> {t('assets.returnInitiated')}</p>
               <p className="text-sm text-orange-800">{safeFormat(req.returnAt, 'MMM d, yyyy')}</p>
               {req.returnReason && <p className="text-xs text-orange-700 mt-1">{req.returnReason}</p>}
             </div>
@@ -2612,7 +2621,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
                   ? 'bg-amber-50 border-amber-100'
                   : 'bg-gray-50 border-gray-200'
             }`}>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5"><ClipboardCheck size={12} /> Return Verified</p>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5"><ClipboardCheck size={12} /> {t('assets.returnVerified')}</p>
               <p className="text-sm text-gray-700">
                 Condition: <strong>{req.returnCondition ?? '—'}</strong>
                 {' · '}{safeFormat(req.returnVerifiedAt, 'MMM d, yyyy')}
@@ -2620,7 +2629,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
               {req.returnVerifiedByName && (
                 <div className="mt-2 flex items-center gap-2 text-xs text-gray-600">
                   <UserAvatar name={req.returnVerifiedByName} avatarUrl={req.returnVerifiedByAvatar ?? undefined} size="xs" />
-                  <span>Verified by <strong className="text-gray-800">{req.returnVerifiedByName}</strong></span>
+                  <span>{t('assets.verifiedBy')} <strong className="text-gray-800">{req.returnVerifiedByName}</strong></span>
                 </div>
               )}
               {(req.returnCondition === 'DAMAGED' || req.returnCondition === 'LOST') && req.returnDamageDescription && (
@@ -2638,7 +2647,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
               )}
               {req.returnChecklist && req.returnChecklist.length > 0 && (
                 <div className="mt-2">
-                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Returned items</p>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">{t('assets.returnedItems')}</p>
                   <ul className="space-y-0.5">
                     {req.returnChecklist.map((item, i) => (
                       <li key={i} className="text-xs text-gray-600 flex items-center gap-1.5"><CheckCircle2 size={10} className="text-green-500" />{item}</li>
@@ -2648,7 +2657,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
               )}
               {req.returnMissingItems && req.returnMissingItems.length > 0 && (
                 <div className="mt-2">
-                  <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wide mb-1">Missing items</p>
+                  <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wide mb-1">{t('assets.missingItems')}</p>
                   <ul className="space-y-0.5">
                     {req.returnMissingItems.map((item, i) => (
                       <li key={i} className="text-xs text-red-700 flex items-center gap-1.5"><XCircle size={10} className="text-red-500" />{item}</li>
@@ -2665,7 +2674,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
           {req.returnRejectionNotes && req.status === 'HANDED_OVER' && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
               <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1 flex items-center gap-1.5">
-                <AlertTriangle size={12} /> Previous Return Bounced Back
+                <AlertTriangle size={12} /> {t('assets.previousReturnBouncedBack')}
               </p>
               <p className="text-sm text-amber-900">{req.returnRejectionNotes}</p>
               <p className="text-xs text-amber-700 mt-1">
@@ -2678,7 +2687,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
           {/* Status timeline */}
           {timeline.length > 1 && (
             <div>
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Activity</p>
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">{t('assets.activity')}</p>
               <div className="space-y-2">
                 {timeline.map((t, i) => (
                   <div key={i} className="flex items-center gap-3">
@@ -2702,7 +2711,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
               <div className="w-full flex items-start gap-2.5 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
                 <Info size={14} className="text-blue-400 shrink-0 mt-0.5" />
                 <p className="text-xs text-blue-700 leading-relaxed">
-                  This request is currently being processed by the ops team and can no longer be edited.
+                  {t('assets.requestBeingProcessed')}
                 </p>
               </div>
             )}
@@ -2710,7 +2719,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
               <div className="w-full flex items-start gap-2.5 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
                 <XCircle size={14} className="text-red-400 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-xs font-medium text-red-700 mb-0.5">Request Rejected</p>
+                  <p className="text-xs font-medium text-red-700 mb-0.5">{t('assets.requestRejected')}</p>
                   <p className="text-xs text-red-600">{req.rejectionNotes}</p>
                 </div>
               </div>
@@ -2720,11 +2729,11 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
               <>
                 <Button className="flex-1 justify-center bg-green-600 hover:bg-green-700 text-white"
                   icon={<CheckCircle2 size={15} />} onClick={() => setApproveOpen(true)}>
-                  Approve
+                  {t('common.approve')}
                 </Button>
                 <Button variant="outline" className="text-red-600 border-red-300 hover:bg-red-50"
                   icon={<XCircle size={15} />} onClick={() => setRejectOpen(true)}>
-                  Reject
+                  {t('common.reject')}
                 </Button>
               </>
             )}
@@ -2732,7 +2741,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
             {canApprove && req.status === 'APPROVED' && (
               <Button variant="outline" className="text-red-600 border-red-300 hover:bg-red-50"
                 icon={<XCircle size={15} />} onClick={() => setRejectOpen(true)}>
-                Reject
+                {t('common.reject')}
               </Button>
             )}
             {/* Handover — for ops assignees or ASSET_ASSIGN, when ASSIGNED_TO_OPS or PROCESSING */}
@@ -2743,12 +2752,12 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
                     icon={<Monitor size={14} />}
                     onClick={() => startProc.mutateAsync(req.id).then(() => onActionDone()).catch(() => undefined)}
                     loading={startProc.isPending}>
-                    Mark Processing
+                    {t('assets.markProcessing')}
                   </Button>
                 )}
                 <Button icon={<Truck size={14} />} className="bg-violet-600 hover:bg-violet-700 text-white"
                   onClick={() => setHandoverOpen(true)}>
-                  Hand Over
+                  {t('assets.handOver')}
                 </Button>
               </>
             )}
@@ -2756,12 +2765,12 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
             {isRequester && req.status === 'HANDED_OVER' && (
               <div className="w-full space-y-2">
                 <textarea className="form-textarea text-sm" rows={2}
-                  placeholder="Reason for return (optional)…"
+                  placeholder={t('assets.reasonForReturn')}
                   value={returnNotes} onChange={(e) => setReturnNotes(e.target.value)} />
                 <Button variant="outline" icon={<RotateCcw size={14} />}
                   loading={returning} onClick={handleInitiateReturn}
                   className="w-full justify-center text-orange-600 border-orange-300 hover:bg-orange-50">
-                  Return This Asset
+                  {t('assets.returnThisAsset')}
                 </Button>
               </div>
             )}
@@ -2769,7 +2778,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
             {(canAssign || isOpsUser) && req.status === 'RETURNED' && (
               <Button icon={<ClipboardCheck size={14} />} className="w-full justify-center bg-indigo-600 hover:bg-indigo-700 text-white"
                 onClick={() => setVerifyReturnOpen(true)}>
-                Verify Return
+                {t('assets.verifyReturn')}
               </Button>
             )}
           </div>
@@ -2780,7 +2789,7 @@ function RequestDetailModal({ req, open, onClose, canApprove, canAssign, current
       <ApproveModal open={approveOpen} onClose={() => setApproveOpen(false)} request={req} onDone={onActionDone} />
       <HandoverModal open={handoverOpen} onClose={() => setHandoverOpen(false)} request={req} availableAssets={availableAssets} onDone={() => { onActionDone(); onClose(); }} />
       <VerifyReturnModal open={verifyReturnOpen} onClose={() => setVerifyReturnOpen(false)} request={req} onDone={() => { onActionDone(); onClose(); }} />
-      <RejectModal open={rejectOpen} onClose={() => setRejectOpen(false)} onConfirm={handleReject} title="Reject Asset Request" />
+      <RejectModal open={rejectOpen} onClose={() => setRejectOpen(false)} onConfirm={handleReject} title={t('assets.rejectAssetRequest')} />
     </>
   );
 }
@@ -2867,6 +2876,7 @@ interface RequestsTabProps {
 
 const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availableAssets }: RequestsTabProps) => {
   type ViewMode = 'all' | 'mine' | 'approved';
+  const { t } = useI18n();
   const [viewMode, setViewMode]             = useState<ViewMode>(canApprove ? 'all' : 'mine');
   const [filterStatus, setFilterStatus]     = useState('');
   const [search, setSearch]                 = useState('');
@@ -2917,24 +2927,24 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
   const paged = filteredList.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const statusOptions: Array<{ value: string; label: string }> = [
-    { value: '',                label: 'All Statuses' },
-    { value: 'PENDING',         label: 'Pending' },
-    { value: 'APPROVED',        label: 'Approved' },
-    { value: 'ASSIGNED_TO_OPS', label: 'Ops Assigned' },
-    { value: 'PROCESSING',      label: 'Processing' },
-    { value: 'HANDED_OVER',     label: 'Handed Over' },
-    { value: 'RETURNED',        label: 'Returned' },
-    { value: 'RETURN_VERIFIED', label: 'Return Verified' },
-    { value: 'REJECTED',        label: 'Rejected' },
+    { value: '',                label: t('assets.allStatuses') },
+    { value: 'PENDING',         label: t('statuses.pending') },
+    { value: 'APPROVED',        label: t('statuses.approved') },
+    { value: 'ASSIGNED_TO_OPS', label: t('assets.opsAssigned') },
+    { value: 'PROCESSING',      label: t('assets.processing') },
+    { value: 'HANDED_OVER',     label: t('assets.handedOver') },
+    { value: 'RETURNED',        label: t('assets.returned') },
+    { value: 'RETURN_VERIFIED', label: t('assets.returnVerified') },
+    { value: 'REJECTED',        label: t('statuses.rejected') },
   ];
 
   const statsCards = [
-    { label: 'Total',       value: reqStats.total,      color: 'text-gray-800',   bg: 'bg-gray-50',    border: 'border-gray-200',   status: '' },
-    { label: 'Pending',     value: reqStats.pending,    color: 'text-amber-700',  bg: 'bg-amber-50',   border: 'border-amber-200',  status: 'PENDING' },
-    { label: 'In Progress', value: reqStats.inProgress, color: 'text-blue-700',   bg: 'bg-blue-50',    border: 'border-blue-200',   status: 'APPROVED' },
-    { label: 'Handed Over', value: reqStats.handedOver, color: 'text-violet-700', bg: 'bg-violet-50',  border: 'border-violet-200', status: 'HANDED_OVER' },
-    { label: 'Returned',    value: reqStats.returned,   color: 'text-orange-700', bg: 'bg-orange-50',  border: 'border-orange-200', status: 'RETURNED' },
-    { label: 'Fulfilled',   value: reqStats.fulfilled,  color: 'text-green-700',  bg: 'bg-green-50',   border: 'border-green-200',  status: 'FULFILLED' },
+    { label: t('common.total'),        value: reqStats.total,      color: 'text-gray-800',   bg: 'bg-gray-50',    border: 'border-gray-200',   status: '' },
+    { label: t('statuses.pending'),    value: reqStats.pending,    color: 'text-amber-700',  bg: 'bg-amber-50',   border: 'border-amber-200',  status: 'PENDING' },
+    { label: t('assets.inProgress'),   value: reqStats.inProgress, color: 'text-blue-700',   bg: 'bg-blue-50',    border: 'border-blue-200',   status: 'APPROVED' },
+    { label: t('assets.handedOver'),   value: reqStats.handedOver, color: 'text-violet-700', bg: 'bg-violet-50',  border: 'border-violet-200', status: 'HANDED_OVER' },
+    { label: t('assets.returned'),     value: reqStats.returned,   color: 'text-orange-700', bg: 'bg-orange-50',  border: 'border-orange-200', status: 'RETURNED' },
+    { label: t('assets.fulfilled'),    value: reqStats.fulfilled,  color: 'text-green-700',  bg: 'bg-green-50',   border: 'border-green-200',  status: 'FULFILLED' },
   ];
 
   return (
@@ -2952,7 +2962,7 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
-              {mode === 'all' ? 'All Requests' : mode === 'mine' ? 'My Requests' : 'Approved by Me'}
+              {mode === 'all' ? t('assets.allRequests') : mode === 'mine' ? t('assets.myRequests') : t('assets.approvedByMe')}
             </button>
           ))}
         </div>
@@ -2997,7 +3007,7 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
         </div>
         {isMyView && (
           <Button icon={<Plus size={14} />} onClick={() => setRequestModalOpen(true)}>
-            New Request
+            {t('assets.newRequest')}
           </Button>
         )}
       </div>
@@ -3006,7 +3016,7 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-900">
-            {isMyView ? 'My Requests' : isApprovedView ? 'Requests I Approved' : 'All Asset Requests'}
+            {isMyView ? t('assets.myRequests') : isApprovedView ? t('assets.approvedByMe') : t('assets.allRequests')}
           </h3>
           <span className="text-xs text-gray-400">
             {filteredList.length !== reqList.length
@@ -3018,20 +3028,20 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
         {filteredList.length === 0 ? (
           <EmptyState
             icon={<Package size={36} />}
-            title={q ? 'No matching requests' : 'No requests'}
+            title={q ? t('common.noResults') : t('assets.noRequests')}
             description={
               q
-                ? 'Try a different search or clear the filter.'
+                ? t('assets.noResultsDesc')
                 : isMyView
-                ? 'You have not submitted any asset requests yet.'
+                ? t('assets.noMyRequestsDesc')
                 : isApprovedView
-                ? 'You have not approved any requests yet.'
-                : 'No asset requests match the current filter.'
+                ? t('assets.noApprovedDesc')
+                : t('assets.noRequestsDesc')
             }
             action={
               isMyView && !q ? (
                 <Button size="sm" icon={<Plus size={14} />} onClick={() => setRequestModalOpen(true)}>
-                  Request Asset
+                  {t('assets.new')}
                 </Button>
               ) : undefined
             }
@@ -3044,29 +3054,29 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
                   <tr>
                     {!isMyView && (
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
-                        Requester
+                        {t('assets.requester')}
                       </th>
                     )}
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
-                      Category / Asset
+                      {t('assets.categoryAsset')}
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      Reason
+                      {t('assets.reason')}
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
-                      Priority
+                      {t('common.priority')}
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
-                      Status
+                      {t('common.status')}
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
-                      Submitted
+                      {t('assets.submitted')}
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
-                      Needed By
+                      {t('assets.neededBy')}
                     </th>
                     <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      Actions
+                      {t('common.actions')}
                     </th>
                   </tr>
                 </thead>
@@ -3159,13 +3169,13 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
                                   ? 'bg-indigo-100 text-indigo-700'
                                   : 'bg-amber-100 text-amber-700'
                               }`}>
-                                {needsVerify ? 'Verify' : 'Action'}
+                                {needsVerify ? t('assets.verify') : t('assets.action')}
                               </span>
                             )}
                             <button
                               onClick={() => setDetailReq(req)}
                               className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                              title="View details"
+                              title={t('common.view')}
                             >
                               <Eye size={14} />
                             </button>
@@ -3173,7 +3183,7 @@ const RequestsTab = ({ canApprove, canAssign, currentUserId, categories, availab
                               <button
                                 onClick={() => setEditRequest(req)}
                                 className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
-                                title="Edit request"
+                                title={t('common.edit')}
                               >
                                 <Edit2 size={14} />
                               </button>
@@ -3231,6 +3241,7 @@ interface MaintenanceTabProps {
 }
 
 const MaintenanceTab = ({ allAssets }: MaintenanceTabProps) => {
+  const { t } = useI18n();
   const { data: records = [], isLoading, error } = useAssetMaintenance();
   const completeMaintenance = useCompleteMaintenance();
   const [modalOpen, setModalOpen]           = useState(false);
@@ -3271,34 +3282,34 @@ const MaintenanceTab = ({ allAssets }: MaintenanceTabProps) => {
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 flex flex-col gap-0.5">
           <span className="text-2xl font-bold text-gray-800 tabular-nums">{maintList.length}</span>
-          <span className="text-xs text-gray-500 font-medium">Total Records</span>
+          <span className="text-xs text-gray-500 font-medium">{t('assets.totalRecords')}</span>
         </div>
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex flex-col gap-0.5">
           <span className="text-2xl font-bold text-amber-700 tabular-nums">{scheduled}</span>
-          <span className="text-xs text-gray-500 font-medium">Scheduled / In Progress</span>
+          <span className="text-xs text-gray-500 font-medium">{t('assets.scheduledInProgress')}</span>
         </div>
         <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex flex-col gap-0.5">
           <span className="text-2xl font-bold text-green-700 tabular-nums">{completed}</span>
-          <span className="text-xs text-gray-500 font-medium">Completed</span>
+          <span className="text-xs text-gray-500 font-medium">{t('statuses.completed')}</span>
         </div>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h3 className="text-sm font-semibold text-gray-900">Maintenance Schedule</h3>
+          <h3 className="text-sm font-semibold text-gray-900">{t('assets.maintenanceSchedule')}</h3>
           <Button size="sm" icon={<Wrench size={14} />} onClick={() => setModalOpen(true)}>
-            Schedule Maintenance
+            {t('assets.scheduleMaintenance')}
           </Button>
         </div>
 
         {maintList.length === 0 ? (
           <EmptyState
             icon={<Wrench size={36} />}
-            title="No maintenance records"
-            description="Schedule asset maintenance to keep track of upkeep."
+            title={t('assets.noMaintenance')}
+            description={t('assets.noMaintenanceDesc')}
             action={
               <Button size="sm" icon={<Wrench size={14} />} onClick={() => setModalOpen(true)}>
-                Schedule Maintenance
+                {t('assets.scheduleMaintenance')}
               </Button>
             }
           />
@@ -3308,7 +3319,7 @@ const MaintenanceTab = ({ allAssets }: MaintenanceTabProps) => {
               <table className="min-w-full divide-y divide-gray-100">
                 <thead className="bg-gray-50/80">
                   <tr>
-                    {['Asset', 'Type', 'Scheduled Date', 'Completed Date', 'Notes', 'Status', 'Actions'].map((h) => (
+                    {[t('assets.modal.nameLabel'), t('common.type'), t('assets.scheduledDate'), t('assets.completedDate'), t('common.notes'), t('common.status'), t('common.actions')].map((h) => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
                         {h}
                       </th>
@@ -3351,11 +3362,11 @@ const MaintenanceTab = ({ allAssets }: MaintenanceTabProps) => {
                               onClick={() => { setCompleteTarget(rec); setCompleteNotes(''); setCompleteError(''); }}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors"
                             >
-                              <CheckCircle2 size={12} /> Mark Done
+                              <CheckCircle2 size={12} /> {t('assets.markDone')}
                             </button>
                           ) : (
                             <span className="text-xs text-gray-400 flex items-center gap-1">
-                              <CheckCircle2 size={12} className="text-green-500" /> Done
+                              <CheckCircle2 size={12} className="text-green-500" /> {t('statuses.completed')}
                             </span>
                           )}
                         </td>
@@ -3380,7 +3391,7 @@ const MaintenanceTab = ({ allAssets }: MaintenanceTabProps) => {
       <Modal
         open={completeTarget !== null}
         onClose={() => setCompleteTarget(null)}
-        title="Mark Maintenance as Done"
+        title={t('assets.markMaintenanceDone')}
         size="sm"
       >
         {completeError && <Alert type="error" message={completeError} className="mb-3" />}
@@ -3398,7 +3409,7 @@ const MaintenanceTab = ({ allAssets }: MaintenanceTabProps) => {
             </div>
           </div>
           <div>
-            <label className="form-label">Completion Notes <span className="text-gray-400 font-normal">(optional)</span></label>
+            <label className="form-label">{t('assets.completionNotes')} <span className="text-gray-400 font-normal">{t('common.optional2')}</span></label>
             <textarea
               className="form-textarea"
               rows={3}
@@ -3408,18 +3419,18 @@ const MaintenanceTab = ({ allAssets }: MaintenanceTabProps) => {
             />
           </div>
           <p className="text-xs text-gray-500">
-            Marking this done will set the asset status back to <strong>Available</strong>.
+            {t('assets.markingDoneDesc')}
           </p>
         </div>
         <ModalActions>
-          <Button variant="outline" onClick={() => setCompleteTarget(null)}>Cancel</Button>
+          <Button variant="outline" onClick={() => setCompleteTarget(null)}>{t('common.cancel')}</Button>
           <Button
             onClick={handleComplete}
             loading={completeMaintenance.isPending}
             icon={<CheckCircle2 size={15} />}
             className="bg-green-600 hover:bg-green-700 text-white"
           >
-            Confirm Completion
+            {t('assets.confirmCompletion')}
           </Button>
         </ModalActions>
       </Modal>
@@ -3454,10 +3465,10 @@ const AssetManagementPage = () => {
   const { data: allInventory = [] } = useAssetInventory();
 
   const tabs: Array<{ id: Tab; label: string; hidden?: boolean }> = [
-    { id: 'my-assets',   label: 'My Assets' },
-    { id: 'inventory',   label: 'Inventory',   hidden: !canWrite },
-    { id: 'requests',    label: 'Requests' },
-    { id: 'maintenance', label: 'Maintenance', hidden: !canWrite },
+    { id: 'my-assets',   label: t('assets.tabMyAssets') },
+    { id: 'inventory',   label: t('assets.tabInventory'),   hidden: !canWrite },
+    { id: 'requests',    label: t('assets.tabRequests') },
+    { id: 'maintenance', label: t('assets.tabMaintenance'), hidden: !canWrite },
   ];
 
   const visibleTabs = tabs.filter((t) => !t.hidden);
@@ -3466,7 +3477,7 @@ const AssetManagementPage = () => {
     <Layout>
       <Header
         title={t('nav.assets')}
-        subtitle="Track and manage organisational assets"
+        subtitle={t('assets.subtitle')}
         actions={
           canScan ? (
             <Button
@@ -3474,7 +3485,7 @@ const AssetManagementPage = () => {
               icon={<QrCode size={14} />}
               onClick={() => setScanOpen(true)}
             >
-              Scan QR
+              {t('assets.scanQr')}
             </Button>
           ) : undefined
         }

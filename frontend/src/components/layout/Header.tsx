@@ -37,6 +37,7 @@ interface HeaderProps {
 
 // ── Internal Announcement Banner ──────────────────────────────────────────────
 const InternalBanner = () => {
+  const { t } = useI18n();
   const { data } = useAnnouncements();
   const markRead = useMarkAnnouncementRead();
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
@@ -92,7 +93,7 @@ const InternalBanner = () => {
           display: 'flex', alignItems: 'center', opacity: 0.7,
           transition: 'opacity 0.2s',
         }}
-        title="Dismiss"
+        title={t('common.close')}
       >
         <X size={15} />
       </button>
@@ -178,7 +179,7 @@ const Header = ({ title, subtitle, actions }: HeaderProps) => {
             {bugEnabled && (
               <button
                 onClick={() => setBugOpen(true)}
-                title="Report a bug or give feedback"
+                title={t('bugs.new')}
                 className="p-2 rounded-lg transition-colors"
                 style={{ color: `rgb(var(--ds-text-muted))` }}
               >

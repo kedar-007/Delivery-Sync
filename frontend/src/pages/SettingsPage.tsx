@@ -395,8 +395,8 @@ export const SettingsContent = () => {
                 }}>
                 <span className="text-xl shrink-0" role="img" aria-label={loc.label}>{loc.flag}</span>
                 <div className="text-left min-w-0">
-                  <p className="text-sm font-semibold truncate" style={{ color: `rgb(var(--ds-text))` }}>{loc.label}</p>
-                  <p className="text-xs" style={{ color: `rgb(var(--ds-text-muted))` }}>{code.toUpperCase()}</p>
+                  <p className="text-sm font-semibold truncate" style={{ color: `rgb(var(--ds-text))` }}>{loc.nativeLabel}</p>
+                  <p className="text-xs" style={{ color: `rgb(var(--ds-text-muted))` }}>{loc.label}</p>
                 </div>
                 {locale === code && <Check size={13} className="ml-auto shrink-0" style={{ color: `rgb(var(--ds-primary))` }} />}
               </button>

@@ -50,58 +50,67 @@ const AiCard = ({
   children: React.ReactNode;
   onDownload?: () => void;
   className?: string;
-}) => (
-  <div className={`bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden ${className}`}>
-    <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-      <div className="flex items-center gap-2.5">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center">
-          {icon}
+}) => {
+  const { t } = useI18n();
+  return (
+    <div className={`bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden ${className}`}>
+      <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center">
+            {icon}
+          </div>
+          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
         </div>
-        <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+        {onDownload && (
+          <button
+            onClick={onDownload}
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-indigo-600 transition-colors"
+            title="Download JSON"
+          >
+            <Download size={13} /> {t('common.export')}
+          </button>
+        )}
       </div>
-      {onDownload && (
-        <button
-          onClick={onDownload}
-          className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-indigo-600 transition-colors"
-          title="Download JSON"
-        >
-          <Download size={13} /> Export
-        </button>
-      )}
+      <div className="p-5">{children}</div>
     </div>
-    <div className="p-5">{children}</div>
-  </div>
-);
+  );
+};
 
-const AiLoadingState = ({ label }: { label: string }) => (
-  <div className="flex flex-col items-center justify-center py-12 gap-3">
-    <div className="relative w-12 h-12">
-      <div className="absolute inset-0 rounded-full border-4 border-indigo-100" />
-      <div className="absolute inset-0 rounded-full border-4 border-indigo-500 border-t-transparent animate-spin" />
+const AiLoadingState = ({ label }: { label: string }) => {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-col items-center justify-center py-12 gap-3">
+      <div className="relative w-12 h-12">
+        <div className="absolute inset-0 rounded-full border-4 border-indigo-100" />
+        <div className="absolute inset-0 rounded-full border-4 border-indigo-500 border-t-transparent animate-spin" />
+      </div>
+      <div className="text-center">
+        <p className="text-sm font-medium text-gray-700">{t('ai.generating')}…</p>
+        <p className="text-xs text-gray-400 mt-0.5">{label}</p>
+      </div>
     </div>
-    <div className="text-center">
-      <p className="text-sm font-medium text-gray-700">AI is thinking…</p>
-      <p className="text-xs text-gray-400 mt-0.5">{label}</p>
-    </div>
-  </div>
-);
+  );
+};
 
-const AiEmptyState = ({ label, onGenerate, loading }: { label: string; onGenerate: () => void; loading: boolean }) => (
-  <div className="flex flex-col items-center justify-center py-10 gap-3">
-    <div className="w-12 h-12 rounded-full bg-indigo-50 flex items-center justify-center">
-      <Sparkles size={22} className="text-indigo-400" />
+const AiEmptyState = ({ label, onGenerate, loading }: { label: string; onGenerate: () => void; loading: boolean }) => {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-col items-center justify-center py-10 gap-3">
+      <div className="w-12 h-12 rounded-full bg-indigo-50 flex items-center justify-center">
+        <Sparkles size={22} className="text-indigo-400" />
+      </div>
+      <p className="text-sm text-gray-500">{label}</p>
+      <button
+        onClick={onGenerate}
+        disabled={loading}
+        className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+      >
+        {loading ? <RefreshCw size={14} className="animate-spin" /> : <Brain size={14} />}
+        {t('ai.analyze')}
+      </button>
     </div>
-    <p className="text-sm text-gray-500">{label}</p>
-    <button
-      onClick={onGenerate}
-      disabled={loading}
-      className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-60 transition-colors"
-    >
-      {loading ? <RefreshCw size={14} className="animate-spin" /> : <Brain size={14} />}
-      Generate Insights
-    </button>
-  </div>
-);
+  );
+};
 
 const HealthBadge = ({ status }: { status: string }) => {
   const map: Record<string, { color: string; icon: React.ReactNode }> = {
@@ -272,6 +281,7 @@ const TrendArrow = ({ value }: { value: string }) => {
 };
 
 const TrendPill = ({ label, value }: { label: string; value: string }) => {
+  const { t } = useI18n();
   const v = (value || '').toLowerCase();
   const color = (v === 'increasing' || v === 'improving')
     ? 'bg-green-50 text-green-700 border-green-200'
@@ -283,7 +293,7 @@ const TrendPill = ({ label, value }: { label: string; value: string }) => {
       <span className="font-medium">{label}</span>
       <div className="flex items-center gap-1">
         <TrendArrow value={value} />
-        <span className="capitalize">{value || 'N/A'}</span>
+        <span className="capitalize">{value || t('common.na')}</span>
       </div>
     </div>
   );
@@ -312,9 +322,9 @@ const SeverityBadge = ({ severity }: { severity: string }) => {
 
 // ─── Permission-based visibility ─────────────────────────────────────────────
 
-const ROLE_BANNER: Record<string, { title: string; desc: string } | undefined> = {
-  TEAM_MEMBER: { title: 'Personal View', desc: 'Insights are scoped to your own activity and assigned work.' },
-  CLIENT:      { title: 'Project View',  desc: 'Insights are scoped to your assigned project(s).' },
+const ROLE_BANNER: Record<string, { titleKey: string; descKey: string } | undefined> = {
+  TEAM_MEMBER: { titleKey: 'TEAM_MEMBER_title', descKey: 'TEAM_MEMBER_desc' },
+  CLIENT:      { titleKey: 'CLIENT_title',      descKey: 'CLIENT_desc' },
 };
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
@@ -342,7 +352,12 @@ const AiInsightsPage = () => {
     holistic:    hasTeam,
   };
 
-  const banner = ROLE_BANNER[role];
+  const ROLE_BANNER_TEXT: Record<string, { title: string; desc: string } | undefined> = {
+    TEAM_MEMBER: { title: 'Personal View', desc: 'Insights are scoped to your own activity and assigned work.' },
+    CLIENT:      { title: 'Project View',  desc: 'Insights are scoped to your assigned project(s).' },
+  };
+
+  const banner = ROLE_BANNER_TEXT[role];
 
   // Filter controls
   const [projectId, setProjectId]    = useState('');
@@ -415,7 +430,7 @@ const AiInsightsPage = () => {
     <Layout>
       <Header
         title={t('nav.aiInsights')}
-        subtitle="Powered by DSV AI — intelligent analysis of your team's activity"
+        subtitle={t('ai.subtitle')}
       />
 
       <div className="p-6 space-y-6">
@@ -436,7 +451,7 @@ const AiInsightsPage = () => {
           <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
             <AlertTriangle size={16} className="text-amber-500 mt-0.5 shrink-0" />
             <div>
-              <p className="text-sm font-semibold text-amber-800">Select a project for best results</p>
+              <p className="text-sm font-semibold text-amber-800">{t('ai.healthCheck.subtitle')}</p>
               <p className="text-xs text-amber-600 mt-0.5">
                 Running insights without a project selected sends data from all your projects to the AI, which increases processing time significantly. Select a specific project below for faster, more focused insights.
               </p>
@@ -447,13 +462,13 @@ const AiInsightsPage = () => {
         {/* ── Filters ── */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4 flex items-center gap-1.5">
-            <BarChart2 size={12} /> Filters
+            <BarChart2 size={12} /> {t('common.filter')}
           </p>
 
           {/* Project search + inline generate button */}
           <div className="flex items-end gap-3 mb-4">
             <div className="flex-1 min-w-0">
-              <label className="form-label">Project <span className="text-amber-500">*</span></label>
+              <label className="form-label">{t('common.title')} <span className="text-amber-500">*</span></label>
               <ProjectPicker
                 projects={(projects as any[]).map((p) => ({
                   id: p.id,
@@ -463,56 +478,56 @@ const AiInsightsPage = () => {
                 }))}
                 value={projectId}
                 onChange={setProjectId}
-                placeholder="Search and select a project…"
+                placeholder={t('projects.searchPlaceholder')}
               />
             </div>
             <button
               onClick={runAll}
               disabled={isAnyLoading || !projectId}
-              title={!projectId ? 'Select a project first' : 'Generate all AI insights for this project'}
+              title={!projectId ? t('projects.noProjects') : t('ai.analyze')}
               className="shrink-0 inline-flex items-center gap-2 px-4 py-2 h-[40px] bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-lg text-sm font-semibold hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition-all whitespace-nowrap"
             >
               {isAnyLoading
-                ? <><RefreshCw size={14} className="animate-spin" /> Generating…</>
-                : <><Sparkles size={14} /> Generate Insights</>}
+                ? <><RefreshCw size={14} className="animate-spin" /> {t('ai.generating')}…</>
+                : <><Sparkles size={14} /> {t('ai.analyze')}</>}
             </button>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
             <div>
-              <label className="form-label">Summary Date</label>
+              <label className="form-label">{t('reports.filters.dateRange')}</label>
               <input type="date" className="form-input" value={date} onChange={(e) => setDate(e.target.value)} max={today()} />
             </div>
             <div>
-              <label className="form-label">Perf. Days</label>
+              <label className="form-label">{t('ai.performance.title')}</label>
               <select className="form-select" value={days} onChange={(e) => setDays(Number(e.target.value))}>
                 {[7, 14, 21, 30].map((d) => <option key={d} value={d}>Last {d} days</option>)}
               </select>
             </div>
             <div>
-              <label className="form-label">Report Type</label>
+              <label className="form-label">{t('reports.types.project')}</label>
               <select className="form-select" value={reportType} onChange={(e) => setReportType(e.target.value as any)}>
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="project">Project</option>
+                <option value="daily">{t('reports.types.team')}</option>
+                <option value="weekly">{t('reports.types.sprint')}</option>
+                <option value="project">{t('reports.types.project')}</option>
               </select>
             </div>
             <div>
-              <label className="form-label">Report From</label>
+              <label className="form-label">{t('reports.filters.dateRange')}</label>
               <input type="date" className="form-input" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
             </div>
             <div>
-              <label className="form-label">Trend Days</label>
+              <label className="form-label">{t('common.days')}</label>
               <select className="form-select" value={trendDays} onChange={(e) => setTrendDays(Number(e.target.value))}>
                 {[7, 14, 30, 60, 90].map((d) => <option key={d} value={d}>Last {d} days</option>)}
               </select>
             </div>
             <div>
-              <label className="form-label">Sprint Start</label>
+              <label className="form-label">{t('sprints.modal.startDate')}</label>
               <input type="date" className="form-input" value={sprintStart} onChange={(e) => setSprintStart(e.target.value)} />
             </div>
             <div>
-              <label className="form-label">Sprint End</label>
+              <label className="form-label">{t('sprints.modal.endDate')}</label>
               <input type="date" className="form-input" value={sprintEnd} onChange={(e) => setSprintEnd(e.target.value)} max={today()} />
             </div>
           </div>
@@ -524,16 +539,16 @@ const AiInsightsPage = () => {
 
           {/* Daily Summary */}
           {canSee.summary && <AiCard
-            title={role === 'TEAM_MEMBER' ? 'My Daily Activity' : 'Daily Activity Summary'}
+            title={role === 'TEAM_MEMBER' ? t('ai.tabs.productivity') : t('ai.tabs.health')}
             icon={<Activity size={16} className="text-white" />}
             onDownload={summary.data ? () => downloadJSON(summary.data, `daily-summary-${date}.json`) : undefined}
           >
             {summary.isPending ? (
-              <AiLoadingState label="Analysing standups and EODs…" />
+              <AiLoadingState label={t('ai.healthCheck.analyzing')} />
             ) : summary.error ? (
               <Alert type="error" message={(summary.error as Error).message} />
             ) : !summary.data ? (
-              <AiEmptyState label="Summarise today's standups and EOD updates." onGenerate={runSummary} loading={false} />
+              <AiEmptyState label={t('ai.noInsights')} onGenerate={runSummary} loading={false} />
             ) : (
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
@@ -547,16 +562,16 @@ const AiInsightsPage = () => {
                 <Collapsible label={`Key Highlights (${summary.data.data?.highlights?.length ?? 0})`}>
                   <BulletList items={summary.data.data?.highlights} icon={<CheckCircle size={13} />} color="text-green-500" />
                 </Collapsible>
-                <Collapsible label={`Blockers (${summary.data.data?.blockers?.length ?? 0})`}>
+                <Collapsible label={`${t('ai.tabs.blockers')} (${summary.data.data?.blockers?.length ?? 0})`}>
                   <BulletList items={summary.data.data?.blockers} icon={<AlertTriangle size={13} />} color="text-red-500" />
                 </Collapsible>
-                <Collapsible label={`Suggestions (${summary.data.data?.suggestions?.length ?? 0})`}>
+                <Collapsible label={`${t('ai.blockerDetection.title')} (${summary.data.data?.suggestions?.length ?? 0})`}>
                   <BulletList items={summary.data.data?.suggestions} icon={<Lightbulb size={13} />} color="text-amber-500" />
                 </Collapsible>
 
                 <button onClick={runSummary} disabled={summary.isPending}
                   className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 transition-colors mt-1">
-                  <RefreshCw size={12} /> Regenerate
+                  <RefreshCw size={12} /> {t('ai.regenerate')}
                 </button>
               </div>
             )}
@@ -564,16 +579,16 @@ const AiInsightsPage = () => {
 
           {/* Project Health */}
           {canSee.health && <AiCard
-            title="Project Health Analysis"
+            title={t('ai.healthCheck.title')}
             icon={<TrendingUp size={16} className="text-white" />}
             onDownload={health.data ? () => downloadJSON(health.data, 'project-health.json') : undefined}
           >
             {health.isPending ? (
-              <AiLoadingState label="Analysing milestones, blockers, and actions…" />
+              <AiLoadingState label={t('ai.healthCheck.analyzing')} />
             ) : health.error ? (
               <Alert type="error" message={(health.error as Error).message} />
             ) : !health.data ? (
-              <AiEmptyState label="Get an AI-powered health check on your projects." onGenerate={runHealth} loading={false} />
+              <AiEmptyState label={t('ai.healthCheck.subtitle')} onGenerate={runHealth} loading={false} />
             ) : (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -582,14 +597,14 @@ const AiInsightsPage = () => {
                 </div>
 
                 <div>
-                  <p className="text-xs text-gray-500 mb-1.5">Health Score</p>
+                  <p className="text-xs text-gray-500 mb-1.5">{t('dashboard.projectHealth.deliveryHealth')}</p>
                   <ScoreBar score={health.data.data?.score ?? 0} />
                 </div>
 
                 {/* Per-project breakdown */}
                 {health.data.data?.projects?.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Projects</p>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('nav.projects')}</p>
                     {health.data.data.projects.map((p: any, i: number) => (
                       <div key={i} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
                         <span className="text-sm text-gray-800 truncate">{p.name}</span>
@@ -608,7 +623,7 @@ const AiInsightsPage = () => {
 
                 <button onClick={runHealth} disabled={health.isPending}
                   className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 transition-colors mt-1">
-                  <RefreshCw size={12} /> Regenerate
+                  <RefreshCw size={12} /> {t('ai.regenerate')}
                 </button>
               </div>
             )}
@@ -618,16 +633,16 @@ const AiInsightsPage = () => {
 
         {/* ── Performance Table ── */}
         {canSee.performance && <AiCard
-          title={role === 'TEAM_MEMBER' ? 'My Performance' : 'Team Performance Insights'}
+          title={role === 'TEAM_MEMBER' ? t('ai.performance.title') : t('ai.productivity.title')}
           icon={<Users size={16} className="text-white" />}
           onDownload={perf.data ? () => downloadJSON(perf.data, `performance-last-${days}d.json`) : undefined}
         >
           {perf.isPending ? (
-            <AiLoadingState label={`Analysing ${days}-day activity per team member…`} />
+            <AiLoadingState label={t('ai.performance.analyzing')} />
           ) : perf.error ? (
             <Alert type="error" message={(perf.error as Error).message} />
           ) : !perf.data ? (
-            <AiEmptyState label={`Analyse individual performance over the last ${days} days.`} onGenerate={runPerf} loading={false} />
+            <AiEmptyState label={t('ai.performance.subtitle')} onGenerate={runPerf} loading={false} />
           ) : (
             <div className="space-y-5">
               <div className="flex items-center justify-between">
@@ -644,7 +659,7 @@ const AiInsightsPage = () => {
                 </div>
                 <button onClick={runPerf} disabled={perf.isPending}
                   className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 transition-colors">
-                  <RefreshCw size={12} /> Regenerate
+                  <RefreshCw size={12} /> {t('ai.regenerate')}
                 </button>
               </div>
 
@@ -657,7 +672,7 @@ const AiInsightsPage = () => {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-100">
-                        <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Member</th>
+                        <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase">{t('common.name')}</th>
                         <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Score</th>
                         <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Consistency</th>
                         <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Strengths</th>
@@ -692,7 +707,7 @@ const AiInsightsPage = () => {
                   </table>
                 </div>
               ) : (
-                <p className="text-sm text-gray-400 text-center py-6">No member data available for this period.</p>
+                <p className="text-sm text-gray-400 text-center py-6">{t('common.noData')}</p>
               )}
             </div>
           )}
@@ -704,16 +719,16 @@ const AiInsightsPage = () => {
 
           {/* Smart Suggestions */}
           {canSee.suggestions && <AiCard
-            title="Smart Suggestions"
+            title={t('ai.productivity.title')}
             icon={<Lightbulb size={16} className="text-white" />}
             onDownload={suggests.data ? () => downloadJSON(suggests.data, 'ai-suggestions.json') : undefined}
           >
             {suggests.isPending ? (
-              <AiLoadingState label="Generating prioritised suggestions…" />
+              <AiLoadingState label={t('ai.productivity.analyzing')} />
             ) : suggests.error ? (
               <Alert type="error" message={(suggests.error as Error).message} />
             ) : !suggests.data ? (
-              <AiEmptyState label="Get AI-powered productivity and risk suggestions." onGenerate={runSuggests} loading={false} />
+              <AiEmptyState label={t('ai.productivity.subtitle')} onGenerate={runSuggests} loading={false} />
             ) : (
               <div className="space-y-4">
                 <div className="flex items-center gap-2 mb-1">
@@ -726,7 +741,7 @@ const AiInsightsPage = () => {
                   </span>
                   <button onClick={runSuggests} disabled={suggests.isPending}
                     className="ml-auto flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 transition-colors">
-                    <RefreshCw size={12} /> Regenerate
+                    <RefreshCw size={12} /> {t('ai.regenerate')}
                   </button>
                 </div>
 
@@ -760,16 +775,16 @@ const AiInsightsPage = () => {
 
           {/* AI Report */}
           {canSee.report && <AiCard
-            title="AI-Generated Report"
+            title={t('reports.aiInsights.title')}
             icon={<FileText size={16} className="text-white" />}
             onDownload={report.data ? () => downloadJSON(report.data, `ai-report-${reportType}.json`) : undefined}
           >
             {report.isPending ? (
-              <AiLoadingState label={`Compiling ${reportType} report…`} />
+              <AiLoadingState label={t('ai.generating')} />
             ) : report.error ? (
               <Alert type="error" message={(report.error as Error).message} />
             ) : !report.data ? (
-              <AiEmptyState label={`Generate a ${reportType} report with AI-written executive summary.`} onGenerate={runReport} loading={false} />
+              <AiEmptyState label={t('reports.aiInsights.subtitle')} onGenerate={runReport} loading={false} />
             ) : (
               <div className="space-y-4">
                 <div>
@@ -791,7 +806,7 @@ const AiInsightsPage = () => {
                 </div>
 
                 <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-                  <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Executive Summary</p>
+                  <p className="text-xs font-semibold text-gray-500 uppercase mb-2">{t('reports.types.executive')}</p>
                   <MarkdownText text={report.data.data?.executiveSummary ?? ''} className="text-sm text-gray-700" />
                 </div>
 
@@ -814,7 +829,7 @@ const AiInsightsPage = () => {
 
                 <button onClick={runReport} disabled={report.isPending}
                   className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 transition-colors mt-1">
-                  <RefreshCw size={12} /> Regenerate
+                  <RefreshCw size={12} /> {t('ai.regenerate')}
                 </button>
               </div>
             )}
@@ -828,16 +843,16 @@ const AiInsightsPage = () => {
 
           {/* Blocker Detection */}
           {canSee.blockers && <AiCard
-            title="Blocker Detection"
+            title={t('ai.blockerDetection.title')}
             icon={<AlertTriangle size={16} className="text-white" />}
             onDownload={blockerDetect.data ? () => downloadJSON(blockerDetect.data, 'blockers-detected.json') : undefined}
           >
             {blockerDetect.isPending ? (
-              <AiLoadingState label="Scanning standup and EOD entries for blockers…" />
+              <AiLoadingState label={t('ai.blockerDetection.scanning')} />
             ) : blockerDetect.error ? (
               <Alert type="error" message={(blockerDetect.error as Error).message} />
             ) : !blockerDetect.data ? (
-              <AiEmptyState label="Detect explicit and implicit blockers from team updates." onGenerate={runBlockers} loading={false} />
+              <AiEmptyState label={t('ai.blockerDetection.subtitle')} onGenerate={runBlockers} loading={false} />
             ) : (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -848,12 +863,12 @@ const AiInsightsPage = () => {
                       </span>
                     )}
                     <span className="text-xs text-gray-500">
-                      {blockerDetect.data.data?.critical_count ?? 0} critical
+                      {blockerDetect.data.data?.critical_count ?? 0} {t('common.critical')}
                     </span>
                   </div>
                   <button onClick={runBlockers} disabled={blockerDetect.isPending}
                     className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 transition-colors">
-                    <RefreshCw size={12} /> Regenerate
+                    <RefreshCw size={12} /> {t('ai.regenerate')}
                   </button>
                 </div>
 
@@ -881,7 +896,7 @@ const AiInsightsPage = () => {
                   </div>
                 ) : (
                   <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-center gap-2">
-                    <CheckCircle size={15} /> No blockers detected in recent updates.
+                    <CheckCircle size={15} /> {t('ai.noInsights')}
                   </p>
                 )}
               </div>
@@ -890,23 +905,23 @@ const AiInsightsPage = () => {
 
           {/* Trend Analysis */}
           {canSee.trends && <AiCard
-            title="Trend Analysis"
+            title={t('ai.tabs.retrospective')}
             icon={<TrendingUp size={16} className="text-white" />}
             onDownload={trends.data ? () => downloadJSON(trends.data, `trends-${trendDays}d.json`) : undefined}
           >
             {trends.isPending ? (
-              <AiLoadingState label={`Analysing ${trendDays}-day productivity and engagement trends…`} />
+              <AiLoadingState label={t('ai.generating')} />
             ) : trends.error ? (
               <Alert type="error" message={(trends.error as Error).message} />
             ) : !trends.data ? (
-              <AiEmptyState label={`Identify trends over the last ${trendDays} days.`} onGenerate={runTrends} loading={false} />
+              <AiEmptyState label={t('ai.noInsights')} onGenerate={runTrends} loading={false} />
             ) : (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-400">Last {trendDays} days</span>
                   <button onClick={runTrends} disabled={trends.isPending}
                     className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 transition-colors">
-                    <RefreshCw size={12} /> Regenerate
+                    <RefreshCw size={12} /> {t('ai.regenerate')}
                   </button>
                 </div>
 
@@ -950,16 +965,16 @@ const AiInsightsPage = () => {
 
           {/* Sprint Retrospective */}
           {canSee.retro && <AiCard
-            title="Sprint Retrospective"
+            title={t('ai.retrospective.title')}
             icon={<History size={16} className="text-white" />}
             onDownload={retro.data ? () => downloadJSON(retro.data, `retro-${sprintStart}-${sprintEnd}.json`) : undefined}
           >
             {retro.isPending ? (
-              <AiLoadingState label="Generating sprint retrospective…" />
+              <AiLoadingState label={t('ai.retrospective.generating')} />
             ) : retro.error ? (
               <Alert type="error" message={(retro.error as Error).message} />
             ) : !retro.data ? (
-              <AiEmptyState label={`Generate retrospective for ${sprintStart} → ${sprintEnd}.`} onGenerate={runRetro} loading={false} />
+              <AiEmptyState label={t('ai.retrospective.subtitle')} onGenerate={runRetro} loading={false} />
             ) : (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -973,7 +988,7 @@ const AiInsightsPage = () => {
                   </div>
                   <button onClick={runRetro} disabled={retro.isPending}
                     className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 transition-colors">
-                    <RefreshCw size={12} /> Regenerate
+                    <RefreshCw size={12} /> {t('ai.regenerate')}
                   </button>
                 </div>
 
@@ -1015,7 +1030,7 @@ const AiInsightsPage = () => {
 
           {/* Natural Language Query */}
           {canSee.nlq && <AiCard
-            title="Ask AI"
+            title={t('ai.title')}
             icon={<MessageSquare size={16} className="text-white" />}
           >
             <div className="space-y-4">
@@ -1025,7 +1040,7 @@ const AiInsightsPage = () => {
                   value={nlQuery}
                   onChange={(e) => setNlQuery(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && runNLQuery()}
-                  placeholder='e.g. "Which project is at risk?" or "Who has blockers today?"'
+                  placeholder={t('ai.nlq.placeholder')}
                   className="form-input flex-1 text-sm"
                 />
                 <button
@@ -1034,7 +1049,7 @@ const AiInsightsPage = () => {
                   className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-60 flex items-center gap-1.5 transition-colors"
                 >
                   {nlq.isPending ? <RefreshCw size={14} className="animate-spin" /> : <Search size={14} />}
-                  Ask
+                  {t('ai.nlq.search')}
                 </button>
               </div>
 
@@ -1059,7 +1074,7 @@ const AiInsightsPage = () => {
                 </div>
               )}
 
-              {nlq.isPending && <AiLoadingState label="Searching project data…" />}
+              {nlq.isPending && <AiLoadingState label={t('ai.nlq.searching')} />}
 
               {nlq.error && <Alert type="error" message={(nlq.error as Error).message} />}
 
@@ -1107,7 +1122,7 @@ const AiInsightsPage = () => {
         {/* ── Holistic Performance ── */}
         {canSee.holistic && (
         <AiCard
-          title="Holistic Performance"
+          title={t('ai.performance.title')}
           icon={<Activity size={14} className="text-white" />}
           onDownload={holistic.data ? () => downloadJSON(holistic.data, 'holistic-performance.json') : undefined}
         >
@@ -1116,7 +1131,7 @@ const AiInsightsPage = () => {
               <button key={d}
                 onClick={() => setHolisticDays(d)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${holisticDays === d ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                {d} days
+                {d} {t('common.days')}
               </button>
             ))}
             <button
@@ -1124,13 +1139,13 @@ const AiInsightsPage = () => {
               disabled={holistic.isPending}
               className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white rounded-lg text-xs font-medium hover:bg-violet-700 disabled:opacity-60 transition-colors">
               {holistic.isPending ? <RefreshCw size={12} className="animate-spin" /> : <Brain size={12} />}
-              Analyse
+              {t('ai.healthCheck.analyze')}
             </button>
           </div>
-          {holistic.isPending && <AiLoadingState label="Analysing performance across all modules…" />}
+          {holistic.isPending && <AiLoadingState label={t('ai.performance.analyzing')} />}
           {holistic.isError  && <p className="text-xs text-red-500">{String(holistic.error)}</p>}
           {!holistic.data && !holistic.isPending && !holistic.isError && (
-            <AiEmptyState label="Cross-module performance: tasks, attendance, leave, time, standups & more." onGenerate={runHolistic} loading={false} />
+            <AiEmptyState label={t('ai.noInsights')} onGenerate={runHolistic} loading={false} />
           )}
           {holistic.data && (() => {
             const d = holistic.data?.data ?? holistic.data;
@@ -1141,7 +1156,7 @@ const AiInsightsPage = () => {
             const alerts: string[] = d?.alerts ?? [];
 
             if (members.length === 0) {
-              return <p className="text-sm text-gray-500 text-center py-6">No performance data found for this period.</p>;
+              return <p className="text-sm text-gray-500 text-center py-6">{t('common.noData')}</p>;
             }
 
             const moraleColor = teamMorale === 'High' ? 'text-emerald-600' : teamMorale === 'Medium' ? 'text-amber-600' : 'text-red-600';

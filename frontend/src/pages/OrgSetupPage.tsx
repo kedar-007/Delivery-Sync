@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { authApi } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import BrandLogo from '../components/ui/BrandLogo';
+import { useI18n } from '../contexts/I18nContext';
 
 function slugify(str: string): string {
   return str
@@ -15,9 +16,10 @@ function slugify(str: string): string {
     .replace(/^-|-$/g, '');
 }
 
-const STEPS = ['Organisation', 'Review'];
+const STEP_KEYS = ['orgSetup.stepOrganisation', 'orgSetup.stepReview'];
 
 export default function OrgSetupPage() {
+  const { t } = useI18n();
   const { refetch, user, needsOrgSetup } = useAuth();
   const navigate = useNavigate();
   const [step, setStep]             = useState(0);
@@ -56,7 +58,7 @@ export default function OrgSetupPage() {
         navigate(`/${e.data.data.tenantSlug}/dashboard`, { replace: true });
         return;
       }
-      setError(e.message || 'Something went wrong. Please try again.');
+      setError(e.message || t('errors.generic'));
       setSubmitting(false);
     }
   };
@@ -69,20 +71,20 @@ export default function OrgSetupPage() {
           <BrandLogo variant="full" height={48} />
         </div>
         <div className="flex-1">
-          <h1 className="text-4xl font-bold leading-tight mb-4">Set up your<br />organisation</h1>
+          <h1 className="text-4xl font-bold leading-tight mb-4">{t('orgSetup.title')}</h1>
           <p className="text-white/60 text-base mb-10">
-            You've been invited as an Organisation Administrator. Create your org to get started.
+            {t('orgSetup.subtitle')}
           </p>
 
           {/* Step indicators */}
           <div className="space-y-4">
-            {STEPS.map((label, i) => (
-              <div key={label} className="flex items-center gap-3">
+            {STEP_KEYS.map((key, i) => (
+              <div key={key} className="flex items-center gap-3">
                 <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors
                   ${i < step ? 'bg-emerald-500 text-white' : i === step ? 'bg-indigo-500 text-white' : 'bg-white/10 text-white/40'}`}>
                   {i < step ? <Check size={13} /> : i + 1}
                 </div>
-                <span className={`text-sm font-medium ${i === step ? 'text-white' : 'text-white/40'}`}>{label}</span>
+                <span className={`text-sm font-medium ${i === step ? 'text-white' : 'text-white/40'}`}>{t(key)}</span>
               </div>
             ))}
           </div>
@@ -101,9 +103,9 @@ export default function OrgSetupPage() {
               <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Check size={28} className="text-emerald-600" />
               </div>
-              <h2 className="text-xl font-bold text-gray-900 mb-2">Organisation created!</h2>
+              <h2 className="text-xl font-bold text-gray-900 mb-2">{t('orgSetup.orgCreated')}</h2>
               <p className="text-sm text-gray-400 flex items-center justify-center gap-2">
-                <Loader2 size={14} className="animate-spin text-indigo-500" /> Redirecting to your dashboard…
+                <Loader2 size={14} className="animate-spin text-indigo-500" /> {t('orgSetup.redirecting')}
               </p>
             </div>
           ) : (
@@ -115,15 +117,15 @@ export default function OrgSetupPage() {
                       <Building2 size={20} className="text-indigo-600" />
                     </div>
                     <div>
-                      <h2 className="text-lg font-bold text-gray-900">Organisation details</h2>
-                      <p className="text-sm text-gray-400">Tell us about your organisation</p>
+                      <h2 className="text-lg font-bold text-gray-900">{t('orgSetup.orgDetails')}</h2>
+                      <p className="text-sm text-gray-400">{t('orgSetup.orgDetailsDesc')}</p>
                     </div>
                   </div>
 
                   <div className="space-y-5">
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                        Organisation name <span className="text-red-500">*</span>
+                        {t('admin.config.orgName')} <span className="text-red-500">*</span>
                       </label>
                       <input
                         value={orgName}
@@ -135,7 +137,7 @@ export default function OrgSetupPage() {
 
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                        Workspace slug <span className="text-red-500">*</span>
+                        {t('orgSetup.workspaceSlug')} <span className="text-red-500">*</span>
                       </label>
                       <div className="flex items-center rounded-xl border border-gray-200 overflow-hidden focus-within:ring-2 focus-within:ring-indigo-400">
                         <span className="px-3 py-2.5 text-sm text-gray-400 bg-gray-50 border-r border-gray-200 whitespace-nowrap select-none">
@@ -149,7 +151,7 @@ export default function OrgSetupPage() {
                         />
                       </div>
                       <p className="mt-1.5 text-xs text-gray-400">
-                        Lowercase letters, numbers and hyphens only. Becomes your workspace URL.
+                        {t('orgSetup.slugHint')}
                       </p>
                     </div>
                   </div>
@@ -159,7 +161,7 @@ export default function OrgSetupPage() {
                     disabled={!orgName.trim() || !slug.trim()}
                     className="mt-8 w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-xl transition-colors"
                   >
-                    Continue <ArrowRight size={16} />
+                    {t('common.next')} <ArrowRight size={16} />
                   </button>
                 </>
               )}
@@ -167,14 +169,14 @@ export default function OrgSetupPage() {
               {step === 1 && (
                 <>
                   <div className="mb-6">
-                    <h2 className="text-lg font-bold text-gray-900 mb-1">Review & create</h2>
-                    <p className="text-sm text-gray-400">Confirm your organisation details before creating</p>
+                    <h2 className="text-lg font-bold text-gray-900 mb-1">{t('orgSetup.reviewTitle')}</h2>
+                    <p className="text-sm text-gray-400">{t('orgSetup.reviewDesc')}</p>
                   </div>
 
                   <div className="bg-gray-50 rounded-xl border border-gray-200 divide-y divide-gray-200 mb-6">
                     {[
-                      { label: 'Organisation name', value: orgName, mono: false },
-                      { label: 'Workspace slug', value: slug, mono: true },
+                      { label: t('admin.config.orgName'), value: orgName, mono: false },
+                      { label: t('orgSetup.workspaceSlug'), value: slug, mono: true },
                     ].map(({ label, value, mono }) => (
                       <div key={label} className="px-4 py-3 flex items-center justify-between">
                         <span className="text-sm text-gray-500">{label}</span>
@@ -182,13 +184,13 @@ export default function OrgSetupPage() {
                       </div>
                     ))}
                     <div className="px-4 py-3 flex items-center justify-between">
-                      <span className="text-sm text-gray-500">Your role</span>
+                      <span className="text-sm text-gray-500">{t('orgSetup.yourRole')}</span>
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
-                        Organisation Admin
-      </span>
+                        {t('orgSetup.orgAdmin')}
+                      </span>
                     </div>
                     <div className="px-4 py-3 flex items-center justify-between">
-                      <span className="text-sm text-gray-500">Plan</span>
+                      <span className="text-sm text-gray-500">{t('orgSetup.plan')}</span>
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">
                         STARTER
                       </span>
@@ -207,7 +209,7 @@ export default function OrgSetupPage() {
                       onClick={() => { setStep(0); setError(null); }}
                       className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
                     >
-                      Back
+                      {t('common.back')}
                     </button>
                     <button
                       onClick={handleSubmit}
@@ -215,8 +217,8 @@ export default function OrgSetupPage() {
                       className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-xl transition-colors"
                     >
                       {submitting
-                        ? <><Loader2 size={15} className="animate-spin" /> Creating…</>
-                        : 'Create Organisation'
+                        ? <><Loader2 size={15} className="animate-spin" /> {t('common.saving')}</>
+                        : t('common.create')
                       }
                     </button>
                   </div>

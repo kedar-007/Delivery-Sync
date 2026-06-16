@@ -137,6 +137,7 @@ function SortableStatusCard({
   onUpdate: (id: string, field: keyof StatusItem, value: any) => void;
   onRemove: (id: string) => void;
 }) {
+  const { t } = useI18n();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: status.id });
 
@@ -159,7 +160,7 @@ function SortableStatusCard({
       <span className="text-xs text-gray-400 w-5 flex-shrink-0 font-mono">{index + 1}</span>
       <input
         className="form-input text-sm py-1 flex-1"
-        placeholder="Status name"
+        placeholder={t('common.name')}
         value={status.name}
         onChange={(e) => onUpdate(status.id, 'name', e.target.value)}
       />
@@ -211,6 +212,8 @@ function WorkflowBuilder({
   onStatusesChange: (s: StatusItem[]) => void;
   onTransitionsChange: (t: TransitionItem[]) => void;
 }) {
+  const { t } = useI18n();
+
   const addStatus = () => {
     const newStatus: StatusItem = {
       id: `s_${Date.now()}`,
@@ -269,12 +272,12 @@ function WorkflowBuilder({
         <div className="flex items-center justify-between mb-2">
           <label className="form-label mb-0">Statuses</label>
           <Button type="button" size="sm" variant="secondary" icon={<Plus size={12} />} onClick={addStatus}>
-            Add Status
+            {t('common.add')} Status
           </Button>
         </div>
         {statuses.length === 0 ? (
           <div className="text-xs text-gray-400 text-center py-4 border border-dashed border-gray-200 rounded-lg">
-            No statuses yet — click "Add Status"
+            {t('common.noData')}
           </div>
         ) : (
           <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -300,12 +303,12 @@ function WorkflowBuilder({
         <div className="flex items-center justify-between mb-2">
           <label className="form-label mb-0">Transitions</label>
           <Button type="button" size="sm" variant="secondary" icon={<Plus size={12} />} onClick={addTransition} disabled={statusNames.length < 2}>
-            Add Transition
+            {t('common.add')} Transition
           </Button>
         </div>
         {transitions.length === 0 ? (
           <div className="text-xs text-gray-400 text-center py-4 border border-dashed border-gray-200 rounded-lg">
-            No transitions yet
+            {t('common.noData')}
           </div>
         ) : (
           <div className="space-y-2">
@@ -355,6 +358,7 @@ function WorkflowBuilder({
 // ── Workflows Tab ─────────────────────────────────────────────────────────────
 
 function WorkflowsTab() {
+  const { t } = useI18n();
   const { data, isLoading } = useWorkflows();
   const createWorkflow = useCreateWorkflow();
   const updateWorkflow = useUpdateWorkflow();
@@ -462,7 +466,7 @@ function WorkflowsTab() {
       {workflows.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-200">
           <GitMerge size={28} className="mx-auto text-gray-300 mb-2" />
-          <p className="text-sm text-gray-500">No workflows configured yet</p>
+          <p className="text-sm text-gray-500">{t('common.noData')}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -483,7 +487,7 @@ function WorkflowsTab() {
                       {wf.isDefault && <span className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded">Default</span>}
                       {wf.isActive && (
                         <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded flex items-center gap-1">
-                          <CheckCircle2 size={9} />Active
+                          <CheckCircle2 size={9} />{t('common.active')}
                         </span>
                       )}
                     </div>
@@ -553,7 +557,7 @@ function WorkflowsTab() {
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="form-label">Name *</label>
+              <label className="form-label">{t('common.name')} *</label>
               <input
                 className="form-input"
                 placeholder="e.g., Bug Tracking"
@@ -584,9 +588,9 @@ function WorkflowsTab() {
           />
 
           <ModalActions>
-            <Button variant="secondary" type="button" onClick={closeModal}>Cancel</Button>
+            <Button variant="secondary" type="button" onClick={closeModal}>{t('common.cancel')}</Button>
             <Button type="submit" variant="primary" loading={createWorkflow.isPending || updateWorkflow.isPending}>
-              {editItem ? 'Save Changes' : 'Create Workflow'}
+              {editItem ? t('common.save') : 'Create Workflow'}
             </Button>
           </ModalActions>
         </form>
@@ -609,6 +613,7 @@ const MODULE_CATALOGUE = [
 ];
 
 function ModulesTab() {
+  const { t } = useI18n();
   const qc = useQueryClient();
   const [local, setLocal] = useState<Record<string, boolean>>({});
   const [dirty, setDirty] = useState(false);
@@ -649,7 +654,7 @@ function ModulesTab() {
           <p className="text-xs text-gray-500 mt-0.5">Enable or disable entire feature modules. Disabled modules hide the sidebar section and block navigation for all users (admins always see everything).</p>
         </div>
         {dirty && (
-          <Button size="sm" onClick={() => save.mutate()} loading={save.isPending}>Save Changes</Button>
+          <Button size="sm" onClick={() => save.mutate()} loading={save.isPending}>{t('common.save')}</Button>
         )}
       </div>
       {saveError && <Alert type="error" message={saveError} />}
@@ -673,7 +678,7 @@ function ModulesTab() {
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
                 <span className={`text-xs font-medium w-14 text-right ${enabled ? 'text-blue-600' : 'text-gray-400'}`}>
-                  {enabled ? 'Enabled' : 'Disabled'}
+                  {enabled ? t('common.active') : t('common.inactive')}
                 </span>
               </div>
             </Card>
@@ -687,6 +692,7 @@ function ModulesTab() {
 // ── Feature Flags Tab ─────────────────────────────────────────────────────────
 
 function FeatureFlagsTab() {
+  const { t } = useI18n();
   const { data, isLoading } = useFeatureFlags();
   const createFlag = useCreateFeatureFlag();
   const updateFlag = useUpdateFeatureFlag();
@@ -747,7 +753,7 @@ function FeatureFlagsTab() {
         {flags.length === 0 ? (
           <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-200">
             <Flag size={28} className="mx-auto text-gray-300 mb-2" />
-            <p className="text-sm text-gray-500">No feature flags configured</p>
+            <p className="text-sm text-gray-500">{t('common.noData')}</p>
           </div>
         ) : (
           flags.map((flag: any) => (
@@ -770,7 +776,7 @@ function FeatureFlagsTab() {
               </div>
               <div className="flex items-center gap-3">
                 <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${flag.isEnabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                  {flag.isEnabled ? 'Enabled' : 'Disabled'}
+                  {flag.isEnabled ? t('common.active') : t('common.inactive')}
                 </span>
                 <button
                   onClick={() => toggle(flag)}
@@ -849,8 +855,8 @@ function FeatureFlagsTab() {
             />
           </div>
           <ModalActions>
-            <Button variant="secondary" type="button" onClick={() => { setShowCreate(false); resetForm(); }}>Cancel</Button>
-            <Button type="submit" variant="primary" loading={createFlag.isPending}>Create Flag</Button>
+            <Button variant="secondary" type="button" onClick={() => { setShowCreate(false); resetForm(); }}>{t('common.cancel')}</Button>
+            <Button type="submit" variant="primary" loading={createFlag.isPending}>{t('common.create')}</Button>
           </ModalActions>
         </form>
       </Modal>
@@ -870,6 +876,8 @@ function FormFieldBuilder({
   fields: FormFieldItem[];
   onChange: (f: FormFieldItem[]) => void;
 }) {
+  const { t } = useI18n();
+
   const addField = () => {
     onChange([
       ...fields,
@@ -888,12 +896,12 @@ function FormFieldBuilder({
       <div className="flex items-center justify-between mb-2">
         <label className="form-label mb-0">Fields</label>
         <Button type="button" size="sm" variant="secondary" icon={<Plus size={12} />} onClick={addField}>
-          Add Field
+          {t('common.add')} Field
         </Button>
       </div>
       {fields.length === 0 ? (
         <div className="text-xs text-gray-400 text-center py-4 border border-dashed border-gray-200 rounded-lg">
-          No fields yet — click "Add Field"
+          {t('common.noData')}
         </div>
       ) : (
         <div className="space-y-2">
@@ -908,7 +916,7 @@ function FormFieldBuilder({
               />
               <input
                 className="form-input text-sm py-1 flex-1"
-                placeholder="Label"
+                placeholder={t('common.name')}
                 value={f.label}
                 onChange={(e) => update(f.id, 'label', e.target.value)}
               />
@@ -926,7 +934,7 @@ function FormFieldBuilder({
                   checked={f.required}
                   onChange={(e) => update(f.id, 'required', e.target.checked)}
                 />
-                Req.
+                {t('validation.required')}
               </label>
               <button
                 type="button"
@@ -944,6 +952,7 @@ function FormFieldBuilder({
 }
 
 function FormConfigsTab() {
+  const { t } = useI18n();
   const { data, isLoading } = useFormConfigs();
   const createForm = useCreateFormConfig();
   const updateForm = useUpdateFormConfig();
@@ -1024,7 +1033,7 @@ function FormConfigsTab() {
         {formConfigs.length === 0 ? (
           <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-200">
             <FileText size={28} className="mx-auto text-gray-300 mb-2" />
-            <p className="text-sm text-gray-500">No form configs yet</p>
+            <p className="text-sm text-gray-500">{t('common.noData')}</p>
           </div>
         ) : (
           formConfigs.map((fc: any) => (
@@ -1041,7 +1050,7 @@ function FormConfigsTab() {
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-gray-900">{fc.formType}</span>
                       <span className="text-xs text-gray-400">v{fc.version}</span>
-                      {fc.isActive && <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded">Active</span>}
+                      {fc.isActive && <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded">{t('common.active')}</span>}
                     </div>
                     <p className="text-xs text-gray-400 mt-0.5">{(fc.fields ?? []).length} fields configured</p>
                   </div>
@@ -1058,7 +1067,7 @@ function FormConfigsTab() {
                         <span className="font-mono text-indigo-600">{f.id}</span>
                         <span className="text-gray-600">{f.label}</span>
                         <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{f.type}</span>
-                        {f.required && <span className="text-red-500">required</span>}
+                        {f.required && <span className="text-red-500">{t('validation.required')}</span>}
                       </div>
                     ))}
                   </div>
@@ -1103,9 +1112,9 @@ function FormConfigsTab() {
           </div>
 
           <ModalActions>
-            <Button variant="secondary" type="button" onClick={closeModal}>Cancel</Button>
+            <Button variant="secondary" type="button" onClick={closeModal}>{t('common.cancel')}</Button>
             <Button type="submit" variant="primary" loading={createForm.isPending || updateForm.isPending}>
-              {editItem ? 'Save Changes' : 'Create Form Config'}
+              {editItem ? t('common.save') : 'Create Form Config'}
             </Button>
           </ModalActions>
         </form>
@@ -1117,6 +1126,7 @@ function FormConfigsTab() {
 // ── Permissions Tab (Org Roles) ────────────────────────────────────────────────
 
 function PermissionsTab() {
+  const { t } = useI18n();
   const { data: rolesData, isLoading: rolesLoading } = useOrgRoles();
   const { data: permsData, isLoading: permsLoading } = useAllPermissions();
   const setRolePerms = useSetOrgRolePermissions();
@@ -1168,14 +1178,14 @@ function PermissionsTab() {
       {/* Header + role search */}
       <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h3 className="text-base font-semibold text-gray-900">Role Permissions</h3>
+          <h3 className="text-base font-semibold text-gray-900">{t('admin.tabs.roles')}</h3>
           <p className="text-sm text-gray-500 mt-0.5">Set which permissions each org role has access to</p>
         </div>
         <div className="relative">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
           <input
             type="text"
-            placeholder="Search roles…"
+            placeholder={t('common.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 w-48"
@@ -1185,10 +1195,10 @@ function PermissionsTab() {
 
       {roles.length === 0 ? (
         <div className="text-center py-12 text-gray-400 text-sm">
-          No org roles found. Create roles in Administration → User Management.
+          {t('common.noData')}
         </div>
       ) : visibleRoles.length === 0 ? (
-        <div className="text-center py-8 text-gray-400 text-sm">No roles match "{search}"</div>
+        <div className="text-center py-8 text-gray-400 text-sm">{t('common.noResults')}</div>
       ) : (
         <div className="space-y-3">
           {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
@@ -1247,7 +1257,7 @@ function PermissionsTab() {
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search permissions…"
+              placeholder={t('common.searchPlaceholder')}
               value={permSearch}
               onChange={(e) => setPermSearch(e.target.value)}
               className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -1263,7 +1273,7 @@ function PermissionsTab() {
                 filteredGroups.forEach(({ keys }) => keys.forEach((k) => { next[k] = true; }));
                 return next;
               });
-            }}>Select all visible</button>
+            }}>{t('common.all')}</button>
             <span className="text-gray-300">·</span>
             <button className="text-gray-500 hover:text-gray-700" onClick={() => {
               setChecked((prev) => {
@@ -1271,7 +1281,7 @@ function PermissionsTab() {
                 filteredGroups.forEach(({ keys }) => keys.forEach((k) => { next[k] = false; }));
                 return next;
               });
-            }}>Deselect all visible</button>
+            }}>{t('common.none')}</button>
             <span className="ml-auto text-gray-400">
               {Object.values(checked).filter(Boolean).length} selected
             </span>
@@ -1280,7 +1290,7 @@ function PermissionsTab() {
           {/* Groups + checkboxes */}
           <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
             {filteredGroups.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-6">No permissions match "{permSearch}"</p>
+              <p className="text-sm text-gray-400 text-center py-6">{t('common.noResults')}</p>
             ) : filteredGroups.map(({ group, keys }) => (
               <div key={group}>
                 <div className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-2">
@@ -1318,9 +1328,9 @@ function PermissionsTab() {
           </div>
 
           <ModalActions>
-            <Button variant="secondary" onClick={() => setEditRole(null)}>Cancel</Button>
+            <Button variant="secondary" onClick={() => setEditRole(null)}>{t('common.cancel')}</Button>
             <Button variant="primary" onClick={save} loading={setRolePerms.isPending} icon={<Lock size={13} />}>
-              Save Permissions
+              {t('common.save')} Permissions
             </Button>
           </ModalActions>
         </div>
@@ -1345,6 +1355,7 @@ interface LeaveTypeForm {
 }
 
 export function LeaveTypesTab() {
+  const { t } = useI18n();
   const { data, isLoading } = useLeaveTypes();
   const createType = useCreateLeaveType();
   const updateType = useUpdateLeaveType();
@@ -1401,14 +1412,14 @@ export function LeaveTypesTab() {
           <p className="text-sm text-gray-500 mt-0.5">Configure leave categories, allocations and policies</p>
         </div>
         <Button size="sm" icon={<Plus size={14} />} onClick={() => { setShowCreate(true); form.reset(); }}>
-          Add Leave Type
+          {t('common.add')} Leave Type
         </Button>
       </div>
 
       {types.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-200">
           <CalendarDays size={28} className="mx-auto text-gray-300 mb-2" />
-          <p className="text-sm text-gray-500">No leave types configured yet</p>
+          <p className="text-sm text-gray-500">{t('common.noData')}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3">
@@ -1426,7 +1437,7 @@ export function LeaveTypesTab() {
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold text-gray-900">{lt.name}</span>
                       {lt.isPaid && <span className="text-xs bg-green-50 text-green-700 px-1.5 py-0.5 rounded">Paid</span>}
-                      {!lt.isActive && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">Inactive</span>}
+                      {!lt.isActive && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{t('common.inactive')}</span>}
                     </div>
                     <p className="text-xs text-gray-500 mt-0.5">
                       {lt.daysPerYear} days/year · Carry forward: {lt.carryForwardDays} · Notice: {lt.noticeDays} day{lt.noticeDays !== 1 ? 's' : ''}
@@ -1449,7 +1460,7 @@ export function LeaveTypesTab() {
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="form-label">Name *</label>
+              <label className="form-label">{t('common.name')} *</label>
               <input className="form-input" placeholder="e.g., Casual Leave" {...form.register('name', { required: true })} />
             </div>
             <div>
@@ -1485,7 +1496,7 @@ export function LeaveTypesTab() {
             {[
               { name: 'requires_approval' as const, label: 'Requires Approval' },
               { name: 'is_paid' as const,           label: 'Paid Leave' },
-              { name: 'is_active' as const,          label: 'Active' },
+              { name: 'is_active' as const,          label: t('common.active') },
             ].map(({ name, label }) => (
               <label key={name} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
                 <input type="checkbox" className="w-4 h-4 rounded accent-indigo-600" {...form.register(name)} />
@@ -1494,9 +1505,9 @@ export function LeaveTypesTab() {
             ))}
           </div>
           <ModalActions>
-            <Button variant="secondary" onClick={() => { setShowCreate(false); setEditItem(null); form.reset(); }}>Cancel</Button>
+            <Button variant="secondary" onClick={() => { setShowCreate(false); setEditItem(null); form.reset(); }}>{t('common.cancel')}</Button>
             <Button type="submit" variant="primary" loading={createType.isPending || updateType.isPending}>
-              {editItem ? 'Save Changes' : 'Add Leave Type'}
+              {editItem ? t('common.save') : t('common.add')}
             </Button>
           </ModalActions>
         </form>
@@ -1516,6 +1527,7 @@ interface BadgeForm {
 }
 
 function BadgeCatalogTab() {
+  const { t } = useI18n();
   const { data, isLoading } = useBadgeDefinitions();
   const createBadge = useCreateBadgeDefinition();
   const updateBadge = useUpdateBadgeDefinition();
@@ -1566,11 +1578,11 @@ function BadgeCatalogTab() {
             value={filterCat}
             onChange={(e) => setFilterCat(e.target.value)}
           >
-            <option value="">All Categories</option>
+            <option value="">{t('common.all')} Categories</option>
             {BADGE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
           <Button size="sm" icon={<Plus size={14} />} onClick={() => { setShowCreate(true); form.reset(); }}>
-            New Badge
+            {t('common.new')} Badge
           </Button>
         </div>
       </div>
@@ -1578,7 +1590,7 @@ function BadgeCatalogTab() {
       {badges.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-200">
           <Award size={28} className="mx-auto text-gray-300 mb-2" />
-          <p className="text-sm text-gray-500">No badges in the catalog yet</p>
+          <p className="text-sm text-gray-500">{t('common.noData')}</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3">
@@ -1621,12 +1633,12 @@ function BadgeCatalogTab() {
       >
         <form onSubmit={onSubmit} className="space-y-4">
           <div>
-            <label className="form-label">Badge Name *</label>
+            <label className="form-label">{t('common.name')} *</label>
             <input className="form-input" placeholder="e.g., Sprint Champion" {...form.register('name', { required: true })} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="form-label">Category *</label>
+              <label className="form-label">{t('common.type')} *</label>
               <select className="form-select" {...form.register('category', { required: true })}>
                 {BADGE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
@@ -1639,7 +1651,7 @@ function BadgeCatalogTab() {
             </div>
           </div>
           <div>
-            <label className="form-label">Description *</label>
+            <label className="form-label">{t('common.description')} *</label>
             <textarea
               className="form-textarea"
               rows={3}
@@ -1652,9 +1664,9 @@ function BadgeCatalogTab() {
             Auto-awardable (AI can award this badge automatically)
           </label>
           <ModalActions>
-            <Button variant="secondary" onClick={() => { setShowCreate(false); setEditItem(null); form.reset(); }}>Cancel</Button>
+            <Button variant="secondary" onClick={() => { setShowCreate(false); setEditItem(null); form.reset(); }}>{t('common.cancel')}</Button>
             <Button type="submit" variant="primary" loading={createBadge.isPending || updateBadge.isPending}>
-              {editItem ? 'Save Changes' : 'Create Badge'}
+              {editItem ? t('common.save') : t('common.create')}
             </Button>
           </ModalActions>
         </form>
@@ -1666,6 +1678,7 @@ function BadgeCatalogTab() {
 // ── Bug Report Config Tab ─────────────────────────────────────────────────────
 
 function BugReportConfigTab() {
+  const { t } = useI18n();
   const { user } = useAuth();
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const { data: config, isLoading } = useBugConfig();
@@ -1719,11 +1732,11 @@ function BugReportConfigTab() {
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (e: unknown) {
-      setError((e as Error).message || 'Failed to save');
+      setError((e as Error).message || t('errors.saveFailed'));
     }
   };
 
-  if (isLoading) return <div className="p-8 text-sm text-gray-400">Loading…</div>;
+  if (isLoading) return <div className="p-8 text-sm text-gray-400">{t('common.loading')}</div>;
 
   return (
     <div className="p-6 space-y-6 max-w-xl">
@@ -1805,7 +1818,7 @@ function BugReportConfigTab() {
               onClick={addEmail}
               className="px-4 py-2 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-semibold"
             >
-              Add
+              {t('common.add')}
             </button>
           </div>
           {emails.length > 0 ? (
@@ -1856,7 +1869,7 @@ function BugReportConfigTab() {
         </div>
       </>)}
 
-      {saved && <p className="text-xs text-green-600 font-medium">✓ Saved successfully</p>}
+      {saved && <p className="text-xs text-green-600 font-medium">✓ {t('common.saveSuccess')}</p>}
       {error && <p className="text-xs text-red-500">{error}</p>}
 
       <button
@@ -1865,7 +1878,7 @@ function BugReportConfigTab() {
         className="px-5 py-2.5 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900
           text-sm font-semibold disabled:opacity-40 transition-colors hover:bg-gray-800 dark:hover:bg-gray-100"
       >
-        {saving ? 'Saving…' : 'Save Settings'}
+        {saving ? t('common.saving') : t('admin.config.save')}
       </button>
     </div>
   );
@@ -1874,6 +1887,8 @@ function BugReportConfigTab() {
 // ── Bot Settings Tab ───────────────────────────────────────────────────────────
 
 function BotSettingsTab() {
+  const { t } = useI18n();
+  const { refetch: refetchUser } = useAuth();
   const [botEnabled, setBotEnabled] = useState<boolean | null>(null);
   const [saving,     setSaving]     = useState(false);
   const [saved,      setSaved]      = useState(false);
@@ -1897,8 +1912,11 @@ function BotSettingsTab() {
       await adminApi.updateTenantSettings({ botEnabled: next });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
+      // Silently re-fetch the current user so user.botEnabled updates in-memory
+      // immediately — the BotWidget in App.tsx reads it directly from AuthContext.
+      refetchUser(true);
     } catch (e: unknown) {
-      setError((e as Error).message || 'Failed to save');
+      setError((e as Error).message || t('errors.saveFailed'));
       setBotEnabled(!next); // revert
     } finally {
       setSaving(false);
@@ -1924,7 +1942,7 @@ function BotSettingsTab() {
                 <p className="text-sm font-medium text-gray-800">
                   Bot Assistant is currently{' '}
                   <span className={botEnabled ? 'text-green-600' : 'text-red-500'}>
-                    {botEnabled === null ? '…' : botEnabled ? 'Enabled' : 'Disabled'}
+                    {botEnabled === null ? '…' : botEnabled ? t('common.active') : t('common.inactive')}
                   </span>
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">
@@ -1947,7 +1965,7 @@ function BotSettingsTab() {
 
             {saved && (
               <div className="mt-3 flex items-center gap-2 text-sm text-green-600">
-                <CheckCircle2 size={15} /> Saved successfully
+                <CheckCircle2 size={15} /> {t('common.saveSuccess')}
               </div>
             )}
             {error && (
@@ -1984,6 +2002,7 @@ function BotSettingsTab() {
 // ── Organisation Tab ───────────────────────────────────────────────────────────
 
 function OrganisationTab() {
+  const { t } = useI18n();
   const { refetch } = useAuth();
   const [saving, setSaving]   = useState(false);
   const [saved,  setSaved]    = useState(false);
@@ -2004,7 +2023,7 @@ function OrganisationTab() {
   const handleSave = async () => {
     setError(null);
     setSaved(false);
-    if (!name.trim()) { setError('Organisation name cannot be empty'); return; }
+    if (!name.trim()) { setError(t('validation.cannotBeBlank')); return; }
     setSaving(true);
     try {
       await adminApi.updateTenantName(name.trim());
@@ -2012,23 +2031,23 @@ function OrganisationTab() {
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (e: unknown) {
-      setError((e as Error).message || 'Failed to update name');
+      setError((e as Error).message || t('errors.saveFailed'));
     } finally {
       setSaving(false);
     }
   };
 
-  if (isLoading) return <div className="p-6 text-sm text-gray-400">Loading…</div>;
+  if (isLoading) return <div className="p-6 text-sm text-gray-400">{t('common.loading')}</div>;
 
   return (
     <div className="max-w-lg">
-      <h2 className="text-base font-semibold text-gray-800 mb-1">Organisation Details</h2>
+      <h2 className="text-base font-semibold text-gray-800 mb-1">{t('admin.config.orgName')}</h2>
       <p className="text-sm text-gray-400 mb-6">Update the display name for your organisation. The workspace slug (URL) cannot be changed.</p>
 
       <div className="space-y-4">
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-            Organisation name <span className="text-red-500">*</span>
+            {t('admin.config.orgName')} <span className="text-red-500">*</span>
           </label>
           <input
             value={name}
@@ -2042,7 +2061,7 @@ function OrganisationTab() {
           <label className="block text-sm font-semibold text-gray-700 mb-1.5">Workspace slug</label>
           <div className="flex items-center rounded-xl border border-gray-100 bg-gray-50 overflow-hidden">
             <span className="px-3 py-2.5 text-sm text-gray-400 border-r border-gray-200 whitespace-nowrap select-none">app /</span>
-            <span className="px-3 py-2.5 text-sm font-mono text-gray-500">{tenant?.slug || '—'}</span>
+            <span className="px-3 py-2.5 text-sm font-mono text-gray-500">{tenant?.slug || t('common.na')}</span>
           </div>
           <p className="mt-1.5 text-xs text-gray-400">Slug is permanent and cannot be changed after creation.</p>
         </div>
@@ -2059,10 +2078,10 @@ function OrganisationTab() {
           className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
         >
           {saving
-            ? <><RefreshCw size={14} className="animate-spin" /> Saving…</>
+            ? <><RefreshCw size={14} className="animate-spin" /> {t('common.saving')}</>
             : saved
-              ? <><CheckCircle2 size={14} className="text-emerald-300" /> Saved</>
-              : 'Save Changes'
+              ? <><CheckCircle2 size={14} className="text-emerald-300" /> {t('common.success')}</>
+              : t('common.save')
           }
         </button>
       </div>
@@ -2088,7 +2107,7 @@ export default function AdminConfigPage() {
       const s = result?.summary ?? {};
       setSeedMsg(`✓ Seeded: ${s.projects ?? 0} projects, ${s.sprints ?? 0} sprints, ${s.tasks ?? 0} tasks, ${s.timeEntries ?? 0} time entries, ${s.actions ?? 0} actions, ${s.blockers ?? 0} blockers`);
     } catch (e: unknown) {
-      setSeedMsg(`Error: ${(e as Error).message}`);
+      setSeedMsg(`${t('common.error')}: ${(e as Error).message}`);
     } finally { setSeeding(false); }
   }, [openConfirm]);
 
@@ -2153,7 +2172,7 @@ export default function AdminConfigPage() {
               className="w-full flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg px-3 py-1.5 transition-colors"
             >
               <RefreshCw size={11} className={seeding ? 'animate-spin' : ''} />
-              {seeding ? 'Seeding…' : 'Seed Demo Data'}
+              {seeding ? t('common.loading') : 'Seed Demo Data'}
             </button>
             {seedMsg && (
               <p className={`text-[10px] mt-1.5 ${seedMsg.startsWith('✓') ? 'text-green-600' : 'text-red-500'}`}>

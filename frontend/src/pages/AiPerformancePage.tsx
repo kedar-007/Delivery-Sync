@@ -27,6 +27,7 @@ import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import UserAvatar from '../components/ui/UserAvatar';
 import { useAuth } from '../contexts/AuthContext';
+import { useI18n } from '../contexts/I18nContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { useTeams } from '../hooks/useTeams';
 import { useUsers, type TenantUser } from '../hooks/useUsers';
@@ -37,7 +38,7 @@ import {
   type AnalysisResult, type TeamAggregate,
 } from '../components/ui/PerformanceModal';
 
-const RANGE_LABELS = { 7: 'Weekly', 30: 'Monthly', 90: 'Quarterly' } as const;
+const RANGE_DAYS = [7, 30, 90] as const;
 type Mode = 'all-teams' | 'team' | 'individual' | 'compare';
 
 type TeamLite = {
@@ -49,6 +50,7 @@ type TeamLite = {
 
 export default function AiPerformancePage() {
   const { user } = useAuth();
+  const { t } = useI18n();
 
   // Auth flicker guard. On the first render, `user.permissions` may not have
   // arrived yet — without this, `hasPermission` would fall back to the
@@ -188,19 +190,26 @@ export default function AiPerformancePage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const compareData    = compareQueries.map((q) => ((q.data as any)?.data ?? q.data) as AnalysisResult | undefined);
 
+  // Range labels — computed inside component so t() is available
+  const rangeLabels: Record<7 | 30 | 90, string> = {
+    7:  t('common.thisWeek'),
+    30: t('common.thisMonth'),
+    90: t('common.lastWeek'), // closest available key for "Quarterly"
+  };
+
   // Display name for header + loader subject
   const selectedTeamName = visibleTeams.find((t) => t.id === selectedTeamId)?.name;
   const selectedUserObj  = users.find((u) => u.id === selectedUserId);
   const selfUser         = users.find((u) => u.id === user?.id);
   const subjectName =
-    mode === 'all-teams' ? 'All Teams' :
-    mode === 'team'      ? (selectedTeamName ?? 'Team') :
-    mode === 'compare'   ? `${compareTeamIds.length} teams` :
+    mode === 'all-teams' ? t('nav.aiInsights') :
+    mode === 'team'      ? (selectedTeamName ?? t('teams.title')) :
+    mode === 'compare'   ? `${compareTeamIds.length} ${t('teams.title')}` :
     mode === 'individual'
       ? (isAdmin
-          ? (selectedUserObj?.name ?? 'Individual')
-          : (user?.name ?? 'My Performance'))
-      : 'AI Performance';
+          ? (selectedUserObj?.name ?? t('directory.title'))
+          : (user?.name ?? t('ai.performance.title')))
+      : t('ai.performance.title');
   const subjectAvatar =
     mode === 'individual'
       ? (isAdmin ? selectedUserObj?.avatarUrl : selfUser?.avatarUrl)
@@ -213,8 +222,8 @@ export default function AiPerformancePage() {
     return (
       <Layout>
         <Header
-          title="AI Performance Analysis"
-          subtitle="Holistic, AI-powered review across tasks, attendance, time, standups, EODs and more"
+          title={t('ai.performance.title')}
+          subtitle={t('ai.performance.analyzing')}
         />
         <div className="p-6 space-y-5">
           <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
@@ -235,8 +244,8 @@ export default function AiPerformancePage() {
   return (
     <Layout>
       <Header
-        title="AI Performance Analysis"
-        subtitle="Holistic, AI-powered review across tasks, attendance, time, standups, EODs and more"
+        title={t('ai.performance.title')}
+        subtitle={t('ai.performance.analyzing')}
       />
 
       <div className="p-6 space-y-5">
@@ -248,9 +257,9 @@ export default function AiPerformancePage() {
                 <Sparkles size={17} className="text-white" />
               </div>
               <div>
-                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider leading-none">Analysing</p>
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider leading-none">{t('ai.title')}</p>
                 <p className="text-sm font-bold text-gray-900 leading-tight">
-                  {mode ? subjectName : 'Pick a scope to start'}
+                  {mode ? subjectName : t('common.noData')}
                 </p>
                 {/* Access summary — what scopes the current user actually has.
                     Helpful when admin granted Self+Team but the user still sees
@@ -266,18 +275,18 @@ export default function AiPerformancePage() {
             {/* Mode toggle — gated per the three-tier permission model */}
             <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1 flex-wrap">
               {canOrgWide && (
-                <ModeBtn label="All Teams" icon={<Sparkles size={13} />} active={mode === 'all-teams'} onClick={() => setMode('all-teams')} />
+                <ModeBtn label={t('nav.aiInsights')} icon={<Sparkles size={13} />} active={mode === 'all-teams'} onClick={() => setMode('all-teams')} />
               )}
               {canTeam && (
-                <ModeBtn label="Team" icon={<Users size={13} />} active={mode === 'team'}
+                <ModeBtn label={t('teams.title')} icon={<Users size={13} />} active={mode === 'team'}
                   disabled={!canOrgWide && visibleTeams.length === 0}
                   onClick={() => setMode('team')} />
               )}
               {canSelf && (
-                <ModeBtn label="Individual" icon={<User size={13} />} active={mode === 'individual'} onClick={() => setMode('individual')} />
+                <ModeBtn label={t('directory.title')} icon={<User size={13} />} active={mode === 'individual'} onClick={() => setMode('individual')} />
               )}
               {canOrgWide && (
-                <ModeBtn label="Compare Teams" icon={<GitCompareArrows size={13} />} active={mode === 'compare'} onClick={() => setMode('compare')} />
+                <ModeBtn label={t('reports.types.team')} icon={<GitCompareArrows size={13} />} active={mode === 'compare'} onClick={() => setMode('compare')} />
               )}
             </div>
 
@@ -287,7 +296,7 @@ export default function AiPerformancePage() {
                 value={selectedTeamId}
                 onChange={setSelectedTeamId}
                 teams={visibleTeams}
-                placeholder={isAdmin ? '— Select a team —' : '— Select your team —'}
+                placeholder={isAdmin ? t('common.all') : t('common.filter')}
               />
             )}
             {mode === 'individual' && pickableUsers.length > 1 && (
@@ -308,10 +317,10 @@ export default function AiPerformancePage() {
             <div className="ml-auto flex items-center gap-2">
               {fromCache && !analyze.isPending && mode !== 'compare' && (
                 <span
-                  title="Served from cache (1-hour TTL). Refresh to recompute."
+                  title={t('common.success')}
                   className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100"
                 >
-                  <Zap size={10} /> Cached
+                  <Zap size={10} /> {t('common.success')}
                 </span>
               )}
               <button
@@ -320,13 +329,13 @@ export default function AiPerformancePage() {
                   else compareQueries.forEach((q) => q.refetch());
                 }}
                 disabled={analyze.isPending || compareLoading}
-                title="Recompute (bypass cache)"
+                title={t('common.refresh')}
                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-40 transition-all"
               >
                 <RefreshCw size={12} className={(analyze.isPending || compareLoading) ? 'animate-spin' : ''} />
               </button>
               <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
-                {([7, 30, 90] as const).map((d) => (
+                {(RANGE_DAYS).map((d) => (
                   <button
                     key={d}
                     onClick={() => setDays(d)}
@@ -337,7 +346,7 @@ export default function AiPerformancePage() {
                         : 'text-gray-500 hover:text-gray-700',
                     ].join(' ')}
                   >
-                    {RANGE_LABELS[d]}
+                    {rangeLabels[d]}
                   </button>
                 ))}
               </div>
@@ -359,10 +368,10 @@ export default function AiPerformancePage() {
         {mode === 'team' && !effectiveTeamId && !analyze.isPending && (
           <EmptyCard
             icon={<Users size={28} className="text-indigo-400" />}
-            title={visibleTeams.length === 0 ? 'No teams available' : 'Pick a team to analyse'}
+            title={visibleTeams.length === 0 ? t('teams.noTeams') : t('common.filter')}
             body={visibleTeams.length === 0
-              ? (isAdmin ? 'No teams exist yet in this tenant. Create one in Admin → Teams.' : 'You are not a member of any team.')
-              : 'Choose a team from the dropdown above.'}
+              ? (isAdmin ? t('errors.notFound') : t('common.noData'))
+              : t('common.searchPlaceholder')}
           />
         )}
 
@@ -370,8 +379,8 @@ export default function AiPerformancePage() {
         {mode === 'compare' && compareTeamIds.length < 2 && !compareLoading && (
           <EmptyCard
             icon={<GitCompareArrows size={28} className="text-indigo-400" />}
-            title="Pick at least two teams to compare"
-            body="Select 2 to 5 teams from the dropdown above to see them side-by-side with overlaid charts."
+            title={t('common.noData')}
+            body={t('common.noResults')}
           />
         )}
 
@@ -384,7 +393,7 @@ export default function AiPerformancePage() {
 
         {mode === 'compare' && compareLoading && compareTeamIds.length >= 2 && (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
-            <AnalysisLoading subjectName={`${compareTeamIds.length} teams`} />
+            <AnalysisLoading subjectName={`${compareTeamIds.length} ${t('teams.title')}`} />
           </div>
         )}
 
@@ -393,7 +402,7 @@ export default function AiPerformancePage() {
           <div className="flex items-center gap-3 bg-red-50 border border-red-100 rounded-xl p-4">
             <AlertCircle size={16} className="text-red-500 shrink-0" />
             <p className="text-sm text-red-700">
-              {(analyze.error as Error)?.message || 'Failed to analyse performance.'}
+              {(analyze.error as Error)?.message || t('errors.loadFailed')}
             </p>
           </div>
         )}
@@ -421,7 +430,7 @@ export default function AiPerformancePage() {
             {(result.alerts ?? []).length > 0 && (
               <div className="bg-red-50 border border-red-100 rounded-xl p-3 space-y-1">
                 <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wider flex items-center gap-1">
-                  <AlertCircle size={11} /> Alerts
+                  <AlertCircle size={11} /> {t('common.error')}
                 </p>
                 {result.alerts!.map((a, i) => (
                   <p key={i} className="text-xs text-red-700">{a}</p>
@@ -432,9 +441,9 @@ export default function AiPerformancePage() {
             <div>
               <div className="flex items-baseline justify-between mb-2 px-1">
                 <span className="text-[11px] font-bold text-gray-700 uppercase tracking-wider">
-                  {result.members.length === 1 ? 'Member Detail' : `Members (${result.members.length})`}
+                  {result.members.length === 1 ? t('common.view') : `${t('teams.members')} (${result.members.length})`}
                 </span>
-                <span className="text-[10px] text-gray-400">Click any row to expand</span>
+                <span className="text-[10px] text-gray-400">{t('common.showMore')}</span>
               </div>
               <div className="space-y-3">
                 {result.members.map((m, i) => (
@@ -449,7 +458,7 @@ export default function AiPerformancePage() {
             </div>
 
             <p className="text-[10px] text-gray-400 text-center pt-1">
-              Analysis based on last {days} days · Powered by AI — use as guidance, not as sole evaluation
+              {t('ai.noInsights')}
             </p>
           </div>
         )}
@@ -457,8 +466,8 @@ export default function AiPerformancePage() {
         {singleScope && result && !analyze.isPending && result.members.length === 0 && (
           <EmptyCard
             icon={<BarChart3 size={28} className="text-gray-400" />}
-            title="No performance data found"
-            body={`No activity recorded for the selected scope in the last ${days} days. Try a longer time range.`}
+            title={t('common.noData')}
+            body={t('common.noResults')}
           />
         )}
 
@@ -482,36 +491,37 @@ function WelcomeCard({ canSelf, canTeam, canOrgWide, hasTeams, onPick }: {
   canSelf: boolean; canTeam: boolean; canOrgWide: boolean; hasTeams: boolean;
   onPick: (m: 'team' | 'individual' | 'compare' | 'all-teams') => void;
 }) {
+  const { t } = useI18n();
   const tiles = [
     canTeam && hasTeams && {
       key: 'team' as const,
       icon: <Users size={22} className="text-indigo-500" />,
-      title: 'Analyse a Team',
-      body: 'Pick a team you belong to (or any team if you have org-wide access) for a holistic review.',
-      cta: 'Select Team',
+      title: t('teams.title'),
+      body: t('ai.tabs.health'),
+      cta: t('common.filter'),
     },
     canSelf && {
       key: 'individual' as const,
       icon: <User size={22} className="text-violet-500" />,
-      title: canOrgWide ? 'Analyse a Person' : 'My Performance',
+      title: canOrgWide ? t('directory.title') : t('ai.productivity.title'),
       body: canOrgWide
-        ? 'Drill into one team member\'s tasks, attendance, mood, and engagement.'
-        : 'See your own scorecard — tasks completed, hours, standups, mood and improvement areas.',
-      cta: canOrgWide ? 'Pick Person' : 'Analyse Me',
+        ? t('ai.productivity.subtitle')
+        : t('ai.healthCheck.subtitle'),
+      cta: canOrgWide ? t('common.view') : t('ai.analyze'),
     },
     canOrgWide && {
       key: 'compare' as const,
       icon: <GitCompareArrows size={22} className="text-emerald-500" />,
-      title: 'Compare Teams',
-      body: 'Side-by-side comparison of 2+ teams. Overlaid factor radars, ranked bar charts.',
-      cta: 'Compare Teams',
+      title: t('reports.types.team'),
+      body: t('ai.tabs.productivity'),
+      cta: t('reports.types.team'),
     },
     canOrgWide && {
       key: 'all-teams' as const,
       icon: <Sparkles size={22} className="text-pink-500" />,
-      title: 'Org-Wide',
-      body: 'Top-level view across the entire organization with team aggregates and rankings.',
-      cta: 'View Org',
+      title: t('nav.aiInsights'),
+      body: t('ai.subtitle'),
+      cta: t('common.viewAll'),
     },
   ].filter(Boolean) as Array<{
     key: 'team' | 'individual' | 'compare' | 'all-teams';
@@ -525,8 +535,8 @@ function WelcomeCard({ canSelf, canTeam, canOrgWide, hasTeams, onPick }: {
           <Sparkles size={22} className="text-white" />
         </div>
         <div>
-          <p className="text-sm font-bold text-gray-900">Choose what to analyse</p>
-          <p className="text-xs text-gray-500">Nothing is loaded yet — pick a scope below and the analysis starts.</p>
+          <p className="text-sm font-bold text-gray-900">{t('ai.performance.title')}</p>
+          <p className="text-xs text-gray-500">{t('ai.performance.analyzing')}</p>
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -554,6 +564,7 @@ function WelcomeCard({ canSelf, canTeam, canOrgWide, hasTeams, onPick }: {
 // ─── KPI strip ────────────────────────────────────────────────────────────────
 
 function KpiStrip({ result, days }: { result: AnalysisResult; days: number }) {
+  const { t } = useI18n();
   const agg     = result.teamAggregate;
   const single  = result.members[0]?.metrics;
   const score   = agg?.avgScore ?? result.members[0]?.score ?? 0;
@@ -565,14 +576,14 @@ function KpiStrip({ result, days }: { result: AnalysisResult; days: number }) {
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-      <Kpi label="Score"     value={`${score}/100`} accent="indigo"  icon={<Star size={14} />} />
-      <Kpi label="Tasks Done" value={String(tasks)} accent="emerald" />
-      <Kpi label="Hours"     value={`${hours}h`}    accent="blue" />
-      <Kpi label="Standups"  value={String(checks)} accent="violet" />
-      <Kpi label={morale ? 'Morale' : 'Blockers'}
+      <Kpi label={t('common.percentage')}   value={`${score}/100`} accent="indigo"  icon={<Star size={14} />} />
+      <Kpi label={t('tasks.title')}          value={String(tasks)} accent="emerald" />
+      <Kpi label={t('timeTracking.totalHours')} value={`${hours}h`} accent="blue" />
+      <Kpi label={t('standup.title')}        value={String(checks)} accent="violet" />
+      <Kpi label={morale ? t('common.status') : t('blockers.title')}
            value={morale ?? String(block)}
            accent={morale === 'High' ? 'emerald' : morale === 'Low' ? 'red' : 'amber'} />
-      <Kpi label="Window" value={`${days} days`} accent="gray" />
+      <Kpi label={t('common.days')} value={`${days} ${t('common.days')}`} accent="gray" />
     </div>
   );
 }
@@ -585,10 +596,11 @@ function TeamComparison({ teamIds, teams, results, days }: {
   results: (AnalysisResult | undefined)[];
   days: number;
 }) {
+  const { t } = useI18n();
   // Stitch team-id to its aggregate. Skip any team that failed to load.
   const cards = teamIds.map((id, i) => ({
     id,
-    name: teams.find((t) => t.id === id)?.name ?? `Team ${i + 1}`,
+    name: teams.find((t) => t.id === id)?.name ?? `${t('teams.title')} ${i + 1}`,
     result: results[i],
   })).filter((c) => c.result && c.result.teamAggregate);
 
@@ -596,8 +608,8 @@ function TeamComparison({ teamIds, teams, results, days }: {
     return (
       <EmptyCard
         icon={<GitCompareArrows size={28} className="text-amber-400" />}
-        title="Not enough team data"
-        body="One or more selected teams had no activity in the chosen window. Try a longer window or different teams."
+        title={t('common.noData')}
+        body={t('common.noResults')}
       />
     );
   }
@@ -619,10 +631,10 @@ function TeamComparison({ teamIds, teams, results, days }: {
 
   // Build bar chart series for the 4 headline metrics.
   const barMetrics = [
-    { key: 'avgScore',       label: 'Avg Score'    },
-    { key: 'tasksDone',      label: 'Tasks Done'   },
-    { key: 'hoursLogged',    label: 'Hours Logged' },
-    { key: 'standupCount',   label: 'Standups'     },
+    { key: 'avgScore',       label: t('common.average')        },
+    { key: 'tasksDone',      label: t('tasks.title')            },
+    { key: 'hoursLogged',    label: t('timeTracking.totalHours')},
+    { key: 'standupCount',   label: t('standup.title')          },
   ] as const;
   const barData = barMetrics.map((m) => {
     const row: Record<string, string | number> = { metric: m.label };
@@ -647,21 +659,21 @@ function TeamComparison({ teamIds, teams, results, days }: {
                 <span className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
                 <span className="text-sm font-bold text-gray-900 truncate">{c.name}</span>
                 <span className="text-[10px] font-semibold ml-auto px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600">
-                  {agg.memberCount} members
+                  {agg.memberCount} {t('teams.members')}
                 </span>
               </div>
               <div className="text-3xl font-bold tabular-nums" style={{ color }}>
                 {agg.avgScore}<span className="text-sm text-gray-400">/100</span>
               </div>
               <div className="grid grid-cols-2 gap-2 mt-3 text-[11px]">
-                <div className="flex justify-between"><span className="text-gray-500">Tasks</span><span className="font-semibold">{agg.totals.tasksDone}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Hours</span><span className="font-semibold">{agg.totals.hoursLogged}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Billable</span>
+                <div className="flex justify-between"><span className="text-gray-500">{t('tasks.title')}</span><span className="font-semibold">{agg.totals.tasksDone}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">{t('timeTracking.totalHours')}</span><span className="font-semibold">{agg.totals.hoursLogged}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">{t('timeTracking.billable')}</span>
                   <span className="font-semibold text-emerald-600">{agg.totals.billableHours ?? 0}h</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Util %</span>
+                <div className="flex justify-between"><span className="text-gray-500">{t('common.percentage')}</span>
                   <span className="font-semibold text-emerald-600">{agg.totals.billableUtilization ?? 0}%</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Standups</span><span className="font-semibold">{agg.totals.standupCount}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Blockers</span><span className="font-semibold">{agg.totals.blockersRaised}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">{t('standup.title')}</span><span className="font-semibold">{agg.totals.standupCount}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">{t('blockers.title')}</span><span className="font-semibold">{agg.totals.blockersRaised}</span></div>
               </div>
               {/* Inline billable progress bar */}
               {(agg.totals.hoursLogged ?? 0) > 0 && (
@@ -677,7 +689,7 @@ function TeamComparison({ teamIds, teams, results, days }: {
                     />
                   </div>
                   <div className="flex justify-between mt-1 text-[9px] text-gray-400 uppercase tracking-wider">
-                    <span>Billable</span><span>Non-billable</span>
+                    <span>{t('timeTracking.billable')}</span><span>{t('timeTracking.nonBillable')}</span>
                   </div>
                 </div>
               )}
@@ -690,8 +702,8 @@ function TeamComparison({ teamIds, teams, results, days }: {
         {/* Overlaid radar */}
         <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
           <div className="flex items-baseline justify-between mb-2 px-1">
-            <span className="text-[11px] font-bold text-gray-700 uppercase tracking-wider">Factor Comparison</span>
-            <span className="text-[10px] text-gray-400">Overlaid per team</span>
+            <span className="text-[11px] font-bold text-gray-700 uppercase tracking-wider">{t('reports.aiInsights.title')}</span>
+            <span className="text-[10px] text-gray-400">{t('reports.types.team')}</span>
           </div>
           <div className="w-full h-64">
             <ResponsiveContainer>
@@ -720,8 +732,8 @@ function TeamComparison({ teamIds, teams, results, days }: {
         {/* Grouped bar chart */}
         <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
           <div className="flex items-baseline justify-between mb-2 px-1">
-            <span className="text-[11px] font-bold text-gray-700 uppercase tracking-wider">Headline Metrics</span>
-            <span className="text-[10px] text-gray-400">Grouped bars</span>
+            <span className="text-[11px] font-bold text-gray-700 uppercase tracking-wider">{t('reports.teamActivity.title')}</span>
+            <span className="text-[10px] text-gray-400">{t('common.sort')}</span>
           </div>
           <div className="w-full h-64">
             <ResponsiveContainer>
@@ -744,8 +756,8 @@ function TeamComparison({ teamIds, teams, results, days }: {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
           <div className="flex items-baseline justify-between mb-2 px-1">
-            <span className="text-[11px] font-bold text-gray-700 uppercase tracking-wider">Time Allocation</span>
-            <span className="text-[10px] text-gray-400">Billable vs non-billable hours</span>
+            <span className="text-[11px] font-bold text-gray-700 uppercase tracking-wider">{t('timeTracking.title')}</span>
+            <span className="text-[10px] text-gray-400">{t('timeTracking.billable')} vs {t('timeTracking.nonBillable')}</span>
           </div>
           <div className="w-full h-64">
             <ResponsiveContainer>
@@ -774,8 +786,8 @@ function TeamComparison({ teamIds, teams, results, days }: {
         {/* Utilization comparison */}
         <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
           <div className="flex items-baseline justify-between mb-2 px-1">
-            <span className="text-[11px] font-bold text-gray-700 uppercase tracking-wider">Billable Utilization</span>
-            <span className="text-[10px] text-gray-400">% of logged time that is billable</span>
+            <span className="text-[11px] font-bold text-gray-700 uppercase tracking-wider">{t('timeTracking.billable')}</span>
+            <span className="text-[10px] text-gray-400">{t('common.percentage')}</span>
           </div>
           <div className="w-full h-64">
             <ResponsiveContainer>
@@ -789,7 +801,7 @@ function TeamComparison({ teamIds, teams, results, days }: {
                 <CartesianGrid stroke="#f3f4f6" vertical={false} />
                 <XAxis dataKey="team" tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false} axisLine={false} />
                 <YAxis domain={[0, 100]} tick={{ fill: '#9ca3af', fontSize: 10 }} tickLine={false} axisLine={false} unit="%" />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [`${v}%`, 'Billable']} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [`${v}%`, t('timeTracking.billable')]} />
                 <Bar dataKey="Utilization" radius={[8, 8, 0, 0]}>
                   {cards.map((_c, i) => (
                     <Cell key={i} fill={SERIES_COLORS[i % SERIES_COLORS.length]} />
@@ -805,8 +817,8 @@ function TeamComparison({ teamIds, teams, results, days }: {
       {cards.some((c) => (c.result?.teamAggregate?.memberHours?.length ?? 0) > 0) && (
         <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
           <div className="flex items-baseline justify-between mb-2 px-1">
-            <span className="text-[11px] font-bold text-gray-700 uppercase tracking-wider">Workload Balance</span>
-            <span className="text-[10px] text-gray-400">How evenly hours are split inside each team</span>
+            <span className="text-[11px] font-bold text-gray-700 uppercase tracking-wider">{t('dashboard.attendance.title')}</span>
+            <span className="text-[10px] text-gray-400">{t('common.average')}</span>
           </div>
           <div className={`grid gap-3 p-1 ${cards.length === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-3'}`}>
             {cards.map((c, i) => {
@@ -815,7 +827,7 @@ function TeamComparison({ teamIds, teams, results, days }: {
               if (rows.length === 0) return (
                 <div key={c.id} className="bg-gray-50 rounded-xl p-3">
                   <p className="text-xs font-semibold text-gray-700 mb-2">{c.name}</p>
-                  <p className="text-[10px] text-gray-400">No hours logged in this window.</p>
+                  <p className="text-[10px] text-gray-400">{t('common.noData')}</p>
                 </div>
               );
               const max = Math.max(...rows.map((r) => r.hours), 1);
@@ -840,7 +852,7 @@ function TeamComparison({ teamIds, teams, results, days }: {
                         </div>
                       );
                     })}
-                    {rows.length > 8 && <p className="text-[10px] text-gray-400 mt-1">+{rows.length - 8} more</p>}
+                    {rows.length > 8 && <p className="text-[10px] text-gray-400 mt-1">+{rows.length - 8} {t('common.moreItems')}</p>}
                   </div>
                 </div>
               );
@@ -850,7 +862,7 @@ function TeamComparison({ teamIds, teams, results, days }: {
       )}
 
       <p className="text-[10px] text-gray-400 text-center">
-        Compared {cards.length} teams over the last {days} days
+        {t('common.total')} {cards.length} {t('teams.title')} · {days} {t('common.days')}
       </p>
     </div>
   );
@@ -920,6 +932,7 @@ function TeamSelect({ value, onChange, teams, placeholder }: {
   value: string; onChange: (v: string) => void;
   teams: TeamLite[]; placeholder: string;
 }) {
+  const { t } = useI18n();
   return (
     <div className="relative min-w-[220px]">
       <select
@@ -928,7 +941,7 @@ function TeamSelect({ value, onChange, teams, placeholder }: {
         className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2 pr-8 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 appearance-none"
       >
         {teams.length === 0 ? (
-          <option value="">— No teams available —</option>
+          <option value="">{t('teams.noTeams')}</option>
         ) : (
           <>
             <option value="">{placeholder}</option>
@@ -950,6 +963,7 @@ function TeamSelect({ value, onChange, teams, placeholder }: {
 function UserPicker({ users, value, onChange }: {
   users: TenantUser[]; value: string; onChange: (id: string) => void;
 }) {
+  const { t } = useI18n();
   const [open, setOpen]     = useState(false);
   const [filter, setFilter] = useState('');
   const ref = useRef<HTMLDivElement>(null);
@@ -987,7 +1001,7 @@ function UserPicker({ users, value, onChange }: {
             </span>
           </>
         ) : (
-          <span className="flex-1 text-left text-gray-400">— Select a team member —</span>
+          <span className="flex-1 text-left text-gray-400">{t('directory.searchPlaceholder')}</span>
         )}
         <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
       </button>
@@ -997,12 +1011,12 @@ function UserPicker({ users, value, onChange }: {
             autoFocus
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder="Search by name, email or role"
+            placeholder={t('common.searchPlaceholder')}
             className="text-xs px-3 py-2 border-b border-gray-100 outline-none"
           />
           <div className="overflow-y-auto">
             {filtered.length === 0 ? (
-              <p className="text-xs text-gray-400 text-center py-6">No matches</p>
+              <p className="text-xs text-gray-400 text-center py-6">{t('common.noResults')}</p>
             ) : (
               filtered.map((u) => (
                 <button
@@ -1034,6 +1048,7 @@ function UserPicker({ users, value, onChange }: {
 function CompareTeamsPicker({ teams, selected, onChange }: {
   teams: TeamLite[]; selected: string[]; onChange: (ids: string[]) => void;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -1060,16 +1075,16 @@ function CompareTeamsPicker({ teams, selected, onChange }: {
       >
         <GitCompareArrows size={13} className="text-indigo-500" />
         <span className="flex-1 text-left truncate">
-          {selected.length === 0 ? '— Select 2–5 teams —' :
-           selected.length === 1 ? `1 team (need ≥ 2)` :
-           `${selected.length} teams selected`}
+          {selected.length === 0 ? t('common.filter') :
+           selected.length === 1 ? `1 ${t('teams.title')}` :
+           `${selected.length} ${t('teams.title')}`}
         </span>
         <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
       </button>
       {open && (
         <div className="absolute z-30 mt-1 w-full max-h-72 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg">
           {teams.length === 0 ? (
-            <p className="text-xs text-gray-400 text-center py-6">No teams to compare</p>
+            <p className="text-xs text-gray-400 text-center py-6">{t('teams.noTeams')}</p>
           ) : (
             teams.map((t) => {
               const isOn   = selected.includes(t.id);
@@ -1101,7 +1116,7 @@ function CompareTeamsPicker({ teams, selected, onChange }: {
             })
           )}
           <p className="text-[10px] text-gray-400 text-center py-1.5 border-t border-gray-100">
-            Pick 2 to {MAX} teams to compare
+            {t('common.filter')} 2–{MAX} {t('teams.title')}
           </p>
         </div>
       )}

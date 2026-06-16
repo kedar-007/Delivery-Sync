@@ -71,6 +71,7 @@ const ProjectSection = ({
   onEdit: (entry: StandupEntry) => void;
   color: string;
 }) => {
+  const { t } = useI18n();
   const [collapsed, setCollapsed] = useState(false);
   return (
     <div className="rounded-xl border border-gray-200 overflow-hidden">
@@ -84,7 +85,7 @@ const ProjectSection = ({
         <FolderOpen size={14} className="text-gray-500 shrink-0" />
         <span className="text-sm font-semibold text-gray-800 flex-1">{projectName}</span>
         <span className="text-xs text-gray-400 font-medium mr-2">
-          {entries.length} update{entries.length !== 1 ? 's' : ''}
+          {entries.length !== 1 ? t('standup.updateCountPlural', { count: entries.length }) : t('standup.updateCount', { count: entries.length })}
         </span>
         {collapsed ? <ChevronRight size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
       </button>
@@ -106,17 +107,17 @@ const ProjectSection = ({
 
                   <div className="grid grid-cols-1 gap-1.5">
                     <div className="flex gap-3">
-                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Yesterday</span>
+                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">{t('standup.form.labelYesterday')}</span>
                       <p className="text-sm text-gray-700 leading-snug min-w-0 break-words">{entry.yesterday}</p>
                     </div>
                     <div className="flex gap-3">
-                      <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Today</span>
+                      <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">{t('standup.form.labelToday')}</span>
                       <p className="text-sm text-gray-700 leading-snug min-w-0 break-words">{entry.today}</p>
                     </div>
                     {entry.blockers && (
                       <div className="flex gap-3">
-                        <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Blockers</span>
-                        <p className="text-sm text-red-700 leading-snug min-w-0 break-words">{entry.blockers}</p>
+                        <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">{t('standup.form.labelBlockers')}</span>
+                        <p className="text-sm text-gray-700 leading-snug min-w-0 break-words">{entry.blockers}</p>
                       </div>
                     )}
                   </div>
@@ -125,7 +126,7 @@ const ProjectSection = ({
                 <button
                   type="button"
                   onClick={() => onEdit(entry)}
-                  title="Edit this standup"
+                  title={t('common.edit')}
                   className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 shrink-0"
                 >
                   <Pencil size={13} />
@@ -337,11 +338,11 @@ const StandupPage = () => {
           id: editingEntry.id,
           data: { yesterday: data.yesterday, today: data.today, blockers: data.blockers },
         });
-        setSuccess('Standup updated successfully');
+        setSuccess(t('standup.updatedSuccess'));
         setEditingEntry(null);
       } else {
         await submitStandup.mutateAsync(data);
-        setSuccess(`Standup submitted for ${format(new Date(data.date), 'd MMM yyyy')}`);
+        setSuccess(t('standup.submittedFor', { date: format(new Date(data.date), 'd MMM yyyy') }));
       }
       // Explicitly clear textareas to '' (not undefined) so the inputs render
       // as empty after submit. Keep project_id + date so quick re-submits work.
@@ -395,27 +396,27 @@ const StandupPage = () => {
 
   return (
     <Layout>
-      <Header title={t('nav.standup')} subtitle="Daily standup updates" />
+      <Header title={t('nav.standup')} subtitle={t('standup.subtitle')} />
       <div className="p-6 space-y-5">
 
         {/* Tabs — Team Standups only visible to users with STANDUP_TEAM_VIEW */}
         <div className="flex gap-2 border-b border-gray-200">
-          {(['submit', 'rollup', 'mine', ...(canSeeTeamStandups ? ['team'] as const : [])] as const).map((t) => (
-            <button key={t} onClick={() => setTab(t)}
+          {(['submit', 'rollup', 'mine', ...(canSeeTeamStandups ? ['team'] as const : [])] as const).map((tabKey) => (
+            <button key={tabKey} onClick={() => setTab(tabKey)}
               className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                tab === t ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+                tab === tabKey ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}>
-              {t === 'submit'
+              {tabKey === 'submit'
                 ? editingEntry ? (
                     <span className="flex items-center gap-1.5 text-amber-600">
-                      <Pencil size={13} /> Edit Standup
+                      <Pencil size={13} /> {t('standup.editStandup')}
                     </span>
-                  ) : 'Submit Standup'
-                : t === 'rollup' ? 'Standup Rollup'
-                : t === 'mine' ? (
+                  ) : t('standup.submit')
+                : tabKey === 'rollup' ? t('standup.rollupTitle')
+                : tabKey === 'mine' ? (
                   <span className="flex items-center gap-1.5">
                     <History size={14} />
-                    My Submissions
+                    {t('standup.tabs.mySubmissions')}
                     {myStandups.length > 0 && (
                       <span className="bg-blue-100 text-blue-700 text-xs font-bold px-1.5 py-0.5 rounded-full">
                         {myStandups.length}
@@ -425,7 +426,7 @@ const StandupPage = () => {
                 ) : (
                   <span className="flex items-center gap-1.5">
                     <UsersIcon size={14} />
-                    Team Standups
+                    {t('standup.tabs.teamStandups')}
                     {teamStandups.length > 0 && (
                       <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-1.5 py-0.5 rounded-full">
                         {teamStandups.length}
@@ -446,7 +447,7 @@ const StandupPage = () => {
                 <div className="flex items-center gap-2">
                   <Pencil size={15} className="text-amber-600 shrink-0" />
                   <div>
-                    <p className="text-sm font-semibold text-amber-800">Editing standup</p>
+                    <p className="text-sm font-semibold text-amber-800">{t('standup.editingStandup')}</p>
                     <p className="text-xs text-amber-600">
                       {editingEntry.projectName} · {format(new Date(editingEntry.date + 'T00:00:00'), 'd MMM yyyy')}
                     </p>
@@ -454,7 +455,7 @@ const StandupPage = () => {
                 </div>
                 <button type="button" onClick={cancelEdit}
                   className="text-xs text-amber-600 hover:text-amber-800 flex items-center gap-1 px-2 py-1 rounded hover:bg-amber-100 transition-colors">
-                  <X size={12} /> Cancel
+                  <X size={12} /> {t('common.cancel')}
                 </button>
               </div>
             )}
@@ -464,7 +465,7 @@ const StandupPage = () => {
               <div className="p-4 bg-green-50 rounded-xl border border-green-200 flex items-start gap-3">
                 <CheckCircle size={18} className="text-green-600 mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-sm font-medium text-green-800">Standup submitted for today</p>
+                  <p className="text-sm font-medium text-green-800">{t('standup.submittedToday')}</p>
                   <p className="text-xs text-green-600 mt-0.5">
                     {submittedProjectIds.size} project(s): {(projects as any[])
                       .filter((p: { id: string }) => submittedProjectIds.has(p.id))
@@ -485,14 +486,14 @@ const StandupPage = () => {
                 {/* Project + Date (read-only when editing) */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="form-label">Project *</label>
+                    <label className="form-label">{t('standup.form.projectRequired')}</label>
                     {editingEntry ? (
                       <div className="form-input bg-gray-50 text-gray-600 cursor-not-allowed">
-                        {editingEntry.projectName ?? 'Unknown'}
+                        {editingEntry.projectName ?? t('common.na')}
                       </div>
                     ) : (
-                      <select className="form-select" {...register('project_id', { required: 'Select a project' })}>
-                        <option value="">Select project…</option>
+                      <select className="form-select" {...register('project_id', { required: t('validation.required') })}>
+                        <option value="">{t('standup.form.selectProject')}</option>
                         {standupProjects.map((p: { id: string; name: string }) => (
                           <option key={p.id} value={p.id}>{p.name}</option>
                         ))}
@@ -501,7 +502,7 @@ const StandupPage = () => {
                     {errors.project_id && <p className="form-error">{errors.project_id.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">Date *</label>
+                    <label className="form-label">{t('standup.form.dateRequired')}</label>
                     <input
                       type="date"
                       className={`form-input ${editingEntry ? 'bg-gray-50 text-gray-600 cursor-not-allowed' : ''}`}
@@ -509,19 +510,19 @@ const StandupPage = () => {
                       min={minDate}
                       max={today}
                       {...register('date', {
-                        required: 'Date is required',
+                        required: t('validation.required'),
                         validate: (v) => {
-                          if (!v) return 'Date is required';
-                          if (v > today)    return "You can't submit a standup for a future date.";
-                          if (v < minDate)  return 'Backdated entries are allowed only within the past 7 days.';
+                          if (!v) return t('validation.required');
+                          if (v > today)    return t('validation.futureDate');
+                          if (v < minDate)  return t('validation.pastDate');
                           return true;
                         },
                       })}
                     />
-                    {errors.date && <p className="form-error">{(errors.date as any).message || 'Invalid date'}</p>}
+                    {errors.date && <p className="form-error">{(errors.date as any).message || t('validation.invalidDate')}</p>}
                     {!editingEntry && (
                       <p className="text-[11px] text-gray-400 mt-1">
-                        You can enter standups for the past 7 days. Future dates are not allowed.
+                        {t('standup.form.backdateHint')}
                       </p>
                     )}
                   </div>
@@ -542,35 +543,35 @@ const StandupPage = () => {
                 {/* Yesterday */}
                 <div>
                   <label className="form-label">
-                    What did you do yesterday? *
+                    {t('standup.form.yesterdayFull')}
                     {aiFilledFields.has('yesterday') && <AiBadge />}
                   </label>
                   <textarea className="form-textarea" rows={3}
-                    placeholder="Completed X, reviewed Y, attended Z…"
-                    {...register('yesterday', { required: 'Required' })} />
+                    placeholder={t('standup.form.yesterdayPlaceholder')}
+                    {...register('yesterday', { required: t('validation.required') })} />
                   {errors.yesterday && <p className="form-error">{errors.yesterday.message}</p>}
                 </div>
 
                 {/* Today */}
                 <div>
                   <label className="form-label">
-                    What are you doing today? *
+                    {t('standup.form.todayFull')}
                     {aiFilledFields.has('today') && <AiBadge />}
                   </label>
                   <textarea className="form-textarea" rows={3}
-                    placeholder="Working on A, will finish B, meeting with C…"
-                    {...register('today', { required: 'Required' })} />
+                    placeholder={t('standup.form.todayPlaceholder')}
+                    {...register('today', { required: t('validation.required') })} />
                   {errors.today && <p className="form-error">{errors.today.message}</p>}
                 </div>
 
                 {/* Blockers */}
                 <div>
                   <label className="form-label">
-                    Any blockers?
+                    {t('standup.form.blockers')}
                     {aiFilledFields.has('blockers') && <AiBadge />}
                   </label>
                   <textarea className="form-textarea" rows={2}
-                    placeholder="None / Waiting for X / Blocked by Y…"
+                    placeholder={t('standup.form.blockersPlaceholder')}
                     {...register('blockers')} />
                 </div>
 
@@ -578,10 +579,10 @@ const StandupPage = () => {
                   <Button type="submit" loading={isSubmitting}
                     icon={editingEntry ? <Pencil size={15} /> : <Clock size={16} />}
                     variant={editingEntry ? 'primary' : 'primary'}>
-                    {editingEntry ? 'Update Standup' : 'Submit Standup'}
+                    {editingEntry ? t('standup.update') : t('standup.submit')}
                   </Button>
                   {editingEntry && (
-                    <Button type="button" variant="outline" onClick={cancelEdit}>Cancel</Button>
+                    <Button type="button" variant="outline" onClick={cancelEdit}>{t('common.cancel')}</Button>
                   )}
                 </div>
               </form>
@@ -600,7 +601,7 @@ const StandupPage = () => {
               }
               <input
                 className="w-full pl-9 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-200 outline-none"
-                placeholder="Search yesterday, today, blockers…"
+                placeholder={t('standup.searchInputPlaceholder')}
                 value={standupSearch}
                 onChange={(e) => setStandupSearch(e.target.value)}
               />
@@ -616,7 +617,7 @@ const StandupPage = () => {
             <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
               <History size={18} className="text-blue-600 shrink-0" />
               <p className="text-sm font-medium text-blue-800">
-                {(myLoading || searchStandupLoading) ? 'Loading…'
+                {(myLoading || searchStandupLoading) ? t('common.loading')
                   : isSearchMode
                     ? `${visibleStandups.length} result${visibleStandups.length !== 1 ? 's' : ''} for "${debouncedStandupSearch}"`
                     : `${myStandups.length} standup${myStandups.length !== 1 ? 's' : ''} across ${byProject.size} project${byProject.size !== 1 ? 's' : ''}`}
@@ -626,14 +627,14 @@ const StandupPage = () => {
             {/* Hover-tip */}
             {!myLoading && myStandups.length > 0 && (
               <p className="text-xs text-gray-400 flex items-center gap-1">
-                <Pencil size={10} /> Hover over an entry to edit it
+                <Pencil size={10} /> {t('standup.hoverToEdit')}
               </p>
             )}
 
             {myLoading && !isSearchMode ? <PageLoader /> : visibleStandups.length === 0 ? (
               <EmptyState
-                title={isSearchMode ? 'No results found' : 'No standups yet'}
-                description={isSearchMode ? 'Try a different search term.' : 'Your submitted standups will appear here.'}
+                title={isSearchMode ? t('standup.noSearchResults') : t('standup.noEntries')}
+                description={isSearchMode ? t('standup.noSearchResultsDesc') : t('standup.noEntriesDesc')}
               />
             ) : isSearchMode ? (
               /* Flat list in search mode (entries from different projects mixed) */
@@ -654,22 +655,22 @@ const StandupPage = () => {
                         </div>
                         <div className="grid grid-cols-1 gap-1.5">
                           <div className="flex gap-3">
-                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Yesterday</span>
+                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">{t('standup.form.labelYesterday')}</span>
                             <p className="text-sm text-gray-700 leading-snug min-w-0 break-words">{entry.yesterday}</p>
                           </div>
                           <div className="flex gap-3">
-                            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Today</span>
+                            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">{t('standup.form.labelToday')}</span>
                             <p className="text-sm text-gray-700 leading-snug min-w-0 break-words">{entry.today}</p>
                           </div>
                           {entry.blockers && (
                             <div className="flex gap-3">
-                              <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Blockers</span>
+                              <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">{t('standup.form.labelBlockers')}</span>
                               <p className="text-sm text-red-700 leading-snug min-w-0 break-words">{entry.blockers}</p>
                             </div>
                           )}
                         </div>
                       </div>
-                      <button type="button" onClick={() => startEdit(entry)} title="Edit"
+                      <button type="button" onClick={() => startEdit(entry)} title={t('common.edit')}
                         className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 shrink-0">
                         <Pencil size={13} />
                       </button>
@@ -714,9 +715,9 @@ const StandupPage = () => {
             </div>
 
             {rollupLoading ? <PageLoader /> : !rollupProjectId ? (
-              <EmptyState title="Select a project" description="Choose a project above to see the standup rollup." />
+              <EmptyState title={t('standup.selectProject')} description={t('standup.selectProjectDesc')} />
             ) : rollupData?.rollup?.length === 0 ? (
-              <EmptyState title="No standups found" description="No standup entries in the last 7 days." />
+              <EmptyState title={t('standup.noStandupsRange')} description={t('standup.noStandupsRangeDesc')} />
             ) : (
               <div className="space-y-4">
                 {rollupData?.rollup?.map((day: {
@@ -731,7 +732,7 @@ const StandupPage = () => {
                         {format(new Date(day.date + 'T00:00:00'), 'EEEE, d MMMM yyyy')}
                       </h3>
                       <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-200 bg-white/95 dark:bg-indigo-300/20 px-2.5 py-0.5 rounded-full">
-                        {day.entryCount} update{day.entryCount !== 1 ? 's' : ''}
+                        {day.entryCount !== 1 ? t('standup.updateCountPlural', { count: day.entryCount }) : t('standup.updateCount', { count: day.entryCount })}
                       </span>
                     </div>
 
@@ -742,11 +743,11 @@ const StandupPage = () => {
                           <p className="text-xs font-bold text-blue-600 mb-2">{entry.userName}</p>
                           <div className="grid grid-cols-1 gap-1.5">
                             <div className="flex gap-3">
-                              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Yesterday</span>
+                              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">{t('standup.form.labelYesterday')}</span>
                               <p className="text-sm text-gray-700 leading-snug min-w-0 break-words">{entry.yesterday}</p>
                             </div>
                             <div className="flex gap-3">
-                              <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Today</span>
+                              <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">{t('standup.form.labelToday')}</span>
                               <p className="text-sm text-gray-700 leading-snug min-w-0 break-words">{entry.today}</p>
                             </div>
                             {/* DSV-009: blockers row uses the same w-24 label
@@ -757,7 +758,7 @@ const StandupPage = () => {
                               <div className="flex gap-3">
                                 <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-24 shrink-0 inline-flex items-center gap-1 whitespace-nowrap">
                                   <AlertCircle size={11} className="shrink-0" />
-                                  <span>Blockers</span>
+                                  <span>{t('standup.form.labelBlockers')}</span>
                                 </span>
                                 <p className="text-sm text-red-700 leading-snug min-w-0 break-words">{entry.blockers}</p>
                               </div>
@@ -779,7 +780,7 @@ const StandupPage = () => {
             <div className="flex items-start gap-2.5 p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-xs text-indigo-700">
               <UsersIcon size={14} className="mt-0.5 flex-shrink-0" />
               <span>
-                Showing standups from members of teams you're in or lead. Use this to keep tabs on what your team posted today.
+                {t('standup.teamViewInfo')}
               </span>
             </div>
 
@@ -789,10 +790,10 @@ const StandupPage = () => {
             <Card>
               <div className="flex flex-wrap items-center gap-2 mb-3">
                 {[
-                  { key: 'today',     label: 'Today' },
-                  { key: 'yesterday', label: 'Yesterday' },
-                  { key: 'week',      label: 'This Week' },
-                  { key: 'all',       label: 'All Time' },
+                  { key: 'today',     label: t('common.today') },
+                  { key: 'yesterday', label: t('common.yesterday') },
+                  { key: 'week',      label: t('common.thisWeek') },
+                  { key: 'all',       label: t('common.all') },
                 ].map((p) => (
                   <button
                     key={p.key}
@@ -809,7 +810,7 @@ const StandupPage = () => {
                 ))}
                 {teamActivePreset === 'custom' && (
                   <span className="px-3 py-1.5 text-xs font-medium rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
-                    Custom
+                    {t('eod.customPreset')}
                   </span>
                 )}
                 {teamHasFilter && (
@@ -817,16 +818,16 @@ const StandupPage = () => {
                     type="button"
                     onClick={clearTeamFilters}
                     className="ml-auto px-3 py-1.5 text-xs font-medium rounded-full border border-red-200 text-red-600 bg-ds-surface hover:bg-red-50 transition-colors"
-                    title="Reset filters back to today"
+                    title={t('common.reset')}
                   >
-                    Clear filters
+                    {t('common.clear')}
                   </button>
                 )}
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div>
-                  <label className="form-label">From</label>
+                  <label className="form-label">{t('leave.from')}</label>
                   <input
                     type="date"
                     className="form-input"
@@ -835,7 +836,7 @@ const StandupPage = () => {
                   />
                 </div>
                 <div>
-                  <label className="form-label">To</label>
+                  <label className="form-label">{t('leave.to')}</label>
                   <input
                     type="date"
                     className="form-input"
@@ -844,26 +845,26 @@ const StandupPage = () => {
                   />
                 </div>
                 <div>
-                  <label className="form-label">Project</label>
+                  <label className="form-label">{t('common.filter')}</label>
                   <select
                     className="form-select"
                     value={teamProjectId}
                     onChange={(e) => setTeamProjectId(e.target.value)}
                   >
-                    <option value="">All projects</option>
+                    <option value="">{t('standup.selectProject')}</option>
                     {(projects as Array<{ id: string; name: string }>).map((p) => (
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="form-label">User</label>
+                  <label className="form-label">{t('admin.users.title')}</label>
                   <select
                     className="form-select"
                     value={teamUserId}
                     onChange={(e) => setTeamUserId(e.target.value)}
                   >
-                    <option value="">All users</option>
+                    <option value="">{t('eod.allUsers')}</option>
                     {teamUserOptions.map((u) => (
                       <option key={u.id} value={u.id}>{u.name}</option>
                     ))}
@@ -876,8 +877,8 @@ const StandupPage = () => {
               <PageLoader />
             ) : (teamStandups as StandupEntry[]).length === 0 ? (
               <EmptyState
-                title="No team standups in this range"
-                description="Try widening the date range or clearing the user / project filter."
+                title={t('standup.noTeamRange')}
+                description={t('standup.noTeamRangeDesc')}
               />
             ) : (
               <div className="space-y-3">
@@ -887,13 +888,13 @@ const StandupPage = () => {
                     <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
                       <div className="flex items-center gap-3 min-w-0">
                         <UserAvatar
-                          name={entry.userName || 'Team member'}
+                          name={entry.userName || t('standup.teamMember')}
                           avatarUrl={entry.userAvatarUrl}
                           size="md"
                         />
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-gray-900 truncate">
-                            {entry.userName || 'Team member'}
+                            {entry.userName || t('standup.teamMember')}
                           </p>
                           {entry.projectName && (
                             <span className="inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100 truncate max-w-[200px]">
@@ -912,18 +913,18 @@ const StandupPage = () => {
                         overlapping its description. */}
                     <div className="grid grid-cols-1 gap-1.5">
                       <div className="flex gap-3">
-                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Yesterday</span>
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">{t('standup.form.labelYesterday')}</span>
                         <p className="text-sm text-gray-700 leading-snug min-w-0 break-words">{entry.yesterday}</p>
                       </div>
                       <div className="flex gap-3">
-                        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">Today</span>
+                        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-0.5 w-24 shrink-0">{t('standup.form.labelToday')}</span>
                         <p className="text-sm text-gray-700 leading-snug min-w-0 break-words">{entry.today}</p>
                       </div>
                       {entry.blockers && (
                         <div className="flex gap-3">
                           <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider mt-0.5 w-24 shrink-0 inline-flex items-center gap-1 whitespace-nowrap">
                             <AlertCircle size={11} className="shrink-0" />
-                            <span>Blockers</span>
+                            <span>{t('standup.form.labelBlockers')}</span>
                           </span>
                           <p className="text-sm text-red-700 leading-snug min-w-0 break-words">{entry.blockers}</p>
                         </div>
@@ -941,10 +942,10 @@ const StandupPage = () => {
               <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border border-ds-border rounded-xl bg-ds-surface-hover">
                 <div className="flex items-center gap-4 text-xs text-ds-text-muted">
                   <span>
-                    Showing <strong className="text-ds-text">{((teamPage - 1) * teamPageSize) + 1}–{Math.min(teamPage * teamPageSize, teamTotal)}</strong> of <strong className="text-ds-text">{teamTotal}</strong> standups
+                    {t('standup.showingRange', { from: ((teamPage - 1) * teamPageSize) + 1, to: Math.min(teamPage * teamPageSize, teamTotal), total: teamTotal })}
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <label htmlFor="team-page-size" className="text-ds-text-muted">Rows per page:</label>
+                    <label htmlFor="team-page-size" className="text-ds-text-muted">{t('standup.rowsPerPage')}</label>
                     <select
                       id="team-page-size"
                       value={teamPageSize}
@@ -964,13 +965,13 @@ const StandupPage = () => {
                     disabled={teamPage === 1}
                     onClick={() => setTeamPage(1)}
                     className="px-2 py-1 text-xs border border-ds-border rounded hover:bg-ds-surface disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="First page"
+                    title={t('common.previous')}
                   >«</button>
                   <button
                     disabled={teamPage === 1}
                     onClick={() => setTeamPage((p) => Math.max(1, p - 1))}
                     className="px-2 py-1 text-xs border border-ds-border rounded hover:bg-ds-surface disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="Previous page"
+                    title={t('common.previous')}
                   >←</button>
                   {Array.from({ length: teamTotalPages }, (_, i) => i + 1)
                     .filter((p) => p === 1 || p === teamTotalPages || Math.abs(p - teamPage) <= 1)
@@ -998,13 +999,13 @@ const StandupPage = () => {
                     disabled={teamPage >= teamTotalPages}
                     onClick={() => setTeamPage((p) => Math.min(teamTotalPages, p + 1))}
                     className="px-2 py-1 text-xs border border-ds-border rounded hover:bg-ds-surface disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="Next page"
+                    title={t('common.next')}
                   >→</button>
                   <button
                     disabled={teamPage >= teamTotalPages}
                     onClick={() => setTeamPage(teamTotalPages)}
                     className="px-2 py-1 text-xs border border-ds-border rounded hover:bg-ds-surface disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="Last page"
+                    title={t('common.next')}
                   >»</button>
                 </div>
               </div>

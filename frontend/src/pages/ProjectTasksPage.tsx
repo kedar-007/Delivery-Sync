@@ -11,7 +11,6 @@ import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
 import Modal, { ModalActions } from '../components/ui/Modal';
-import Badge from '../components/ui/Badge';
 import UserAvatar from '../components/ui/UserAvatar';
 import EmptyState from '../components/ui/EmptyState';
 import Alert from '../components/ui/Alert';
@@ -19,6 +18,7 @@ import { useConfirm } from '../components/ui/ConfirmDialog';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
+import { useI18n } from '../contexts/I18nContext';
 import {
   useTasks, useSprints, useCreateTask, useUpdateTask, useUpdateTaskStatus, useDeleteTask,
 } from '../hooks/useTaskSprint';
@@ -49,7 +49,7 @@ interface Task {
   projectId: string;
 }
 
-interface User {
+interface TaskUser {
   id: string;
   name?: string;
   email?: string;
@@ -93,7 +93,7 @@ const TYPE_ICON: Record<TaskType, React.ReactNode> = {
   SUBTASK: <Layers size={13} className="text-gray-400" />,
 };
 
-function Avatar({ userId, users }: { userId: string; users: User[] }) {
+function Avatar({ userId, users }: { userId: string; users: TaskUser[] }) {
   const u = users.find((x) => String(x.id) === String(userId));
   return (
     <div title={u?.name ?? u?.email ?? userId}>
@@ -105,9 +105,10 @@ function Avatar({ userId, users }: { userId: string; users: User[] }) {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ProjectTasksPage() {
-  const { projectId, tenantSlug } = useParams<{ projectId: string; tenantSlug: string }>();
+  const { projectId } = useParams<{ projectId: string; tenantSlug: string }>();
   const { user } = useAuth();
   const { confirm } = useConfirm();
+  const { t } = useI18n();
 
   // Use permission-based gates instead of role string checks — the codebase
   // only has TEAM_MEMBER + TENANT_ADMIN as real roles, everything else flows
@@ -309,11 +310,11 @@ export default function ProjectTasksPage() {
   return (
     <Layout>
       <Header
-        title="Project Tasks"
+        title={t('projects.detail.tasks')}
         subtitle={`${filtered.length} task${filtered.length !== 1 ? 's' : ''}${activeSprint ? ` • Active: ${(activeSprint as { name: string }).name}` : ''}`}
         actions={
           <Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={openCreate}>
-            New Task
+            {t('tasks.new')}
           </Button>
         }
       />
@@ -325,7 +326,7 @@ export default function ProjectTasksPage() {
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none"
-              placeholder="Search tasks…"
+              placeholder={t('projects.searchPlaceholder')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -344,23 +345,23 @@ export default function ProjectTasksPage() {
           <div className="flex flex-wrap gap-3 p-4 bg-gray-50 rounded-xl border border-gray-100">
             <select className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-indigo-200"
               value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-              <option value="">All Statuses</option>
-              <option value="TODO">To Do</option>
-              <option value="IN_PROGRESS">In Progress</option>
-              <option value="IN_REVIEW">In Review</option>
-              <option value="DONE">Done</option>
+              <option value="">{t('common.all')} Statuses</option>
+              <option value="TODO">{t('tasks.status.todo')}</option>
+              <option value="IN_PROGRESS">{t('tasks.status.inProgress')}</option>
+              <option value="IN_REVIEW">{t('tasks.status.inReview')}</option>
+              <option value="DONE">{t('tasks.status.done')}</option>
             </select>
             <select className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-indigo-200"
               value={filterPriority} onChange={(e) => setFilterPriority(e.target.value)}>
-              <option value="">All Priorities</option>
-              <option value="CRITICAL">Critical</option>
-              <option value="HIGH">High</option>
-              <option value="MEDIUM">Medium</option>
-              <option value="LOW">Low</option>
+              <option value="">{t('common.all')} Priorities</option>
+              <option value="CRITICAL">{t('tasks.priority.critical')}</option>
+              <option value="HIGH">{t('tasks.priority.high')}</option>
+              <option value="MEDIUM">{t('tasks.priority.medium')}</option>
+              <option value="LOW">{t('tasks.priority.low')}</option>
             </select>
             <select className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-indigo-200"
               value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-              <option value="">All Types</option>
+              <option value="">{t('common.all')} Types</option>
               <option value="TASK">Task</option>
               <option value="STORY">Story</option>
               <option value="BUG">Bug</option>
@@ -369,23 +370,23 @@ export default function ProjectTasksPage() {
             </select>
             <select className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-indigo-200"
               value={filterSprint} onChange={(e) => setFilterSprint(e.target.value)}>
-              <option value="">All Sprints</option>
-              <option value="__backlog__">Backlog (no sprint)</option>
+              <option value="">{t('common.all')} {t('sprints.title')}</option>
+              <option value="__backlog__">{t('sprints.backlog')} (no sprint)</option>
               {sprints.map((s: { id: string; name: string }) => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </select>
             <select className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-indigo-200"
               value={filterAssignee} onChange={(e) => setFilterAssignee(e.target.value)}>
-              <option value="">All Assignees</option>
-              {(users as User[]).map((u) => (
+              <option value="">{t('common.all')} Assignees</option>
+              {(users as TaskUser[]).map((u) => (
                 <option key={u.id} value={String(u.id)}>{u.name ?? u.email ?? u.id}</option>
               ))}
             </select>
             {(filterStatus || filterPriority || filterType || filterSprint || filterAssignee) && (
               <button className="text-xs text-red-500 hover:text-red-700"
                 onClick={() => { setFilterStatus(''); setFilterPriority(''); setFilterType(''); setFilterSprint(''); setFilterAssignee(''); }}>
-                Clear filters
+                {t('common.clear')} filters
               </button>
             )}
           </div>
@@ -404,10 +405,10 @@ export default function ProjectTasksPage() {
         {/* Task list per status group */}
         {filtered.length === 0 ? (
           <EmptyState
-            title="No tasks found"
-            description={search || filterStatus || filterPriority ? 'Try adjusting your filters.' : 'Create your first task to get started.'}
+            title={t('tasks.noTasks')}
+            description={search || filterStatus || filterPriority ? 'Try adjusting your filters.' : t('tasks.noTasksDesc')}
             icon={<Layers size={32} className="text-gray-300" />}
-            action={<Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={openCreate}>Create Task</Button>}
+            action={<Button variant="primary" size="sm" icon={<Plus size={14} />} onClick={openCreate}>{t('tasks.modal.create')}</Button>}
           />
         ) : (
           <div className="space-y-6">
@@ -418,7 +419,7 @@ export default function ProjectTasksPage() {
                   key={status}
                   status={status}
                   tasks={list}
-                  users={users as User[]}
+                  users={users as TaskUser[]}
                   sprints={sprints as { id: string; name: string }[]}
                   isAdmin={isAdmin}
                   onEdit={openEdit}
@@ -435,7 +436,7 @@ export default function ProjectTasksPage() {
       <Modal
         open={showCreate}
         onClose={() => setShowCreate(false)}
-        title="Create Task"
+        title={t('tasks.modal.createTitle')}
         size="lg"
       >
         <form onSubmit={onSubmitCreate} className="space-y-4">
@@ -444,7 +445,7 @@ export default function ProjectTasksPage() {
             register={register}
             errors={errors}
             sprints={sprints as { id: string; name: string }[]}
-            users={users as User[]}
+            users={users as TaskUser[]}
             selectedAssignees={selectedAssignees}
             onAssigneesChange={setSelectedAssignees}
             onAttachmentChange={() => {}}
@@ -453,8 +454,8 @@ export default function ProjectTasksPage() {
             onRequireApprovalChange={setRequireApproval}
           />
           <ModalActions>
-            <Button variant="secondary" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button type="submit" variant="primary" loading={createTask.isPending}>Create Task</Button>
+            <Button variant="secondary" onClick={() => setShowCreate(false)}>{t('common.cancel')}</Button>
+            <Button type="submit" variant="primary" loading={createTask.isPending}>{t('tasks.modal.create')}</Button>
           </ModalActions>
         </form>
       </Modal>
@@ -463,7 +464,7 @@ export default function ProjectTasksPage() {
       <Modal
         open={!!editTask}
         onClose={() => setEditTask(null)}
-        title="Edit Task"
+        title={t('tasks.modal.editTitle')}
         size="lg"
       >
         {editTask && (
@@ -473,7 +474,7 @@ export default function ProjectTasksPage() {
               register={register}
               errors={errors}
               sprints={sprints as { id: string; name: string }[]}
-              users={users as User[]}
+              users={users as TaskUser[]}
               selectedAssignees={selectedAssignees}
               onAssigneesChange={setSelectedAssignees}
               onAttachmentChange={() => {}}
@@ -482,8 +483,8 @@ export default function ProjectTasksPage() {
               onRequireApprovalChange={setRequireApproval}
             />
             <ModalActions>
-              <Button variant="secondary" onClick={() => setEditTask(null)}>Cancel</Button>
-              <Button type="submit" variant="primary" loading={updateTask.isPending}>Save Changes</Button>
+              <Button variant="secondary" onClick={() => setEditTask(null)}>{t('common.cancel')}</Button>
+              <Button type="submit" variant="primary" loading={updateTask.isPending}>{t('tasks.modal.save')}</Button>
             </ModalActions>
           </form>
         )}
@@ -500,17 +501,17 @@ export default function ProjectTasksPage() {
           {logError && <Alert type="error" message={logError} />}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="form-label">Hours *</label>
+              <label className="form-label">{t('common.hours')} *</label>
               <input type="number" step="0.01" min="0.01" className="form-input"
                 placeholder="1.5" value={logHours} onChange={(e) => setLogHours(e.target.value)} />
             </div>
             <div>
-              <label className="form-label">Date *</label>
+              <label className="form-label">{t('tasks.modal.dueDate')} *</label>
               <input type="date" className="form-input" value={logDate} onChange={(e) => setLogDate(e.target.value)} />
             </div>
           </div>
           <div>
-            <label className="form-label">Description</label>
+            <label className="form-label">{t('common.description')}</label>
             <input className="form-input" placeholder="What did you work on?"
               value={logDesc} onChange={(e) => setLogDesc(e.target.value)} />
           </div>
@@ -519,14 +520,14 @@ export default function ProjectTasksPage() {
             Billable
           </label>
           <ModalActions>
-            <Button variant="secondary" onClick={() => setLogTimeTask(null)}>Cancel</Button>
+            <Button variant="secondary" onClick={() => setLogTimeTask(null)}>{t('common.cancel')}</Button>
             <Button
               variant="primary"
               loading={logPending}
               disabled={!logHours || !logDate}
               onClick={handleLogTime}
             >
-              Save Entry
+              {t('common.save')}
             </Button>
           </ModalActions>
         </div>
@@ -543,7 +544,7 @@ function StatusGroup({
 }: {
   status: TaskStatus;
   tasks: Task[];
-  users: User[];
+  users: TaskUser[];
   sprints: { id: string; name: string }[];
   isAdmin: boolean;
   onEdit: (t: Task) => void;
@@ -552,6 +553,7 @@ function StatusGroup({
   onLogTime: (t: Task) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const { t } = useI18n();
   const cfg = STATUS_CONFIG[status];
 
   return (
@@ -575,13 +577,13 @@ function StatusGroup({
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
                 <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500 w-8"></th>
-                <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">Title</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 hidden md:table-cell">Priority</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 hidden lg:table-cell">Sprint</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 hidden lg:table-cell">Assignees</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 hidden xl:table-cell">Due</th>
+                <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500">{t('common.title')}</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 hidden md:table-cell">{t('common.priority')}</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 hidden lg:table-cell">{t('sprints.title')}</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 hidden lg:table-cell">{t('tasks.modal.assignee')}</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 hidden xl:table-cell">{t('tasks.modal.dueDate')}</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 hidden xl:table-cell">Points</th>
-                <th className="px-3 py-2 text-xs font-semibold text-gray-500 w-28">Status</th>
+                <th className="px-3 py-2 text-xs font-semibold text-gray-500 w-28">{t('common.status')}</th>
                 <th className="px-3 py-2 w-24"></th>
               </tr>
             </thead>
@@ -613,7 +615,7 @@ function TaskRow({
   task, users, sprints, isAdmin, onEdit, onDelete, onStatusChange, onLogTime,
 }: {
   task: Task;
-  users: User[];
+  users: TaskUser[];
   sprints: { id: string; name: string }[];
   isAdmin: boolean;
   onEdit: (t: Task) => void;
@@ -621,6 +623,7 @@ function TaskRow({
   onStatusChange: (t: Task, status: string) => void;
   onLogTime: (t: Task) => void;
 }) {
+  const { t } = useI18n();
   const priCfg = PRIORITY_CONFIG[task.priority] ?? PRIORITY_CONFIG.MEDIUM;
   const sprint = sprints.find((s) => s.id === task.sprintId);
   const isDue  = task.dueDate && isPast(parseISO(task.dueDate)) && task.status !== 'DONE';
@@ -654,7 +657,7 @@ function TaskRow({
 
       {/* Sprint */}
       <td className="px-3 py-3 hidden lg:table-cell text-xs text-gray-500">
-        {sprint ? sprint.name : <span className="text-gray-300">Backlog</span>}
+        {sprint ? sprint.name : <span className="text-gray-300">{t('sprints.backlog')}</span>}
       </td>
 
       {/* Assignees */}
@@ -671,7 +674,7 @@ function TaskRow({
             )}
           </div>
         ) : (
-          <span className="text-xs text-gray-300 flex items-center gap-1"><User size={11} /> Unassigned</span>
+          <span className="text-xs text-gray-300 flex items-center gap-1"><User size={11} /> {t('tasks.modal.assignee')}</span>
         )}
       </td>
 
@@ -699,10 +702,10 @@ function TaskRow({
           value={task.status}
           onChange={(e) => onStatusChange(task, e.target.value)}
         >
-          <option value="TODO">To Do</option>
-          <option value="IN_PROGRESS">In Progress</option>
-          <option value="IN_REVIEW">In Review</option>
-          <option value="DONE">Done</option>
+          <option value="TODO">{t('tasks.status.todo')}</option>
+          <option value="IN_PROGRESS">{t('tasks.status.inProgress')}</option>
+          <option value="IN_REVIEW">{t('tasks.status.inReview')}</option>
+          <option value="DONE">{t('tasks.status.done')}</option>
         </select>
       </td>
 
@@ -711,14 +714,14 @@ function TaskRow({
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             className="p-1 rounded text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
-            title="Log Time"
+            title={t('common.hours')}
             onClick={() => onLogTime(task)}
           >
             <Timer size={13} />
           </button>
           <button
             className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-            title="Edit"
+            title={t('common.edit')}
             onClick={() => onEdit(task)}
           >
             <Edit2 size={13} />
@@ -726,7 +729,7 @@ function TaskRow({
           {isAdmin && (
             <button
               className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-              title="Delete"
+              title={t('common.delete')}
               onClick={() => onDelete(task)}
             >
               <Trash2 size={13} />
@@ -745,10 +748,13 @@ function AssigneeMultiSelect({
   value,
   onChange,
 }: {
-  users: User[];
+  users: TaskUser[];
   value: string[];
   onChange: (ids: string[]) => void;
 }) {
+  const [search, setSearch] = useState('');
+  const { t } = useI18n();
+
   const toggle = (id: string) => {
     if (value.includes(id)) {
       onChange(value.filter((v) => v !== id));
@@ -762,6 +768,10 @@ function AssigneeMultiSelect({
       <p className="text-xs text-gray-400 py-2">No users available.</p>
     );
   }
+
+  const filteredUsers = search
+    ? users.filter((u) => (u.name ?? u.email ?? '').toLowerCase().includes(search.toLowerCase()))
+    : users;
 
   return (
     <div className="space-y-2">
@@ -791,9 +801,21 @@ function AssigneeMultiSelect({
         </div>
       )}
 
+      {/* Search input */}
+      <div className="relative">
+        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={t('common.searchPlaceholder')}
+          className="w-full pl-7 pr-3 py-1.5 text-xs rounded-lg border border-gray-200 bg-white text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        />
+      </div>
+
       {/* Clickable user chips grid */}
       <div className="flex flex-wrap gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg max-h-44 overflow-y-auto">
-        {users.map((u) => {
+        {filteredUsers.map((u) => {
           const id = String(u.id);
           const label = u.name ?? u.email ?? id;
           const selected = value.includes(id);
@@ -814,9 +836,12 @@ function AssigneeMultiSelect({
             </button>
           );
         })}
+        {filteredUsers.length === 0 && (
+          <p className="text-xs text-gray-400 w-full text-center py-2">No teammates found.</p>
+        )}
       </div>
 
-      {value.length === 0 && (
+      {value.length === 0 && !search && (
         <p className="text-xs text-gray-400">Click a teammate above to assign them.</p>
       )}
     </div>
@@ -834,7 +859,7 @@ function TaskFormFields({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   errors: any;
   sprints: { id: string; name: string }[];
-  users: User[];
+  users: TaskUser[];
   selectedAssignees: string[];
   onAssigneesChange: (ids: string[]) => void;
   onAttachmentChange: (files: File[]) => void;
@@ -843,6 +868,7 @@ function TaskFormFields({
   onRequireApprovalChange?: (v: boolean) => void;
 }) {
   const [attachments, setAttachments] = useState<File[]>([]);
+  const { t } = useI18n();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newFiles = Array.from(e.target.files ?? []);
@@ -862,17 +888,17 @@ function TaskFormFields({
   return (
     <>
       <div>
-        <label className="form-label">Title *</label>
-        <input className="form-input" placeholder="Task title" {...register('title', { required: 'Title is required' })} />
+        <label className="form-label">{t('tasks.modal.titleLabel')} *</label>
+        <input className="form-input" placeholder="Task title" {...register('title', { required: t('validation.required') })} />
         {errors.title && <p className="text-xs text-red-600 mt-1">{errors.title.message}</p>}
       </div>
       <div>
-        <label className="form-label">Description</label>
+        <label className="form-label">{t('tasks.modal.descLabel')}</label>
         <textarea className="form-textarea" rows={3} placeholder="Describe the task…" {...register('description')} />
       </div>
       <div className="grid grid-cols-3 gap-3">
         <div>
-          <label className="form-label">Type</label>
+          <label className="form-label">{t('common.type')}</label>
           <select className="form-select" {...register('type')}>
             <option value="TASK">Task</option>
             <option value="STORY">Story</option>
@@ -882,21 +908,21 @@ function TaskFormFields({
           </select>
         </div>
         <div>
-          <label className="form-label">Priority</label>
+          <label className="form-label">{t('tasks.modal.priority')}</label>
           <select className="form-select" {...register('priority')}>
-            <option value="CRITICAL">Critical</option>
-            <option value="HIGH">High</option>
-            <option value="MEDIUM">Medium</option>
-            <option value="LOW">Low</option>
+            <option value="CRITICAL">{t('tasks.priority.critical')}</option>
+            <option value="HIGH">{t('tasks.priority.high')}</option>
+            <option value="MEDIUM">{t('tasks.priority.medium')}</option>
+            <option value="LOW">{t('tasks.priority.low')}</option>
           </select>
         </div>
         <div>
-          <label className="form-label">Status</label>
+          <label className="form-label">{t('tasks.modal.status')}</label>
           <select className="form-select" {...register('status')}>
-            <option value="TODO">To Do</option>
-            <option value="IN_PROGRESS">In Progress</option>
-            <option value="IN_REVIEW">In Review</option>
-            <option value="DONE">Done</option>
+            <option value="TODO">{t('tasks.status.todo')}</option>
+            <option value="IN_PROGRESS">{t('tasks.status.inProgress')}</option>
+            <option value="IN_REVIEW">{t('tasks.status.inReview')}</option>
+            <option value="DONE">{t('tasks.status.done')}</option>
           </select>
         </div>
       </div>
@@ -907,26 +933,26 @@ function TaskFormFields({
             {...register('story_points', { valueAsNumber: true })} />
         </div>
         <div>
-          <label className="form-label">Est. Hours</label>
+          <label className="form-label">Est. {t('common.hours')}</label>
           <input type="number" step="0.25" min="0" className="form-input" placeholder="0"
             {...register('estimated_hours', { valueAsNumber: true })} />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="form-label">Due Date *</label>
+          <label className="form-label">{t('tasks.modal.dueDate')} *</label>
           <input
             type="date"
             className="form-input"
             min={new Date().toISOString().split('T')[0]}
-            {...register('due_date', { required: 'Due date is required' })}
+            {...register('due_date', { required: t('validation.required') })}
           />
           {errors.due_date && <p className="form-error">{errors.due_date.message as string}</p>}
         </div>
         <div>
-          <label className="form-label">Sprint</label>
+          <label className="form-label">{t('sprints.title')}</label>
           <select className="form-select" {...register('sprint_id')}>
-            <option value="">Backlog (no sprint)</option>
+            <option value="">{t('sprints.backlog')} (no sprint)</option>
             {sprints.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
@@ -935,7 +961,7 @@ function TaskFormFields({
       </div>
       <div>
         <label className="form-label">
-          Assignees
+          {t('tasks.modal.assignee')}
           {selectedAssignees.length > 0 && (
             <span className="ml-2 text-xs font-normal text-indigo-600">
               {selectedAssignees.length} selected
@@ -949,7 +975,7 @@ function TaskFormFields({
         />
       </div>
       <div>
-        <label className="form-label">Labels <span className="text-gray-400 font-normal">(comma separated)</span></label>
+        <label className="form-label">{t('common.tags')} <span className="text-gray-400 font-normal">(comma separated)</span></label>
         <input className="form-input" placeholder="frontend, urgent, blocked" {...register('labels')} />
       </div>
 

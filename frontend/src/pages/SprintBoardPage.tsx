@@ -51,6 +51,7 @@ import {
 import { useProject } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
+import { useI18n } from '../contexts/I18nContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import SprintAnalysisModal from '../components/ui/SprintAnalysisModal';
 import { useAiSprintAnalysis } from '../hooks/useAiInsights';
@@ -173,7 +174,7 @@ function TaskCard({ task, users, onOpen, isDragOverlay = false }: {
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id });
   const p = PRIORITY_CONFIG[task.priority] ?? PRIORITY_CONFIG.MEDIUM;
-  const t = TYPE_CONFIG[task.type] ?? TYPE_CONFIG.TASK;
+  const typeCfg = TYPE_CONFIG[task.type] ?? TYPE_CONFIG.TASK;
   const isOverdue = task.dueDate && isPast(parseISO(task.dueDate)) && task.status !== 'DONE';
 
   return (
@@ -190,7 +191,7 @@ function TaskCard({ task, users, onOpen, isDragOverlay = false }: {
     >
       {/* Header row */}
       <div className="flex items-start justify-between gap-1 mb-2">
-        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${t.color}`}>{t.label}</span>
+        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${typeCfg.color}`}>{typeCfg.label}</span>
         <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${p.color}`}>{p.icon} {p.label}</span>
       </div>
 
@@ -429,6 +430,7 @@ export default function SprintBoardPage() {
   // Kept for backwards compat with any remaining `isAdmin` reference; aliased
   // to canManageSprint since those are the truly sprint-gated controls.
   const isAdmin = canManageSprint;
+  const { t } = useI18n();
 
   const [activeSprint, setActiveSprint] = useState<Sprint | null>(null);
   const [activeTask, setActiveTask] = useState<Task | null>(null);       // dragging
@@ -1016,7 +1018,7 @@ export default function SprintBoardPage() {
           {!activeSprint ? (
             <EmptyState title="No sprint selected" description="Select or create a sprint from the sidebar" icon={<GitBranch size={32} className="text-ds-border" />} />
           ) : boardLoading ? (
-            <div className="flex-1 flex items-center justify-center text-ds-text-muted">Loading board…</div>
+            <div className="flex-1 flex items-center justify-center text-ds-text-muted">{t('common.loading')}</div>
           ) : (
             <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
               <div className="flex-1 overflow-x-auto">
@@ -1048,25 +1050,25 @@ export default function SprintBoardPage() {
       <Modal
         open={showCreateSprint}
         onClose={() => { setShowCreateSprint(false); sprintForm.reset(); }}
-        title="Create New Sprint"
+        title={t('sprints.modal.createTitle')}
         size="lg"
       >
         <form onSubmit={onCreateSprint} className="space-y-4">
           <div>
-            <label className="form-label">Sprint Name *</label>
+            <label className="form-label">{t('sprints.modal.nameLabel')} *</label>
             <input className="form-input" placeholder="e.g., Sprint 1" {...sprintForm.register('name', { required: true })} />
           </div>
           <div>
-            <label className="form-label">Sprint Goal</label>
+            <label className="form-label">{t('sprints.modal.goal')}</label>
             <textarea className="form-textarea" rows={2} placeholder="What do you aim to achieve?" {...sprintForm.register('goal')} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="form-label">Start Date *</label>
+              <label className="form-label">{t('sprints.modal.startDate')} *</label>
               <input type="date" className="form-input" {...sprintForm.register('start_date', { required: true })} />
             </div>
             <div>
-              <label className="form-label">End Date *</label>
+              <label className="form-label">{t('sprints.modal.endDate')} *</label>
               <input type="date" className="form-input" {...sprintForm.register('end_date', { required: true })} />
             </div>
           </div>
@@ -1091,8 +1093,8 @@ export default function SprintBoardPage() {
           )}
 
           <ModalActions>
-            <Button variant="secondary" onClick={() => { setShowCreateSprint(false); sprintForm.reset(); }}>Cancel</Button>
-            <Button type="submit" variant="primary" loading={createSprint.isPending}>Create Sprint</Button>
+            <Button variant="secondary" onClick={() => { setShowCreateSprint(false); sprintForm.reset(); }}>{t('common.cancel')}</Button>
+            <Button type="submit" variant="primary" loading={createSprint.isPending}>{t('sprints.modal.create')}</Button>
           </ModalActions>
         </form>
       </Modal>
@@ -1101,16 +1103,16 @@ export default function SprintBoardPage() {
       <Modal
         open={showCreateTask}
         onClose={() => { setShowCreateTask(false); taskForm.reset(); setAssigneeIds([]); }}
-        title="Create Task"
+        title={t('tasks.modal.createTitle')}
         size="lg"
       >
         <form onSubmit={onCreateTask} className="space-y-4">
           <div>
-            <label className="form-label">Title *</label>
+            <label className="form-label">{t('tasks.modal.titleLabel')} *</label>
             <input className="form-input" placeholder="Task title" {...taskForm.register('title', { required: true })} />
           </div>
           <div>
-            <label className="form-label">Description</label>
+            <label className="form-label">{t('tasks.modal.descLabel')}</label>
             <textarea className="form-textarea" rows={3} placeholder="Describe the task…" {...taskForm.register('description')} />
           </div>
           <div className="grid grid-cols-3 gap-3">
@@ -1125,12 +1127,12 @@ export default function SprintBoardPage() {
               </select>
             </div>
             <div>
-              <label className="form-label">Priority</label>
+              <label className="form-label">{t('common.priority')}</label>
               <select className="form-select" {...taskForm.register('priority')}>
-                <option value="CRITICAL">Critical</option>
-                <option value="HIGH">High</option>
-                <option value="MEDIUM">Medium</option>
-                <option value="LOW">Low</option>
+                <option value="CRITICAL">{t('tasks.priority.critical')}</option>
+                <option value="HIGH">{t('tasks.priority.high')}</option>
+                <option value="MEDIUM">{t('tasks.priority.medium')}</option>
+                <option value="LOW">{t('tasks.priority.low')}</option>
               </select>
             </div>
             <div>
@@ -1140,7 +1142,7 @@ export default function SprintBoardPage() {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="form-label">Due Date *</label>
+              <label className="form-label">{t('tasks.modal.dueDate')} *</label>
               <input
                 type="date"
                 className="form-input"
@@ -1204,8 +1206,8 @@ export default function SprintBoardPage() {
             </div>
           )}
           <ModalActions>
-            <Button variant="secondary" onClick={() => { setShowCreateTask(false); taskForm.reset(); setAssigneeIds([]); setCreateTaskRequireApproval(false); }}>Cancel</Button>
-            <Button type="submit" variant="primary" loading={createTask.isPending}>Create Task</Button>
+            <Button variant="secondary" onClick={() => { setShowCreateTask(false); taskForm.reset(); setAssigneeIds([]); setCreateTaskRequireApproval(false); }}>{t('common.cancel')}</Button>
+            <Button type="submit" variant="primary" loading={createTask.isPending}>{t('tasks.modal.create')}</Button>
           </ModalActions>
         </form>
       </Modal>
@@ -1742,17 +1744,17 @@ export default function SprintBoardPage() {
       <Modal
         open={!!editTask}
         onClose={() => setEditTask(null)}
-        title="Edit Task"
+        title={t('tasks.modal.editTitle')}
         size="lg"
       >
         {editTask && (
           <form onSubmit={onSaveEdit} className="space-y-4">
             <div>
-              <label className="form-label">Title *</label>
+              <label className="form-label">{t('tasks.modal.titleLabel')} *</label>
               <input className="form-input" {...editForm.register('title', { required: true })} />
             </div>
             <div>
-              <label className="form-label">Description</label>
+              <label className="form-label">{t('tasks.modal.descLabel')}</label>
               <textarea className="form-textarea" rows={3} {...editForm.register('description')} />
             </div>
             <div className="grid grid-cols-3 gap-3">
@@ -1767,12 +1769,12 @@ export default function SprintBoardPage() {
                 </select>
               </div>
               <div>
-                <label className="form-label">Priority</label>
+                <label className="form-label">{t('common.priority')}</label>
                 <select className="form-select" {...editForm.register('priority')}>
-                  <option value="CRITICAL">Critical</option>
-                  <option value="HIGH">High</option>
-                  <option value="MEDIUM">Medium</option>
-                  <option value="LOW">Low</option>
+                  <option value="CRITICAL">{t('tasks.priority.critical')}</option>
+                  <option value="HIGH">{t('tasks.priority.high')}</option>
+                  <option value="MEDIUM">{t('tasks.priority.medium')}</option>
+                  <option value="LOW">{t('tasks.priority.low')}</option>
                 </select>
               </div>
               <div>
@@ -1782,7 +1784,7 @@ export default function SprintBoardPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="form-label">Due Date *</label>
+                <label className="form-label">{t('tasks.modal.dueDate')} *</label>
                 <input
                   type="date"
                   className="form-input"
@@ -1830,7 +1832,7 @@ export default function SprintBoardPage() {
               </div>
             )}
             <ModalActions>
-              <Button variant="secondary" onClick={() => setEditTask(null)}>Cancel</Button>
+              <Button variant="secondary" onClick={() => setEditTask(null)}>{t('common.cancel')}</Button>
               <Button type="submit" variant="primary" loading={updateTask.isPending}>Save Changes</Button>
             </ModalActions>
           </form>

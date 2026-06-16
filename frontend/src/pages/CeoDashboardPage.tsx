@@ -81,6 +81,7 @@ const HealthRing = ({ score }: { score: number }) => {
   const circ = 2 * Math.PI * r;
   const fill = (score / 100) * circ;
   const color = score >= 75 ? '#22c55e' : score >= 50 ? '#f59e0b' : '#ef4444';
+  const { t } = useI18n();
   return (
     <div className="relative flex items-center justify-center w-32 h-32">
       <svg width="128" height="128" className="-rotate-90">
@@ -91,7 +92,7 @@ const HealthRing = ({ score }: { score: number }) => {
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className={`text-2xl font-bold ${scoreColor(score)}`}>{score}</span>
-        <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Health</span>
+        <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">{t('dashboard.projectHealth.deliveryHealth')}</span>
       </div>
     </div>
   );
@@ -100,6 +101,7 @@ const HealthRing = ({ score }: { score: number }) => {
 // ─── RAG Donut ─────────────────────────────────────────────────────────────
 
 const RagDonut = ({ byRag }: { byRag: { RED: number; AMBER: number; GREEN: number } }) => {
+  const { t } = useI18n();
   const data = [
     { name: RAG_LABELS.GREEN, value: byRag.GREEN, color: RAG_COLORS.GREEN },
     { name: RAG_LABELS.AMBER, value: byRag.AMBER, color: RAG_COLORS.AMBER },
@@ -107,7 +109,7 @@ const RagDonut = ({ byRag }: { byRag: { RED: number; AMBER: number; GREEN: numbe
   ].filter(d => d.value > 0);
 
   if (data.every(d => d.value === 0)) {
-    return <div className="flex items-center justify-center h-40 text-sm text-gray-400">No active projects</div>;
+    return <div className="flex items-center justify-center h-40 text-sm text-gray-400">{t('dashboard.projects.noProjects')}</div>;
   }
 
   return (
@@ -155,6 +157,7 @@ const ActivityTrend = ({ trend }: { trend: { date: string; standups: number; eod
 // ─── Project Milestone Bar ────────────────────────────────────────────────────
 
 const MilestoneBar = ({ projects }: { projects: ExecProject[] }) => {
+  const { t } = useI18n();
   const data = projects
     .filter(p => p.totalMilestones > 0)
     .slice(0, 8)
@@ -165,7 +168,7 @@ const MilestoneBar = ({ projects }: { projects: ExecProject[] }) => {
     }));
 
   if (!data.length) return (
-    <div className="flex items-center justify-center h-40 text-sm text-gray-400">No milestones data</div>
+    <div className="flex items-center justify-center h-40 text-sm text-gray-400">{t('milestones.noMilestones')}</div>
   );
 
   return (
@@ -220,6 +223,7 @@ const AiBriefPanel = ({
   aiHealth: any; aiSuggests: any; aiBlockers: any; aiTrends: any;
   onRun: () => void; loading: boolean;
 }) => {
+  const { t } = useI18n();
   const health   = aiHealth?.data;
   const suggests = aiSuggests?.data;
   const blockers = aiBlockers?.data?.data;
@@ -234,15 +238,15 @@ const AiBriefPanel = ({
           <Brain size={28} className="text-white" />
         </div>
         <div>
-          <p className="text-sm font-semibold text-gray-800">AI Executive Brief</p>
+          <p className="text-sm font-semibold text-gray-800">{t('ai.title')}</p>
           <p className="text-xs text-gray-400 mt-1 max-w-xs">
-            One click — portfolio health, delivery risks, team pulse, and strategic recommendations tailored for you.
+            {t('ai.subtitle')}
           </p>
         </div>
         <button onClick={onRun} disabled={loading}
           className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-xl text-sm font-medium hover:opacity-90 disabled:opacity-60 shadow-sm transition-all">
           {loading ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
-          {loading ? 'Generating brief…' : 'Generate AI Brief'}
+          {loading ? t('ai.generating') : t('ai.analyze')}
         </button>
       </div>
     );
@@ -283,7 +287,7 @@ const AiBriefPanel = ({
         )}
         <button onClick={onRun} disabled={loading}
           className="ml-auto flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-700 transition-colors shrink-0">
-          <RefreshCw size={11} className={loading ? 'animate-spin' : ''} /> Refresh
+          <RefreshCw size={11} className={loading ? 'animate-spin' : ''} /> {t('common.refresh')}
         </button>
       </div>
 
@@ -291,7 +295,7 @@ const AiBriefPanel = ({
       {health?.score !== undefined && (
         <div>
           <div className="flex items-center justify-between mb-1">
-            <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">AI Portfolio Score</p>
+            <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">{t('ai.healthCheck.title')}</p>
             <span className={`text-sm font-bold ${scoreColor(health.score)}`}>{health.score}/100</span>
           </div>
           <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
@@ -305,7 +309,7 @@ const AiBriefPanel = ({
       {suggests?.immediateActions?.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-3">
           <p className="text-[11px] font-bold text-red-700 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-            <Zap size={12} /> Requires Your Immediate Attention
+            <Zap size={12} /> {t('dashboard.criticalBlockers.title')}
           </p>
           <ul className="space-y-1.5">
             {suggests.immediateActions.slice(0, 4).map((a: string, i: number) => (
@@ -321,7 +325,7 @@ const AiBriefPanel = ({
       {health?.reasons?.length > 0 && (
         <div>
           <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-            <Activity size={11} className="text-violet-500" /> Portfolio Status Drivers
+            <Activity size={11} className="text-violet-500" /> {t('dashboard.projectHealth.deliveryHealth')}
           </p>
           <ul className="space-y-1.5">
             {health.reasons.slice(0, 3).map((r: string, i: number) => (
@@ -337,10 +341,10 @@ const AiBriefPanel = ({
       {blockers && (blockers.critical_count > 0 || blockers.blockers?.length > 0) && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
           <p className="text-[11px] font-bold text-amber-800 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-            <AlertTriangle size={12} /> Detected Delivery Blockers
+            <AlertTriangle size={12} /> {t('ai.blockerDetection.title')}
             {blockers.critical_count > 0 && (
               <span className="ml-auto bg-red-100 text-red-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                {blockers.critical_count} critical
+                {blockers.critical_count} {t('common.critical')}
               </span>
             )}
           </p>
@@ -360,7 +364,7 @@ const AiBriefPanel = ({
           ))}
           {blockers.requires_immediate_action && (
             <p className="text-[10px] font-bold text-red-600 mt-1.5 flex items-center gap-1">
-              <Zap size={10} /> Escalation recommended
+              <Zap size={10} /> {t('dashboard.criticalBlockers.viewAll')}
             </p>
           )}
         </div>
@@ -370,13 +374,13 @@ const AiBriefPanel = ({
       {trends && (
         <div>
           <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-            <Users size={11} className="text-blue-500" /> Team Pulse
+            <Users size={11} className="text-blue-500" /> {t('nav.teamActivity')}
           </p>
           <div className="flex flex-wrap gap-2 mb-2">
             {[
-              { label: 'Productivity', value: trends.productivityTrend, base: 'blue' },
-              { label: 'Engagement',   value: trends.engagementTrend,   base: 'violet' },
-              { label: 'Mood',         value: trends.moodTrend,          base: 'green' },
+              { label: t('ai.productivity.title'), value: trends.productivityTrend, base: 'blue' },
+              { label: 'Engagement',               value: trends.engagementTrend,   base: 'violet' },
+              { label: 'Mood',                     value: trends.moodTrend,          base: 'green' },
             ].filter(t => t.value).map(t => (
               <span key={t.label}
                 className={`text-[11px] px-2 py-0.5 rounded-full border capitalize
@@ -403,7 +407,7 @@ const AiBriefPanel = ({
       {suggests?.riskMitigation?.length > 0 && (
         <div>
           <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-            <Shield size={11} className="text-red-500" /> Risk Mitigation
+            <Shield size={11} className="text-red-500" /> {t('dashboard.blockerSeverity.title')}
           </p>
           <ul className="space-y-2">
             {suggests.riskMitigation.slice(0, 3).map((item: any, i: number) => (
@@ -428,7 +432,7 @@ const AiBriefPanel = ({
       {(health?.recommendations?.length > 0 || suggests?.productivity?.length > 0) && (
         <div>
           <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-            <Target size={11} className="text-indigo-500" /> Strategic Recommendations
+            <Target size={11} className="text-indigo-500" /> {t('ai.retrospective.title')}
           </p>
           <ul className="space-y-1.5">
             {[
@@ -447,7 +451,7 @@ const AiBriefPanel = ({
       {suggests?.resourceAllocation?.length > 0 && (
         <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3">
           <p className="text-[11px] font-bold text-indigo-700 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-            <Users size={11} /> Resource & Team Suggestions
+            <Users size={11} /> {t('reports.teamActivity.title')}
           </p>
           <ul className="space-y-1.5">
             {suggests.resourceAllocation.slice(0, 3).map((item: any, i: number) => (
@@ -463,7 +467,7 @@ const AiBriefPanel = ({
       {/* ── Risk Flags ── */}
       {health?.riskFlags?.length > 0 && (
         <div className="border-t border-gray-100 pt-3">
-          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Risk Flags</p>
+          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">{t('dashboard.projectHealth.atRisk')}</p>
           <div className="flex flex-wrap gap-1.5">
             {health.riskFlags.map((flag: string, i: number) => (
               <span key={i} className="text-[11px] px-2 py-0.5 bg-red-50 text-red-600 border border-red-100 rounded-full">
@@ -506,26 +510,26 @@ const CeoDashboardPage = () => {
   const displayedProjects = showAllProjects ? projects : projects.slice(0, 6);
 
   const ragPieData = [
-    { name: 'On Track', value: portfolio.byRag.GREEN, color: RAG_COLORS.GREEN },
-    { name: 'At Risk',  value: portfolio.byRag.AMBER, color: RAG_COLORS.AMBER },
-    { name: 'Delayed',  value: portfolio.byRag.RED,   color: RAG_COLORS.RED   },
+    { name: t('statuses.onTrack'), value: portfolio.byRag.GREEN, color: RAG_COLORS.GREEN },
+    { name: t('statuses.atRisk'),  value: portfolio.byRag.AMBER, color: RAG_COLORS.AMBER },
+    { name: t('statuses.offTrack'), value: portfolio.byRag.RED,  color: RAG_COLORS.RED   },
   ];
 
   return (
     <Layout>
       <Header
         title={t('nav.ceoDashboard')}
-        subtitle={`Executive portfolio overview${lastUpdated ? ` · Updated ${lastUpdated}` : ''}`}
+        subtitle={`${t('reports.types.executive')}${lastUpdated ? ` · ${lastUpdated}` : ''}`}
         actions={
           <div className="flex items-center gap-2">
             <button onClick={() => refetch()}
               className="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-              <RefreshCw size={13} /> Refresh
+              <RefreshCw size={13} /> {t('common.refresh')}
             </button>
             <button
               onClick={() => downloadJSON(data, `ceo-dashboard-${format(new Date(), 'yyyy-MM-dd')}.json`)}
               className="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-              <Download size={13} /> Export
+              <Download size={13} /> {t('common.export')}
             </button>
           </div>
         }
@@ -536,41 +540,41 @@ const CeoDashboardPage = () => {
         {/* ── KPI Row ───────────────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <KpiCard
-            label="Portfolio Health"
+            label={t('dashboard.projectHealth.title')}
             value={`${portfolio.healthScore}%`}
-            sub={`${portfolio.active} active projects`}
+            sub={`${portfolio.active} ${t('dashboard.projectHealth.active')}`}
             icon={<Target size={20} className="text-white" />}
             accent={portfolio.healthScore >= 75 ? 'bg-green-500' : portfolio.healthScore >= 50 ? 'bg-amber-500' : 'bg-red-500'}
             trend={portfolio.healthScore >= 70 ? 'up' : 'down'}
           />
           <KpiCard
-            label="Active Projects"
+            label={t('dashboard.projects.title')}
             value={portfolio.active}
-            sub={`${portfolio.completed} completed · ${portfolio.onHold} on hold`}
+            sub={`${portfolio.completed} ${t('statuses.completed')} · ${portfolio.onHold} ${t('statuses.onHold')}`}
             icon={<BarChart2 size={20} className="text-white" />}
             accent="bg-indigo-500"
           />
           <KpiCard
-            label="Open Risks"
+            label={t('raid.types.risk')}
             value={risks.open}
-            sub={`${risks.critical} critical`}
+            sub={`${risks.critical} ${t('common.critical')}`}
             icon={<Shield size={20} className="text-white" />}
             accent={risks.critical > 0 ? 'bg-red-500' : 'bg-amber-500'}
             alert={risks.critical > 0}
             trend={risks.critical > 0 ? 'down' : 'neutral'}
           />
           <KpiCard
-            label="Overdue Actions"
+            label={t('dashboard.overdueActions.title')}
             value={actions.overdue}
-            sub={`${actions.completionRate}% completion rate`}
+            sub={`${actions.completionRate}% ${t('dashboard.projectHealth.actionCompletion')}`}
             icon={<CheckCircle size={20} className="text-white" />}
             accent={actions.overdue > 0 ? 'bg-red-500' : 'bg-green-500'}
             alert={actions.overdue > 5}
           />
           <KpiCard
-            label="Team Velocity"
+            label={t('sprints.velocity')}
             value={`${standups.submissionRateLast7d}%`}
-            sub={`${teams.memberCount} people · ${teams.total} teams`}
+            sub={`${teams.memberCount} ${t('nav.people')} · ${teams.total} ${t('teams.title')}`}
             icon={<Users size={20} className="text-white" />}
             accent="bg-violet-500"
             trend={standups.submissionRateLast7d >= 70 ? 'up' : 'down'}
@@ -584,8 +588,8 @@ const CeoDashboardPage = () => {
           <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
             <SectionHeader
               icon={<Activity size={15} className="text-indigo-600" />}
-              title="Portfolio Health"
-              sub="Projects by RAG status"
+              title={t('dashboard.projectHealth.title')}
+              sub={t('dashboard.projectHealth.healthByProject')}
             />
             <div className="flex items-center gap-4">
               <HealthRing score={portfolio.healthScore} />
@@ -599,8 +603,8 @@ const CeoDashboardPage = () => {
                 ))}
                 <div className="border-t border-gray-100 pt-2 mt-1">
                   <div className="flex items-center justify-between text-xs text-gray-500">
-                    <span>Milestones</span>
-                    <span className="font-semibold text-gray-700">{milestones.completionRate}% done</span>
+                    <span>{t('nav.milestones')}</span>
+                    <span className="font-semibold text-gray-700">{milestones.completionRate}% {t('dashboard.projectHealth.projectsDone')}</span>
                   </div>
                   <div className="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                     <div className="h-full bg-indigo-500 rounded-full"
@@ -609,8 +613,8 @@ const CeoDashboardPage = () => {
                 </div>
                 <div>
                   <div className="flex items-center justify-between text-xs text-gray-500">
-                    <span>Actions</span>
-                    <span className="font-semibold text-gray-700">{actions.completionRate}% done</span>
+                    <span>{t('nav.actions')}</span>
+                    <span className="font-semibold text-gray-700">{actions.completionRate}% {t('dashboard.projectHealth.projectsDone')}</span>
                   </div>
                   <div className="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                     <div className="h-full bg-violet-500 rounded-full"
@@ -631,8 +635,8 @@ const CeoDashboardPage = () => {
             <div className="flex items-center justify-between mb-4">
               <SectionHeader
                 icon={<Brain size={15} className="text-violet-600" />}
-                title="AI Executive Brief"
-                sub="Powered by Qwen 30B"
+                title={t('nav.aiInsights')}
+                sub={t('ai.subtitle')}
               />
             </div>
             <AiBriefPanel
@@ -658,17 +662,17 @@ const CeoDashboardPage = () => {
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
             <SectionHeader
               icon={<Activity size={15} className="text-indigo-600" />}
-              title="Team Activity Trend"
-              sub="Standups &amp; EODs submitted — last 7 days"
+              title={t('dashboard.activityTrend.title')}
+              sub={t('reports.teamActivity.subtitle')}
             />
             <ActivityTrend trend={activityTrend} />
             <div className="flex items-center gap-6 mt-3 pt-3 border-t border-gray-100">
               <div>
-                <p className="text-xs text-gray-400">Submitted Today</p>
+                <p className="text-xs text-gray-400">{t('dashboard.activityTrend.standupsToday')}</p>
                 <p className="text-base font-bold text-gray-800">{standups.submittedToday} standups · {data.eods.submittedToday} EODs</p>
               </div>
               <div className="ml-auto text-right">
-                <p className="text-xs text-gray-400">7-day Submission Rate</p>
+                <p className="text-xs text-gray-400">{t('dashboard.activityTrend.rate7d')}</p>
                 <p className={`text-base font-bold ${standups.submissionRateLast7d >= 70 ? 'text-green-600' : 'text-amber-600'}`}>
                   {standups.submissionRateLast7d}%
                 </p>
@@ -680,14 +684,14 @@ const CeoDashboardPage = () => {
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
             <SectionHeader
               icon={<Target size={15} className="text-green-600" />}
-              title="Milestone Progress"
-              sub="Completed vs remaining per project"
+              title={t('milestones.title')}
+              sub={t('sprints.progress')}
             />
             <MilestoneBar projects={projects} />
             <div className="flex items-center gap-6 mt-3 pt-3 border-t border-gray-100 text-xs text-gray-500">
-              <span>{milestones.completed} completed</span>
-              <span className="text-red-600 font-semibold">{milestones.overdue} overdue</span>
-              <span className="text-blue-600">{milestones.upcoming7days} due in 7 days</span>
+              <span>{milestones.completed} {t('dashboard.projectHealth.milestonesCompleted')}</span>
+              <span className="text-red-600 font-semibold">{milestones.overdue} {t('dashboard.projectHealth.milestonesOverdue')}</span>
+              <span className="text-blue-600">{milestones.upcoming7days} {t('dashboard.projectHealth.dueIn7Days')}</span>
             </div>
           </div>
         </div>
@@ -697,15 +701,22 @@ const CeoDashboardPage = () => {
           <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
             <SectionHeader
               icon={<BarChart2 size={15} className="text-indigo-600" />}
-              title="Project Portfolio"
-              sub={`${portfolio.active} active projects`}
+              title={t('nav.portfolio')}
+              sub={`${portfolio.active} ${t('dashboard.projectHealth.active')}`}
             />
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50/60">
-                  {['Project', 'Status', 'Milestones', 'Blockers', 'Actions Overdue', 'Health'].map(h => (
+                  {[
+                    t('common.name'),
+                    t('common.status'),
+                    t('nav.milestones'),
+                    t('blockers.title'),
+                    t('dashboard.overdueActions.title'),
+                    t('dashboard.projectHealth.title'),
+                  ].map(h => (
                     <th key={h} className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
@@ -716,7 +727,7 @@ const CeoDashboardPage = () => {
                     <td className="py-3 px-4">
                       <span className="font-medium text-gray-900">{p.name}</span>
                       {p.endDate && (
-                        <p className="text-[11px] text-gray-400 mt-0.5">Due {fmtDate(p.endDate)}</p>
+                        <p className="text-[11px] text-gray-400 mt-0.5">{t('common.dueDate')} {fmtDate(p.endDate)}</p>
                       )}
                     </td>
                     <td className="py-3 px-4"><RagBadge status={p.ragStatus} /></td>
@@ -736,7 +747,7 @@ const CeoDashboardPage = () => {
                           <AlertTriangle size={11} /> {p.openBlockers}
                         </span>
                       ) : (
-                        <span className="text-xs text-green-600">None</span>
+                        <span className="text-xs text-green-600">{t('common.none')}</span>
                       )}
                     </td>
                     <td className="py-3 px-4">
@@ -764,7 +775,7 @@ const CeoDashboardPage = () => {
             <div className="px-5 py-3 border-t border-gray-100">
               <button onClick={() => setShowAllProjects(v => !v)}
                 className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-medium transition-colors">
-                {showAllProjects ? 'Show less' : `Show all ${projects.length} projects`}
+                {showAllProjects ? t('common.showLess') : t('dashboard.projects.viewAllCount', { count: projects.length })}
                 <ChevronRight size={13} />
               </button>
             </div>
@@ -778,12 +789,12 @@ const CeoDashboardPage = () => {
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
             <SectionHeader
               icon={<AlertTriangle size={15} className="text-red-500" />}
-              title="Critical & High Blockers"
-              sub={`${blockers.critical} critical · ${blockers.high} high · ${blockers.medium} medium`}
+              title={t('dashboard.criticalBlockers.title')}
+              sub={`${blockers.critical} ${t('common.critical')} · ${blockers.high} ${t('common.high')} · ${blockers.medium} ${t('common.medium')}`}
             />
             {topBlockers.length === 0 ? (
               <div className="flex items-center gap-2 text-green-600 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm">
-                <CheckCircle size={16} /> No critical or high severity blockers
+                <CheckCircle size={16} /> {t('dashboard.criticalBlockers.noCritical')}
               </div>
             ) : (
               <div className="space-y-2">
@@ -810,17 +821,17 @@ const CeoDashboardPage = () => {
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
             <SectionHeader
               icon={<Clock size={15} className="text-indigo-600" />}
-              title="Delivery Metrics"
-              sub="Key operational statistics"
+              title={t('dashboard.projectHealth.deliveryHealth')}
+              sub={t('reports.aiInsights.subtitle')}
             />
             <div className="grid grid-cols-2 gap-3">
               {[
-                { label: 'Milestones Overdue', value: milestones.overdue, alert: milestones.overdue > 0, icon: <TrendingDown size={14} /> },
-                { label: 'Due in 7 Days',     value: milestones.upcoming7days, alert: false, icon: <Clock size={14} /> },
-                { label: 'Open Risks',         value: risks.open,    alert: risks.critical > 0, icon: <Shield size={14} /> },
-                { label: 'Open Dependencies',  value: data.dependencies.open,  alert: false, icon: <Activity size={14} /> },
-                { label: 'Decisions (Month)',  value: data.decisions.thisMonth, alert: false, icon: <CheckCircle size={14} /> },
-                { label: 'Active Blockers',    value: blockers.open, alert: blockers.critical > 0, icon: <AlertTriangle size={14} /> },
+                { label: t('dashboard.projectHealth.milestonesOverdue'), value: milestones.overdue, alert: milestones.overdue > 0, icon: <TrendingDown size={14} /> },
+                { label: t('dashboard.projectHealth.dueIn7Days'),        value: milestones.upcoming7days, alert: false, icon: <Clock size={14} /> },
+                { label: t('raid.types.risk'),                           value: risks.open,    alert: risks.critical > 0, icon: <Shield size={14} /> },
+                { label: t('raid.types.dependency'),                     value: data.dependencies.open,  alert: false, icon: <Activity size={14} /> },
+                { label: t('nav.decisions'),                             value: data.decisions.thisMonth, alert: false, icon: <CheckCircle size={14} /> },
+                { label: t('dashboard.blockerSeverity.open'),            value: blockers.open, alert: blockers.critical > 0, icon: <AlertTriangle size={14} /> },
               ].map(item => (
                 <div key={item.label} className={`p-3 rounded-xl border ${item.alert ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-100'}`}>
                   <div className={`flex items-center gap-1 ${item.alert ? 'text-red-500' : 'text-gray-400'} mb-1`}>

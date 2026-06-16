@@ -20,9 +20,11 @@ import UserPicker from '../components/ui/UserPicker';
 import { useConfirm } from '../components/ui/ConfirmDialog';
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
+import { useI18n } from '../contexts/I18nContext';
 
 const ProjectDetailPage = () => {
   const { confirm } = useConfirm();
+  const { t } = useI18n();
   const { user } = useAuth();
   const { projectId, tenantSlug } = useParams<{ projectId: string; tenantSlug: string }>();
   const navigate = useNavigate();
@@ -82,7 +84,7 @@ const ProjectDetailPage = () => {
   };
 
   const handleRemoveMember = async (memberId: string) => {
-    const ok = await confirm({ title: 'Remove Member', message: 'This person will lose access to this project.', confirmText: 'Remove', variant: 'warning' });
+    const ok = await confirm({ title: t('teams.removeMember'), message: t('teams.removeMemberConfirm'), confirmText: t('common.remove'), variant: 'warning' });
     if (!ok) return;
     try { await removeMember.mutateAsync(memberId); } catch { /* handled by query */ }
   };
@@ -101,11 +103,11 @@ const ProjectDetailPage = () => {
         actions={
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => navigate('/projects')} icon={<ArrowLeft size={14} />}>
-              Back
+              {t('common.back')}
             </Button>
             {canManageProject && (
               <Button variant="outline" size="sm" onClick={() => setShowRAG(true)} icon={<Edit2 size={14} />}>
-                Update RAG
+                {t('projects.detail.editProject')}
               </Button>
             )}
           </div>
@@ -128,31 +130,31 @@ const ProjectDetailPage = () => {
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          <StatCard label="Members" value={stats.totalMembers} icon={<Users size={20} />} color="blue" />
-          <StatCard label="Open Actions" value={stats.openActions} icon={<CheckSquare size={20} />} color={stats.overdueActions > 0 ? 'red' : 'green'} sublabel={stats.overdueActions > 0 ? `${stats.overdueActions} overdue` : 'On track'} />
-          <StatCard label="Open Blockers" value={stats.openBlockers} icon={<AlertTriangle size={20} />} color={stats.criticalBlockers > 0 ? 'red' : 'amber'} sublabel={stats.criticalBlockers > 0 ? `${stats.criticalBlockers} critical` : ''} />
-          <StatCard label="Milestones" value={stats.totalMilestones} icon={<Milestone size={20} />} color={stats.delayedMilestones > 0 ? 'red' : 'green'} sublabel={stats.delayedMilestones > 0 ? `${stats.delayedMilestones} delayed` : 'On track'} />
-          <StatCard label="Standups (7d)" value={stats.totalStandups} icon={<BarChart2 size={20} />} color="purple" />
-          <StatCard label="Total Tasks" value={stats.taskCount ?? 0} icon={<ListChecks size={20} />} color="blue" />
-          <StatCard label="Billable Hours" value={stats.billableHours ?? 0} icon={<Clock size={20} />} color="green" sublabel="hrs logged" />
-          <StatCard label="Non-Billable Hrs" value={stats.nonBillableHours ?? 0} icon={<Clock size={20} />} color="amber" sublabel="hrs logged" />
-          <StatCard label="Total Hours" value={stats.totalHours ?? 0} icon={<Clock size={20} />} color="purple" sublabel="hrs logged" />
+          <StatCard label={t('teams.membersLabel')} value={stats.totalMembers} icon={<Users size={20} />} color="blue" />
+          <StatCard label={t('actions.title')} value={stats.openActions} icon={<CheckSquare size={20} />} color={stats.overdueActions > 0 ? 'red' : 'green'} sublabel={stats.overdueActions > 0 ? `${stats.overdueActions} ${t('actions.status.overdue').toLowerCase()}` : t('statuses.onTrack')} />
+          <StatCard label={t('blockers.title')} value={stats.openBlockers} icon={<AlertTriangle size={20} />} color={stats.criticalBlockers > 0 ? 'red' : 'amber'} sublabel={stats.criticalBlockers > 0 ? `${stats.criticalBlockers} ${t('statuses.critical').toLowerCase()}` : ''} />
+          <StatCard label={t('milestones.title')} value={stats.totalMilestones} icon={<Milestone size={20} />} color={stats.delayedMilestones > 0 ? 'red' : 'green'} sublabel={stats.delayedMilestones > 0 ? `${stats.delayedMilestones} ${t('milestones.status.overdue').toLowerCase()}` : t('statuses.onTrack')} />
+          <StatCard label={t('standup.title')} value={stats.totalStandups} icon={<BarChart2 size={20} />} color="purple" />
+          <StatCard label={t('tasks.title')} value={stats.taskCount ?? 0} icon={<ListChecks size={20} />} color="blue" />
+          <StatCard label={t('timeTracking.billable')} value={stats.billableHours ?? 0} icon={<Clock size={20} />} color="green" sublabel={t('common.hours').toLowerCase()} />
+          <StatCard label={t('timeTracking.nonBillable')} value={stats.nonBillableHours ?? 0} icon={<Clock size={20} />} color="amber" sublabel={t('common.hours').toLowerCase()} />
+          <StatCard label={t('timeTracking.totalHours')} value={stats.totalHours ?? 0} icon={<Clock size={20} />} color="purple" sublabel={t('common.hours').toLowerCase()} />
         </div>
 
         {/* Sub Navigation */}
         <div className="flex flex-wrap gap-2">
           {[
-            { label: 'Tasks',          to: `/${tenantSlug}/projects/${projectId}/tasks` },
-            { label: 'Sprint Board',   to: `/${tenantSlug}/projects/${projectId}/sprints` },
-            { label: 'Backlog',        to: `/${tenantSlug}/projects/${projectId}/backlog` },
-            { label: 'Standup Rollup', to: `/${tenantSlug}/standup?projectId=${projectId}` },
-            { label: 'EOD Rollup', to: `/${tenantSlug}/eod?projectId=${projectId}` },
-            { label: 'Actions', to: `/${tenantSlug}/actions?projectId=${projectId}` },
-            { label: 'Blockers', to: `/${tenantSlug}/blockers?projectId=${projectId}` },
-            { label: 'RAID', to: `/${tenantSlug}/raid?projectId=${projectId}` },
-            { label: 'Decisions', to: `/${tenantSlug}/decisions?projectId=${projectId}` },
-            { label: 'Milestones', to: `/${tenantSlug}/milestones?projectId=${projectId}` },
-            { label: 'Reports', to: `/${tenantSlug}/reports?projectId=${projectId}` },
+            { label: t('nav.myTasks'),       to: `/${tenantSlug}/projects/${projectId}/tasks` },
+            { label: t('nav.sprintBoards'),  to: `/${tenantSlug}/projects/${projectId}/sprints` },
+            { label: t('nav.backlog'),        to: `/${tenantSlug}/projects/${projectId}/backlog` },
+            { label: t('nav.standup'),        to: `/${tenantSlug}/standup?projectId=${projectId}` },
+            { label: t('nav.eod'),            to: `/${tenantSlug}/eod?projectId=${projectId}` },
+            { label: t('nav.actions'),        to: `/${tenantSlug}/actions?projectId=${projectId}` },
+            { label: t('nav.blockers'),       to: `/${tenantSlug}/blockers?projectId=${projectId}` },
+            { label: t('nav.raidRegister'),   to: `/${tenantSlug}/raid?projectId=${projectId}` },
+            { label: t('nav.decisions'),      to: `/${tenantSlug}/decisions?projectId=${projectId}` },
+            { label: t('nav.milestones'),     to: `/${tenantSlug}/milestones?projectId=${projectId}` },
+            { label: t('nav.reports'),        to: `/${tenantSlug}/reports?projectId=${projectId}` },
           ].map((item) => (
             <Link key={item.label} to={item.to}
               className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-blue-300 transition-colors">
@@ -164,11 +166,11 @@ const ProjectDetailPage = () => {
         {/* Members */}
         <Card>
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2"><Users size={16} /> Team Members ({members.length})</h3>
-            {canManageProject && <Button size="sm" variant="outline" icon={<UserPlus size={14} />} onClick={() => setShowAddMember(true)}>Add Member</Button>}
+            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2"><Users size={16} /> {t('teams.membersLabel')} ({members.length})</h3>
+            {canManageProject && <Button size="sm" variant="outline" icon={<UserPlus size={14} />} onClick={() => setShowAddMember(true)}>{t('teams.addMember')}</Button>}
           </div>
           {members.length === 0 ? (
-            <p className="text-sm text-gray-400">No members assigned yet.</p>
+            <p className="text-sm text-gray-400">{t('common.noData')}</p>
           ) : (
             <div className="divide-y divide-gray-100">
               {members.map((m: { id: string; userId: string; name?: string; email?: string; avatarUrl?: string; userRole?: string; projectRole?: string }) => {
@@ -207,9 +209,9 @@ const ProjectDetailPage = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Milestones */}
           <Card>
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Milestones</h3>
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">{t('milestones.title')}</h3>
             {milestones.length === 0
-              ? <p className="text-sm text-gray-400">No milestones defined.</p>
+              ? <p className="text-sm text-gray-400">{t('milestones.noMilestones')}</p>
               : milestones.slice(0, 5).map((m: {id: string; title: string; dueDate: string; status: string}) => (
                 <div key={m.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
                   <span className="text-sm text-gray-700 truncate pr-2">{m.title}</span>
@@ -225,17 +227,17 @@ const ProjectDetailPage = () => {
           {/* Overdue Actions */}
           <Card>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-900">Overdue Actions</h3>
-              <Link to={`/${tenantSlug}/actions?projectId=${projectId}`} className="text-xs text-blue-600 hover:underline">All</Link>
+              <h3 className="text-sm font-semibold text-gray-900">{t('actions.status.overdue')} {t('actions.title')}</h3>
+              <Link to={`/${tenantSlug}/actions?projectId=${projectId}`} className="text-xs text-blue-600 hover:underline">{t('common.viewAll')}</Link>
             </div>
             {openActionsPreview.length === 0
-              ? <p className="text-sm text-gray-400">No overdue actions.</p>
+              ? <p className="text-sm text-gray-400">{t('actions.noActions')}</p>
               : openActionsPreview.map((a: {id: string; title: string; dueDate: string; priority: string}) => (
                 <div key={a.id} className="py-2 border-b border-gray-50 last:border-0">
                   <p className="text-sm text-gray-700 truncate">{a.title}</p>
                   <div className="flex gap-2 mt-1">
                     <StatusBadge status={a.priority} />
-                    <span className="text-xs text-red-500">Due {a.dueDate}</span>
+                    <span className="text-xs text-red-500">{t('actions.dueOn', { date: a.dueDate })}</span>
                   </div>
                 </div>
               ))
@@ -245,11 +247,11 @@ const ProjectDetailPage = () => {
           {/* Open Blockers */}
           <Card>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-900">Open Blockers</h3>
-              <Link to={`/${tenantSlug}/blockers?projectId=${projectId}`} className="text-xs text-blue-600 hover:underline">All</Link>
+              <h3 className="text-sm font-semibold text-gray-900">{t('blockers.title')}</h3>
+              <Link to={`/${tenantSlug}/blockers?projectId=${projectId}`} className="text-xs text-blue-600 hover:underline">{t('common.viewAll')}</Link>
             </div>
             {openBlockersPreview.length === 0
-              ? <p className="text-sm text-gray-400">No open blockers.</p>
+              ? <p className="text-sm text-gray-400">{t('blockers.noBlockers')}</p>
               : openBlockersPreview.map((b: {id: string; title: string; severity: string; status: string}) => (
                 <div key={b.id} className="py-2 border-b border-gray-50 last:border-0">
                   <p className="text-sm text-gray-700 truncate">{b.title}</p>
@@ -268,23 +270,22 @@ const ProjectDetailPage = () => {
       <Modal
         open={showAddMember}
         onClose={() => { setShowAddMember(false); addMemberForm.reset({ role: 'MEMBER' }); addTeamForm.reset(); setMemberError(''); setAddMode('individual'); }}
-        title="Add to Project"
+        title={t('teams.addMember')}
       >
-        {/* Mode toggle */}
         <div className="flex gap-1 p-1 bg-gray-100 rounded-lg mb-4">
           <button
             type="button"
             onClick={() => { setAddMode('individual'); setMemberError(''); }}
             className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${addMode === 'individual' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
           >
-            Individual
+            {t('directory.individual')}
           </button>
           <button
             type="button"
             onClick={() => { setAddMode('team'); setMemberError(''); }}
             className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${addMode === 'team' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
           >
-            Add Team
+            {t('teams.addTeam')}
           </button>
         </div>
 
@@ -293,24 +294,24 @@ const ProjectDetailPage = () => {
         {addMode === 'individual' ? (
           <form onSubmit={addMemberForm.handleSubmit(onAddMember)} className="space-y-4">
             <div>
-              <label className="form-label">User *</label>
+              <label className="form-label">{t('common.name')} *</label>
               <Controller
                 name="user_id"
                 control={addMemberForm.control}
-                rules={{ required: 'Required' }}
+                rules={{ required: t('validation.required') }}
                 render={({ field }) => (
                   <UserPicker
                     users={allUsers}
                     value={field.value}
                     onChange={field.onChange}
-                    placeholder="Select user…"
+                    placeholder={t('common.searchPlaceholder')}
                     excludeIds={members.map((m: { userId: string }) => String(m.userId))}
                   />
                 )}
               />
             </div>
             <div>
-              <label className="form-label">Project Role</label>
+              <label className="form-label">{t('teams.role')}</label>
               <select className="form-select" {...addMemberForm.register('role')}>
                 <optgroup label="Leadership">
                   <option value="DELIVERY_LEAD">Delivery Lead</option>
@@ -344,49 +345,49 @@ const ProjectDetailPage = () => {
               </select>
             </div>
             <ModalActions>
-              <Button variant="outline" type="button" onClick={() => setShowAddMember(false)}>Cancel</Button>
-              <Button type="submit" loading={addMemberForm.formState.isSubmitting} icon={<UserPlus size={16} />}>Add Member</Button>
+              <Button variant="outline" type="button" onClick={() => setShowAddMember(false)}>{t('common.cancel')}</Button>
+              <Button type="submit" loading={addMemberForm.formState.isSubmitting} icon={<UserPlus size={16} />}>{t('teams.addMember')}</Button>
             </ModalActions>
           </form>
         ) : (
           <form onSubmit={addTeamForm.handleSubmit(onAddTeam)} className="space-y-4">
             <div>
-              <label className="form-label">Team *</label>
+              <label className="form-label">{t('nav.teams')} *</label>
               <select className="form-select" {...addTeamForm.register('team_id', { required: true })}>
-                <option value="">Select team…</option>
-                {(allTeams as any[]).map((t: any) => (
-                  <option key={t.id} value={t.id}>{t.name}{t.memberCount ? ` (${t.memberCount} members)` : ''}</option>
+                <option value="">{t('common.searchPlaceholder')}</option>
+                {(allTeams as any[]).map((team: any) => (
+                  <option key={team.id} value={team.id}>{team.name}{team.memberCount ? ` (${team.memberCount} ${t('teams.members').toLowerCase()})` : ''}</option>
                 ))}
               </select>
-              <p className="text-[11px] text-gray-400 mt-1">All members will be added using their existing team role. Existing project members are skipped.</p>
+              <p className="text-[11px] text-gray-400 mt-1">{t('teams.addTeamNote')}</p>
             </div>
             <ModalActions>
-              <Button variant="outline" type="button" onClick={() => setShowAddMember(false)}>Cancel</Button>
-              <Button type="submit" loading={addTeamForm.formState.isSubmitting} icon={<Users size={16} />}>Add Team</Button>
+              <Button variant="outline" type="button" onClick={() => setShowAddMember(false)}>{t('common.cancel')}</Button>
+              <Button type="submit" loading={addTeamForm.formState.isSubmitting} icon={<Users size={16} />}>{t('teams.addTeam')}</Button>
             </ModalActions>
           </form>
         )}
       </Modal>
 
       {/* Update RAG Modal */}
-      <Modal open={showRAG} onClose={() => setShowRAG(false)} title="Update RAG Status">
+      <Modal open={showRAG} onClose={() => setShowRAG(false)} title={t('projects.detail.editProject')}>
         <form onSubmit={handleSubmit(onRAGSubmit)} className="space-y-4">
           {ragError && <Alert type="error" message={ragError} />}
           <div>
-            <label className="form-label">RAG Status *</label>
+            <label className="form-label">{t('projects.modal.ragStatus')} *</label>
             <select className="form-select" {...register('rag_status', { required: true })}>
-              <option value="GREEN">Green – On track</option>
-              <option value="AMBER">Amber – At risk</option>
-              <option value="RED">Red – Off track</option>
+              <option value="GREEN">{t('projects.modal.ragGreen')} – {t('statuses.onTrack')}</option>
+              <option value="AMBER">{t('projects.modal.ragAmber')} – {t('statuses.atRisk')}</option>
+              <option value="RED">{t('projects.modal.ragRed')} – {t('statuses.offTrack')}</option>
             </select>
           </div>
           <div>
-            <label className="form-label">Reason / Commentary</label>
-            <textarea className="form-textarea" rows={3} placeholder="Why is this changing?" {...register('reason')} />
+            <label className="form-label">{t('common.notes')}</label>
+            <textarea className="form-textarea" rows={3} placeholder={t('common.description')} {...register('reason')} />
           </div>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setShowRAG(false)}>Cancel</Button>
-            <Button type="submit" loading={isSubmitting}>Update RAG</Button>
+            <Button variant="outline" type="button" onClick={() => setShowRAG(false)}>{t('common.cancel')}</Button>
+            <Button type="submit" loading={isSubmitting}>{t('common.update')}</Button>
           </ModalActions>
         </form>
       </Modal>

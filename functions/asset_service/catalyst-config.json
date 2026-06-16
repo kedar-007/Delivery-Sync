@@ -3,15 +3,7 @@
     "name": "asset_service",
     "stack": "node20",
     "type": "advancedio",
-    "env_variables": {
-      "STRATUS_BUCKET_NAME": "",
-      "NODE_ENV": "development",
-      "STRATUS_BASE_URL": "",
-      "FROM_EMAIL": "catalystadmin@dsv360.ai",
-      "INTERNAL_SECRET": "",
-      "APP_URL": "https://delivery-sync-60040289923.development.catalystserverless.in",
-      "ENVIRONMENT": "development"
-    }
+    "env_variables": {}
   },
   "execution": {
     "main": "index.js"

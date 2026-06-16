@@ -495,6 +495,8 @@ export const attendanceApi = {
   notCheckedIn:   () => peopleClient.get('/attendance/not-checked-in').then((r) => r.data.data),
   summary:        (params?: Record<string, string>) => peopleClient.get('/attendance/summary', { params }).then((r) => r.data.data),
   exportCsv:      (params?: Record<string, string>) => peopleClient.get('/attendance/export', { params, responseType: 'blob' }).then((r) => r.data),
+  attendanceReport:       (params?: Record<string, string>) => peopleClient.get('/attendance/report', { params }).then((r) => r.data.data),
+  exportAttendanceReport: (params?: Record<string, string>) => peopleClient.get('/attendance/report', { params: { ...params, format: 'csv' }, responseType: 'blob' }).then((r) => r.data),
   wfhRequests:       (params?: Record<string, string>) => peopleClient.get('/attendance/wfh-requests', { params }).then((r) => r.data.data),
   submitWfhRequest:  (data: unknown) => peopleClient.post('/attendance/wfh-requests', data).then((r) => r.data.data),
   approveWfhRequest: (id: string, data: unknown) => peopleClient.patch(`/attendance/wfh-requests/${id}/approve`, data).then((r) => r.data.data),

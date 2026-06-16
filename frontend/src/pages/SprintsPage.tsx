@@ -94,6 +94,7 @@ function ProjectSprintCard({
   tenantSlug: string;
   sprints: Sprint[];
 }) {
+  const { t } = useI18n();
   const active = sprints.filter((s) => s.status === 'ACTIVE');
   const planning = sprints.filter((s) => s.status === 'PLANNING');
   const completed = sprints.filter((s) => s.status === 'COMPLETED');
@@ -113,7 +114,7 @@ function ProjectSprintCard({
           to={`/${tenantSlug}/projects/${project.id}/sprints`}
           className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium shrink-0"
         >
-          Open Board <ChevronRight size={12} />
+          {t('sprints.board')} <ChevronRight size={12} />
         </Link>
       </div>
 
@@ -135,7 +136,7 @@ function ProjectSprintCard({
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${STATUS_STYLE[sprint.status]?.color ?? ''}`}>
-                    {STATUS_STYLE[sprint.status]?.label}
+                    {sprint.status === 'PLANNING' ? t('sprints.status.planning') : sprint.status === 'ACTIVE' ? t('sprints.status.active') : t('sprints.status.completed')}
                   </span>
                   <span className="text-sm font-medium text-gray-800 truncate group-hover:text-indigo-700">
                     {sprint.name}
@@ -151,7 +152,7 @@ function ProjectSprintCard({
                   {' - '}
                   <span className={isOverdue ? 'text-red-500 font-medium' : ''}>
                     {ed ? format(ed, 'MMM d, yyyy') : '?'}
-                    {isOverdue && ' overdue'}
+                    {isOverdue && ` ${t('tasks.overdue')}`}
                   </span>
                 </div>
               )}
@@ -177,13 +178,13 @@ function ProjectSprintCard({
 
       <div className="flex gap-4 text-xs text-gray-400 pt-1 border-t border-gray-50">
         {active.length > 0 && (
-          <span className="flex items-center gap-1"><Play size={10} className="text-green-500" /> {active.length} active</span>
+          <span className="flex items-center gap-1"><Play size={10} className="text-green-500" /> {active.length} {t('sprints.status.active')}</span>
         )}
         {planning.length > 0 && (
-          <span className="flex items-center gap-1"><Clock size={10} /> {planning.length} planning</span>
+          <span className="flex items-center gap-1"><Clock size={10} /> {planning.length} {t('sprints.status.planning')}</span>
         )}
         {completed.length > 0 && (
-          <span className="flex items-center gap-1"><CheckCircle2 size={10} className="text-blue-400" /> {completed.length} completed</span>
+          <span className="flex items-center gap-1"><CheckCircle2 size={10} className="text-blue-400" /> {completed.length} {t('sprints.status.completed')}</span>
         )}
       </div>
     </Card>
@@ -344,15 +345,15 @@ export default function SprintsPage() {
     setCreateError('');
 
     if (!selectedProjectId) {
-      setCreateError('Please select a project');
+      setCreateError(t('validation.required'));
       return;
     }
     if (!name.trim()) {
-      setCreateError('Sprint name is required');
+      setCreateError(t('validation.cannotBeBlank'));
       return;
     }
     if (!startDate || !endDate) {
-      setCreateError('Start date and end date are required');
+      setCreateError(t('validation.required'));
       return;
     }
 
@@ -385,7 +386,7 @@ export default function SprintsPage() {
   if (projectsLoading || sprintsLoading) return <Layout><PageSkeleton /></Layout>;
   if (sprintsError) return (
     <Layout>
-      <Alert type="error" message={`Failed to load sprints: ${(sprintsError as Error).message}`} />
+      <Alert type="error" message={`${t('errors.loadFailed')}: ${(sprintsError as Error).message}`} />
     </Layout>
   );
 
@@ -393,16 +394,16 @@ export default function SprintsPage() {
     <Layout>
       <Header
         title={t('nav.sprintBoards')}
-        subtitle={`${projectsWithSprints.length} project${projectsWithSprints.length !== 1 ? 's' : ''} with sprint boards`}
+        subtitle={`${projectsWithSprints.length} ${projectsWithSprints.length !== 1 ? t('projects.title').toLowerCase() : t('projects.title').toLowerCase()} ${t('sprints.board').toLowerCase()}`}
         actions={
           <div className="flex items-center gap-2">
             {canManageSprint && (
               <Button size="sm" icon={<Plus size={14} />} onClick={openCreate}>
-                Create Sprint
+                {t('sprints.new')}
               </Button>
             )}
             <Link to={`/${tenantSlug}/projects`}>
-              <Button variant="secondary" size="sm" icon={<Layers size={14} />}>All Projects</Button>
+              <Button variant="secondary" size="sm" icon={<Layers size={14} />}>{t('nav.allProjects')}</Button>
             </Link>
           </div>
         }
@@ -423,7 +424,7 @@ export default function SprintsPage() {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none bg-white"
-            placeholder="Filter projects with sprints..."
+            placeholder={`${t('common.filter')} ${t('projects.title').toLowerCase()}…`}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -431,19 +432,19 @@ export default function SprintsPage() {
 
         {projectsWithSprints.length === 0 ? (
           <EmptyState
-            title={isOrgWide ? 'No sprint boards yet' : 'You are not part of any sprint'}
+            title={isOrgWide ? t('sprints.noSprints') : t('sprints.noSprints')}
             description={
               isOrgWide
-                ? 'Create a sprint for any project to start using Sprint Boards.'
-                : 'Ask your team lead or admin to add you to a sprint. Sprints you are assigned to will appear here.'
+                ? t('projects.noProjectsDesc')
+                : t('common.noData')
             }
             icon={<GitBranch size={32} className="text-gray-300" />}
-            action={isOrgWide ? <Button onClick={openCreate} icon={<Plus size={14} />}>Create Sprint</Button> : undefined}
+            action={isOrgWide ? <Button onClick={openCreate} icon={<Plus size={14} />}>{t('sprints.new')}</Button> : undefined}
           />
         ) : filteredProjects.length === 0 ? (
           <EmptyState
-            title="No projects found"
-            description="Try a different search keyword."
+            title={t('projects.noProjects')}
+            description={t('common.noResults')}
             icon={<GitBranch size={32} className="text-gray-300" />}
           />
         ) : (
@@ -460,17 +461,17 @@ export default function SprintsPage() {
         )}
       </div>
 
-      <Modal open={showCreate} onClose={closeCreate} title="Create Sprint" size="xl">
+      <Modal open={showCreate} onClose={closeCreate} title={t('sprints.modal.createTitle')} size="xl">
         <form onSubmit={handleCreateSprint} className="space-y-4">
           {createError && <Alert type="error" message={createError} />}
 
           <div>
-            <label className="form-label">Search Project *</label>
+            <label className="form-label">{t('common.search')} {t('projects.title')} *</label>
             <div className="relative">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 className="form-input pl-9"
-                placeholder="Type project name (500+ projects supported)"
+                placeholder={`${t('common.searchPlaceholder')}`}
                 value={projectSearch}
                 onChange={(e) => setProjectSearch(e.target.value)}
               />
@@ -479,7 +480,7 @@ export default function SprintsPage() {
 
           <div className="border border-gray-200 rounded-lg p-2 max-h-48 overflow-auto bg-gray-50/40">
             {createProjectOptions.length === 0 ? (
-              <p className="text-xs text-gray-500 p-2">No matching projects</p>
+              <p className="text-xs text-gray-500 p-2">{t('projects.noProjects')}</p>
             ) : (
               <div className="space-y-1">
                 {createProjectOptions.map((p) => (
@@ -504,7 +505,7 @@ export default function SprintsPage() {
           </p>
 
           <div>
-            <label className="form-label">Sprint Name *</label>
+            <label className="form-label">{t('sprints.modal.nameLabel')} *</label>
             <input
               className="form-input"
               placeholder="Sprint 1 - Platform Hardening"
@@ -514,11 +515,11 @@ export default function SprintsPage() {
           </div>
 
           <div>
-            <label className="form-label">Goal</label>
+            <label className="form-label">{t('sprints.modal.goal')}</label>
             <textarea
               className="form-textarea"
               rows={2}
-              placeholder="Optional sprint goal"
+              placeholder={t('common.optional2')}
               value={goal}
               onChange={(e) => setGoal(e.target.value)}
             />
@@ -526,7 +527,7 @@ export default function SprintsPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
-              <label className="form-label">Start Date *</label>
+              <label className="form-label">{t('sprints.modal.startDate')} *</label>
               <input
                 type="date"
                 className="form-input"
@@ -535,7 +536,7 @@ export default function SprintsPage() {
               />
             </div>
             <div>
-              <label className="form-label">End Date *</label>
+              <label className="form-label">{t('sprints.modal.endDate')} *</label>
               <input
                 type="date"
                 className="form-input"
@@ -544,7 +545,7 @@ export default function SprintsPage() {
               />
             </div>
             <div>
-              <label className="form-label">Capacity Points</label>
+              <label className="form-label">{t('sprints.velocity')}</label>
               <input
                 type="number"
                 min={0}
@@ -557,7 +558,7 @@ export default function SprintsPage() {
 
           {/* Sprint Members */}
           <div>
-            <label className="form-label">Sprint Members <span className="text-gray-400 font-normal">(optional)</span></label>
+            <label className="form-label">{t('teams.membersLabel')} <span className="text-gray-400 font-normal">{t('common.optional2')}</span></label>
             {selectedMembers.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {selectedMembers.map((uid) => {
@@ -574,7 +575,7 @@ export default function SprintsPage() {
             )}
             <div className="relative mb-1.5">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input className="form-input pl-8 py-1.5 text-sm" placeholder="Search team members…"
+              <input className="form-input pl-8 py-1.5 text-sm" placeholder={t('common.searchPlaceholder')}
                 value={memberSearch} onChange={(e) => setMemberSearch(e.target.value)} />
             </div>
             <div className="flex flex-wrap gap-1.5 p-2 bg-gray-50 border border-gray-200 rounded-lg max-h-32 overflow-y-auto">
@@ -598,9 +599,9 @@ export default function SprintsPage() {
           </div>
 
           <ModalActions>
-            <Button variant="outline" type="button" onClick={closeCreate}>Cancel</Button>
+            <Button variant="outline" type="button" onClick={closeCreate}>{t('common.cancel')}</Button>
             <Button type="submit" loading={createSprint.isPending}>
-              Create Sprint{selectedMembers.length > 0 ? ` & Add ${selectedMembers.length} Member${selectedMembers.length > 1 ? 's' : ''}` : ''}
+              {t('sprints.modal.create')}{selectedMembers.length > 0 ? ` & ${t('common.add')} ${selectedMembers.length} ${t('teams.membersLabel')}` : ''}
             </Button>
           </ModalActions>
         </form>

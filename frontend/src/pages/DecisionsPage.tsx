@@ -92,22 +92,22 @@ const DecisionsPage = () => {
     <Layout>
       <Header
         title={t('nav.decisions')}
-        subtitle={`${decisions.length} decision${decisions.length !== 1 ? 's' : ''}`}
-        actions={<Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>Log Decision</Button>}
+        subtitle={`${decisions.length} ${t('decisions.title')}`}
+        actions={<Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>{t('decisions.new')}</Button>}
       />
       <div className="p-6 space-y-5">
 
         {/* Project Filter */}
         <select className="form-select max-w-xs" value={filterProject} onChange={(e) => setFilterProject(e.target.value)}>
-          <option value="">All Projects</option>
+          <option value="">{t('common.all')} {t('nav.projects')}</option>
           {projects.map((p: { id: string; name: string }) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
 
         {decisions.length === 0 ? (
           <EmptyState
-            title="No decisions logged"
-            description="Log decisions to maintain a clear audit trail."
-            action={<Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>Log Decision</Button>}
+            title={t('decisions.noDecisions')}
+            description={t('decisions.noDecisions')}
+            action={<Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>{t('decisions.new')}</Button>}
           />
         ) : (
           // Improved card grid layout
@@ -134,7 +134,7 @@ const DecisionsPage = () => {
                         type="button"
                         onClick={(e) => openRename(e, { id: d.id, title: d.title })}
                         className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                        title="Rename decision"
+                        title={t('common.rename')}
                       >
                         <Pencil size={12} />
                       </button>
@@ -163,7 +163,7 @@ const DecisionsPage = () => {
                       // show the avatar's initials placeholder rather than the raw ID.
                       <span className="flex items-center gap-1.5">
                         <UserAvatar name="?" size="xs" />
-                        <span className="text-gray-400 italic">Unknown user</span>
+                        <span className="text-gray-400 italic">{t('common.na')}</span>
                       </span>
                     ) : null}
                   </div>
@@ -179,13 +179,13 @@ const DecisionsPage = () => {
                       {d.rationale && (
                         <div className="flex items-start gap-1.5 text-xs text-blue-700 bg-blue-50 rounded-md px-2.5 py-1.5">
                           <Lightbulb size={11} className="mt-0.5 flex-shrink-0" />
-                          <span className="line-clamp-2"><span className="font-medium">Rationale: </span>{d.rationale}</span>
+                          <span className="line-clamp-2"><span className="font-medium">{t('decisions.modal.rationale')}: </span>{d.rationale}</span>
                         </div>
                       )}
                       {d.impact && (
                         <div className="flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 rounded-md px-2.5 py-1.5">
                           <Zap size={11} className="mt-0.5 flex-shrink-0" />
-                          <span className="line-clamp-2"><span className="font-medium">Impact: </span>{d.impact}</span>
+                          <span className="line-clamp-2"><span className="font-medium">{t('decisions.modal.outcome')}: </span>{d.impact}</span>
                         </div>
                       )}
                     </div>
@@ -198,43 +198,43 @@ const DecisionsPage = () => {
       </div>
 
       {/* Create Modal */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); reset(); setCreateError(''); }} title="Log Decision" size="lg">
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); reset(); setCreateError(''); }} title={t('decisions.modal.createTitle')} size="lg">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {createError && <Alert type="error" message={createError} />}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="form-label">Project *</label>
-              <select className="form-select" {...register('project_id', { required: 'Required' })}>
+              <label className="form-label">{t('decisions.modal.project')}</label>
+              <select className="form-select" {...register('project_id', { required: t('validation.required') })}>
                 <option value="">Select…</option>
                 {projects.map((p: { id: string; name: string }) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
               {errors.project_id && <p className="form-error">{errors.project_id.message}</p>}
             </div>
             <div>
-              <label className="form-label">Decision Date *</label>
-              <input type="date" className="form-input" {...register('decision_date', { required: 'Required' })} />
+              <label className="form-label">{t('decisions.modal.date')}</label>
+              <input type="date" className="form-input" {...register('decision_date', { required: t('validation.required') })} />
             </div>
           </div>
           <div>
-            <label className="form-label">Decision Title *</label>
-            <input className="form-input" placeholder="What was decided?" {...register('title', { required: 'Required' })} />
+            <label className="form-label">{t('decisions.modal.titleLabel')}</label>
+            <input className="form-input" placeholder="What was decided?" {...register('title', { required: t('validation.required') })} />
             {errors.title && <p className="form-error">{errors.title.message}</p>}
           </div>
           <div>
-            <label className="form-label">Description</label>
+            <label className="form-label">{t('decisions.modal.descLabel')}</label>
             <textarea className="form-textarea" rows={3} placeholder="Describe the decision in detail…" {...register('description')} />
           </div>
           <div>
-            <label className="form-label">Rationale</label>
+            <label className="form-label">{t('decisions.modal.rationale')}</label>
             <textarea className="form-textarea" rows={2} placeholder="Why was this decision made?" {...register('rationale')} />
           </div>
           <div>
-            <label className="form-label">Impact</label>
+            <label className="form-label">{t('decisions.modal.outcome')}</label>
             <textarea className="form-textarea" rows={2} placeholder="What is the expected impact?" {...register('impact')} />
           </div>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button type="submit" loading={isSubmitting}>Log Decision</Button>
+            <Button variant="outline" type="button" onClick={() => setShowCreate(false)}>{t('common.cancel')}</Button>
+            <Button type="submit" loading={isSubmitting}>{t('decisions.modal.create')}</Button>
           </ModalActions>
         </form>
       </Modal>
@@ -243,28 +243,28 @@ const DecisionsPage = () => {
       <Modal
         open={!!renamingDecision}
         onClose={() => { setRenamingDecision(null); resetRename(); setRenameError(''); }}
-        title="Rename Decision"
+        title={t('common.rename')}
         size="sm"
       >
         <form onSubmit={handleRenameSubmit(onRename)} className="space-y-4">
           {renameError && <Alert type="error" message={renameError} />}
           <div>
-            <label className="form-label">Decision Title *</label>
+            <label className="form-label">{t('decisions.modal.titleLabel')}</label>
             <input
               className="form-input"
               autoFocus
               {...registerRename('title', {
-                required: 'Required',
-                validate: v => v.trim().length > 0 || 'Title cannot be blank',
+                required: t('validation.required'),
+                validate: v => v.trim().length > 0 || t('validation.cannotBeBlank'),
               })}
             />
             {renameErrors.title && <p className="form-error">{renameErrors.title.message}</p>}
           </div>
           <ModalActions>
             <Button variant="outline" type="button" onClick={() => { setRenamingDecision(null); resetRename(); }}>
-              Cancel
+              {t('common.cancel')}
             </Button>
-            <Button type="submit" loading={isRenaming}>Save</Button>
+            <Button type="submit" loading={isRenaming}>{t('decisions.modal.save')}</Button>
           </ModalActions>
         </form>
       </Modal>

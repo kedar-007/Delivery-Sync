@@ -16,7 +16,8 @@ const MetricTile = ({ value, label, color }: { value: string; label: string; col
   </div>
 );
 
-const LeftPanel = () => (
+const LeftPanel = () => {
+  return (
   <div className="hidden lg:flex flex-col h-full bg-slate-950 text-white px-10 py-10">
     <div className="mb-10">
       {/* Brand logo */}
@@ -43,7 +44,8 @@ const LeftPanel = () => (
       <MetricTile value="24/7" label="Support" color="text-violet-400" />
     </div>
   </div>
-);
+  );
+};
 
 export default function LoginPage() {
   const didInit = useRef(false);

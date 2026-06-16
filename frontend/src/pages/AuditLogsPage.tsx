@@ -13,6 +13,7 @@ import UserAvatar from '../components/ui/UserAvatar';
 import EmptyState from '../components/ui/EmptyState';
 import Button from '../components/ui/Button';
 import { useAuditLogs, useAdminUsers } from '../hooks/useAdmin';
+import { useI18n } from '../contexts/I18nContext';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -210,6 +211,7 @@ const ChangeDiff = ({ oldVal, newVal, collapsed }: { oldVal?: string; newVal?: s
 // ── Log row ────────────────────────────────────────────────────────────────────
 
 const LogRow = ({ log, avatarUrl }: { log: AuditLog; avatarUrl?: string }) => {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const hasDetail = !!(log.oldValue || log.newValue);
   const style = actionStyle(log.action);
@@ -243,7 +245,7 @@ const LogRow = ({ log, avatarUrl }: { log: AuditLog; avatarUrl?: string }) => {
             {/* Who */}
             <div className="flex items-center gap-2 min-w-0">
               <span className="text-sm font-semibold text-gray-900 truncate">
-                {log.performedByName || 'Unknown'}
+                {log.performedByName || t('common.na')}
               </span>
               {log.performedByEmail && (
                 <span className="text-xs text-gray-400 truncate hidden sm:block">{log.performedByEmail}</span>
@@ -374,6 +376,7 @@ const ENTITY_OPTIONS = Object.keys(ENTITY_META);
 // ── Main page ──────────────────────────────────────────────────────────────────
 
 const AuditLogsPage = () => {
+  const { t } = useI18n();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [filterUser, setFilterUser]     = useState('');
@@ -464,11 +467,11 @@ const AuditLogsPage = () => {
   return (
     <Layout>
       <Header
-        title="Audit Log"
+        title={t('admin.audit.title')}
         subtitle="Every write operation — who changed what, and when"
         actions={
           <Button variant="outline" onClick={exportCsv} icon={<Download size={14} />}>
-            Export CSV
+            {t('common.export')}
           </Button>
         }
       />
@@ -478,10 +481,10 @@ const AuditLogsPage = () => {
         {/* Stats row */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: 'Today (this page)',   value: stats.today,       color: 'text-blue-600',    bg: 'bg-blue-50',    icon: <Clock size={14} className="text-blue-400" /> },
-            { label: 'Last 7 days (page)',  value: stats.week,        color: 'text-indigo-600',  bg: 'bg-indigo-50',  icon: <CalendarDays size={14} className="text-indigo-400" /> },
-            { label: 'Total events',        value: total,             color: 'text-gray-700',    bg: 'bg-gray-50',    icon: <FileText size={14} className="text-gray-400" /> },
-            { label: 'Users (this page)',   value: stats.activeUsers, color: 'text-emerald-600', bg: 'bg-emerald-50', icon: <Users size={14} className="text-emerald-400" /> },
+            { label: t('common.today'),        value: stats.today,       color: 'text-blue-600',    bg: 'bg-blue-50',    icon: <Clock size={14} className="text-blue-400" /> },
+            { label: 'Last 7 days (page)',     value: stats.week,        color: 'text-indigo-600',  bg: 'bg-indigo-50',  icon: <CalendarDays size={14} className="text-indigo-400" /> },
+            { label: t('common.total'),        value: total,             color: 'text-gray-700',    bg: 'bg-gray-50',    icon: <FileText size={14} className="text-gray-400" /> },
+            { label: t('admin.users.title'),   value: stats.activeUsers, color: 'text-emerald-600', bg: 'bg-emerald-50', icon: <Users size={14} className="text-emerald-400" /> },
           ].map(s => (
             <div key={s.label} className={`${s.bg} rounded-xl border border-gray-100 px-4 py-3 flex items-center gap-3`}>
               {s.icon}
@@ -498,16 +501,16 @@ const AuditLogsPage = () => {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Filter size={13} className="text-gray-400" />
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Filters</span>
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{t('common.filter')}</span>
             </div>
             <div className="flex items-center gap-2">
               {hasFilters && (
                 <button onClick={clearFilters} className="text-xs text-blue-600 hover:underline">
-                  Clear all
+                  {t('common.clear')}
                 </button>
               )}
               <button onClick={() => refetch()} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors">
-                <RefreshCw size={11} /> Refresh
+                <RefreshCw size={11} /> {t('common.refresh')}
               </button>
             </div>
           </div>
@@ -518,7 +521,7 @@ const AuditLogsPage = () => {
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
               <input
                 className="w-full pl-8 pr-3 py-2 text-xs border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-300/40 focus:border-blue-400"
-                placeholder="Search within page…"
+                placeholder={t('common.searchPlaceholder')}
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
@@ -532,7 +535,7 @@ const AuditLogsPage = () => {
                 value={filterUser}
                 onChange={e => { setFilterUser(e.target.value); setPage(1); }}
               >
-                <option value="">All users</option>
+                <option value="">{t('common.all')} {t('admin.users.title')}</option>
                 {userOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
               </select>
             </div>
@@ -545,7 +548,7 @@ const AuditLogsPage = () => {
                 value={filterAction}
                 onChange={e => { setFilterAction(e.target.value); setPage(1); }}
               >
-                <option value="">All actions</option>
+                <option value="">{t('common.all')} {t('nav.actions')}</option>
                 {ACTION_OPTIONS.map(a => (
                   <option key={a} value={a}>{a.replace(/_/g, ' ')}</option>
                 ))}
@@ -560,7 +563,7 @@ const AuditLogsPage = () => {
                 value={filterEntity}
                 onChange={e => { setFilterEntity(e.target.value); setPage(1); }}
               >
-                <option value="">All modules</option>
+                <option value="">{t('common.all')} modules</option>
                 {ENTITY_OPTIONS.map(e => (
                   <option key={e} value={e}>{entityMeta(e).label}</option>
                 ))}
@@ -595,7 +598,7 @@ const AuditLogsPage = () => {
         <div className="flex items-center justify-between">
           <p className="text-xs text-gray-500">
             {isLoading
-              ? 'Loading…'
+              ? t('common.loading')
               : `${total} event${total !== 1 ? 's' : ''}${hasFilters ? ' matching filters' : ''} — page ${page} of ${totalPages}`}
           </p>
         </div>
@@ -617,9 +620,9 @@ const AuditLogsPage = () => {
           </div>
         ) : logs.length === 0 ? (
           <EmptyState
-            title={hasFilters ? 'No events match your filters' : 'No audit events yet'}
+            title={hasFilters ? 'No events match your filters' : t('admin.audit.noLogs')}
             description={hasFilters ? 'Try adjusting or clearing the filters.' : 'Activity will appear here as your team uses the platform.'}
-            action={hasFilters ? <Button variant="outline" onClick={clearFilters}>Clear filters</Button> : undefined}
+            action={hasFilters ? <Button variant="outline" onClick={clearFilters}>{t('common.clear')}</Button> : undefined}
           />
         ) : (
           <>

@@ -345,7 +345,7 @@ const ProfilePage = () => {
 
   return (
     <Layout>
-      <Header title={t('profile.title')} subtitle="Manage your account settings and preferences" />
+      <Header title={t('profile.title')} subtitle={t('profile.subtitle')} />
       <div className="p-6 max-w-4xl space-y-5">
 
         {/* ── Hero card ─────────────────────────────────────────────────── */}
@@ -399,18 +399,18 @@ const ProfilePage = () => {
           {uploadAvatar.isSuccess && !uploadError && (
             <div className="px-6 pb-4">
               <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
-                <Check size={14} /> Profile picture updated
+                <Check size={14} /> {t('profile.pictureUpdated')}
               </div>
             </div>
           )}
         </div>
 
         {/* ── Name edit ─────────────────────────────────────────────────── */}
-        <Section title="Display Name" icon={User}>
+        <Section title={t('profile.name')} icon={User}>
           <form onSubmit={handleSubmit(onSave)} className="space-y-4">
             {saveSuccess && (
               <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
-                <Check size={14} /> Saved successfully
+                <Check size={14} /> {t('common.saveSuccess')}
               </div>
             )}
             <div>
@@ -421,7 +421,7 @@ const ProfilePage = () => {
             </div>
             <div className="flex justify-end">
               <Button type="submit" loading={isSubmitting} disabled={!isDirty} icon={<Save size={14} />} size="sm">
-                Save
+                {t('common.save')}
               </Button>
             </div>
           </form>
@@ -444,7 +444,7 @@ const ProfilePage = () => {
               <form onSubmit={handleExtSubmit(onExtSave)} className="space-y-4 mt-4">
                 {extSaveSuccess && (
                   <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
-                    <Check size={14} /> Details saved
+                    <Check size={14} /> {t('common.updateSuccess')}
                   </div>
                 )}
                 <div>
@@ -526,7 +526,7 @@ const ProfilePage = () => {
                 </div>
                 <div className="flex justify-end pt-1">
                   <Button type="submit" loading={isExtSubmitting} disabled={!isExtDirty} icon={<Save size={14} />} size="sm">
-                    Save details
+                    {t('common.save')}
                   </Button>
                 </div>
               </form>
@@ -709,7 +709,7 @@ const ProfilePage = () => {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2">
-                  <BarChart2 size={15} className="text-indigo-500" /> AI Performance Analysis
+                  <BarChart2 size={15} className="text-indigo-500" /> {t('ai.performance.title')}
                 </h3>
                 <p className="text-xs text-gray-500 max-w-sm leading-relaxed">
                   Get an AI-powered breakdown — star rating, factor scores, strengths, areas to improve, and personalised suggestions.
@@ -717,7 +717,7 @@ const ProfilePage = () => {
               </div>
               <button onClick={() => setShowPerfModal(true)}
                 className="shrink-0 inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-sm transition-colors whitespace-nowrap">
-                <BarChart2 size={13} /> Analyse
+                <BarChart2 size={13} /> {t('ai.analyze')}
               </button>
             </div>
           </div>
@@ -735,7 +735,7 @@ const ProfilePage = () => {
             </div>
             <button onClick={() => setShowAllPerms(v => !v)}
               className="flex items-center gap-1 text-xs text-blue-600 hover:underline font-medium">
-              {showAllPerms ? <><ChevronUp size={13} /> Show granted only</> : <><Eye size={13} /> Show all</>}
+              {showAllPerms ? <><ChevronUp size={13} /> {t('common.showLess')}</> : <><Eye size={13} /> {t('common.showMore')}</>}
             </button>
           </div>
           <div className="p-6 space-y-5">
@@ -778,7 +778,7 @@ const ProfilePage = () => {
             })}
             {!showAllPerms && (
               <p className="text-xs text-gray-400 text-center pt-1">
-                <button onClick={() => setShowAllPerms(true)} className="text-blue-500 hover:underline">Show all {totalCount} permissions</button>
+                <button onClick={() => setShowAllPerms(true)} className="text-blue-500 hover:underline">{t('common.showMore')} ({totalCount})</button>
               </p>
             )}
           </div>
