@@ -23,7 +23,6 @@ import { useI18n } from '../contexts/I18nContext';
 
 const RAG_COLORS  = { GREEN: '#22c55e', AMBER: '#f59e0b', RED: '#ef4444' };
 const RAG_LABELS  = { GREEN: 'On Track', AMBER: 'At Risk', RED: 'Delayed' };
-const CHART_COLORS = ['#6366f1', '#8b5cf6', '#a78bfa', '#c4b5fd'];
 
 // ─── Small helpers ─────────────────────────────────────────────────────────
 

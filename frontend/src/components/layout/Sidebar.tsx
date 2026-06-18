@@ -31,15 +31,16 @@ interface NavItem {
   permission?: string;    // hide item unless user has this permission
   permissions?: string[]; // hide item unless user has ANY of these permissions
   moduleKey?: string;     // gated by super-admin module toggle
+  tourId?: string;        // data-tour anchor for the app tour
 }
 
 const NAV_ITEMS: NavItem[] = [
   // ── Core ──────────────────────────────────────────────────────────────────────
-  { label: 'Dashboard', to: '/dashboard', icon: <LayoutDashboard size={18} /> },
+  { label: 'Dashboard', to: '/dashboard', icon: <LayoutDashboard size={18} />, tourId: 'nav-dashboard' },
 
   // ── Projects ──────────────────────────────────────────────────────────────────
   {
-    label: 'Projects', icon: <FolderKanban size={18} />, permission: PERMISSIONS.PROJECT_READ, moduleKey: 'projects',
+    label: 'Projects', icon: <FolderKanban size={18} />, permission: PERMISSIONS.PROJECT_READ, moduleKey: 'projects', tourId: 'nav-projects',
     children: [
       { label: 'All Projects',  to: '/projects',    icon: <FolderKanban size={16} />, permission: PERMISSIONS.PROJECT_READ },
       { label: 'My Tasks',      to: '/my-tasks',    icon: <CheckSquare size={16} />,  permission: PERMISSIONS.TASK_READ },
@@ -55,7 +56,7 @@ const NAV_ITEMS: NavItem[] = [
 
   // ── Daily Work ────────────────────────────────────────────────────────────────
   {
-    label: 'Daily Work', icon: <Clock size={18} />, permission: PERMISSIONS.STANDUP_SUBMIT, moduleKey: 'daily-work',
+    label: 'Daily Work', icon: <Clock size={18} />, permission: PERMISSIONS.STANDUP_SUBMIT, moduleKey: 'daily-work', tourId: 'nav-daily-work',
     children: [
       { label: 'Standup',       to: '/standup',       icon: <ClipboardList size={16} />, permission: PERMISSIONS.STANDUP_SUBMIT },
       { label: 'EOD',           to: '/eod',           icon: <BookOpen size={16} />,      permission: PERMISSIONS.EOD_SUBMIT },
@@ -65,7 +66,7 @@ const NAV_ITEMS: NavItem[] = [
 
   // ── People ────────────────────────────────────────────────────────────────────
   {
-    label: 'People', icon: <Users size={18} />, permission: PERMISSIONS.TEAM_READ, moduleKey: 'people',
+    label: 'People', icon: <Users size={18} />, permission: PERMISSIONS.TEAM_READ, moduleKey: 'people', tourId: 'nav-people',
     children: [
       { label: 'Attendance',    to: '/attendance',    icon: <CalendarDays size={16} />, permission: PERMISSIONS.ATTENDANCE_READ },
       { label: 'Leave',         to: '/leave',         icon: <CalendarDays size={16} />, permission: PERMISSIONS.LEAVE_READ },
@@ -81,7 +82,7 @@ const NAV_ITEMS: NavItem[] = [
 
   // ── Reports & AI ──────────────────────────────────────────────────────────────
   {
-    label: 'Reports & AI', icon: <BarChart3 size={18} />, permission: PERMISSIONS.REPORT_READ, moduleKey: 'reports',
+    label: 'Reports & AI', icon: <BarChart3 size={18} />, permission: PERMISSIONS.REPORT_READ, moduleKey: 'reports', tourId: 'nav-reports',
     children: [
       { label: 'Reports',            to: '/reports',            icon: <FileText size={16} />,  permission: PERMISSIONS.REPORT_READ },
 { label: 'Team Activity',      to: '/team-activity',      icon: <Timer size={16} />,     permission: PERMISSIONS.TIME_ANALYTICS },
@@ -117,7 +118,7 @@ const NAV_ITEMS: NavItem[] = [
     ],
   },
   // ── Support ───────────────────────────────────────────────────────────────────
-  { label: 'Bug Reports', to: '/bug-reports', icon: <AlertTriangle size={18} /> },
+  { label: 'Bug Reports', to: '/bug-reports', icon: <AlertTriangle size={18} />, tourId: 'nav-bugs' },
 
   // ── Help ──────────────────────────────────────────────────────────────────────
   { label: 'Help & Docs', to: '/help', icon: <BookOpen size={18} /> },
@@ -169,6 +170,7 @@ const SidebarNavItem = ({
           onClick={handleParentClick}
           title={collapsed ? displayLabel : undefined}
           aria-expanded={expanded}
+          data-tour={item.tourId}
           className={clsx(
             'sidebar-item w-full',
             collapsed ? 'justify-center px-0' : 'justify-between',
@@ -199,6 +201,7 @@ const SidebarNavItem = ({
       onClick={onClose}
       title={collapsed ? displayLabel : undefined}
       aria-label={displayLabel}
+      data-tour={item.tourId}
       className={({ isActive }) =>
         clsx(
           'sidebar-item text-sm',
@@ -430,6 +433,7 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
           onClick={onClose}
           title={collapsed ? t('nav.settings') : undefined}
           aria-label={t('nav.settings')}
+          data-tour="nav-settings"
           className={clsx(
             'sidebar-item mb-1 sidebar-item-inactive',
             collapsed && 'justify-center px-0',
@@ -445,6 +449,7 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
           onClick={onClose}
           title={collapsed ? user?.name : undefined}
           aria-label="My profile"
+          data-tour="nav-profile"
           className={clsx(
             'flex items-center rounded-xl hover:opacity-90 transition-opacity mb-1',
             collapsed ? 'justify-center p-2' : 'gap-2.5 p-2',

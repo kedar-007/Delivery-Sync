@@ -57,7 +57,7 @@ const en: Translations = {
     attendance: {
       title: "Today's Attendance", notCheckedIn: 'Not checked in yet',
       checkInNow: 'Check In Now', timeSinceCheckIn: 'Time since check-in',
-      checkedInAt: 'Checked in at {time}', checkOut: 'Check Out',
+      checkedInAt: 'Checked in at', checkOut: 'Check Out',
       labelIn: 'In', labelOut: 'Out', labelHours: 'Hours',
     },
     myTasks: {
@@ -312,11 +312,11 @@ const en: Translations = {
     title: 'Attendance', checkIn: 'Check In', checkOut: 'Check Out', markWfh: 'Mark WFH',
     status: { present: 'Present', absent: 'Absent', wfh: 'WFH', late: 'Late', halfDay: 'Half Day' },
     summary: { present: 'Present', absent: 'Absent', wfh: 'WFH', late: 'Late', totalHours: 'Total Hours' },
-    tabs: { today: 'Today', myRecord: 'My Record', team: 'Team', summary: 'Summary', wfh: 'WFH Requests' },
+    tabs: { today: 'Today', myRecord: 'My Record', team: 'Team', summary: 'Summary', wfh: 'Remote Work' },
     notCheckedIn: 'Not checked in', checkedIn: 'Checked in', checkedOut: 'Checked out',
     liveNow: 'Live Now', anomalies: 'Anomalies',
     wfhRequest: {
-      title: 'WFH Request', date: 'Date', reason: 'Reason', submit: 'Submit Request',
+      title: 'Remote Work Request', date: 'Date', reason: 'Reason', submit: 'Submit Request',
       pending: 'Pending', approved: 'Approved', rejected: 'Rejected',
     },
     export: 'Export', download: 'Download CSV',

@@ -20,6 +20,7 @@ const normaliseAttendance = (r: any) => ({
   workHours:           parseFloat(r.work_hours ?? r.workHours ?? 0),
   hoursWorked:         parseFloat(r.work_hours ?? r.hoursWorked ?? 0),
   isWfh:               r.is_wfh === 'true' || r.is_wfh === true || r.isWfh === true,
+  remoteWorkType:      r.remote_work_type  ?? r.remoteWorkType ?? '',
   wfhReason:           r.wfh_reason        ?? r.wfhReason    ?? '',
   checkInIp:           r.check_in_ip       ?? r.checkInIp    ?? '',
   isLocationVerified:  r.is_location_verified === 'true' || r.is_location_verified === true,
@@ -209,7 +210,10 @@ export const useCheckIn = () => {
   return useMutation({
     mutationFn: (data: unknown) => attendanceApi.checkIn(data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance'] }); toast.success('Checked in'); },
-    onError: (e: Error) => toast.error(e.message || 'Check-in failed'),
+    onError: (e: Error & { debug?: unknown }) => {
+      if (e.debug) { console.group('[Zone Debug] Check-in blocked'); console.table(e.debug); console.groupEnd(); }
+      toast.error(e.message || 'Check-in failed');
+    },
   });
 };
 
@@ -249,7 +253,10 @@ export const useBreakStart = () => {
   return useMutation({
     mutationFn: (data: unknown) => attendanceApi.breakStart(data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance'] }); toast.success('Break started'); },
-    onError: (e: Error) => toast.error(e.message || 'Failed to start break'),
+    onError: (e: Error & { debug?: unknown }) => {
+      if (e.debug) { console.group('[Zone Debug] Break-start blocked'); console.table(e.debug); console.groupEnd(); }
+      toast.error(e.message || 'Failed to start break');
+    },
   });
 };
 
@@ -259,7 +266,10 @@ export const useBreakEnd = () => {
   return useMutation({
     mutationFn: (data: unknown) => attendanceApi.breakEnd(data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance'] }); toast.success('Break ended'); },
-    onError: (e: Error) => toast.error(e.message || 'Failed to end break'),
+    onError: (e: Error & { debug?: unknown }) => {
+      if (e.debug) { console.group('[Zone Debug] Break-end blocked'); console.table(e.debug); console.groupEnd(); }
+      toast.error(e.message || 'Failed to end break');
+    },
   });
 };
 
@@ -279,6 +289,7 @@ const normaliseWfhRequest = (r: any) => ({
   userId:        r.user_id        ?? r.userId,
   wfhDate:       r.wfh_date       ?? r.wfhDate,
   wfhDateTo:     r.wfh_date_to    ?? r.wfhDateTo ?? '',
+  requestType:   (r.request_type  ?? r.requestType ?? 'WFH').toUpperCase(),
   reviewedBy:    r.reviewed_by    ?? r.reviewedBy    ?? '',
   reviewerNotes: r.reviewer_notes ?? r.reviewerNotes ?? '',
   reviewedAt:    r.reviewed_at    ?? r.reviewedAt    ?? null,
@@ -750,6 +761,19 @@ export const useSetLeaveBalance = () => {
       toast.success('Leave balance updated');
     },
     onError: (e: Error) => toast.error(e.message || 'Failed to update leave balance'),
+  });
+};
+
+export const useDeleteLeaveBalance = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (balanceId: string) => leaveApi.deleteBalance(balanceId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['leave', 'balance'] });
+      toast.success('Leave balance deleted');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to delete leave balance'),
   });
 };
 

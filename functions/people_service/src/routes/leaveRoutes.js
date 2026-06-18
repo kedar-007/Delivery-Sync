@@ -12,10 +12,11 @@ router.post('/types',                         RBACMiddleware.require(PERMISSIONS
 router.put('/types/:typeId',                  RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).updateType(req, res));
 
 // ── Leave Balance — specific routes BEFORE dynamic /:userId ──────────────────
-router.get('/balance/all',                    RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).getAllBalances(req, res));  
-router.post('/balance/set',                   RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).setBalance(req, res));     
+router.get('/balance/all',                    RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).getAllBalances(req, res));
+router.post('/balance/set',                   RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).setBalance(req, res));
+router.delete('/balance/:balanceId',          RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).deleteBalance(req, res));
 router.get('/balance',                        RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    (req, res) => ctrl(req).getBalance(req, res));
-router.get('/balance/:userId',                RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    (req, res) => ctrl(req).getBalance(req, res));     
+router.get('/balance/:userId',                RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    (req, res) => ctrl(req).getBalance(req, res));
 
 // ── Leave Requests ────────────────────────────────────────────────────────────
 router.get('/requests',                       RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    (req, res) => ctrl(req).listRequests(req, res));

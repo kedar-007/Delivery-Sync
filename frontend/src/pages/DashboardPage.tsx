@@ -6,7 +6,7 @@ import {
   Layers, ChevronRight, Calendar, Zap, Users,
   AlertCircle, Star, Bell, Award, TrendingUp, TrendingDown,
   Activity, ShieldAlert, ClipboardList, Briefcase,
-  Target, BarChart, Flame, Coffee, CheckCheck,
+  Target, BarChart, Flame, Coffee, CheckCheck, Home, MapPin,
 } from 'lucide-react';
 import {
   ResponsiveContainer, PieChart, Pie, Cell,
@@ -29,7 +29,7 @@ import {
   useMyAttendanceRecord, useCheckIn, useCheckOut,
   useLeaveBalance, useLeaveRequests, useAttendanceSummary,
   useAttendanceLive, useAttendanceNotCheckedIn,
-  useAnnouncements,
+  useAnnouncements, useWfhRequests,
 } from '../hooks/usePeople';
 import UserAvatar from '../components/ui/UserAvatar';
 import { useTasks, useMyTasks } from '../hooks/useTaskSprint';
@@ -76,11 +76,96 @@ function CheckInWidget() {
 
   const elapsed = useElapsedTimer(isCheckedIn && !isCheckedOut ? today?.checkInTime : undefined);
 
-  const handleCheckIn = async () => {
-    try { setError(''); await checkIn.mutateAsync({}); } catch (e: unknown) { setError((e as Error).message); }
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const { data: myWfhRequests = [] } = useWfhRequests({ mine: 'true' });
+  const todayApprovedRemote = (myWfhRequests as any[]).find((r: any) => {
+    if (r.status !== 'APPROVED') return false;
+    const from = r.wfhDate ?? r.wfh_date ?? '';
+    const to   = r.wfhDateTo ?? r.wfh_date_to ?? from;
+    return from <= todayStr && todayStr <= (to || from);
+  });
+
+  const getGpsCoords = (): Promise<{ coords: { latitude: number; longitude: number } | null; errorCode: number }> => {
+    return new Promise((resolve) => {
+      console.warn('[GPS] ── starting location request ──────────────────────');
+      console.log('[GPS] protocol:', window.location.protocol, '| host:', window.location.host);
+      console.log('[GPS] geolocation API:', !!navigator?.geolocation ? 'available' : 'NOT AVAILABLE');
+      if (!navigator?.geolocation) {
+        console.error('[GPS] navigator.geolocation undefined — not HTTPS or unsupported browser');
+        resolve({ coords: null, errorCode: 2 });
+        return;
+      }
+      if (navigator.permissions) {
+        navigator.permissions.query({ name: 'geolocation' }).then((s) => {
+          console.warn('[GPS] permission state:', s.state, s.state === 'denied' ? '← BLOCKED — go to site settings to allow' : '');
+        }).catch(() => {});
+      }
+      const onSuccess = (pos: GeolocationPosition) => {
+        const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+        console.warn('[GPS] ✓ position obtained — lat:', coords.latitude, 'lon:', coords.longitude, '| accuracy:', pos.coords.accuracy, 'm | cache age:', Math.round((Date.now() - pos.timestamp) / 1000), 's');
+        resolve({ coords, errorCode: 0 });
+      };
+      console.warn('[GPS] attempt 1 — timeout=15s maxAge=5min …');
+      navigator.geolocation.getCurrentPosition(
+        onSuccess,
+        (err) => {
+          const r: Record<number, string> = { 1: 'PERMISSION_DENIED', 2: 'POSITION_UNAVAILABLE', 3: 'TIMEOUT' };
+          console.warn('[GPS] attempt 1 failed:', r[err.code] ?? err.message, '(code', err.code + ')');
+          if (err.code === 1) {
+            console.error('[GPS] location access blocked — go to browser site settings and allow location');
+            resolve({ coords: null, errorCode: 1 });
+            return;
+          }
+          console.warn('[GPS] attempt 2 — using any cached position (maxAge=Infinity) …');
+          navigator.geolocation.getCurrentPosition(
+            onSuccess,
+            (err2) => {
+              console.error('[GPS] attempt 2 failed:', r[err2.code] ?? err2.message, '(code', err2.code + ')');
+              resolve({ coords: null, errorCode: err.code ?? 2 });
+            },
+            { timeout: 5000, maximumAge: Infinity, enableHighAccuracy: false },
+          );
+        },
+        { timeout: 15000, maximumAge: 300000, enableHighAccuracy: false },
+      );
+    });
   };
+
+  const handleCheckIn = async () => {
+    // If there's an approved remote-work request for today, skip GPS and use that approval
+    if (todayApprovedRemote) { handleRemoteCheckIn(); return; }
+    try {
+      setError('');
+      console.warn('[CheckIn] ── check-in button clicked (dashboard widget) ──────────────────────');
+      const { coords, errorCode } = await getGpsCoords();
+      const payload: Record<string, unknown> = { client_time: new Date().toLocaleString('sv'), ...(coords ?? {}) };
+      if (!coords) payload.gps_error_code = errorCode;
+      if (coords) {
+        console.warn('[CheckIn] GPS coords included in payload → server validates against geo-zones');
+      } else {
+        console.warn('[CheckIn] no GPS coords (error code', errorCode, ') → server falls back to IP-geo');
+      }
+      console.warn('[CheckIn] payload sent to server:', JSON.stringify(payload));
+      await checkIn.mutateAsync(payload);
+    } catch (e: unknown) { setError((e as Error).message); }
+  };
+
+  const handleRemoteCheckIn = async () => {
+    try {
+      setError('');
+      const reqType = (todayApprovedRemote?.request_type ?? todayApprovedRemote?.requestType ?? 'WFH').toUpperCase();
+      const isLegacyWfh = reqType === 'WFH' || reqType === '';
+      await checkIn.mutateAsync({
+        client_time:  new Date().toLocaleString('sv'),
+        is_wfh:       true,
+        remote_type:  isLegacyWfh ? undefined : reqType,
+        wfh_reason:   todayApprovedRemote?.reason ?? '',
+      });
+    } catch (e: unknown) { setError((e as Error).message); }
+  };
+
   const handleCheckOut = async () => {
-    try { setError(''); await checkOut.mutateAsync({}); } catch (e: unknown) { setError((e as Error).message); }
+    try { setError(''); await checkOut.mutateAsync({ client_time: new Date().toLocaleString('sv') }); } catch (e: unknown) { setError((e as Error).message); }
   };
 
   return (
@@ -107,15 +192,41 @@ function CheckInWidget() {
             <Coffee size={22} className="text-gray-300" />
             <p className="text-xs text-gray-500">{t('dashboard.attendance.notCheckedIn')}</p>
           </div>
-          <Button
-            size="sm"
-            className="bg-green-600 hover:bg-green-700 text-white w-full justify-center"
-            icon={<LogIn size={14} />}
-            loading={checkIn.isPending}
-            onClick={handleCheckIn}
-          >
-            {t('dashboard.attendance.checkInNow')}
-          </Button>
+          <div className="flex gap-2 w-full">
+            <Button
+              size="sm"
+              className="bg-green-600 hover:bg-green-700 text-white flex-1 justify-center"
+              icon={<LogIn size={14} />}
+              loading={checkIn.isPending}
+              onClick={handleCheckIn}
+            >
+              {t('dashboard.attendance.checkInNow')}
+            </Button>
+            {todayApprovedRemote && (() => {
+              const reqType = (todayApprovedRemote.request_type ?? todayApprovedRemote.requestType ?? 'WFH').toUpperCase();
+              const isClientVisit = reqType === 'CLIENT_VISIT';
+              const isFieldWork   = reqType === 'FIELD_WORK';
+              const isOffsite     = reqType === 'OFFSITE';
+              const Icon  = isClientVisit ? Briefcase : isFieldWork || isOffsite ? MapPin : Home;
+              const label = isClientVisit ? 'Client Visit' : isFieldWork ? 'Field Work' : isOffsite ? 'Offsite' : 'WFH';
+              const style = isClientVisit
+                ? 'bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700'
+                : isFieldWork || isOffsite
+                  ? 'bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-700'
+                  : 'bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700';
+              return (
+                <button
+                  onClick={handleRemoteCheckIn}
+                  disabled={checkIn.isPending}
+                  title={`${label}: ${todayApprovedRemote.reason}`}
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-60 ${style}`}
+                >
+                  <Icon size={13} />
+                  {label}
+                </button>
+              );
+            })()}
+          </div>
         </div>
       )}
 
@@ -1862,7 +1973,6 @@ function TimeHistogramWidget({ showTeamView, tenantSlug }: { showTeamView: boole
     }
 
     const top = members.slice(0, 10);
-    const maxH = Math.max(...top.map((m: any) => m.total_hours), 1);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const summary: any = (teamData as any)?.summary ?? {};
     const period: any  = (teamData as any)?.period  ?? {};
@@ -2363,7 +2473,6 @@ function TimeThisWeekWidget({ tenantSlug }: { tenantSlug: string }) {
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
   const days = (week as any)?.days ?? [];
-  const hasAnyHours = days.some((d: any) => d.hours > 0);
 
   if (!week || days.length === 0) {
     return (
@@ -2697,7 +2806,6 @@ function DynamicKpiStrip({ summary, tenantSlug, tasks, todayHours, weekHours }: 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 
 const DashboardPage = () => {
-  const { t } = useI18n();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const slug = tenantSlug ?? '';
   const { user } = useAuth();

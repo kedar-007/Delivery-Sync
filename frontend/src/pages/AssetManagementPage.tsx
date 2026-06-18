@@ -1,5 +1,4 @@
 import React, { useState, useMemo } from 'react';
-import { useParams } from 'react-router-dom';
 import {
   Package, Plus, Edit2, Wrench, CheckCircle2, XCircle,
   RotateCcw, AlertTriangle, Calendar, Tag, Upload, ChevronRight, ChevronLeft, MapPin,
@@ -14,7 +13,6 @@ import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import { useI18n } from '../contexts/I18nContext';
 import Button from '../components/ui/Button';
-import Card from '../components/ui/Card';
 import Modal, { ModalActions } from '../components/ui/Modal';
 import Alert from '../components/ui/Alert';
 import Badge from '../components/ui/Badge';
@@ -27,7 +25,7 @@ import {
   useAssetCategories, useCreateCategory, useAssetInventory, useAvailableAssets, useMyAssets,
   useCreateAsset, useUpdateAsset, useBulkCreateAssets,
   useAssetRequests, useRequestAsset, useUpdateAssetRequest, useApproveAssetRequest, useRejectAssetRequest,
-  useAssignOpsRequest, useStartProcessingRequest, useHandoverAssetRequest,
+  useStartProcessingRequest, useHandoverAssetRequest,
   useInitiateReturn, useVerifyReturn, useRejectReturn,
   useAssetMaintenance, useScheduleMaintenance, useCompleteMaintenance,
   useAssignableUsers, useAssetOrgRoles,
@@ -3445,7 +3443,6 @@ type Tab = 'my-assets' | 'inventory' | 'requests' | 'maintenance';
 const AssetManagementPage = () => {
   const { t } = useI18n();
   const { user } = useAuth();
-  const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const [activeTab, setActiveTab] = useState<Tab>('my-assets');
 
   const isAdmin      = hasPermission(user, PERMISSIONS.ASSET_ADMIN);

@@ -2,13 +2,12 @@ import React, { useState, useCallback } from 'react';
 import {
   Brain, Sparkles, Activity, Users, FileText, Lightbulb,
   RefreshCw, Download, ChevronDown, ChevronUp,
-  AlertTriangle, CheckCircle, Clock, TrendingUp, TrendingDown,
-  Minus, Zap, Shield, BarChart2, Search, ArrowUpRight, ArrowDownRight,
+  AlertTriangle, CheckCircle, TrendingUp, TrendingDown,
+  Minus, Zap, Shield, BarChart2, Search, ArrowUpRight,
   RotateCcw, MessageSquare, History,
 } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
-import { PageLoader } from '../components/ui/Spinner';
 import Alert from '../components/ui/Alert';
 import ProjectPicker from '../components/ui/ProjectPicker';
 import MarkdownText from '../components/ui/MarkdownText';
@@ -322,10 +321,6 @@ const SeverityBadge = ({ severity }: { severity: string }) => {
 
 // ─── Permission-based visibility ─────────────────────────────────────────────
 
-const ROLE_BANNER: Record<string, { titleKey: string; descKey: string } | undefined> = {
-  TEAM_MEMBER: { titleKey: 'TEAM_MEMBER_title', descKey: 'TEAM_MEMBER_desc' },
-  CLIENT:      { titleKey: 'CLIENT_title',      descKey: 'CLIENT_desc' },
-};
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
@@ -366,7 +361,7 @@ const AiInsightsPage = () => {
   const [trendDays, setTrendDays]    = useState(14);
   const [reportType, setReportType]  = useState<'daily' | 'weekly' | 'project'>('weekly');
   const [dateFrom, setDateFrom]      = useState(daysAgo(7));
-  const [dateTo, setDateTo]          = useState(today());
+  const [dateTo]                      = useState(today());
   const [sprintStart, setSprintStart]= useState(daysAgo(14));
   const [sprintEnd, setSprintEnd]    = useState(today());
   const [nlQuery, setNlQuery]        = useState('');
@@ -390,15 +385,24 @@ const AiInsightsPage = () => {
 
   const params = { projectId: projectId || undefined };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const runSummary       = useCallback(() => summary.mutate({ ...params, date }),                                [projectId, date]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const runHealth        = useCallback(() => health.mutate(params),                                             [projectId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const runPerf          = useCallback(() => perf.mutate({ ...params, days }),                                  [projectId, days]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const runReport        = useCallback(() => report.mutate({ ...params, type: reportType, dateFrom, dateTo }),  [projectId, reportType, dateFrom, dateTo]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const runSuggests      = useCallback(() => suggests.mutate(params),                                           [projectId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const runBlockers      = useCallback(() => blockerDetect.mutate({ ...params, days: 7 }),                      [projectId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const runTrends        = useCallback(() => trends.mutate({ ...params, days: trendDays }),                     [projectId, trendDays]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const runRetro         = useCallback(() => retro.mutate({ ...params, sprintStart, sprintEnd }),                [projectId, sprintStart, sprintEnd]);
   const runNLQuery       = () => { if (nlQuery.trim().length >= 3) nlq.mutate({ ...params, query: nlQuery.trim() }); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const runHolistic      = useCallback(() => holistic.mutate({ days: holisticDays }),                            [holisticDays]);
 
   const runAll = () => {

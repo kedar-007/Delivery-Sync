@@ -37,8 +37,10 @@ class ResponseHelper {
   /**
    * 403 Forbidden – authenticated but not permitted
    */
-  static forbidden(res, message = 'Access denied') {
-    return res.status(403).json({ success: false, message });
+  static forbidden(res, message = 'Access denied', debug = null) {
+    const body = { success: false, message };
+    if (debug) body.debug = debug;
+    return res.status(403).json(body);
   }
 
   /**

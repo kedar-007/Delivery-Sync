@@ -1,5 +1,4 @@
 import React, { useState, useMemo } from 'react';
-import { useParams } from 'react-router-dom';
 import {
   Search, Trophy, Plus, Award, User, Briefcase, Link as LinkIcon,
   ChevronRight, Edit2, X, Upload, FileText, Camera, BarChart2,
@@ -1082,7 +1081,7 @@ const MyProfileTab = () => {
     }
   };
 
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } =
+  const { register, handleSubmit, reset, formState: { isSubmitting } } =
     useForm<UpdateProfileForm>();
 
   React.useEffect(() => {
@@ -1421,7 +1420,6 @@ const MyProfileTab = () => {
 
 const DirectoryPage = () => {
   const { t } = useI18n();
-  const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('Directory');
 

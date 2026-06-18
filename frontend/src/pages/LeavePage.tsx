@@ -31,6 +31,7 @@ import {
   useCalendarConfig,
   useAllLeaveBalances,
   useSetLeaveBalance,
+  useDeleteLeaveBalance,
   useLeavePolicy,
   useSaveLeavePolicy,
 } from '../hooks/usePeople';
@@ -539,7 +540,7 @@ const TeamRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
 
   const params: Record<string, string> = { team: 'true', ...(statusFilter ? { status: statusFilter } : {}) };
   const { data, isLoading, error } = useLeaveRequests(params);
-  const requests: LeaveRequest[] = (data as LeaveRequest[]) ?? [];
+  const requests: LeaveRequest[] = React.useMemo(() => (data as LeaveRequest[]) ?? [], [data]);
 
   // Unique users for the filter dropdown
   const userOptions = React.useMemo(() => {
@@ -2123,7 +2124,13 @@ export const LeaveBalancesTab = () => {
   const allUsers = usersData as Array<{ id: string; name: string; email: string }>;
 
   const setBalance = useSetLeaveBalance();
+  const deleteBalance = useDeleteLeaveBalance();
   const balances: BalanceRecord[] = raw as BalanceRecord[];
+
+  const handleDelete = (b: BalanceRecord) => {
+    if (!window.confirm(`Delete ${b.leaveTypeName} balance for ${b.userName ?? b.userId}? This cannot be undone.`)) return;
+    deleteBalance.mutate(b.id);
+  };
 
   // Use || not ?? so empty-string userName falls back to userId
   const getUserKey = (b: BalanceRecord) => b.userName || b.userId || 'Unknown';
@@ -2245,7 +2252,16 @@ export const LeaveBalancesTab = () => {
                         key={b.leaveTypeId}
                         className={`p-3.5 rounded-xl border ${col.bg} ${col.border} flex flex-col gap-2`}
                       >
-                        <p className="text-xs font-semibold text-gray-700 truncate">{b.leaveTypeName}</p>
+                        <div className="flex items-start justify-between gap-1">
+                          <p className="text-xs font-semibold text-gray-700 truncate">{b.leaveTypeName}</p>
+                          <button
+                            onClick={() => handleDelete(b)}
+                            className="p-0.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0"
+                            title="Delete balance"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
 
                         <div className="flex items-end justify-between">
                           <div>
@@ -2308,6 +2324,7 @@ export const LeaveBalancesTab = () => {
                   <th className="px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider w-36">
                     Usage
                   </th>
+                  <th className="px-4 py-3 w-10" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -2371,6 +2388,15 @@ export const LeaveBalancesTab = () => {
                               {Math.round(pct)}%
                             </span>
                           </div>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            onClick={() => handleDelete(b)}
+                            className="p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                            title="Delete balance"
+                          >
+                            <Trash2 size={13} />
+                          </button>
                         </td>
                       </tr>
                     );

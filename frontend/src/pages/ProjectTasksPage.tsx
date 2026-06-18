@@ -496,6 +496,7 @@ export default function ProjectTasksPage() {
         onClose={() => setLogTimeTask(null)}
         title={`Log Time — ${logTimeTask?.title ?? ''}`}
         size="sm"
+        closeOnBackdropClick={false}
       >
         <div className="space-y-4">
           {logError && <Alert type="error" message={logError} />}

@@ -17,7 +17,7 @@ import { useProjects } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
 import { Blocker } from '../types';
-import { canDo, PERMISSIONS } from '../utils/permissions';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { useI18n } from '../contexts/I18nContext';
 
 interface BlockerForm {
@@ -55,7 +55,7 @@ const BlockersPage = () => {
   if (filterStatus) params.status = filterStatus;
 
   const { user: currentUser } = useAuth();
-  const canWrite = canDo(currentUser?.role, PERMISSIONS.BLOCKER_WRITE);
+  const canWrite = hasPermission(currentUser, PERMISSIONS.BLOCKER_WRITE);
   const { data: blockers = [], isLoading } = useBlockers(params);
   const { data: projects = [] } = useProjects();
   const { data: users = [] } = useUsers();

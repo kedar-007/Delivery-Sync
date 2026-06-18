@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
-import { AlertTriangle, Trash2, ShieldOff, LogOut, Info, X } from 'lucide-react';
+import { AlertTriangle, Trash2, Info, X } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

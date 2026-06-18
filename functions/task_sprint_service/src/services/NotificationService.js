@@ -181,6 +181,14 @@ class NotificationService {
     });
   }
 
+  async sendMentionedInComment({ toEmail, toName, actorName, taskTitle, commentExcerpt, taskId }) {
+    return this.send({
+      toEmail,
+      subject: `${actorName} mentioned you in a comment`,
+      htmlBody: this._mentionedInCommentTemplate(toName, actorName, taskTitle, commentExcerpt, taskId),
+    });
+  }
+
   async sendDailySummary({ toEmail, toName, date, submitted, missed, projectName }) {
     return this.send({
       toEmail,
@@ -710,6 +718,35 @@ class NotificationService {
       ctaUrl: '/reports',
       ctaLabel: 'View Full Report',
       footerNote: 'This summary is sent to project leads each evening.',
+    });
+  }
+  _mentionedInCommentTemplate(name, actorName, taskTitle, commentExcerpt, taskId) {
+    const ctaUrl = taskId ? `/my-tasks?taskId=${encodeURIComponent(taskId)}` : '/my-tasks';
+    const body = `
+      <p style="font-size:15px;color:#374151;margin:0 0 20px;">Hi <strong>${name}</strong>,</p>
+      <p style="font-size:14px;color:#6b7280;margin:0 0 8px;">
+        <strong style="color:#374151;">${actorName}</strong> mentioned you in a comment on a task.
+      </p>
+      ${this._infoCard([
+        ['Task', taskTitle],
+      ])}
+      <div style="background:#eef2ff;border-left:4px solid #4f46e5;border-radius:0 6px 6px 0;padding:14px 16px;margin:20px 0;">
+        <p style="margin:0 0 4px;font-size:11px;font-weight:700;color:#4338ca;text-transform:uppercase;letter-spacing:0.8px;">Comment</p>
+        <p style="margin:0;font-size:14px;color:#312e81;line-height:1.6;">"${commentExcerpt}"</p>
+      </div>
+      <p style="font-size:13px;color:#9ca3af;margin:0;">
+        Open the task to read the full conversation and reply.
+      </p>`;
+
+    return this._base({
+      accentColor: '#4f46e5',
+      preheader: `${actorName} mentioned you: "${taskTitle}"`,
+      headerTitle: 'You Were Mentioned',
+      headerSubtitle: `In a comment on: ${taskTitle}`,
+      body,
+      ctaUrl,
+      ctaLabel: 'View Task',
+      footerNote: 'You received this because someone @mentioned you in a comment.',
     });
   }
 }

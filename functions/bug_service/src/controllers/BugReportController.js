@@ -14,6 +14,20 @@ function flattenRows(raw) {
   return (raw || []).map((r) => Object.assign({}, ...Object.values(r)));
 }
 
+// Returns true if the user is an admin by role OR by explicit BUG_REPORT_READ_ALL grant.
+function _hasBugAdminAccess(currentUser) {
+  const { role, permissions = [] } = currentUser;
+  return ADMIN_ROLES.includes(role) || role === 'SUPER_ADMIN'
+    || permissions.includes('BUG_REPORT_READ_ALL');
+}
+
+// Returns true if the user can manage bug report config (BUG_REPORT_CONFIG grant).
+function _hasBugConfigAccess(currentUser) {
+  const { role, permissions = [] } = currentUser;
+  return role === 'TENANT_ADMIN' || role === 'SUPER_ADMIN'
+    || permissions.includes('BUG_REPORT_CONFIG');
+}
+
 class BugReportController {
   constructor(catalystApp) {
     this.catalystApp = catalystApp;
@@ -361,7 +375,7 @@ class BugReportController {
     console.log(`[BugReportCtrl] listReports Step 1 — userId=${userId} tenantId=${tenantId} role=${role} page=${pageNum} limit=${limitNum}`);
 
     const isSuperAdmin = role === 'SUPER_ADMIN';
-    const isAdmin = isSuperAdmin || ADMIN_ROLES.includes(role);
+    const isAdmin = _hasBugAdminAccess(req.currentUser);
     console.log(`[BugReportCtrl] listReports Step 2 — isAdmin=${isAdmin} isSuperAdmin=${isSuperAdmin}`);
 
     // Build WHERE clause — super admins see all tenants
@@ -445,7 +459,7 @@ class BugReportController {
         return ResponseHelper.forbidden(res, 'Access denied');
       }
       // Non-admins can only see their own reports
-      const isAdmin = ADMIN_ROLES.includes(role);
+      const isAdmin = _hasBugAdminAccess(req.currentUser);
       if (!isAdmin && String(report.reporter_id) !== String(userId)) {
         console.warn(`[BugReportCtrl] getReport Step 2 ✗ — non-admin accessing another user's report`);
         return ResponseHelper.forbidden(res, 'Access denied');
@@ -481,7 +495,7 @@ class BugReportController {
     console.log(`[BugReportCtrl] updateReport Step 1 — reportId=${reportId} role=${role}`);
 
     // Admin only
-    if (!isSuperAdmin && !ADMIN_ROLES.includes(role)) {
+    if (!_hasBugAdminAccess(req.currentUser)) {
       console.warn(`[BugReportCtrl] updateReport ✗ — role ${role} is not permitted`);
       return ResponseHelper.forbidden(res, 'Admin access required to update reports');
     }
@@ -568,7 +582,7 @@ class BugReportController {
 
     console.log(`[BugReportCtrl] listAllReports Step 1 — role=${role} page=${pageNum} limit=${limitNum} all=${fetchAll}`);
 
-    if (!ADMIN_ROLES.includes(role) && !isSuperAdmin) {
+    if (!_hasBugAdminAccess(req.currentUser)) {
       console.warn(`[BugReportCtrl] listAllReports ✗ — role ${role} not permitted`);
       return ResponseHelper.forbidden(res, 'Admin access required');
     }
@@ -651,7 +665,7 @@ class BugReportController {
 
     console.log(`[BugReportCtrl] resolveReport Step 1 — reportId=${reportId} userId=${userId} role=${role}`);
 
-    if (role !== 'SUPER_ADMIN' && !ADMIN_ROLES.includes(role)) {
+    if (!_hasBugAdminAccess(req.currentUser)) {
       return ResponseHelper.forbidden(res, 'Admin access required');
     }
 
@@ -748,7 +762,7 @@ class BugReportController {
     }
 
     const isSuperAdmin = role === 'SUPER_ADMIN';
-    const isAdmin = isSuperAdmin || ADMIN_ROLES.includes(role);
+    const isAdmin = _hasBugAdminAccess(req.currentUser);
     const isReporter = String(report.reporter_id) === String(userId);
 
     if (!isAdmin && !isReporter) {
@@ -796,7 +810,7 @@ class BugReportController {
 
     console.log(`[BugReportCtrl] replyReport Step 1 — reportId=${reportId} userId=${userId}`);
 
-    if (role !== 'SUPER_ADMIN' && !ADMIN_ROLES.includes(role)) {
+    if (!_hasBugAdminAccess(req.currentUser)) {
       return ResponseHelper.forbidden(res, 'Admin access required');
     }
     if (!resolution_notes || !String(resolution_notes).trim()) {

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Bell, BellOff, CheckCheck, Trash2, X } from 'lucide-react';
+import { Bell, BellOff, CheckCheck, Trash2, X, AtSign } from 'lucide-react';
 import { useNotifications, useMarkRead, useMarkAllRead, useDeleteNotification } from '../../hooks/useNotifications';
 import type { Notification } from '../../hooks/useNotifications';
 
@@ -59,6 +59,7 @@ const typeColor: Record<string, string> = {
   ACTION_OVERDUE:     'bg-red-100 text-red-700',
   TEAM_UPDATED:       'bg-indigo-100 text-indigo-700',
   DAILY_SUMMARY:      'bg-cyan-100 text-cyan-700',
+  TASK_MENTIONED:     'bg-pink-100 text-pink-700',
   GENERAL:            'bg-ds-surface-hover text-ds-text-muted',
 };
 
@@ -218,6 +219,7 @@ const NotificationBell = () => {
   const navigate = useNavigate();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const [open, setOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'all' | 'mentions'>('all');
   const [muted, setMuted] = useState(() => {
     try { return localStorage.getItem(MUTE_KEY) === 'true'; } catch { return false; }
   });
@@ -262,6 +264,9 @@ const NotificationBell = () => {
 
   const notifications = data?.notifications ?? [];
   const unread        = data?.unreadCount ?? 0;
+  const mentions      = notifications.filter((n) => n.type === 'TASK_MENTIONED');
+  const mentionUnread = mentions.filter((n) => !n.isRead).length;
+  const visibleNotifs = activeTab === 'mentions' ? mentions : notifications;
 
   // Chime when new notifications arrive — skip until initial data loads
   // to avoid chiming on page reload when unread transitions from 0 (default) to actual count.
@@ -311,10 +316,9 @@ const NotificationBell = () => {
 
       {open && (
         <div className="absolute right-0 top-full mt-2 w-80 bg-ds-surface rounded-xl shadow-xl border border-ds-border z-50 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-ds-border">
-            <span className="text-sm font-semibold text-ds-text">
-              Notifications {unread > 0 && <span className="text-blue-600">({unread} new)</span>}
-            </span>
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-ds-border">
+            <span className="text-sm font-semibold text-ds-text">Notifications</span>
             <div className="flex items-center gap-2">
               {unread > 0 && (
                 <button onClick={() => markAll.mutate()} title="Mark all read" className="text-xs text-blue-600 hover:underline">
@@ -330,14 +334,31 @@ const NotificationBell = () => {
             </div>
           </div>
 
+          {/* Tab bar */}
+          <div className="flex border-b border-ds-border">
+            <button
+              onClick={() => setActiveTab('all')}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium border-b-2 transition-colors ${activeTab === 'all' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-ds-text-muted hover:text-ds-text'}`}>
+              <Bell size={11} /> All
+              {unread > 0 && <span className="ml-0.5 bg-blue-500 text-white text-[9px] font-bold rounded-full px-1 leading-4">{unread}</span>}
+            </button>
+            <button
+              onClick={() => setActiveTab('mentions')}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium border-b-2 transition-colors ${activeTab === 'mentions' ? 'border-pink-500 text-pink-600' : 'border-transparent text-ds-text-muted hover:text-ds-text'}`}>
+              <AtSign size={11} /> Mentions
+              {mentionUnread > 0 && <span className="ml-0.5 bg-pink-500 text-white text-[9px] font-bold rounded-full px-1 leading-4">{mentionUnread}</span>}
+            </button>
+          </div>
+
           <div className="max-h-96 overflow-y-auto">
-            {notifications.length === 0 ? (
+            {visibleNotifs.length === 0 ? (
               <div className="py-10 text-center text-sm text-ds-text-muted opacity-70">
-                <Bell size={24} className="mx-auto mb-2 opacity-30" />
-                No notifications yet
+                {activeTab === 'mentions'
+                  ? <><AtSign size={24} className="mx-auto mb-2 opacity-30" />No mentions yet</>
+                  : <><Bell size={24} className="mx-auto mb-2 opacity-30" />No notifications yet</>}
               </div>
             ) : (
-              notifications.map((n) => (
+              visibleNotifs.map((n) => (
                 <NotifRow
                   key={n.id}
                   n={n}

@@ -1990,6 +1990,7 @@ export default function BotWidget() {
     document.head.appendChild(el);
     setStylesInjected(true);
     return () => { el.remove(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load profile + quick actions on mount

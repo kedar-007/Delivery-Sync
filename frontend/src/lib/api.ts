@@ -452,10 +452,11 @@ const peopleClient = axios.create({
 });
 peopleClient.interceptors.response.use(
   (r) => r,
-  (error: AxiosError<{ success: boolean; message: string }>) => {
+  (error: AxiosError<{ success: boolean; message: string; debug?: unknown }>) => {
     const message = error.response?.data?.message || error.message || 'People service error';
-    const enhanced = new Error(message) as Error & { status?: number };
+    const enhanced = new Error(message) as Error & { status?: number; debug?: unknown };
     enhanced.status = error.response?.status;
+    enhanced.debug = error.response?.data?.debug;
     return Promise.reject(enhanced);
   }
 );
@@ -528,6 +529,7 @@ export const leaveApi = {
   saveCalendarConfig: (data: unknown) => peopleClient.put('/leave/calendar-config', data).then((r) => r.data.data),
   // Leave balance admin
   setBalance:         (data: unknown) => peopleClient.post('/leave/balance/set', data).then((r) => r.data.data),
+  deleteBalance:      (balanceId: string) => peopleClient.delete(`/leave/balance/${balanceId}`).then((r) => r.data.data),
   getAllBalances:      (params?: Record<string, string>) => peopleClient.get('/leave/balance/all', { params }).then((r) => r.data.data),
   // Leave accrual policy
   getLeavePolicy:     () => peopleClient.get('/leave/policy').then((r) => r.data.data),

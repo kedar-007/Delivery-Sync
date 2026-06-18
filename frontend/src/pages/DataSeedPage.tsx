@@ -260,7 +260,7 @@ const DataSeedPage = () => {
   const [runResult, setRunResult]     = useState<string | null>(null);
   const [clearResult, setClearResult] = useState<string | null>(null);
   const [error, setError]             = useState<string | null>(null);
-  const [progressDone, setProgressDone] = useState(false);
+  const [, setProgressDone] = useState(false);
   const [expandedGroups, setExpanded] = useState<Record<string, boolean>>(
     Object.fromEntries(MODULE_GROUPS.map((g) => [g.label, true]))
   );

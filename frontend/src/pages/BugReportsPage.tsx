@@ -15,8 +15,9 @@ import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
 import { PageLoader } from '../components/ui/Spinner';
 import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import {
-  useBugReports, useAllBugReports, useSubmitBugReport,
+  useBugReports, useAllBugReports,
   useUpdateBugReport, useResolveBugReport, useReplyBugReport,
   useReporterReplyBugReport, useBugConfig, useSaveBugConfig,
 } from '../hooks/useBugReports';
@@ -833,7 +834,9 @@ const ConfigPanel = ({ onClose }: { onClose: () => void }) => {
 export default function BugReportsPage() {
   const { t } = useI18n();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'TENANT_ADMIN' || user?.role === 'SUPER_ADMIN';
+  const isAdmin  = user?.role === 'TENANT_ADMIN' || user?.role === 'SUPER_ADMIN'
+    || hasPermission(user, PERMISSIONS.BUG_REPORT_READ_ALL);
+  const canConfig = isAdmin || hasPermission(user, PERMISSIONS.BUG_REPORT_CONFIG);
 
   const [tab, setTab]           = useState<'mine' | 'all'>('mine');
   const [search, setSearch]     = useState('');
@@ -901,7 +904,7 @@ export default function BugReportsPage() {
         subtitle={isAdmin ? `${stats.total} total reports across your organisation` : "Track issues you've reported"}
         actions={
           <div className="flex items-center gap-2">
-            {isAdmin && (
+            {canConfig && (
               <Button variant="outline" size="sm" icon={<Settings size={14} />}
                 onClick={() => setShowConfig((v) => !v)}>
                 {t('nav.settings')}
@@ -929,7 +932,7 @@ export default function BugReportsPage() {
         )}
 
         {/* Config panel (admin) */}
-        {showConfig && isAdmin && <ConfigPanel onClose={() => setShowConfig(false)} />}
+        {showConfig && canConfig && <ConfigPanel onClose={() => setShowConfig(false)} />}
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

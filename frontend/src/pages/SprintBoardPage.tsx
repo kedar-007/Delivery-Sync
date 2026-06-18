@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import { useForm, Controller } from 'react-hook-form';
+import { useForm } from 'react-hook-form';
 import {
   DndContext,
   DragOverlay,
@@ -14,9 +14,9 @@ import {
 } from '@dnd-kit/core';
 import {
   Plus, Calendar, MessageSquare, ChevronRight, ChevronDown,
-  AlertCircle, CheckCircle2, PlayCircle, Layers, Clock,
+  AlertCircle, CheckCircle2, PlayCircle, Clock,
   Filter, Search, User, Zap, BarChart2,
-  ArrowRight, Trash2, Edit2, GitBranch, Users, X, Timer, Paperclip, History,
+  ArrowRight, Trash2, Edit2, GitBranch, Users, X, Timer, Paperclip,
   Send, DollarSign, Ban,
 } from 'lucide-react';
 import { timeEntriesApi, aiApi } from '../lib/api';
@@ -25,13 +25,9 @@ import { format, isPast, parseISO, differenceInDays } from 'date-fns';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
-import Card from '../components/ui/Card';
-import Badge from '../components/ui/Badge';
 import Modal, { ModalActions } from '../components/ui/Modal';
-import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
 import { PageSkeleton } from '../components/ui/Skeleton';
-import UserAvatar from '../components/ui/UserAvatar';
 import MarkdownText from '../components/ui/MarkdownText';
 import { useConfirm } from '../components/ui/ConfirmDialog';
 import {
@@ -55,6 +51,27 @@ import { useI18n } from '../contexts/I18nContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import SprintAnalysisModal from '../components/ui/SprintAnalysisModal';
 import { useAiSprintAnalysis } from '../hooks/useAiInsights';
+import MentionTextArea from '../components/ui/MentionTextArea';
+
+// ── Mention renderer ─────────────────────────────────────────────────────────
+function renderCommentText(text: string, users: { id?: string; ROWID?: string; name?: string }[]): React.ReactNode {
+  if (!text) return null;
+  const parts = text.split(/(@[A-Za-z][A-Za-z ]*[A-Za-z]|@[A-Za-z]+)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('@')) {
+      const candidate = part.slice(1).trim();
+      const matched = users.find((u) => (u.name ?? '').toLowerCase() === candidate.toLowerCase());
+      if (matched) {
+        return (
+          <span key={i} className="inline-flex items-center gap-0.5 text-indigo-600 font-semibold bg-indigo-50 rounded px-1 leading-snug">
+            @{matched.name}
+          </span>
+        );
+      }
+    }
+    return <React.Fragment key={i}>{part}</React.Fragment>;
+  });
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -448,8 +465,8 @@ export default function SprintBoardPage() {
   const [searchQ, setSearchQ] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [commentText, setCommentText] = useState('');
+  const [mentionedIds, setMentionedIds] = useState<string[]>([]);
   // time logging
-  const [showLogTime, setShowLogTime] = useState(false);
   const [logTimeHours, setLogTimeHours] = useState('');
   const [logTimeDesc, setLogTimeDesc] = useState('');
   const [logTimeDate, setLogTimeDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -506,7 +523,7 @@ export default function SprintBoardPage() {
   const updateStatus = useUpdateTaskStatus();
   const deleteTask = useDeleteTask();
 
-  const sprintList: Sprint[] = Array.isArray(sprints) ? sprints : (sprints as any)?.data ?? [];
+  const sprintList: Sprint[] = useMemo(() => Array.isArray(sprints) ? sprints : (sprints as any)?.data ?? [], [sprints]);
   const users: unknown[] = Array.isArray(usersData) ? usersData : (usersData as any)?.data ?? [];
 
   // Auto-select active sprint
@@ -515,7 +532,7 @@ export default function SprintBoardPage() {
       const active = sprintList.find((s) => s.status === 'ACTIVE') ?? sprintList[0];
       setActiveSprint(active);
     }
-  }, [sprintList]);
+  }, [sprintList, activeSprint]);
 
   // Reset detail state when task changes; restore any running timer
   React.useEffect(() => {
@@ -554,9 +571,11 @@ export default function SprintBoardPage() {
   }, [detailTab, taskDetailId]);
 
 
-  const boardData = (board && typeof board === 'object' && !Array.isArray(board))
-    ? board as Record<string, Task[]>
-    : { TODO: [], IN_PROGRESS: [], IN_REVIEW: [], DONE: [] };
+  const boardData = useMemo(() =>
+    (board && typeof board === 'object' && !Array.isArray(board))
+      ? board as Record<string, Task[]>
+      : { TODO: [], IN_PROGRESS: [], IN_REVIEW: [], DONE: [] },
+  [board]);
 
   // Filter tasks
   const filteredBoard = useMemo(() => {
@@ -1219,6 +1238,7 @@ export default function SprintBoardPage() {
         onClose={() => { setTaskDetailId(null); setCommentText(''); setDetailTab('activity'); setAiInsight(null); }}
         title=""
         size="2xl"
+        closeOnBackdropClick={false}
       >
         {detailTask && (
           <div className="-mt-2">
@@ -1246,24 +1266,28 @@ export default function SprintBoardPage() {
                       <Clock size={11} /> {timerDisplay}
                     </span>
                   )}
+                  {/* Edit sits with the metadata — far from the close button to prevent accidental clicks */}
+                  <Button size="sm" variant="secondary" icon={<Edit2 size={12} />} onClick={() => { openEdit(detailTask); setTaskDetailId(null); }}>Edit</Button>
+                  {/* Delete needs TASK_WRITE (route guard) + creator-or-admin (backend enforces). */}
+                  {canCreateTask && (
+                    <Button size="sm" variant="danger" icon={<Trash2 size={12} />} loading={deleteTask.isPending}
+                      onClick={async () => {
+                        const ok = await confirm({ title: 'Delete Task', message: `"${detailTask.title}" will be permanently deleted.`, confirmText: 'Delete', variant: 'danger' });
+                        if (!ok) return;
+                        deleteTask.mutate(detailTask.id);
+                        setTaskDetailId(null);
+                      }}>Delete</Button>
+                  )}
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <Button size="sm" variant="secondary" icon={<Edit2 size={12} />} onClick={() => { openEdit(detailTask); setTaskDetailId(null); }}>Edit</Button>
-                {/* Delete needs TASK_WRITE (route guard) + creator-or-admin (backend
-                    enforces). Frontend just gates by TASK_WRITE so the button
-                    shows for everyone who could possibly succeed. */}
-                {canCreateTask && (
-                  <Button size="sm" variant="danger" icon={<Trash2 size={12} />} loading={deleteTask.isPending}
-                    onClick={() => { deleteTask.mutate(detailTask.id); setTaskDetailId(null); }}>Delete</Button>
-                )}
-                <button
-                  onClick={() => { setTaskDetailId(null); setCommentText(''); setDetailTab('activity'); setAiInsight(null); }}
-                  className="p-1.5 rounded-lg text-ds-text-muted hover:text-ds-text hover:bg-ds-border transition-colors ml-1"
-                >
-                  <X size={18} />
-                </button>
-              </div>
+              {/* Close button — top-right corner, red to be clearly intentional */}
+              <button
+                onClick={() => { setTaskDetailId(null); setCommentText(''); setDetailTab('activity'); setAiInsight(null); }}
+                className="p-1.5 rounded-lg text-white bg-red-500 hover:bg-red-600 transition-colors shrink-0"
+                title="Close"
+              >
+                <X size={18} />
+              </button>
             </div>
 
             {/* ── Two-column body ── */}
@@ -1279,39 +1303,29 @@ export default function SprintBoardPage() {
                     : <p className="text-sm text-ds-text-muted italic">No description provided.</p>}
                 </div>
 
-                {/* Assignees — user profile cards */}
-                <div>
-                  <div className="text-[11px] font-bold text-ds-text-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <Users size={11} /> Assigned To
-                  </div>
+                {/* Assignees — compact avatar row */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-bold text-ds-text-muted uppercase tracking-wider flex items-center gap-1">
+                    <Users size={11} /> Assignees:
+                  </span>
                   {((fullTask as any)?.assigneeIds?.length ?? detailTask.assigneeIds?.length ?? 0) > 0 ? (
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       {((fullTask as any)?.assigneeIds ?? detailTask.assigneeIds ?? []).map((uid: string) => {
                         const u = (users as any[]).find((x: any) => String(x.id ?? x.ROWID) === String(uid));
                         const name = u?.name ?? 'Unknown';
-                        const email = u?.email ?? '';
-                        const role = u?.role ?? '';
                         const avatar = u?.avatarUrl ?? '';
                         return (
-                          <div key={uid} className="flex items-center gap-2.5 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-gray-800 dark:to-gray-900 border border-indigo-100 rounded-xl px-3 py-2.5">
-                            <div className="w-9 h-9 rounded-xl bg-indigo-200 flex items-center justify-center text-sm font-bold text-indigo-800 shrink-0 overflow-hidden">
-                              {avatar
-                                ? <img src={avatar} alt={name} className="w-9 h-9 object-cover rounded-xl" />
-                                : name[0]?.toUpperCase()}
+                          <div key={uid} className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 rounded-full pl-0.5 pr-2.5 py-0.5">
+                            <div className="w-5 h-5 rounded-full bg-indigo-200 flex items-center justify-center text-[9px] font-bold text-indigo-800 shrink-0 overflow-hidden">
+                              {avatar ? <img src={avatar} alt={name} className="w-5 h-5 object-cover rounded-full" /> : name[0]?.toUpperCase()}
                             </div>
-                            <div className="min-w-0">
-                              <div className="text-xs font-bold text-gray-800 dark:text-white truncate">{name}</div>
-                              {email && <div className="text-[10px] text-ds-text-muted truncate">{email}</div>}
-                              {role && <div className="text-[10px] text-indigo-500 font-medium">{role.replace(/_/g, ' ')}</div>}
-                            </div>
+                            <span className="text-[11px] font-medium text-gray-700 truncate max-w-[90px]">{name}</span>
                           </div>
                         );
                       })}
                     </div>
                   ) : (
-                    <div className="flex items-center gap-2 text-xs text-ds-text-muted bg-ds-surface-hover rounded-xl px-3 py-2.5">
-                      <User size={13} className="text-ds-border" /> No one assigned yet
-                    </div>
+                    <span className="text-xs text-ds-text-muted italic">No one assigned</span>
                   )}
                 </div>
 
@@ -1382,7 +1396,9 @@ export default function SprintBoardPage() {
                                   <span className="text-xs font-semibold text-gray-800">{name}</span>
                                   <span className="text-[10px] text-ds-text-muted">{c.createdAt ? format(new Date(c.createdAt), 'MMM d, h:mm a') : ''}</span>
                                 </div>
-                                <p className="text-sm text-ds-text leading-snug">{c.content}</p>
+                                <p className="text-sm text-ds-text leading-snug">
+                                  {renderCommentText(c.content ?? '', users as any[])}
+                                </p>
                               </div>
                             </div>
                           );
@@ -1395,20 +1411,30 @@ export default function SprintBoardPage() {
                         )}
                       </div>
                       {/* Add comment */}
-                      <div className="flex gap-2.5 pt-2 border-t border-ds-border">
-                        <div className="w-7 h-7 rounded-full bg-indigo-500 flex items-center justify-center text-[10px] font-bold text-white shrink-0">
-                          {(user?.name ?? user?.email ?? 'U')[0]?.toUpperCase()}
-                        </div>
-                        <div className="flex-1 flex gap-2">
-                          <input
-                            className="flex-1 text-sm border border-ds-border rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-200 outline-none bg-ds-surface-hover focus:bg-white transition-colors"
-                            placeholder="Write a comment… (Enter to post)"
-                            value={commentText}
-                            onChange={(e) => setCommentText(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && commentText.trim()) { addComment.mutate({ content: commentText.trim() }); setCommentText(''); } }}
-                          />
+                      <div className="pt-2 border-t border-ds-border space-y-1.5">
+                        <MentionTextArea
+                          value={commentText}
+                          onChange={setCommentText}
+                          onMentionsChange={setMentionedIds}
+                          users={(users as any[]).map((u: any) => ({ id: String(u.id ?? u.ROWID), name: u.name ?? u.email ?? 'User', email: u.email, avatarUrl: u.avatarUrl }))}
+                          placeholder="Write a comment… Type @ to mention someone"
+                          rows={2}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey && commentText.trim()) {
+                              addComment.mutate({ content: commentText.trim(), mentionedUserIds: mentionedIds });
+                              setCommentText(''); setMentionedIds([]);
+                            }
+                          }}
+                        />
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-ds-text-muted">Enter to post • @ to mention</span>
                           <Button size="sm" disabled={!commentText.trim()} loading={addComment.isPending}
-                            onClick={() => { if (commentText.trim()) { addComment.mutate({ content: commentText.trim() }); setCommentText(''); } }}>
+                            onClick={() => {
+                              if (commentText.trim()) {
+                                addComment.mutate({ content: commentText.trim(), mentionedUserIds: mentionedIds });
+                                setCommentText(''); setMentionedIds([]);
+                              }
+                            }}>
                             Post
                           </Button>
                         </div>

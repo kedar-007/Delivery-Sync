@@ -22,7 +22,7 @@ import {
 import { useProjects } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
-import { canDo, PERMISSIONS } from '../utils/permissions';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 
 type Tab = 'risks' | 'issues' | 'dependencies' | 'assumptions';
 
@@ -41,7 +41,7 @@ const RaidPage = () => {
   const [renameError, setRenameError] = useState('');
 
   const { user: currentUser } = useAuth();
-  const canWrite = canDo(currentUser?.role, PERMISSIONS.RAID_WRITE);
+  const canWrite = hasPermission(currentUser, PERMISSIONS.RAID_WRITE);
   const { data: projects = [] } = useProjects();
   const { data: users = [] } = useUsers();
   const params: Record<string, string> = {};

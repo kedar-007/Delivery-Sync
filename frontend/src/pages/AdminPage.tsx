@@ -4,11 +4,11 @@ import { useForm } from 'react-hook-form';
 
 import {
   Plus, UserCheck, UserX, Shield, Search, RefreshCw,
-  ChevronDown, ChevronUp, Clock, User, Layers, Lock,
+  Clock, User, Layers, Lock,
   ChevronLeft, ChevronRight, Edit2, Check, X, KeyRound,
   GitBranch, Trash2, Settings, Users, Eye, Globe,
   LayoutDashboard, FolderKanban, Package, BarChart3, Briefcase,
-  Sparkles, AlertTriangle, MapPin,
+  MapPin,
 } from 'lucide-react';
 import { adminApi } from '../lib/api';
 import Layout from '../components/layout/Layout';
@@ -24,7 +24,7 @@ import { PageLoader } from '../components/ui/Spinner';
 import {
   useAdminUsers, useInviteUser, useDeactivateUser, useActivateUser, useUpdateAdminUser,
   useOrgRoles, useCreateOrgRole, useUpdateOrgRole, useDeleteOrgRole,
-  useSetOrgRolePermissions, useAssignUserOrgRole, useOrgChart, useAllPermissions,
+  useSetOrgRolePermissions, useAssignUserOrgRole, useOrgChart,
   useSharingRules, useSetDefaultVisibility, useAddExplicitSharingRule, useDeleteSharingRule,
   useOfficeLocations, useUpdateUserLocation,
 } from '../hooks/useAdmin';
@@ -32,7 +32,7 @@ import { useShifts, useCalendarConfig, useSaveCalendarConfig } from '../hooks/us
 import UserPermissionsModal from '../components/ui/UserPermissionsModal';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../components/ui/ConfirmDialog';
-import { canDo, hasPermission, PERMISSIONS, INVITE_ALLOWED_ROLES } from '../utils/permissions';
+import { hasPermission, PERMISSIONS, INVITE_ALLOWED_ROLES } from '../utils/permissions';
 import { COUNTRIES, TIMEZONES, TZ_GROUPS } from '../lib/locationData';
 import { User as UserType } from '../types';
 import UserPicker from '../components/ui/UserPicker';
@@ -70,9 +70,9 @@ const OrgRoleCard = ({
   const parent = allRoles.find((r) => r.id === role.parentRoleId);
 
   return (
-    <div className="bg-ds-surface rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
-      {/* colour bar */}
-      <div className="h-1.5 w-full" style={{ background: role.color }} />
+    <div className="bg-ds-surface rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+      {/* colour bar — rounded-t-xl so it clips cleanly without overflow-hidden on parent */}
+      <div className="h-1.5 w-full rounded-t-xl" style={{ background: role.color }} />
       <div className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -112,7 +112,7 @@ const OrgRoleCard = ({
 
         <div className="mt-3 flex items-center gap-3 flex-wrap text-xs text-gray-500">
           <span className="flex items-center gap-1">
-            <Users size={11} /> {role.userCount} {t('teams.members')}
+            <Users size={11} /> {t('teams.members', { count: role.userCount ?? 0 })}
           </span>
           <span className="flex items-center gap-1">
             <Settings size={11} /> {role.permissions.length} permissions
@@ -266,6 +266,7 @@ const SIDEBAR_MODULES = [
 
 // ─── Role Permissions Modal ───────────────────────────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const ROLE_PRESETS: Record<string, {
   label: string; emoji: string; summary: string; color: string; permissions: string[];
 }> = {
@@ -384,6 +385,7 @@ const ROLE_PRESETS: Record<string, {
   },
 };
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const detectRolePreset = (name: string, desc: string): string | null => {
   const t = (name + ' ' + desc).toLowerCase();
   if (/ceo|chief executive|president|managing director/.test(t)) return 'executive';
@@ -578,6 +580,7 @@ const CRUD_MODULES: CrudSection[] = [
   },
 ];
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const PRESET_COLORS: Record<string, { bg: string; border: string; text: string; btn: string }> = {
   violet:  { bg: 'bg-violet-50',  border: 'border-violet-200',  text: 'text-violet-800',  btn: 'bg-violet-100 text-violet-700 border-violet-200' },
   sky:     { bg: 'bg-sky-50',     border: 'border-sky-200',     text: 'text-sky-800',     btn: 'bg-sky-100 text-sky-700 border-sky-200' },
@@ -588,11 +591,6 @@ const PRESET_COLORS: Record<string, { bg: string; border: string; text: string; 
   orange:  { bg: 'bg-orange-50',  border: 'border-orange-200',  text: 'text-orange-800',  btn: 'bg-orange-100 text-orange-700 border-orange-200' },
 };
 
-const RISK_CHIP: Record<string, string> = {
-  low:    'bg-emerald-100 text-emerald-700',
-  medium: 'bg-amber-100 text-amber-700',
-  high:   'bg-red-100 text-red-700',
-};
 
 const RolePermissionsModal = ({
   open, onClose, role, onSave, saving,
@@ -601,18 +599,12 @@ const RolePermissionsModal = ({
   onSave: (perms: string[], moduleAccess: string[]) => void; saving: boolean;
 }) => {
   const { t } = useI18n();
-  const { data: permData } = useAllPermissions();
-  const groups: { group: string; keys: string[] }[] = permData?.groups ?? [];
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // moduleAccess = set of module keys that are DISABLED for this role
   const [disabledModules, setDisabledModules] = useState<Set<string>>(new Set());
   const [permTab, setPermTab] = useState<'modules' | 'permissions'>('modules');
   const [permSearch, setPermSearch] = useState('');
-  const [hoveredPerm, setHoveredPerm] = useState<string | null>(null);
-
-  const detectedPreset = role ? detectRolePreset(role.name, role.description) : null;
-  const preset = detectedPreset ? ROLE_PRESETS[detectedPreset] : null;
-  const presetClr = preset ? (PRESET_COLORS[preset.color] ?? PRESET_COLORS.violet) : null;
+  const [, setHoveredPerm] = useState<string | null>(null);
 
   React.useEffect(() => {
     if (open) {
@@ -635,29 +627,10 @@ const RolePermissionsModal = ({
   const toggle = (key: string) =>
     setSelected((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
 
-  const toggleGroup = (keys: string[]) => {
-    const allOn = keys.every((k) => selected.has(k));
-    setSelected((s) => { const n = new Set(s); keys.forEach((k) => allOn ? n.delete(k) : n.add(k)); return n; });
-  };
 
   const toggleModule = (mod: typeof SIDEBAR_MODULES[number]) => {
     setDisabledModules((s) => { const n = new Set(s); n.has(mod.key) ? n.delete(mod.key) : n.add(mod.key); return n; });
   };
-
-  const applyPreset = (key: string) => setSelected(new Set(ROLE_PRESETS[key]?.permissions ?? []));
-
-  const filteredGroups = groups
-    .map(({ group, keys }) => ({
-      group,
-      keys: permSearch.trim()
-        ? keys.filter((k) => {
-            const info = PERM_INFO[k];
-            return k.toLowerCase().includes(permSearch.toLowerCase()) ||
-                   (info?.label ?? '').toLowerCase().includes(permSearch.toLowerCase());
-          })
-        : keys,
-    }))
-    .filter(({ keys }) => keys.length > 0);
 
   const filteredCrudModules = CRUD_MODULES.map(({ section, rows }) => ({
     section,
@@ -677,10 +650,6 @@ const RolePermissionsModal = ({
       : rows,
   })).filter(({ rows }) => rows.length > 0);
 
-  const suggestedSet = preset ? new Set(preset.permissions) : null;
-  const matchCount   = preset ? preset.permissions.filter((p) => selected.has(p)).length : 0;
-  const missingPerms = preset ? preset.permissions.filter((p) => !selected.has(p)) : [];
-  const hovInfo = hoveredPerm ? PERM_INFO[hoveredPerm] : null;
 
   return (
     <Modal open={open} onClose={onClose} size="3xl">
@@ -1293,7 +1262,7 @@ const OrgChartView = () => {
               )}
             </div>
             <span className="text-xs text-gray-400">
-              {node.users.length} {t('teams.members')}
+              {t('teams.members', { count: node.users.length })}
             </span>
           </div>
         ) : (
@@ -1377,7 +1346,7 @@ const OrgChartView = () => {
                 </div>
               )}
               <span className="text-xs text-gray-400 w-12 text-right shrink-0">
-                {node.users?.length ?? 0} {t('teams.members')}
+                {t('teams.members', { count: node.users?.length ?? 0 })}
               </span>
             </div>
           ))}
@@ -2040,9 +2009,6 @@ const AdminPage = () => {
   const { data: shifts = [] } = useShifts();
   const { data: officeLocations = [] } = useOfficeLocations();
   const canManageLocations = hasPermission(currentUser, PERMISSIONS.LOCATION_ADMIN);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: calConfig } = useCalendarConfig() as { data: any };
-  const saveCalConfig = useSaveCalendarConfig();
 
   const filteredUsers = useMemo(() => {
     const q = userSearch.trim().toLowerCase();

@@ -2,10 +2,10 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import {
-  Settings, GitMerge, ToggleLeft, ToggleRight, Shield, FileText,
+  GitMerge, ToggleLeft, ToggleRight, Shield, FileText,
   CalendarDays, Award, Plus, Trash2, Edit2, CheckCircle2,
-  AlertCircle, ChevronDown, ChevronRight, Zap, Flag, Users,
-  Lock, Unlock, RefreshCw, Info, Star, GripVertical, Search, Bot, Bug, X, Layers, Building2,
+  AlertCircle, ChevronDown, ChevronRight, Zap, Flag,
+  Lock, RefreshCw, Info, Star, GripVertical, Search, Bot, Bug, X, Layers, Building2,
 } from 'lucide-react';
 import {
   DndContext,
@@ -71,22 +71,6 @@ const LEVEL_COLORS: Record<string, string> = {
 
 // ── Permissions definition ────────────────────────────────────────────────────
 
-const PERMISSIONS = [
-  { key: 'tasks.create',           label: 'Create Tasks',           group: 'Tasks' },
-  { key: 'tasks.edit',             label: 'Edit Tasks',             group: 'Tasks' },
-  { key: 'tasks.delete',           label: 'Delete Tasks',           group: 'Tasks' },
-  { key: 'tasks.assign',           label: 'Assign Tasks',           group: 'Tasks' },
-  { key: 'sprints.manage',         label: 'Manage Sprints',         group: 'Sprints' },
-  { key: 'time.approve',           label: 'Approve Time Entries',   group: 'Time' },
-  { key: 'time.log',               label: 'Log Time',               group: 'Time' },
-  { key: 'leave.approve',          label: 'Approve Leave',          group: 'Leave' },
-  { key: 'leave.request',          label: 'Request Leave',          group: 'Leave' },
-  { key: 'assets.manage',          label: 'Manage Assets',          group: 'Assets' },
-  { key: 'users.manage',           label: 'Manage Users',           group: 'Admin' },
-  { key: 'config.manage',          label: 'Manage Config',          group: 'Admin' },
-  { key: 'reports.view',           label: 'View Reports',           group: 'Reports' },
-  { key: 'announcements.create',   label: 'Create Announcements',   group: 'Comms' },
-];
 
 // ── Status color palette ──────────────────────────────────────────────────────
 
@@ -374,7 +358,6 @@ function WorkflowsTab() {
   const [wfStatuses, setWfStatuses]     = useState<StatusItem[]>([]);
   const [wfTransitions, setWfTransitions] = useState<TransitionItem[]>([]);
 
-  const form = useForm<{ name: string; entity_type: string }>();
 
   const workflows = Array.isArray(data) ? data : (data as any)?.data ?? [];
 
@@ -2018,6 +2001,7 @@ function OrganisationTab() {
 
   useEffect(() => {
     if (tenant?.name && !name) setName(tenant.name);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenant?.name]);
 
   const handleSave = async () => {
@@ -2109,7 +2093,8 @@ export default function AdminConfigPage() {
     } catch (e: unknown) {
       setSeedMsg(`${t('common.error')}: ${(e as Error).message}`);
     } finally { setSeeding(false); }
-  }, [openConfirm]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openConfirm, t]);
 
   const tabContent: Record<TabKey, React.ReactNode> = {
     organisation: <OrganisationTab />,

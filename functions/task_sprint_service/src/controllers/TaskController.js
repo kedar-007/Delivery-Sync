@@ -442,7 +442,7 @@ class TaskController {
 
   // POST /api/ts/tasks/:taskId/comments
   async addComment(req, res) {
-    const { content } = req.body;
+    const { content, mentionedUserIds } = req.body;
     if (!content) return ResponseHelper.validationError(res, 'content is required');
 
     const task = await this.db.findById(TABLES.TASKS, req.params.taskId, req.tenantId);
@@ -453,7 +453,7 @@ class TaskController {
       user_id: req.currentUser.id, content, is_edited: false,
     });
 
-    // Notify task creator (reporter substitute) — parse assignee_ids for multi-assignee notify
+    // Notify task creator + assignees about new comment
     const notifySet = new Set();
     if (task.created_by && String(task.created_by) !== String(req.currentUser.id)) notifySet.add(String(task.created_by));
     try {
@@ -462,6 +462,44 @@ class TaskController {
     } catch { /* ignore parse errors */ }
     for (const uid of notifySet) {
       await this.notif.sendInApp({ tenantId: req.tenantId, userId: uid, title: 'New Comment', message: `New comment on "${task.title}"`, type: NOTIFICATION_TYPE.TASK_COMMENT_ADDED, entityType: 'TASK', entityId: task.ROWID });
+    }
+
+    // High-priority mention notifications for @mentioned users (in-app + email)
+    const mentionIds = Array.isArray(mentionedUserIds) ? mentionedUserIds : [];
+    const actorName  = req.currentUser.name || req.currentUser.email || 'A team member';
+    for (const uid of mentionIds) {
+      if (String(uid) === String(req.currentUser.id)) continue;
+
+      // In-app
+      await this.notif.sendInApp({
+        tenantId: req.tenantId, userId: String(uid),
+        title: `${actorName} mentioned you`,
+        message: `You were mentioned in a comment on "${task.title}"`,
+        type: NOTIFICATION_TYPE.TASK_MENTIONED,
+        entityType: 'TASK', entityId: task.ROWID,
+        priority: 'HIGH',
+      });
+
+      // Email — fire-and-forget
+      try {
+        const userRows = await this.db.query(
+          `SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${DataStoreService.escape(String(uid))}' LIMIT 1`
+        );
+        const mentionedUser = userRows[0];
+        if (mentionedUser && mentionedUser.email) {
+          const excerpt = content.length > 200 ? content.slice(0, 197) + '…' : content;
+          await this.notif.sendMentionedInComment({
+            toEmail:        mentionedUser.email,
+            toName:         _escapeHtml(mentionedUser.name || 'there'),
+            actorName:      _escapeHtml(actorName),
+            taskTitle:      _escapeHtml(task.title || '(untitled)'),
+            commentExcerpt: _escapeHtml(excerpt),
+            taskId:         task.ROWID,
+          });
+        }
+      } catch (mailErr) {
+        console.warn('[TaskController.addComment] mention email failed (non-fatal):', mailErr.message);
+      }
     }
 
     return ResponseHelper.created(res, row);

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Edit2, Users, CheckSquare, AlertTriangle, Milestone, BarChart2, UserPlus, Trash2, ListChecks, Clock } from 'lucide-react';
-import UserAvatar from '../components/ui/UserAvatar';
 import UserHoverCard from '../components/ui/UserHoverCard';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
@@ -12,7 +11,7 @@ import Modal, { ModalActions } from '../components/ui/Modal';
 import { PageLoader } from '../components/ui/Spinner';
 import Alert from '../components/ui/Alert';
 import { useProjectDashboard } from '../hooks/useDashboard';
-import { useUpdateRAG, useUpdateProject, useProjectMembers, useAddMember, useRemoveMember, useAddTeamToProject } from '../hooks/useProjects';
+import { useUpdateRAG, useProjectMembers, useAddMember, useRemoveMember, useAddTeamToProject } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useTeams } from '../hooks/useTeams';
 import { useForm, Controller } from 'react-hook-form';
@@ -37,7 +36,6 @@ const ProjectDetailPage = () => {
 
   const { data, isLoading, error } = useProjectDashboard(projectId!);
   const updateRAG = useUpdateRAG(projectId!);
-  const updateProject = useUpdateProject(projectId!);
   const { data: members = [] } = useProjectMembers(projectId!);
   const { data: allUsers = [] } = useUsers();
   const { data: allTeams = [] } = useTeams();
@@ -356,7 +354,7 @@ const ProjectDetailPage = () => {
               <select className="form-select" {...addTeamForm.register('team_id', { required: true })}>
                 <option value="">{t('common.searchPlaceholder')}</option>
                 {(allTeams as any[]).map((team: any) => (
-                  <option key={team.id} value={team.id}>{team.name}{team.memberCount ? ` (${team.memberCount} ${t('teams.members').toLowerCase()})` : ''}</option>
+                  <option key={team.id} value={team.id}>{team.name}{team.memberCount ? ` (${t('teams.members', { count: team.memberCount })})` : ''}</option>
                 ))}
               </select>
               <p className="text-[11px] text-gray-400 mt-1">{t('teams.addTeamNote')}</p>

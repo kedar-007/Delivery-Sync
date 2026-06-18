@@ -232,7 +232,7 @@ const EodPage = () => {
     teamParams,
     { enabled: tab === 'team' && canSeeTeamEods }
   );
-  const teamEods       = teamResult?.data ?? [];
+  const teamEods       = React.useMemo(() => teamResult?.data ?? [], [teamResult?.data]);
   const teamPagination = teamResult?.pagination ?? null;
   const teamTotal      = teamPagination?.total ?? teamEods.length;
   const teamTotalPages = Math.max(1, teamPagination?.totalPages ?? Math.ceil(teamEods.length / teamPageSize));

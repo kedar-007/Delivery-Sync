@@ -1,9 +1,9 @@
 import React, { useCallback, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
-  ArrowLeft, Link as LinkIcon, CheckCheck, Download,
-  TrendingUp, AlertTriangle, CheckSquare, Milestone,
-  Users, BarChart2, FileText, Clock, Calendar,
+  ArrowLeft, Link as LinkIcon, CheckCheck,
+  AlertTriangle, CheckSquare, Milestone,
+  Users, FileText, Clock, Calendar,
 } from 'lucide-react';
 import { usePublicReport } from '../hooks/useReports';
 import { RAGBadge, StatusBadge } from '../components/ui/Badge';
@@ -84,7 +84,6 @@ const ReportDetailPage = () => {
   );
 
   const s: ReportSummary = report.summary ?? {} as ReportSummary;
-  const ragColor = s.ragStatus === 'RED' ? '#ef4444' : s.ragStatus === 'AMBER' ? '#f59e0b' : '#22c55e';
 
   return (
     <div className="min-h-screen bg-gray-50">

@@ -4,7 +4,7 @@ import {
   Shield, User, Users, CalendarDays, Clock, Search, Filter,
   RefreshCw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   Tag, FileText, Settings, MapPin, Key, Layers, Package,
-  ClipboardList, AlertTriangle, CheckCircle, XCircle, ArrowRight,
+  ClipboardList, CheckCircle, XCircle, ArrowRight,
   Download,
 } from 'lucide-react';
 import Layout from '../components/layout/Layout';
@@ -400,7 +400,7 @@ const AuditLogsPage = () => {
   const { data: users = [] } = useAdminUsers();
 
   // Unwrap paginated response — total is the real DB COUNT, not the page size.
-  const rawLogs    = (data as any)?.logs     ?? [] as AuditLog[];
+  const rawLogs    = useMemo(() => (data as any)?.logs ?? [] as AuditLog[], [data]);
   const total      = (data as any)?.total    ?? 0;
   const totalPages = (data as any)?.totalPages ?? 1;
 
@@ -439,14 +439,14 @@ const AuditLogsPage = () => {
   // Stats — total comes from the real DB COUNT; today/week/users are from the current page.
   const now = new Date();
   const todayStr  = now.toISOString().slice(0, 10);
-  const weekStart = new Date(now); weekStart.setDate(now.getDate() - 7);
+  const weekStart = useMemo(() => { const d = new Date(todayStr); d.setDate(d.getDate() - 7); return d; }, [todayStr]);
   const stats = useMemo(() => {
     const all = rawLogs as AuditLog[];
     const today     = all.filter(l => l.createdAt?.startsWith(todayStr)).length;
     const week      = all.filter(l => l.createdAt && new Date(l.createdAt) >= weekStart).length;
     const activeUsers = new Set(all.map(l => l.performedById).filter(Boolean)).size;
     return { today, week, activeUsers };
-  }, [rawLogs]);
+  }, [rawLogs, todayStr, weekStart]);
 
   // Export CSV (current page only when filters active, or remind user to use date filters for larger exports).
   const exportCsv = () => {

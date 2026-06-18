@@ -16,7 +16,6 @@ import { useProjectsPaginated, useSearchProjects, useCreateProject, useUpdatePro
 import Pagination from '../components/ui/Pagination';
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
-import { format } from 'date-fns';
 
 interface ProjectForm {
   name: string;
@@ -24,10 +23,6 @@ interface ProjectForm {
   start_date: string;
   end_date: string;
   rag_status: string;
-}
-
-interface RenameForm {
-  name: string;
 }
 
 const ProjectsPage = () => {
@@ -59,7 +54,6 @@ const ProjectsPage = () => {
   );
   const { data: searchData, isLoading: searchLoading, error: searchError } = useSearchProjects(debouncedSearch);
 
-  const isLoading = isSearchMode ? searchLoading : listLoading;
   const error = isSearchMode ? searchError : listError;
 
   const projects = isSearchMode

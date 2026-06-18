@@ -54,6 +54,7 @@ import AuditLogsPage from "./pages/AuditLogsPage";
 import OrgSetupPage from "./pages/OrgSetupPage";
 import { ConfirmProvider } from "./components/ui/ConfirmDialog";
 import { ToastProvider } from "./components/ui/Toast";
+import { TourProvider } from "./contexts/TourContext";
 
 // ── Permission-gated route wrapper ───────────────────────────────────────────
 // Redirects to /:tenantSlug/dashboard if the current user lacks `permission`.
@@ -233,7 +234,9 @@ const App = () => {
       <AuthProvider>
         <ConfirmProvider>
           <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-            <AppRoutes />
+            <TourProvider>
+              <AppRoutes />
+            </TourProvider>
           </HashRouter>
         </ConfirmProvider>
       </AuthProvider>

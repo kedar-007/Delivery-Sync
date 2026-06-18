@@ -5,6 +5,7 @@ const TABLES = Object.freeze({
   // Core app tables (shared across all services)
   USERS:                  'users',
   TENANTS:                'tenants',
+  PERMISSION_OVERRIDES:   'permission_overrides',
 
   // Bug-service-specific tables
   BUG_REPORTS:            'bug_reports',
