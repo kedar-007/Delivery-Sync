@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { LogIn, LogOut, Coffee, Clock, Home, UtensilsCrossed, AlertTriangle } from 'lucide-react';
+import { LogIn, LogOut, Coffee, Clock, Home, UtensilsCrossed, AlertTriangle, Briefcase, MapPin } from 'lucide-react';
 import Modal, { ModalActions } from './Modal';
 import Button from './Button';
 import {
@@ -77,7 +77,8 @@ const AttendanceWidget: React.FC = () => {
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const { data: myWfhRequests = [] } = useWfhRequests({ mine: 'true' });
-  const todayApprovedWfh = (myWfhRequests as any[]).find((r: any) => {
+  // Matches any approved remote-work request covering today (WFH, Client Visit, Field Work, Offsite)
+  const todayApprovedRemote = (myWfhRequests as any[]).find((r: any) => {
     if (r.status !== 'APPROVED') return false;
     const from = r.wfhDate ?? r.wfh_date ?? '';
     const to   = r.wfhDateTo ?? r.wfh_date_to ?? from;
@@ -89,96 +90,120 @@ const AttendanceWidget: React.FC = () => {
 
   // Request browser GPS coordinates — resolves to { latitude, longitude } or null if denied/unavailable.
   // Uses cached position (up to 60s old) to avoid blocking the UI.
-  const getGpsCoords = useCallback((): Promise<{ latitude: number; longitude: number } | null> => {
+  // Returns { coords, errorCode } — errorCode 0 means success, 1/2/3 are GeolocationPositionError codes.
+  // Returning the error code directly (not via React state) avoids the async-closure stale-state bug
+  // where setGpsErrorCode() hasn't committed before the caller reads gpsErrorCode.
+  const getGpsCoords = useCallback((): Promise<{ coords: { latitude: number; longitude: number } | null; errorCode: number }> => {
     return new Promise((resolve) => {
-      console.group('[Location] GPS request');
-      console.log('  protocol     :', window.location.protocol);
-      console.log('  host         :', window.location.host);
-      console.log('  geolocation  :', !!navigator?.geolocation ? 'available' : 'NOT available');
+      console.warn('[GPS] ── starting location request ──────────────────────');
+      console.log('[GPS] protocol:', window.location.protocol, '| host:', window.location.host);
+      console.log('[GPS] geolocation API:', !!navigator?.geolocation ? 'available' : 'NOT AVAILABLE');
 
       if (!navigator?.geolocation) {
-        console.warn('  ✗ navigator.geolocation is undefined — browser does not support it or page is not HTTPS');
-        console.groupEnd();
-        resolve(null);
+        console.error('[GPS] navigator.geolocation undefined — browser does not support it or page is not HTTPS');
+        resolve({ coords: null, errorCode: 2 });
         return;
       }
 
-      // Geolocation requires HTTPS (except localhost). Warn if that's the issue.
       const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       if (!isSecure) {
-        console.warn('  ✗ Page is served over HTTP (not HTTPS) — browser will block geolocation on non-localhost origins');
+        console.error('[GPS] page is HTTP (not HTTPS/localhost) — browser BLOCKS geolocation on non-localhost origins');
       }
 
-      // Check existing permission state if the Permissions API is available
       if (navigator.permissions) {
         navigator.permissions.query({ name: 'geolocation' }).then((status) => {
-          console.log('  permission state:', status.state); // 'granted' | 'denied' | 'prompt'
-          if (status.state === 'denied') {
-            console.warn('  ✗ Geolocation permission is DENIED — user must reset it in browser site settings');
-          }
+          console.warn('[GPS] permission state:', status.state, status.state === 'denied' ? '← BLOCKED — go to site settings to allow' : '');
         }).catch(() => {});
       }
 
-      console.log('  calling getCurrentPosition (timeout=8s, maxAge=60s)…');
+      const onSuccess = (pos: GeolocationPosition) => {
+        const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+        const ageMs = Date.now() - pos.timestamp;
+        console.warn('[GPS] ✓ position obtained — lat:', coords.latitude, 'lon:', coords.longitude, '| accuracy:', pos.coords.accuracy, 'm | cache age:', Math.round(ageMs / 1000), 's');
+        resolve({ coords, errorCode: 0 });
+      };
+
+      // Attempt 1: fresh or recently cached position (max 5 min old)
+      console.warn('[GPS] attempt 1 — timeout=15s maxAge=5min …');
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-          console.log('  ✓ GPS obtained:', coords);
-          console.log('    accuracy :', pos.coords.accuracy, 'm');
-          console.log('    age      :', Date.now() - pos.timestamp, 'ms (cached position if > 0)');
-          console.groupEnd();
-          resolve(coords);
-        },
+        onSuccess,
         (err) => {
-          const reasons: Record<number, string> = {
-            1: 'PERMISSION_DENIED — user blocked location access',
-            2: 'POSITION_UNAVAILABLE — device cannot determine location',
-            3: 'TIMEOUT — took longer than 8s to get position',
-          };
-          console.warn('  ✗ GPS failed:', reasons[err.code] ?? err.message);
-          console.warn('    error code:', err.code, '| message:', err.message);
-          console.warn('    → proceeding without GPS coords (server will fall back to IP-geo)');
-          console.groupEnd();
-          resolve(null);
+          const reasons: Record<number, string> = { 1: 'PERMISSION_DENIED', 2: 'POSITION_UNAVAILABLE', 3: 'TIMEOUT' };
+          console.warn('[GPS] attempt 1 failed:', reasons[err.code] ?? err.message, '(code', err.code + ')');
+          if (err.code === 1) {
+            // Permission denied — no point retrying
+            console.error('[GPS] location access blocked by user — go to browser site settings and allow location for this page');
+            resolve({ coords: null, errorCode: 1 });
+            return;
+          }
+          // Attempt 2: use ANY cached position (even old) — device may have a stale fix from a previous session
+          console.warn('[GPS] attempt 2 — using any cached position (maxAge=Infinity) …');
+          navigator.geolocation.getCurrentPosition(
+            onSuccess,
+            (err2) => {
+              console.error('[GPS] attempt 2 failed:', reasons[err2.code] ?? err2.message, '(code', err2.code + ')');
+              console.error('[GPS] no position available — server will block if geo zone is active');
+              resolve({ coords: null, errorCode: err.code ?? 2 });
+            },
+            { timeout: 5000, maximumAge: Infinity, enableHighAccuracy: false },
+          );
         },
-        { timeout: 8000, maximumAge: 60000, enableHighAccuracy: false },
+        { timeout: 15000, maximumAge: 300000, enableHighAccuracy: false },
       );
     });
   }, []);
 
   const [locPending, setLocPending] = useState(false);
+  // 0 = no error, 1 = denied, 2 = unavailable, 3 = timeout
+  const [gpsErrorCode, setGpsErrorCode] = useState(0);
 
   const handleCheckIn = useCallback(async () => {
-    console.group('[Location] Check In flow');
-    console.log('  step 1: fetching GPS…');
+    // If there's an approved remote-work request for today, skip GPS and use that approval
+    if (todayApprovedRemote) { handleRemoteCheckIn(); return; }
+    console.warn('[CheckIn] ── check-in button clicked ──────────────────────');
     setLocPending(true);
-    const coords = await getGpsCoords();
+    const { coords, errorCode } = await getGpsCoords();
     setLocPending(false);
-    const payload = { client_time: clientTime(), ...(coords ?? {}) };
+    setGpsErrorCode(errorCode);
+    const payload: Record<string, unknown> = { client_time: clientTime(), ...(coords ?? {}) };
+    if (!coords) payload.gps_error_code = errorCode;
     if (coords) {
-      console.log('  step 2: GPS coords included in payload → server will validate against geo-zones using real GPS');
+      console.warn('[CheckIn] GPS coords included in payload → server validates against geo-zones');
     } else {
-      console.warn('  step 2: no GPS coords → server falls back to IP-geo (may be inaccurate or fail for private IPs like 127.0.0.1)');
+      console.warn('[CheckIn] no GPS coords (error code', errorCode, ') → server falls back to IP-geo');
     }
-    console.log('  payload sent to server:', payload);
-    console.groupEnd();
+    console.warn('[CheckIn] payload sent to server:', JSON.stringify(payload));
     checkIn.mutate(payload);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkIn, getGpsCoords]);
 
-  const handleWfhCheckIn = () => checkIn.mutate({ client_time: clientTime(), is_wfh: true, wfh_reason: todayApprovedWfh?.reason ?? '' });
+  const handleRemoteCheckIn = () => {
+    const reqType = (todayApprovedRemote?.request_type ?? todayApprovedRemote?.requestType ?? 'WFH').toUpperCase();
+    const isLegacyWfh = reqType === 'WFH' || reqType === '';
+    checkIn.mutate({
+      client_time:  clientTime(),
+      is_wfh:       true,
+      remote_type:  isLegacyWfh ? undefined : reqType,
+      wfh_reason:   todayApprovedRemote?.reason ?? '',
+    });
+  };
 
   const handleBreakStart = useCallback(async (type: 'LUNCH' | 'SHORT') => {
     console.log(`[AttendanceWidget] Break Start (${type}) clicked — fetching GPS…`);
-    const coords = await getGpsCoords();
-    const payload = { client_time: clientTime(), break_type: type, ...(coords ?? {}) };
+    const { coords, errorCode } = await getGpsCoords();
+    setGpsErrorCode(errorCode);
+    const payload: Record<string, unknown> = { client_time: clientTime(), break_type: type, ...(coords ?? {}) };
+    if (!coords) payload.gps_error_code = errorCode;
     console.log('[AttendanceWidget] breakStart payload:', payload);
     breakStart.mutate(payload);
   }, [breakStart, getGpsCoords]);
 
   const handleBreakEnd = useCallback(async () => {
     console.log('[AttendanceWidget] Break End clicked — fetching GPS…');
-    const coords = await getGpsCoords();
-    const payload = { client_time: clientTime(), ...(coords ?? {}) };
+    const { coords, errorCode } = await getGpsCoords();
+    setGpsErrorCode(errorCode);
+    const payload: Record<string, unknown> = { client_time: clientTime(), ...(coords ?? {}) };
+    if (!coords) payload.gps_error_code = errorCode;
     console.log('[AttendanceWidget] breakEnd payload:', payload);
     breakEnd.mutate(payload);
   }, [breakEnd, getGpsCoords]);
@@ -286,6 +311,23 @@ const AttendanceWidget: React.FC = () => {
           </>
         )}
 
+        {/* GPS warning — shown after a failed GPS attempt */}
+        {gpsErrorCode > 0 && !isCheckedIn && (
+          <div
+            title={
+              gpsErrorCode === 1 ? 'Location access is blocked — open browser Site Settings and allow location for this site, then try again.' :
+              gpsErrorCode === 3 ? 'GPS timed out — location signal may be weak. Try moving near a window.' :
+              'Device could not determine your location. Try again or use Remote Work.'
+            }
+            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-xs cursor-help"
+          >
+            <AlertTriangle size={12} className="shrink-0" />
+            <span className="hidden sm:inline">
+              {gpsErrorCode === 1 ? 'Location blocked' : gpsErrorCode === 3 ? 'GPS timeout' : 'Location unavail.'}
+            </span>
+          </div>
+        )}
+
         {/* Check In buttons */}
         {!isCheckedIn && (
           <>
@@ -297,17 +339,30 @@ const AttendanceWidget: React.FC = () => {
               <LogIn size={13} />
               {locPending ? 'Locating…' : checkIn.isPending ? '…' : 'Check In'}
             </button>
-            {todayApprovedWfh && (
-              <button
-                onClick={handleWfhCheckIn}
-                disabled={checkIn.isPending}
-                title={`WFH: ${todayApprovedWfh.reason}`}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-xs font-medium transition-colors disabled:opacity-60"
-              >
-                <Home size={13} />
-                <span className="hidden sm:inline">WFH</span>
-              </button>
-            )}
+            {todayApprovedRemote && (() => {
+              const reqType = (todayApprovedRemote.request_type ?? todayApprovedRemote.requestType ?? 'WFH').toUpperCase();
+              const isClientVisit = reqType === 'CLIENT_VISIT';
+              const isFieldWork   = reqType === 'FIELD_WORK';
+              const isOffsite     = reqType === 'OFFSITE';
+              const Icon  = isClientVisit ? Briefcase : isFieldWork || isOffsite ? MapPin : Home;
+              const label = isClientVisit ? 'Client Visit' : isFieldWork ? 'Field Work' : isOffsite ? 'Offsite' : 'WFH';
+              const style = isClientVisit
+                ? 'bg-purple-50 hover:bg-purple-100 border-purple-200 text-purple-700'
+                : isFieldWork || isOffsite
+                  ? 'bg-orange-50 hover:bg-orange-100 border-orange-200 text-orange-700'
+                  : 'bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700';
+              return (
+                <button
+                  onClick={handleRemoteCheckIn}
+                  disabled={checkIn.isPending}
+                  title={`${label}: ${todayApprovedRemote.reason}`}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:opacity-60 ${style}`}
+                >
+                  <Icon size={13} />
+                  <span className="hidden sm:inline">{label}</span>
+                </button>
+              );
+            })()}
           </>
         )}
 

@@ -766,22 +766,24 @@ export const ShiftsTab = () => {
             <p className="text-xs text-gray-400">Create a shift above, then assign it to users in the Users admin tab.</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-50">
+          <div className="divide-y divide-gray-100">
             {(shifts as any[]).map((shift: any) => {
               const id = String(shift.ROWID ?? shift.id ?? '');
               const isEditing = editingShiftId === id;
+              const startTime = shift.start_time ?? shift.startTime ?? '—';
+              const endTime   = (shift.end_time ?? shift.endTime) || '—';
+              const grace     = shift.grace_minutes ?? shift.graceMinutes ?? 15;
+              const tz        = shift.timezone ?? '—';
+              const shiftName = shift.name || 'Unnamed Shift';
               return (
-                <div key={id} className="flex items-center gap-4 px-4 py-3.5 hover:bg-gray-50 transition-colors">
-                  <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
-                    <Clock size={15} className="text-amber-500" />
-                  </div>
+                <div key={id} className="px-5 py-4 hover:bg-gray-50/60 transition-colors">
                   {isEditing ? (
-                    <div className="flex-1 flex items-center gap-2 flex-wrap">
-                      <input className="text-sm border border-gray-200 rounded-lg px-2 py-1 w-32 outline-none focus:ring-2 focus:ring-amber-200"
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <input className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 w-36 outline-none focus:ring-2 focus:ring-amber-200"
                         value={editShiftName} onChange={(e) => setEditShiftName(e.target.value)} placeholder={t('common.name')} />
-                      <input type="time" className="text-sm border border-gray-200 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-amber-200"
+                      <input type="time" className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-amber-200"
                         value={editShiftStart} onChange={(e) => setEditShiftStart(e.target.value)} />
-                      <input type="number" min="0" max="60" className="text-sm border border-gray-200 rounded-lg px-2 py-1 w-20 outline-none focus:ring-2 focus:ring-amber-200"
+                      <input type="number" min="0" max="60" className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 w-24 outline-none focus:ring-2 focus:ring-amber-200"
                         value={editShiftGrace} onChange={(e) => setEditShiftGrace(e.target.value)} placeholder="Grace (min)" />
                       <button onClick={saveEditShift} disabled={updateShiftMutation.isPending}
                         className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors"><Check size={14} /></button>
@@ -789,24 +791,38 @@ export const ShiftsTab = () => {
                         className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 transition-colors"><X size={14} /></button>
                     </div>
                   ) : (
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-800">{shift.name}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        Start: {shift.start_time ?? shift.startTime} · End: {(shift.end_time ?? shift.endTime) || '—'} ·
-                        Timezone: {shift.timezone} · Grace: {shift.grace_minutes ?? (shift.graceMinutes ?? 15)} min
-                      </p>
-                    </div>
-                  )}
-                  {!isEditing && (
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => startEditShift(shift)}
-                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium text-gray-500 hover:text-blue-700 hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-colors">
-                        <Edit2 size={12} /> {t('common.edit')}
-                      </button>
-                      <button onClick={() => handleDeleteShift(id)} disabled={deleteShift.isPending}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors disabled:opacity-50">
-                        <Trash2 size={13} /> {t('common.remove')}
-                      </button>
+                    <div className="flex items-start justify-between gap-4">
+                      {/* Left — name + detail badges */}
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center shrink-0 mt-0.5">
+                          <Clock size={15} className="text-amber-500" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-900">{shiftName}</p>
+                          <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                            <span className="inline-flex items-center gap-1 text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded-full">
+                              <Clock size={10} /> {startTime} – {endTime}
+                            </span>
+                            <span className="inline-flex items-center gap-1 text-xs font-medium bg-purple-50 text-purple-700 border border-purple-100 px-2 py-0.5 rounded-full">
+                              🌐 {tz}
+                            </span>
+                            <span className="inline-flex items-center gap-1 text-xs font-medium bg-amber-50 text-amber-700 border border-amber-100 px-2 py-0.5 rounded-full">
+                              ⏱ {grace} min grace
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      {/* Right — actions */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button onClick={() => startEditShift(shift)}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium text-gray-500 hover:text-blue-700 hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-colors">
+                          <Edit2 size={12} /> {t('common.edit')}
+                        </button>
+                        <button onClick={() => handleDeleteShift(id)} disabled={deleteShift.isPending}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors disabled:opacity-50">
+                          <Trash2 size={13} /> {t('common.remove')}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>

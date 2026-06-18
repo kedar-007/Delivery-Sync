@@ -86,8 +86,24 @@ class AuthMiddleware {
         role:     user.role,
         tenantId: String(user.tenant_id),
         status:   user.status,
+        permissions: [],
       };
-      console.log(`[BugAuth] Step 4 ✓ — request authenticated: userId=${req.currentUser.id} tenantId=${req.currentUser.tenantId}`);
+
+      // Step 4b: load per-user permission grants (non-fatal)
+      try {
+        const uid = String(user.ROWID);
+        const tid = String(user.tenant_id);
+        const permRaw = await req.catalystApp.zcql().executeZCQLQuery(
+          `SELECT permissions FROM ${TABLES.PERMISSION_OVERRIDES} WHERE tenant_id = '${tid}' AND user_id = '${uid}' AND is_active = 'true' LIMIT 1`
+        );
+        const permRows = (permRaw || []).map((r) => Object.assign({}, ...Object.values(r)));
+        if (permRows.length > 0) {
+          const parsed = JSON.parse(permRows[0].permissions || '{}');
+          req.currentUser.permissions = parsed.granted || [];
+        }
+      } catch (_) { /* non-fatal — permissions stays [] */ }
+
+      console.log(`[BugAuth] Step 4 ✓ — request authenticated: userId=${req.currentUser.id} tenantId=${req.currentUser.tenantId} grants=${req.currentUser.permissions.length}`);
 
       next();
     } catch (err) {

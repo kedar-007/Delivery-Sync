@@ -7,6 +7,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { FestivalProvider } from '../../contexts/FestivalContext';
 import AmbientFestival from '../ui/AmbientFestival';
 import SuspendedScreen from '../ui/SuspendedScreen';
+import AppTour from '../tour/AppTour';
+import ProfileCompletionBanner from '../tour/ProfileCompletionBanner';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -29,6 +31,8 @@ const Layout = ({ children }: LayoutProps) => {
       >
         {/* Ambient festival particles — behind all content, never blocks clicks */}
         <AmbientFestival />
+        {/* App tour overlay — portal renders above everything */}
+        <AppTour />
 
         {/* Mobile overlay */}
         {sidebarOpen && (
@@ -84,6 +88,9 @@ const Layout = ({ children }: LayoutProps) => {
               </p>
             </div>
           </div>
+
+          {/* Profile completion nudge — only shown when profile fields are missing */}
+          <ProfileCompletionBanner />
 
           <div className="flex-1 overflow-y-auto">
             {children}

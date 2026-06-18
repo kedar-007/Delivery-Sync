@@ -202,14 +202,15 @@ class LeaveController {
       console.log('[getBalance] pendingMap:', pendingMap);
 
       // 7. Build response
-      // If no balance rows exist for this user+year, synthesise one per active leave type
+      // If no balance rows exist for this user+year, return zero-balance rows — do NOT
+      // synthesise from days_per_year; balance must be set via admin setBalance or cron accrual.
       const sourceRows = balances.length > 0
         ? balances
         : types.map(t => ({
             leave_type_id: String(t.ROWID),
             carry_forward_days: 0,
-            allocated_days: t.days_per_year || 0,
-            total_allocated: t.days_per_year || 0,
+            allocated_days: 0,
+            total_allocated: 0,
           }));
 
       const result = sourceRows.map(b => {
@@ -416,22 +417,10 @@ class LeaveController {
       console.log('[applyLeave] balance row found:', balance.length > 0 ? JSON.stringify(balance[0]) : 'NONE');
 
       if (balance.length === 0) {
-        // No row yet — auto-create from leave type default so deductions can be tracked
-        const daysPerYear = parseFloat(leaveTypeRow?.days_per_year ?? 0);
-        console.log('[applyLeave] auto-creating balance row, daysPerYear:', daysPerYear);
-        await this.db.insert(TABLES.LEAVE_BALANCES, {
-          tenant_id: String(tenantId),
-          user_id: String(userId),
-          leave_type_id: String(leaveTypeId),
-          year: String(year),
-          total_allocated: daysPerYear,
-          opening_balance: 0,
-          remaining_days: daysPerYear,
-          used_days: 0,
-          pending_days: 0,
-        });
-        balance = await this.db.findWhere(TABLES.LEAVE_BALANCES, tenantId, balanceQuery, { limit: 1 });
-        console.log('[applyLeave] auto-created balance row:', balance.length > 0 ? JSON.stringify(balance[0]) : 'INSERT FAILED');
+        // No balance row — admin must set the balance via setBalance or cron accrual.
+        // Do not auto-create from leave type defaults.
+        return ResponseHelper.validationError(res,
+          `No leave balance found for this leave type. Please contact your administrator to set your leave balance.`);
       }
 
       if (balance.length > 0 && parseFloat(balance[0].remaining_days) < days_count)
@@ -558,24 +547,9 @@ class LeaveController {
     console.log('[approveRequest] balance row:', balance.length > 0 ? JSON.stringify(balance[0]) : 'NONE');
 
     if (balance.length === 0) {
-      // Auto-create balance from leave type default so this approve (and future ones) can track properly
-      const typeRows = await this.db.findWhere(TABLES.LEAVE_TYPES, req.tenantId,
-        `ROWID = ${leave.leave_type_id}`, { limit: 1 });
-      const daysPerYear = parseFloat(typeRows[0]?.days_per_year ?? 0);
-      console.log('[approveRequest] auto-creating balance row, daysPerYear:', daysPerYear);
-      await this.db.insert(TABLES.LEAVE_BALANCES, {
-        tenant_id: String(req.tenantId),
-        user_id: String(leave.user_id),
-        leave_type_id: String(leave.leave_type_id),
-        year: String(year),
-        total_allocated: daysPerYear,
-        opening_balance: 0,
-        remaining_days: daysPerYear,
-        used_days: 0,
-        pending_days: 0,
-      });
-      balance = await this.db.findWhere(TABLES.LEAVE_BALANCES, req.tenantId, balQuery, { limit: 1 });
-      console.log('[approveRequest] auto-created balance row:', balance.length > 0 ? JSON.stringify(balance[0]) : 'INSERT FAILED');
+      // No balance row exists — balance must be set by admin or cron accrual.
+      // Do not auto-create from leave type defaults; log and skip balance deduction.
+      console.log('[approveRequest] no balance row found for user', leave.user_id, '— skipping balance deduction');
     }
 
     if (balance.length > 0) {
@@ -1164,6 +1138,33 @@ class LeaveController {
         res,
         err.message || 'Failed to set leave balance'
       );
+    }
+  }
+
+  async deleteBalance(req, res) {
+    try {
+      const { balanceId } = req.params;
+      if (!balanceId || !/^\d+$/.test(balanceId)) {
+        return ResponseHelper.validationError(res, 'Invalid balance ID');
+      }
+
+      const existing = await this.db.findWhere(
+        TABLES.LEAVE_BALANCES,
+        req.tenantId,
+        `ROWID = ${balanceId}`,
+        { limit: 1 }
+      );
+      if (existing.length === 0) {
+        return ResponseHelper.notFound(res, 'Leave balance record not found');
+      }
+
+      await this.db.delete(TABLES.LEAVE_BALANCES, balanceId);
+      console.log('[deleteBalance] deleted balance ROWID:', balanceId);
+
+      return ResponseHelper.success(res, { message: 'Leave balance deleted successfully' });
+    } catch (err) {
+      console.error('[LeaveController.deleteBalance]', err);
+      return ResponseHelper.serverError(res, err.message || 'Failed to delete leave balance');
     }
   }
 

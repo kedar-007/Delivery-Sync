@@ -2,12 +2,13 @@ import React, { useState } from 'react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import { useI18n } from '../contexts/I18nContext';
+import { useTour } from '../contexts/TourContext';
 import {
   BookOpen, ChevronDown, ChevronRight, LayoutDashboard, FolderKanban,
   CheckSquare, GitBranch, ClipboardList, Users, Package,
   BarChart3, CalendarDays,
   Timer, Settings, Search, Info,
-  Bell, Bot, Trophy, TrendingUp, Bug, Wifi, Lightbulb,
+  Bell, Bot, Trophy, TrendingUp, Bug, Wifi, Lightbulb, PlayCircle,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1117,6 +1118,7 @@ const SECTIONS: Section[] = [
 
 export default function HelpPage() {
   const { t } = useI18n();
+  const { resetTour } = useTour();
   const [search, setSearch] = useState('');
   const [, setActiveSection] = useState<string | null>(null);
 
@@ -1134,6 +1136,25 @@ export default function HelpPage() {
     <Layout>
       <Header title={t('nav.helpDocs')} subtitle="How to use every feature in DSV OpsPulse" />
       <div className="p-6 max-w-4xl mx-auto space-y-6">
+
+        {/* App Tour CTA */}
+        <div className="flex items-center gap-4 p-5 rounded-2xl border border-ds-border bg-ds-surface"
+          style={{ background: 'linear-gradient(135deg, rgba(var(--ds-accent),0.08), rgba(var(--ds-primary),0.05))' }}>
+          <div className="p-3 rounded-xl" style={{ background: 'rgba(var(--ds-accent),0.15)' }}>
+            <PlayCircle size={22} style={{ color: 'rgb(var(--ds-accent))' }} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-ds-text">Take the App Tour</p>
+            <p className="text-xs text-ds-text-muted mt-0.5">A 10-step guided walkthrough of every major section — takes about 90 seconds.</p>
+          </div>
+          <button
+            onClick={resetTour}
+            className="shrink-0 px-4 py-2 rounded-xl text-xs font-bold text-white transition-opacity hover:opacity-90"
+            style={{ background: 'linear-gradient(135deg, rgb(var(--ds-accent)), rgb(var(--ds-primary)))' }}
+          >
+            Start Tour
+          </button>
+        </div>
 
         {/* Search */}
         <div className="relative">

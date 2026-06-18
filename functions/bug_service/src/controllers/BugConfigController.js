@@ -36,7 +36,9 @@ class BugConfigController {
     const { tenantId: callerTenantId, role } = req.currentUser;
     // Admin users can pass ?tenantId=X to fetch config for any tenant
     const isSuperAdmin = role === 'SUPER_ADMIN';
-    const isAdmin = ADMIN_ROLES.includes(role) || isSuperAdmin;
+    const isAdmin = ADMIN_ROLES.includes(role) || isSuperAdmin
+      || (req.currentUser.permissions || []).includes('BUG_REPORT_READ_ALL')
+      || (req.currentUser.permissions || []).includes('BUG_REPORT_CONFIG');
     // Super admins get the platform-wide config unless they explicitly request a tenant's config
     const tenantId = isSuperAdmin
       ? (req.query.tenantId || PLATFORM_TENANT_ID)
@@ -83,7 +85,9 @@ class BugConfigController {
     console.log(`[BugConfigCtrl] upsertConfig Step 1 — callerTenantId=${callerTenantId} role=${role}`);
 
     // Admin only
-    if (!ADMIN_ROLES.includes(role) && role !== 'SUPER_ADMIN') {
+    const hasConfigAccess = ADMIN_ROLES.includes(role) || role === 'SUPER_ADMIN'
+      || (req.currentUser.permissions || []).includes('BUG_REPORT_CONFIG');
+    if (!hasConfigAccess) {
       console.warn(`[BugConfigCtrl] upsertConfig ✗ — role ${role} is not permitted`);
       return ResponseHelper.forbidden(res, 'Admin access required to update bug report configuration');
     }

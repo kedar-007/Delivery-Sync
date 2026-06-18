@@ -15,7 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.resolve(__dirname, '..', 'node_modules', 'html5-qrcode', 'esm');
+const PKG_ROOT = path.resolve(__dirname, '..', 'node_modules', 'html5-qrcode');
 
 function strip(file) {
   const src = fs.readFileSync(file, 'utf8');
@@ -41,7 +41,7 @@ function walk(dir) {
   return count;
 }
 
-const stripped = walk(ROOT);
+const stripped = walk(PKG_ROOT);
 if (stripped > 0) {
   console.log(`[strip-html5-qrcode-sourcemaps] cleaned ${stripped} file(s)`);
 }

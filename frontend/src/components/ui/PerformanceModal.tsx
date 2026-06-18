@@ -21,7 +21,7 @@ import {
   MoodTrend, BenchmarkBars,
 } from './PerformanceCharts';
 import type {
-  FactorScore as _FactorScore, TaskStatus as _TaskStatus,
+  FactorScore as _FactorScore,
   ActivityRow, MoodPoint, BenchmarkRow,
 } from './PerformanceCharts';
 import { useAiHolisticPerformance } from '../../hooks/useAiInsights';

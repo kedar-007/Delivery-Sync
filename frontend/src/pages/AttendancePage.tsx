@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Clock, LogIn, LogOut, Home, Users, BarChart2, AlertTriangle, UtensilsCrossed, Coffee, Bot, FileText } from 'lucide-react';
 import { useForm } from 'react-hook-form';
@@ -27,9 +27,6 @@ import {
   useMarkWfh,
   useBreakStart,
   useBreakEnd,
-  useIpConfig,
-  useAddIpConfig,
-  useDeleteIpConfig,
   useWfhRequests,
   useSubmitWfhRequest,
   useApproveWfhRequest,
@@ -40,7 +37,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { attendanceApi } from '../lib/api';
 import { useMyPermissions } from '../hooks/useAdmin';
-import { Download, Shield, Plus, Trash2, CheckCircle, XCircle, Clock as ClockIcon, Send } from 'lucide-react';
+import { Download, CheckCircle, XCircle, Send } from 'lucide-react';
 import { useI18n } from '../contexts/I18nContext';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -53,6 +50,7 @@ interface AttendanceRecord {
   checkOutTime?: string;
   hoursWorked?: number;
   isWfh?: boolean;
+  remoteWorkType?: string;
   userId?: string;
   userName?: string;
 }
@@ -70,13 +68,6 @@ interface AnomalyUser {
   avatarUrl?: string;
 }
 
-interface AttendanceSummary {
-  presentCount: number;
-  absentCount: number;
-  wfhCount: number;
-  lateCount: number;
-  totalHours: number;
-}
 
 interface WfhForm {
   reason: string;
@@ -249,10 +240,9 @@ const HistorySection = ({ history }: { history: AttendanceRecord[] }) => {
                 <tr key={rec.id} className="hover:bg-gray-50">
                   <td className="py-2.5 pr-4 text-gray-700">{formatDate(rec.date)}</td>
                   <td className="py-2.5 pr-4">
-                    <div className="flex items-center gap-1.5">
-                      <AttendanceStatusBadge status={rec.status} />
-                      {rec.isWfh && <Badge variant="info">{t('attendance.status.wfh')}</Badge>}
-                    </div>
+                    {rec.isWfh && rec.remoteWorkType && rec.remoteWorkType !== 'WFH'
+                      ? <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${remoteTypeBadgeClass(rec.remoteWorkType)}`}>{remoteTypeLabel(rec.remoteWorkType)}</span>
+                      : <AttendanceStatusBadge status={rec.status} />}
                   </td>
                   <td className="py-2.5 pr-4 text-gray-600">{formatTime(rec.checkInTime)}</td>
                   <td className="py-2.5 pr-4">
@@ -287,6 +277,7 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
   const { t } = useI18n();
   const [showWfhModal, setShowWfhModal] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [, setGpsErrorCode] = useState(0);
 
   const { data: record, isLoading } = useMyAttendanceRecord();
   const todayStr = format(new Date(), 'yyyy-MM-dd');
@@ -340,85 +331,100 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
   const clientTime = () => new Date().toLocaleString('sv');
   const handleBreakStart = async (type: 'LUNCH' | 'SHORT') => {
     setActionError('');
-    const coords = await getGpsCoords();
-    const payload = { client_time: clientTime(), break_type: type, ...(coords ?? {}) };
-    console.log('[Location] breakStart payload:', payload);
+    const { coords, errorCode } = await getGpsCoords();
+    setGpsErrorCode(errorCode);
+    const payload: Record<string, unknown> = { client_time: clientTime(), break_type: type, ...(coords ?? {}) };
+    if (!coords) payload.gps_error_code = errorCode;
+    console.warn('[BreakStart] payload sent to server:', JSON.stringify(payload));
     breakStart.mutate(payload,
       { onError: (e: any) => setActionError(e?.message ?? t('errors.saveFailed')) });
   };
   const handleBreakEnd = async () => {
     setActionError('');
-    const coords = await getGpsCoords();
-    const payload = { client_time: clientTime(), ...(coords ?? {}) };
-    console.log('[Location] breakEnd payload:', payload);
+    const { coords, errorCode } = await getGpsCoords();
+    setGpsErrorCode(errorCode);
+    const payload: Record<string, unknown> = { client_time: clientTime(), ...(coords ?? {}) };
+    if (!coords) payload.gps_error_code = errorCode;
+    console.warn('[BreakEnd] payload sent to server:', JSON.stringify(payload));
     breakEnd.mutate(payload,
       { onError: (e: any) => setActionError(e?.message ?? t('errors.saveFailed')) });
   };
 
-  const getGpsCoords = (): Promise<{ latitude: number; longitude: number } | null> => {
+  const getGpsCoords = (): Promise<{ coords: { latitude: number; longitude: number } | null; errorCode: number }> => {
     return new Promise((resolve) => {
-      console.group('[Location] GPS request');
-      console.log('  protocol     :', window.location.protocol);
-      console.log('  host         :', window.location.host);
-      console.log('  geolocation  :', !!navigator?.geolocation ? 'available' : 'NOT available');
+      console.warn('[GPS] ── starting location request ──────────────────────');
+      console.log('[GPS] protocol:', window.location.protocol, '| host:', window.location.host);
+      console.log('[GPS] geolocation API:', !!navigator?.geolocation ? 'available' : 'NOT AVAILABLE');
 
       if (!navigator?.geolocation) {
-        console.warn('  ✗ navigator.geolocation not available');
-        console.groupEnd();
-        resolve(null);
+        console.error('[GPS] navigator.geolocation undefined — browser does not support it or page is not HTTPS');
+        resolve({ coords: null, errorCode: 2 });
         return;
+      }
+
+      const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      if (!isSecure) {
+        console.error('[GPS] page is HTTP (not HTTPS/localhost) — browser BLOCKS geolocation on non-localhost origins');
       }
 
       if (navigator.permissions) {
         navigator.permissions.query({ name: 'geolocation' }).then((status) => {
-          console.log('  permission state:', status.state);
-          if (status.state === 'denied') {
-            console.warn('  ✗ DENIED — go to browser Site Settings → Location → Allow for this site');
-          }
+          console.warn('[GPS] permission state:', status.state, status.state === 'denied' ? '← BLOCKED — go to site settings to allow' : '');
         }).catch(() => {});
       }
 
-      console.log('  calling getCurrentPosition (timeout=8s, maxAge=60s)…');
+      const onSuccess = (pos: GeolocationPosition) => {
+        const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+        const ageMs = Date.now() - pos.timestamp;
+        console.warn('[GPS] ✓ position obtained — lat:', coords.latitude, 'lon:', coords.longitude, '| accuracy:', pos.coords.accuracy, 'm | cache age:', Math.round(ageMs / 1000), 's');
+        resolve({ coords, errorCode: 0 });
+      };
+
+      // Attempt 1: fresh or recently cached position (max 5 min old)
+      console.warn('[GPS] attempt 1 — timeout=15s maxAge=5min …');
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-          console.log('  ✓ GPS obtained:', coords);
-          console.log('    accuracy :', pos.coords.accuracy, 'm');
-          console.log('    cached age:', Date.now() - pos.timestamp, 'ms');
-          console.groupEnd();
-          resolve(coords);
-        },
+        onSuccess,
         (err) => {
-          const reasons: Record<number, string> = {
-            1: 'PERMISSION_DENIED — user blocked location access',
-            2: 'POSITION_UNAVAILABLE — device cannot determine location',
-            3: 'TIMEOUT — took longer than 8s',
-          };
-          console.warn('  ✗ GPS failed:', reasons[err.code] ?? err.message);
-          console.warn('    error code:', err.code, '| message:', err.message);
-          console.warn('    → proceeding without GPS (server falls back to IP-geo)');
-          console.groupEnd();
-          resolve(null);
+          const reasons: Record<number, string> = { 1: 'PERMISSION_DENIED', 2: 'POSITION_UNAVAILABLE', 3: 'TIMEOUT' };
+          console.warn('[GPS] attempt 1 failed:', reasons[err.code] ?? err.message, '(code', err.code + ')');
+          if (err.code === 1) {
+            console.error('[GPS] location access blocked by user — go to browser site settings and allow location for this page');
+            resolve({ coords: null, errorCode: 1 });
+            return;
+          }
+          // Attempt 2: use ANY cached position (even old) — device may have a stale fix from a previous session
+          console.warn('[GPS] attempt 2 — using any cached position (maxAge=Infinity) …');
+          navigator.geolocation.getCurrentPosition(
+            onSuccess,
+            (err2) => {
+              console.error('[GPS] attempt 2 failed:', reasons[err2.code] ?? err2.message, '(code', err2.code + ')');
+              console.error('[GPS] no position available — server will block if geo zone is active');
+              resolve({ coords: null, errorCode: err.code ?? 2 });
+            },
+            { timeout: 5000, maximumAge: Infinity, enableHighAccuracy: false },
+          );
         },
-        { timeout: 8000, maximumAge: 60000, enableHighAccuracy: false },
+        { timeout: 15000, maximumAge: 300000, enableHighAccuracy: false },
       );
     });
   };
 
   const handleCheckIn = async () => {
+    // If there's an approved remote-work request for today, skip GPS and use that approval
+    if (todayApprovedWfh) { handleCheckInWfh(); return; }
     try {
       setActionError('');
-      console.group('[Location] Check In flow');
-      console.log('  step 1: fetching GPS…');
-      const coords = await getGpsCoords();
+      console.warn('[CheckIn] ── check-in button clicked ──────────────────────');
+      const { coords, errorCode } = await getGpsCoords();
+      setGpsErrorCode(errorCode);
       const payload: Record<string, unknown> = { client_time: new Date().toLocaleString('sv'), ...(coords ?? {}) };
+      if (!coords) payload.gps_error_code = errorCode;
       if (coords) {
-        console.log('  ✓ GPS coords included → server validates zone using real GPS');
+        console.warn('[CheckIn] GPS coords included in payload → server validates against geo-zones');
       } else {
-        console.warn('  ✗ no GPS coords → server falls back to IP-geo (unreliable for private IPs like 127.0.0.1)');
+        console.warn('[CheckIn] no GPS coords (error code', errorCode, ') → server falls back to IP-geo');
       }
-      console.log('  payload sent to server:', payload);
-      console.groupEnd();
+      console.warn('[CheckIn] payload sent to server:', JSON.stringify(payload));
       await checkIn.mutateAsync(payload);
     } catch (err: unknown) {
       setActionError((err as Error).message);
@@ -428,10 +434,13 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
   const handleCheckInWfh = async () => {
     try {
       setActionError('');
+      const reqType = (todayApprovedWfh?.requestType ?? todayApprovedWfh?.request_type ?? 'WFH').toUpperCase();
+      const isLegacyWfh = reqType === 'WFH' || reqType === '';
       await checkIn.mutateAsync({
         client_time: new Date().toLocaleString('sv'),
-        is_wfh: true,
-        wfh_reason: todayApprovedWfh?.reason ?? '',
+        is_wfh:      true,
+        remote_type: isLegacyWfh ? undefined : reqType,
+        wfh_reason:  todayApprovedWfh?.reason ?? '',
       });
     } catch (err: unknown) {
       setActionError((err as Error).message);
@@ -478,7 +487,14 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
             <h3 className="text-base font-semibold text-gray-900">{t('attendance.tabs.today')}</h3>
             <p className="text-sm text-gray-500">{format(new Date(), 'EEEE, dd MMMM yyyy')}</p>
           </div>
-          {today?.status && <AttendanceStatusBadge status={today.status} />}
+          <div className="flex items-center gap-1.5">
+            {today?.status && <AttendanceStatusBadge status={today.status} />}
+            {today?.remoteWorkType && today.remoteWorkType !== 'WFH' && (
+              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${remoteTypeBadgeClass(today.remoteWorkType)}`}>
+                {remoteTypeLabel(today.remoteWorkType)}
+              </span>
+            )}
+          </div>
         </div>
 
         {!isCheckedIn && (
@@ -496,16 +512,28 @@ const MyAttendanceTab = ({ onRequestWfh }: { onRequestWfh?: () => void }) => {
               >
                 {t('attendance.checkIn')}
               </Button>
-              {todayApprovedWfh && (
-                <Button
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 text-base"
-                  icon={<Home size={18} />}
-                  loading={checkIn.isPending}
-                  onClick={handleCheckInWfh}
-                >
-                  {t('attendance.checkIn')} ({t('attendance.status.wfh')})
-                </Button>
-              )}
+              {todayApprovedWfh && (() => {
+                const reqType = (todayApprovedWfh.requestType ?? todayApprovedWfh.request_type ?? 'WFH').toUpperCase();
+                const label = reqType === 'CLIENT_VISIT' ? 'Client Visit'
+                  : reqType === 'FIELD_WORK' ? 'Field Work'
+                  : reqType === 'OFFSITE' ? 'Offsite'
+                  : t('attendance.status.wfh');
+                const btnClass = reqType === 'CLIENT_VISIT'
+                  ? 'bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 text-base'
+                  : reqType === 'FIELD_WORK' || reqType === 'OFFSITE'
+                    ? 'bg-orange-600 hover:bg-orange-700 text-white px-6 py-3 text-base'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 text-base';
+                return (
+                  <Button
+                    className={btnClass}
+                    icon={<Home size={18} />}
+                    loading={checkIn.isPending}
+                    onClick={handleCheckInWfh}
+                  >
+                    {t('attendance.checkIn')} ({label})
+                  </Button>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -826,7 +854,7 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
   const PAGE_SIZE = 20;
 
   const { data, isLoading, error } = useAttendanceRecords(filterParams);
-  const allRecords: AttendanceRecord[] = (data as AttendanceRecord[]) ?? [];
+  const allRecords = useMemo(() => (data as AttendanceRecord[]) ?? [], [data]);
   const totalPages = Math.ceil(allRecords.length / PAGE_SIZE);
   const pagedRecords = allRecords.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
@@ -904,7 +932,7 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
           </div>
           {isManager && (
             <div>
-              <label className="form-label">{t('teams.members')}</label>
+              <label className="form-label">{t('teams.membersLabel')}</label>
               <select
                 className="form-select"
                 value={selectedUserId}
@@ -951,7 +979,6 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('dashboard.attendance.labelIn')}</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('dashboard.attendance.labelOut')}</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('dashboard.attendance.labelHours')}</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{t('attendance.status.wfh')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -966,7 +993,11 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
                         </td>
                       )}
                       <td className="px-4 py-3 text-gray-700">{formatDate(rec.date)}</td>
-                      <td className="px-4 py-3"><AttendanceStatusBadge status={rec.status} /></td>
+                      <td className="px-4 py-3">
+                        {rec.isWfh && rec.remoteWorkType && rec.remoteWorkType !== 'WFH'
+                          ? <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${remoteTypeBadgeClass(rec.remoteWorkType)}`}>{remoteTypeLabel(rec.remoteWorkType)}</span>
+                          : <AttendanceStatusBadge status={rec.status} />}
+                      </td>
                       <td className="px-4 py-3 text-gray-600">{formatTime(rec.checkInTime)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1.5">
@@ -979,9 +1010,6 @@ const RecordsTab = ({ isManager }: { isManager: boolean }) => {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-gray-600">{rec.hoursWorked?.toFixed(1) ?? '—'}h</td>
-                      <td className="px-4 py-3">
-                        {rec.isWfh ? <Badge variant="info">{t('attendance.status.wfh')}</Badge> : <span className="text-gray-300 text-xs">—</span>}
-                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1216,10 +1244,18 @@ const SummaryTab = () => {
 
 // ── WFH Requests Tab ─────────────────────────────────────────────────────────
 
+const REMOTE_WORK_TYPES = [
+  { value: 'WFH',          label: 'Work From Home',  description: 'Working remotely from home' },
+  { value: 'CLIENT_VISIT', label: 'Client Visit',    description: 'At a client location or meeting' },
+  { value: 'FIELD_WORK',   label: 'Field Work',      description: 'On-site work outside the office' },
+  { value: 'OFFSITE',      label: 'Offsite',         description: 'Team offsite, conference, or travel' },
+] as const;
+
 interface WfhRequestForm {
   date_from: string;
   date_to: string;
   reason: string;
+  request_type: string;
 }
 
 interface RejectForm {
@@ -1234,6 +1270,21 @@ const wfhStatusVariant = (status: string): 'success' | 'danger' | 'warning' | 'g
     CANCELLED: 'gray',
   };
   return map[status] ?? 'gray';
+};
+
+const remoteTypeLabel = (type: string): string => {
+  const map: Record<string, string> = {
+    WFH: 'WFH', CLIENT_VISIT: 'Client Visit', FIELD_WORK: 'Field Work', OFFSITE: 'Offsite',
+  };
+  return map[String(type).toUpperCase()] ?? 'WFH';
+};
+
+const remoteTypeBadgeClass = (type: string): string => {
+  const t = String(type).toUpperCase();
+  if (t === 'CLIENT_VISIT') return 'bg-purple-100 text-purple-700 border border-purple-200';
+  if (t === 'FIELD_WORK')   return 'bg-orange-100 text-orange-700 border border-orange-200';
+  if (t === 'OFFSITE')      return 'bg-orange-100 text-orange-700 border border-orange-200';
+  return 'bg-blue-100 text-blue-700 border border-blue-200';
 };
 
 const WFH_PAGE_SIZE = 10;
@@ -1303,7 +1354,7 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
     register: registerSubmit, handleSubmit: handleSubmitForm, reset: resetSubmit,
     watch: watchSubmit,
     formState: { errors: submitErrors, isSubmitting: submitPending },
-  } = useForm<WfhRequestForm>({ defaultValues: { date_from: format(new Date(), 'yyyy-MM-dd'), date_to: format(new Date(), 'yyyy-MM-dd') } });
+  } = useForm<WfhRequestForm>({ defaultValues: { date_from: format(new Date(), 'yyyy-MM-dd'), date_to: format(new Date(), 'yyyy-MM-dd'), request_type: 'WFH' } });
   // Watch the start date so the End-date validator can compare against it
   const wfhDateFrom = watchSubmit('date_from');
   // Today (local) — used as the floor so users can't request WFH for a date
@@ -1409,7 +1460,7 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
             </button>
           )}
         </div>
-        <Button size="sm" icon={<Send size={13} />} onClick={() => setShowSubmitModal(true)}>{t('attendance.wfhRequest.submit')}</Button>
+        <Button size="sm" icon={<Send size={13} />} onClick={() => setShowSubmitModal(true)}>New Request</Button>
       </div>
 
       {/* My Requests panel */}
@@ -1446,6 +1497,9 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
                               ? `${formatDate(req.wfhDate ?? req.wfh_date)} – ${formatDate(req.wfhDateTo ?? req.wfh_date_to)}`
                               : formatDate(req.wfhDate ?? req.wfh_date)}
                           </p>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${remoteTypeBadgeClass(req.requestType ?? req.request_type ?? 'WFH')}`}>
+                            {remoteTypeLabel(req.requestType ?? req.request_type ?? 'WFH')}
+                          </span>
                           <Badge variant={wfhStatusVariant(req.status)}>{req.status}</Badge>
                         </div>
                         <p className="text-xs text-gray-500 truncate">{req.reason}</p>
@@ -1516,6 +1570,9 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
                               ? `${formatDate(req.wfhDate ?? req.wfh_date)} – ${formatDate(req.wfhDateTo ?? req.wfh_date_to)}`
                               : formatDate(req.wfhDate ?? req.wfh_date)}
                           </p>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${remoteTypeBadgeClass(req.requestType ?? req.request_type ?? 'WFH')}`}>
+                            {remoteTypeLabel(req.requestType ?? req.request_type ?? 'WFH')}
+                          </span>
                           <Badge variant={wfhStatusVariant(req.status)}>{req.status}</Badge>
                         </div>
                         <p className="text-xs text-gray-500 truncate">{req.reason}</p>
@@ -1557,8 +1614,16 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
       )}
 
       {/* Submit WFH Request Modal */}
-      <Modal open={showSubmitModal} onClose={() => { setShowSubmitModal(false); resetSubmit(); }} title={t('attendance.wfhRequest.title')} size="sm">
+      <Modal open={showSubmitModal} onClose={() => { setShowSubmitModal(false); resetSubmit(); }} title="Remote Work Request" size="sm">
         <form onSubmit={handleSubmitForm(handleSubmitRequest)} className="space-y-4">
+          <div>
+            <label className="form-label">Request Type</label>
+            <select className="form-input" {...registerSubmit('request_type', { required: true })}>
+              {REMOTE_WORK_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>{t.label} — {t.description}</option>
+              ))}
+            </select>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="form-label">{t('leave.from')}</label>
@@ -1594,18 +1659,18 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
             </div>
           </div>
           <div>
-            <label className="form-label">{t('attendance.wfhRequest.reason')}</label>
+            <label className="form-label">Reason</label>
             <textarea
               className="form-textarea"
               rows={3}
-              placeholder="Briefly explain why you're working from home…"
+              placeholder="Briefly explain the purpose of this request…"
               {...registerSubmit('reason', { required: t('validation.required') })}
             />
             {submitErrors.reason && <p className="form-error">{submitErrors.reason.message}</p>}
           </div>
           <ModalActions>
             <Button variant="outline" type="button" onClick={() => { setShowSubmitModal(false); resetSubmit(); }}>{t('common.cancel')}</Button>
-            <Button type="submit" icon={<Send size={13} />} loading={submitPending}>{t('attendance.wfhRequest.submit')}</Button>
+            <Button type="submit" icon={<Send size={13} />} loading={submitPending}>Submit Request</Button>
           </ModalActions>
         </form>
       </Modal>
@@ -1773,7 +1838,6 @@ const ReportTab = ({ isManager }: { isManager: boolean }) => {
   const totalPresent     = displayedReport.reduce((s, r) => s + r.present_days, 0);
   const totalAbsent      = displayedReport.reduce((s, r) => s + (r.calendar_absent ?? r.absent_days), 0);
   const totalLate        = displayedReport.reduce((s, r) => s + r.late_days, 0);
-  const totalLeave       = displayedReport.reduce((s, r) => s + r.leave_days, 0);
   const totalWorkingDays = displayedReport.reduce((s, r) => s + (r.working_days ?? 0), 0);
   // Working days for the period (same for all users in one org — use avg to handle
   // edge cases where different locations have slightly different holiday counts)
@@ -2046,7 +2110,7 @@ const AttendancePage = () => {
   const initialTab     = (searchParams.get('tab') as Tab) || 'my';
   const initialFocusId = searchParams.get('requestId') || '';
   const [tab, setTab] = useState<Tab>(initialTab);
-  const [highlightWfhId, setHighlightWfhId] = useState<string>(initialFocusId);
+  const [highlightWfhId] = useState<string>(initialFocusId);
 
   useEffect(() => {
     if (searchParams.get('tab') || searchParams.get('requestId')) {

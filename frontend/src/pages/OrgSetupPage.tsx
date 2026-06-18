@@ -20,7 +20,7 @@ const STEP_KEYS = ['orgSetup.stepOrganisation', 'orgSetup.stepReview'];
 
 export default function OrgSetupPage() {
   const { t } = useI18n();
-  const { refetch, user, needsOrgSetup } = useAuth();
+  const { refetch } = useAuth();
   const navigate = useNavigate();
   const [step, setStep]             = useState(0);
   const [orgName, setOrgName]       = useState('');

@@ -5,7 +5,7 @@ const AuditService = require('../services/AuditService');
 const NotificationService = require('../services/NotificationService');
 const TeamScopeService = require('../services/TeamScopeService');
 const ResponseHelper = require('../utils/ResponseHelper');
-const { TABLES, PERMISSIONS, ATTENDANCE_STATUS, AUDIT_ACTION, NOTIFICATION_TYPE } = require('../utils/Constants');
+const { TABLES, PERMISSIONS, ATTENDANCE_STATUS, REMOTE_WORK_TYPE, AUDIT_ACTION, NOTIFICATION_TYPE } = require('../utils/Constants');
 
 /**
  * Format current time as 'YYYY-MM-DD HH:MM:SS' in the given IANA timezone.
@@ -136,7 +136,14 @@ class AttendanceController {
       return ResponseHelper.conflict(res, 'Already checked in today');
 
     const ip = extractClientIp(req);
-    const { is_wfh, wfh_reason, latitude, longitude } = req.body;
+    const { is_wfh, wfh_reason, latitude, longitude, remote_type, gps_error_code } = req.body;
+
+    // is_remote is true for any kind of off-site check-in (WFH, Client Visit, Field Work, Offsite)
+    const is_remote = is_wfh || !!remote_type;
+    // Resolved remote work type for storing on the record — default legacy is_wfh to 'WFH'
+    const resolvedRemoteType = remote_type
+      ? String(remote_type).toUpperCase()
+      : (is_wfh ? REMOTE_WORK_TYPE.WFH : '');
 
     // Browser GPS coords (if sent) are far more accurate than IP geolocation.
     const clientCoords = (latitude != null && longitude != null)
@@ -149,43 +156,94 @@ class AttendanceController {
       this._validateIpAllowed(req.tenantId, ip),
       this._runLocationChecks(req.tenantId, ip, clientCoords),
     ]);
-    if (is_wfh) {
-      const approvedWfh = await this.db.findWhere(TABLES.WFH_REQUESTS, tenantId,
+
+    // Remote check-in (WFH / Client Visit / Field Work) — requires an approved request for today
+    if (is_remote) {
+      const approvedRequest = await this.db.findWhere(TABLES.WFH_REQUESTS, tenantId,
         `user_id = '${userRowId}' AND wfh_date <= '${today}' AND (wfh_date_to >= '${today}' OR (wfh_date_to = '' AND wfh_date = '${today}')) AND status = 'APPROVED'`, { limit: 1 });
-      if (approvedWfh.length === 0)
-        return ResponseHelper.forbidden(res, 'You need an approved WFH request for today before checking in as WFH. Please submit a request first.');
+      if (approvedRequest.length === 0) {
+        const typeLabel = resolvedRemoteType === REMOTE_WORK_TYPE.CLIENT_VISIT ? 'Client Visit'
+          : resolvedRemoteType === REMOTE_WORK_TYPE.FIELD_WORK ? 'Field Work'
+          : resolvedRemoteType === REMOTE_WORK_TYPE.OFFSITE ? 'Offsite'
+          : 'WFH';
+        return ResponseHelper.forbidden(res, `You need an approved ${typeLabel} request for today before checking in remotely. Please submit a request first.`);
+      }
     }
 
-    if (!is_wfh) {
+    if (!is_remote) {
       console.log(`[checkIn] location-guard: ip="${ip}" ipAllowed=${ipCheck.allowed} ipRestricted=${ipCheck.restricted} | countryAllowed=${countryCheck.allowed} | zoneAllowed=${zoneCheck.allowed} zoneRestricted=${zoneCheck.restricted}`);
 
       // Country is always an independent blocker
       if (!countryCheck.allowed) {
         console.log(`[checkIn] Country blocked: detected="${countryCheck.country}" (${countryCheck.countryCode}) ip="${ip}"`);
-        return ResponseHelper.forbidden(res, `Check-in not allowed from your country (${countryCheck.country || countryCheck.countryCode || 'unknown'}). Please use the WFH option if working remotely.`);
+        return ResponseHelper.forbidden(res, `Check-in not allowed from your country (${countryCheck.country || countryCheck.countryCode || 'unknown'}). Please use the Remote Work option if working outside the office.`);
       }
 
-      // IP and Zone are alternative location proofs — when BOTH restrictions are active,
-      // satisfying EITHER is sufficient (OR logic). An office may use IP whitelist, or
-      // geo-zone radius, or both. Only block if ALL active checks fail.
-      const bothLocationActive = ipCheck.restricted && zoneCheck.restricted;
-      console.log(`[checkIn] bothLocationActive=${bothLocationActive}`);
-      if (bothLocationActive) {
-        if (!ipCheck.allowed && !zoneCheck.allowed) {
-          const loc = [zoneCheck.city, zoneCheck.regionName].filter(Boolean).join(', ') || 'unknown location';
-          console.log(`[checkIn] IP+Zone both blocked: ip="${ip}" location="${loc}"`);
-          return ResponseHelper.forbidden(res, `Check-in not allowed: your network (${ip || 'unknown'}) is not in the IP whitelist and your location (${loc}) is outside all allowed zones. Please use the WFH option if working remotely.`);
+      // IP and Zone are alternative location proofs (OR logic when both active).
+      // Special case: when the zone check is unverifiable (no GPS + no IP-geo coords),
+      // we cannot use it as a pass — defer entirely to the IP check instead.
+      // Geo-only offices (IP restrictions off) gracefully allow through when unverifiable.
+      console.log(`[checkIn] ipAllowed=${ipCheck.allowed} ipRestricted=${ipCheck.restricted} | zoneAllowed=${zoneCheck.allowed} zoneRestricted=${zoneCheck.restricted} zoneUnverifiable=${!!zoneCheck.unverifiable}`);
+      if (zoneCheck.unverifiable) {
+        // Zone position could not be determined (no GPS + private IP = no IP-geo fallback).
+        if (!ipCheck.restricted) {
+          // Geo-only office: zone is the sole gatekeeper but we have no coordinates to test it.
+          // Must block — cannot grant access with zero location evidence.
+          const gpsCode = parseInt(gps_error_code, 10) || 0;
+          const gpsHint = gpsCode === 1
+            ? 'Check-in for this office requires your location, but location access is blocked in your browser. Go to your browser\'s site settings and allow location for this page, then try again.'
+            : gpsCode === 3
+            ? 'Check-in for this office requires your location, but GPS timed out. Move near a window for a better signal, then try again.'
+            : gpsCode === 2
+            ? 'Check-in for this office requires your location, but your device reported it could not determine your position. Check that location services are fully enabled on your device (not just in the browser), then try again.'
+            : 'Check-in for this office requires your location, but your location could not be obtained. Please refresh the page and try again.';
+          console.log(`[checkIn] zone unverifiable + IP not active (gps_error_code=${gpsCode}) — blocking`);
+          return ResponseHelper.forbidden(res, `${gpsHint} Use the Remote Work option if you are working from another location.`);
         }
-        console.log(`[checkIn] OR gate passed: ipAllowed=${ipCheck.allowed} zoneAllowed=${zoneCheck.allowed}`);
-      } else {
         if (!ipCheck.allowed) {
-          console.log(`[checkIn] IP blocked (zone not active): detected="${ip}"`);
-          return ResponseHelper.forbidden(res, `Check-in not allowed from this network (${ip || 'unknown IP'}). Please use the WFH option if working remotely.`);
+          // IP active and failed — zone can't help, IP is the sole verdict.
+          console.log(`[checkIn] IP blocked (zone unverifiable, IP is sole gatekeeper): detected="${ip}"`);
+          return ResponseHelper.forbidden(res, `Check-in not allowed from this network (${ip || 'unknown IP'}). Please use the Remote Work option if working outside the office.`);
         }
-        if (!zoneCheck.allowed) {
-          const loc = [zoneCheck.city, zoneCheck.regionName].filter(Boolean).join(', ') || 'unknown location';
-          console.log(`[checkIn] Zone blocked (IP not active): detected="${loc}" ip="${ip}"`);
-          return ResponseHelper.forbidden(res, `Check-in not allowed from your location (${loc}). Please use the WFH option if working remotely.`);
+        // IP active and passed — OR logic satisfied; zone unverifiable but IP is sufficient.
+        console.log(`[checkIn] zone unverifiable — IP passed, allowing`);
+      } else {
+        const bothLocationActive = ipCheck.restricted && zoneCheck.restricted;
+        if (bothLocationActive) {
+          if (!ipCheck.allowed && !zoneCheck.allowed) {
+            if (zoneCheck.coordSource === 'IP-geo') {
+              const gpsCode = parseInt(gps_error_code, 10) || 0;
+              const gpsHint = gpsCode === 1
+                ? 'Check-in for this office requires your location, but location access is blocked in your browser. Go to your browser\'s site settings and allow location for this page, then try again.'
+                : gpsCode === 3
+                ? 'Check-in for this office requires your location, but GPS timed out. Move near a window for a better signal, then try again.'
+                : 'Check-in for this office requires your location, but your device could not determine your position. Click the lock or location icon in your browser address bar, set Location to Allow for this site, then try again.';
+              console.log(`[checkIn] IP+Zone both blocked (zone via IP-geo, gps_error_code=${gpsCode}): ip="${ip}"`);
+              return ResponseHelper.forbidden(res, `${gpsHint} Use the Remote Work option if you are working from another location.`);
+            }
+            console.log(`[checkIn] IP+Zone both blocked (GPS outside all zones): ip="${ip}"`);
+            return ResponseHelper.forbidden(res, `Your network (${ip || 'unknown'}) is not in the IP whitelist and your GPS location is outside all allowed office zones. Use the Remote Work option if you are working from another location.`, { coordSource: zoneCheck.coordSource, zoneDistances: zoneCheck.zoneDistances });
+          }
+          console.log(`[checkIn] OR gate passed: ipAllowed=${ipCheck.allowed} zoneAllowed=${zoneCheck.allowed}`);
+        } else {
+          if (!ipCheck.allowed) {
+            console.log(`[checkIn] IP blocked (zone not active): detected="${ip}"`);
+            return ResponseHelper.forbidden(res, `Check-in not allowed from this network (${ip || 'unknown IP'}). Please use the Remote Work option if working outside the office.`);
+          }
+          if (!zoneCheck.allowed) {
+            if (zoneCheck.coordSource === 'IP-geo') {
+              const gpsCode = parseInt(gps_error_code, 10) || 0;
+              const gpsHint = gpsCode === 1
+                ? 'Check-in for this office requires your location, but location access is blocked in your browser. Go to your browser\'s site settings and allow location for this page, then try again.'
+                : gpsCode === 3
+                ? 'Check-in for this office requires your location, but GPS timed out. Move near a window for a better signal, then try again.'
+                : 'Check-in for this office requires your location, but your device could not determine your position. Click the lock or location icon in your browser address bar, set Location to Allow for this site, then try again.';
+              console.log(`[checkIn] Zone blocked via IP-geo (gps_error_code=${gpsCode}): ip="${ip}"`);
+              return ResponseHelper.forbidden(res, `${gpsHint} Use the Remote Work option if you are working from another location.`);
+            }
+            console.log(`[checkIn] Zone blocked (GPS outside all zones): ip="${ip}"`);
+            return ResponseHelper.forbidden(res, `You are outside all configured office zones. If you are at the office and this seems wrong, try again — GPS can take a moment to get an accurate fix. Use the Remote Work option if you are working from another location.`, { coordSource: zoneCheck.coordSource, zoneDistances: zoneCheck.zoneDistances });
+          }
         }
       }
     }
@@ -194,11 +252,12 @@ class AttendanceController {
     if (existing.length > 0) {
       record = await this.db.update(TABLES.ATTENDANCE_RECORDS, {
         ROWID: existing[0].ROWID,
-        check_in_time: formattedNow,
-        status: is_wfh ? ATTENDANCE_STATUS.WFH : ATTENDANCE_STATUS.PRESENT,
-        is_wfh: is_wfh ? 'true' : 'false',
-        wfh_reason: wfh_reason || '',
-        check_in_ip: ip,
+        check_in_time:    formattedNow,
+        status:           is_remote ? ATTENDANCE_STATUS.WFH : ATTENDANCE_STATUS.PRESENT,
+        is_wfh:           is_remote ? 'true' : 'false',
+        wfh_reason:       wfh_reason || '',
+        remote_work_type: resolvedRemoteType,
+        check_in_ip:      ip,
       });
     } else {
       record = await this.db.insert(TABLES.ATTENDANCE_RECORDS, {
@@ -207,9 +266,10 @@ class AttendanceController {
         attendance_date:     today,
         check_in_time:       formattedNow,
         work_hours:          0,
-        status:              is_wfh ? ATTENDANCE_STATUS.WFH : ATTENDANCE_STATUS.PRESENT,
-        is_wfh:              is_wfh ? 'true' : 'false',
+        status:              is_remote ? ATTENDANCE_STATUS.WFH : ATTENDANCE_STATUS.PRESENT,
+        is_wfh:              is_remote ? 'true' : 'false',
         wfh_reason:          wfh_reason || '',
+        remote_work_type:    resolvedRemoteType,
         check_in_ip:         ip,
         is_location_verified:'false',
         override_reason:     '',
@@ -226,7 +286,7 @@ class AttendanceController {
     });
 
     // Late check-in detection — runs after record is created, non-blocking
-    if (!is_wfh) {
+    if (!is_remote) {
       try {
         const shift = await this._getUserShift(tenantId, userRowId);
         if (shift) {
@@ -244,24 +304,29 @@ class AttendanceController {
       }
     }
 
-    // Notify reporting manager when checking in as WFH
-    if (is_wfh) {
+    // Notify reporting manager when checking in remotely (WFH / Client Visit / Field Work)
+    if (is_remote) {
       try {
+        const typeLabel = resolvedRemoteType === REMOTE_WORK_TYPE.CLIENT_VISIT ? 'at a client site'
+          : resolvedRemoteType === REMOTE_WORK_TYPE.FIELD_WORK ? 'doing field work'
+          : resolvedRemoteType === REMOTE_WORK_TYPE.OFFSITE ? 'working offsite'
+          : 'working from home';
         const profileRows = await this.db.findWhere(TABLES.USER_PROFILES, tenantId, `user_id = '${userRowId}'`, { limit: 1 });
         const rmId = profileRows[0]?.reporting_manager_id;
         if (rmId) {
           const rmRows = await this.db.query(`SELECT email, name FROM ${TABLES.USERS} WHERE ROWID = '${rmId}' LIMIT 1`);
           if (rmRows[0]) {
-            // Escape free-text fields (names, reason) before injecting into HTML
             await this.notif.send({
               toEmail: rmRows[0].email,
-              subject: `${req.currentUser.name} is working from home today`,
-              htmlBody: `<p>Hi ${_escapeHtml(rmRows[0].name)}, ${_escapeHtml(req.currentUser.name)} has checked in as WFH today (${_escapeHtml(today)}).${wfh_reason ? ' Reason: ' + _escapeHtml(wfh_reason) : ''}</p>`,
+              subject: `${req.currentUser.name} is ${typeLabel} today`,
+              htmlBody: `<p>Hi ${_escapeHtml(rmRows[0].name)}, ${_escapeHtml(req.currentUser.name)} is ${_escapeHtml(typeLabel)} today (${_escapeHtml(today)}).${wfh_reason ? ' Reason: ' + _escapeHtml(wfh_reason) : ''}</p>`,
             });
             await this.notif.sendInApp({
               tenantId, userId: rmId,
-              title: 'WFH Check-in',
-              message: `${req.currentUser.name} is working from home today`,
+              title: resolvedRemoteType === REMOTE_WORK_TYPE.CLIENT_VISIT ? 'Client Visit Check-in'
+                : resolvedRemoteType === REMOTE_WORK_TYPE.FIELD_WORK ? 'Field Work Check-in'
+                : 'WFH Check-in',
+              message: `${req.currentUser.name} is ${typeLabel} today`,
               type: NOTIFICATION_TYPE.GENERAL,
               entityType: 'ATTENDANCE', entityId: record.ROWID,
             });
@@ -502,7 +567,7 @@ class AttendanceController {
     const isWfhRecord = existing[0].is_wfh === 'true' || existing[0].is_wfh === true;
     if (!isWfhRecord) {
       const ip = extractClientIp(req);
-      const { latitude: bsLat, longitude: bsLon } = req.body;
+      const { latitude: bsLat, longitude: bsLon, gps_error_code: bsGpsErr } = req.body;
       const bsClientCoords = (bsLat != null && bsLon != null)
         ? { latitude: parseFloat(bsLat), longitude: parseFloat(bsLon) }
         : null;
@@ -514,22 +579,60 @@ class AttendanceController {
         console.log(`[breakStart] Country blocked: user=${req.currentUser.email} country="${countryCheck.country}" ip="${ip}"`);
         return ResponseHelper.forbidden(res, `Breaks can only be recorded from an allowed country. Detected: ${countryCheck.country || 'unknown'}`);
       }
-      const bothLocationActiveBS = ipCheck.restricted && zoneCheck.restricted;
-      if (bothLocationActiveBS) {
-        if (!ipCheck.allowed && !zoneCheck.allowed) {
-          const loc = [zoneCheck.city, zoneCheck.regionName].filter(Boolean).join(', ') || 'unknown location';
-          console.log(`[breakStart] IP+Zone both blocked: user=${req.currentUser.email} ip="${ip}" location="${loc}"`);
-          return ResponseHelper.forbidden(res, `Breaks can only be recorded from the office network or an allowed zone. Network: ${ip || 'unknown'}, Location: ${loc}`);
+      if (zoneCheck.unverifiable) {
+        if (!ipCheck.restricted) {
+          const gpsCode = parseInt(bsGpsErr, 10) || 0;
+          const gpsHint = gpsCode === 1
+            ? 'Breaks at this office require your location, but location access is blocked in your browser. Allow location in your browser\'s site settings and try again.'
+            : gpsCode === 3
+            ? 'Breaks at this office require your location, but GPS timed out. Move near a window for a better signal, then try again.'
+            : gpsCode === 2
+            ? 'Breaks at this office require your location, but your device reported it could not determine your position. Check that location services are fully enabled on your device (not just in the browser), then try again.'
+            : 'Breaks at this office require your location, but your location could not be obtained. Please refresh the page and try again.';
+          console.log(`[breakStart] zone unverifiable + IP not active (gps_error_code=${gpsCode}): user=${req.currentUser.email}`);
+          return ResponseHelper.forbidden(res, gpsHint);
         }
-      } else {
         if (!ipCheck.allowed) {
-          console.log(`[breakStart] IP blocked: user=${req.currentUser.email} detected="${ip}" headers=${JSON.stringify({ xfwd: req.headers['x-forwarded-for'], xreal: req.headers['x-real-ip'] })}`);
+          console.log(`[breakStart] IP blocked (zone unverifiable, IP is sole gatekeeper): user=${req.currentUser.email} detected="${ip}"`);
           return ResponseHelper.forbidden(res, `Breaks can only be recorded from the office network. Detected IP: ${ip || 'unknown'}`);
         }
-        if (!zoneCheck.allowed) {
-          const loc = [zoneCheck.city, zoneCheck.regionName].filter(Boolean).join(', ') || 'unknown location';
-          console.log(`[breakStart] Zone blocked: user=${req.currentUser.email} location="${loc}" ip="${ip}"`);
-          return ResponseHelper.forbidden(res, `Breaks can only be recorded from an allowed zone. Detected: ${loc}`);
+        console.log(`[breakStart] zone unverifiable — IP passed, allowing`);
+      } else {
+        const bothLocationActiveBS = ipCheck.restricted && zoneCheck.restricted;
+        if (bothLocationActiveBS) {
+          if (!ipCheck.allowed && !zoneCheck.allowed) {
+            if (zoneCheck.coordSource === 'IP-geo') {
+              const gpsCode = parseInt(bsGpsErr, 10) || 0;
+              const gpsHint = gpsCode === 1
+                ? 'Breaks at this office require your location, but location access is blocked in your browser. Allow location in your browser\'s site settings and try again.'
+                : gpsCode === 3
+                ? 'Breaks at this office require your location, but GPS timed out. Move near a window for a better signal, then try again.'
+                : 'Breaks at this office require your location, but your device could not determine your position. Click the lock or location icon in your browser address bar, set Location to Allow for this site, then try again.';
+              console.log(`[breakStart] IP+Zone both blocked (zone via IP-geo, gps_error_code=${gpsCode}): user=${req.currentUser.email} ip="${ip}"`);
+              return ResponseHelper.forbidden(res, gpsHint);
+            }
+            console.log(`[breakStart] IP+Zone both blocked (GPS outside all zones): user=${req.currentUser.email} ip="${ip}"`);
+            return ResponseHelper.forbidden(res, `Your network is not in the IP whitelist and your GPS location is outside all allowed office zones. Use Remote Work if working from another location.`);
+          }
+        } else {
+          if (!ipCheck.allowed) {
+            console.log(`[breakStart] IP blocked: user=${req.currentUser.email} detected="${ip}"`);
+            return ResponseHelper.forbidden(res, `Breaks can only be recorded from the office network. Detected IP: ${ip || 'unknown'}`);
+          }
+          if (!zoneCheck.allowed) {
+            if (zoneCheck.coordSource === 'IP-geo') {
+              const gpsCode = parseInt(bsGpsErr, 10) || 0;
+              const gpsHint = gpsCode === 1
+                ? 'Breaks at this office require your location, but location access is blocked in your browser. Allow location in your browser\'s site settings and try again.'
+                : gpsCode === 3
+                ? 'Breaks at this office require your location, but GPS timed out. Move near a window for a better signal, then try again.'
+                : 'Breaks at this office require your location, but your device could not determine your position. Click the lock or location icon in your browser address bar, set Location to Allow for this site, then try again.';
+              console.log(`[breakStart] Zone blocked via IP-geo (gps_error_code=${gpsCode}): user=${req.currentUser.email} ip="${ip}"`);
+              return ResponseHelper.forbidden(res, gpsHint);
+            }
+            console.log(`[breakStart] Zone blocked (GPS outside all zones): user=${req.currentUser.email} ip="${ip}"`);
+            return ResponseHelper.forbidden(res, `You are outside all configured office zones. If you are at the office and this seems wrong, try again — GPS can take a moment to get an accurate fix.`);
+          }
         }
       }
     }
@@ -588,7 +691,7 @@ class AttendanceController {
     const isWfhRecord = todayRecord[0]?.is_wfh === 'true' || todayRecord[0]?.is_wfh === true;
     if (!isWfhRecord) {
       const ip = extractClientIp(req);
-      const { latitude: beLat, longitude: beLon } = req.body;
+      const { latitude: beLat, longitude: beLon, gps_error_code: beGpsErr } = req.body;
       const beClientCoords = (beLat != null && beLon != null)
         ? { latitude: parseFloat(beLat), longitude: parseFloat(beLon) }
         : null;
@@ -600,22 +703,60 @@ class AttendanceController {
         console.log(`[breakEnd] Country blocked: user=${req.currentUser.email} country="${countryCheck.country}" ip="${ip}"`);
         return ResponseHelper.forbidden(res, `Breaks can only be ended from an allowed country. Detected: ${countryCheck.country || 'unknown'}`);
       }
-      const bothLocationActiveBE = ipCheck.restricted && zoneCheck.restricted;
-      if (bothLocationActiveBE) {
-        if (!ipCheck.allowed && !zoneCheck.allowed) {
-          const loc = [zoneCheck.city, zoneCheck.regionName].filter(Boolean).join(', ') || 'unknown location';
-          console.log(`[breakEnd] IP+Zone both blocked: user=${req.currentUser.email} ip="${ip}" location="${loc}"`);
-          return ResponseHelper.forbidden(res, `Breaks can only be ended from the office network or an allowed zone. Network: ${ip || 'unknown'}, Location: ${loc}`);
+      if (zoneCheck.unverifiable) {
+        if (!ipCheck.restricted) {
+          const gpsCode = parseInt(beGpsErr, 10) || 0;
+          const gpsHint = gpsCode === 1
+            ? 'Breaks at this office require your location, but location access is blocked in your browser. Allow location in your browser\'s site settings and try again.'
+            : gpsCode === 3
+            ? 'Breaks at this office require your location, but GPS timed out. Move near a window for a better signal, then try again.'
+            : gpsCode === 2
+            ? 'Breaks at this office require your location, but your device reported it could not determine your position. Check that location services are fully enabled on your device (not just in the browser), then try again.'
+            : 'Breaks at this office require your location, but your location could not be obtained. Please refresh the page and try again.';
+          console.log(`[breakEnd] zone unverifiable + IP not active (gps_error_code=${gpsCode}): user=${req.currentUser.email}`);
+          return ResponseHelper.forbidden(res, gpsHint);
         }
-      } else {
         if (!ipCheck.allowed) {
-          console.log(`[breakEnd] IP blocked: user=${req.currentUser.email} detected="${ip}" headers=${JSON.stringify({ xfwd: req.headers['x-forwarded-for'], xreal: req.headers['x-real-ip'] })}`);
+          console.log(`[breakEnd] IP blocked (zone unverifiable, IP is sole gatekeeper): user=${req.currentUser.email} detected="${ip}"`);
           return ResponseHelper.forbidden(res, `Breaks can only be ended from the office network. Detected IP: ${ip || 'unknown'}`);
         }
-        if (!zoneCheck.allowed) {
-          const loc = [zoneCheck.city, zoneCheck.regionName].filter(Boolean).join(', ') || 'unknown location';
-          console.log(`[breakEnd] Zone blocked: user=${req.currentUser.email} location="${loc}" ip="${ip}"`);
-          return ResponseHelper.forbidden(res, `Breaks can only be ended from an allowed zone. Detected: ${loc}`);
+        console.log(`[breakEnd] zone unverifiable — IP passed, allowing`);
+      } else {
+        const bothLocationActiveBE = ipCheck.restricted && zoneCheck.restricted;
+        if (bothLocationActiveBE) {
+          if (!ipCheck.allowed && !zoneCheck.allowed) {
+            if (zoneCheck.coordSource === 'IP-geo') {
+              const gpsCode = parseInt(beGpsErr, 10) || 0;
+              const gpsHint = gpsCode === 1
+                ? 'Breaks at this office require your location, but location access is blocked in your browser. Allow location in your browser\'s site settings and try again.'
+                : gpsCode === 3
+                ? 'Breaks at this office require your location, but GPS timed out. Move near a window for a better signal, then try again.'
+                : 'Breaks at this office require your location, but your device could not determine your position. Click the lock or location icon in your browser address bar, set Location to Allow for this site, then try again.';
+              console.log(`[breakEnd] IP+Zone both blocked (zone via IP-geo, gps_error_code=${gpsCode}): user=${req.currentUser.email} ip="${ip}"`);
+              return ResponseHelper.forbidden(res, gpsHint);
+            }
+            console.log(`[breakEnd] IP+Zone both blocked (GPS outside all zones): user=${req.currentUser.email} ip="${ip}"`);
+            return ResponseHelper.forbidden(res, `Your network is not in the IP whitelist and your GPS location is outside all allowed office zones. Use Remote Work if working from another location.`);
+          }
+        } else {
+          if (!ipCheck.allowed) {
+            console.log(`[breakEnd] IP blocked: user=${req.currentUser.email} detected="${ip}"`);
+            return ResponseHelper.forbidden(res, `Breaks can only be ended from the office network. Detected IP: ${ip || 'unknown'}`);
+          }
+          if (!zoneCheck.allowed) {
+            if (zoneCheck.coordSource === 'IP-geo') {
+              const gpsCode = parseInt(beGpsErr, 10) || 0;
+              const gpsHint = gpsCode === 1
+                ? 'Breaks at this office require your location, but location access is blocked in your browser. Allow location in your browser\'s site settings and try again.'
+                : gpsCode === 3
+                ? 'Breaks at this office require your location, but GPS timed out. Move near a window for a better signal, then try again.'
+                : 'Breaks at this office require your location, but your device could not determine your position. Click the lock or location icon in your browser address bar, set Location to Allow for this site, then try again.';
+              console.log(`[breakEnd] Zone blocked via IP-geo (gps_error_code=${gpsCode}): user=${req.currentUser.email} ip="${ip}"`);
+              return ResponseHelper.forbidden(res, gpsHint);
+            }
+            console.log(`[breakEnd] Zone blocked (GPS outside all zones): user=${req.currentUser.email} ip="${ip}"`);
+            return ResponseHelper.forbidden(res, `You are outside all configured office zones. If you are at the office and this seems wrong, try again — GPS can take a moment to get an accurate fix.`);
+          }
         }
       }
     }
@@ -993,8 +1134,10 @@ class AttendanceController {
       if (!zones || zones.length === 0) return { allowed: true, restricted: false };
 
       // Prefer browser GPS (accurate to meters) over IP geolocation (±25–50 km).
-      // If neither is available (private IP + no browser GPS) fail open but mark restricted
-      // so the IP+Zone OR gate still activates.
+      // If neither is available (private IP + no browser GPS) we cannot verify the zone —
+      // fail CLOSED (allowed=false) so the OR gate forces the IP check to be the sole
+      // gatekeeper. A user on a valid office network passes via IP; a user on personal
+      // WiFi fails both checks and is correctly blocked.
       let coordSource = 'none';
       let lat, lon;
       if (clientCoords && clientCoords.latitude != null && clientCoords.longitude != null) {
@@ -1008,17 +1151,23 @@ class AttendanceController {
       }
 
       if (coordSource === 'none') {
-        console.log(`[zone] no coords available (private IP + no browser GPS) — failing open (restricted=true)`);
-        return { allowed: true, restricted: true };
+        // Cannot determine position — mark as unverifiable so the caller can decide:
+        //   • If IP restrictions are also active → IP becomes the sole gatekeeper (correct: blocks personal WiFi)
+        //   • If IP restrictions are NOT active (geo-only office) → allow through gracefully
+        console.log(`[zone] no coords available (private IP + no browser GPS) — unverifiable`);
+        return { allowed: false, restricted: true, unverifiable: true };
       }
 
       console.log(`[zone] using ${coordSource} coords: lat=${lat} lon=${lon}, checking ${zones.length} zone(s)`);
+      const zoneDistances = [];
       for (const zone of zones) {
         const dist = this._haversineKm(parseFloat(zone.latitude), parseFloat(zone.longitude), lat, lon);
-        console.log(`[zone]   "${zone.name}" centre=(${zone.latitude},${zone.longitude}) radius=${zone.radius_km}km → dist=${dist.toFixed(3)}km → ${dist <= parseFloat(zone.radius_km) ? 'IN ZONE ✓' : 'outside'}`);
-        if (dist <= parseFloat(zone.radius_km)) return { allowed: true, restricted: true, zone: zone.name };
+        const inZone = dist <= parseFloat(zone.radius_km);
+        console.log(`[zone]   "${zone.name}" centre=(${zone.latitude},${zone.longitude}) radius=${zone.radius_km}km → dist=${dist.toFixed(3)}km → ${inZone ? 'IN ZONE ✓' : 'outside'}`);
+        zoneDistances.push({ zone: zone.name, distanceKm: parseFloat(dist.toFixed(3)), radiusKm: parseFloat(zone.radius_km), inZone });
+        if (inZone) return { allowed: true, restricted: true, zone: zone.name, zoneDistances };
       }
-      return { allowed: false, restricted: true, city: geoData?.city, regionName: geoData?.regionName };
+      return { allowed: false, restricted: true, city: geoData?.city, regionName: geoData?.regionName, coordSource, zoneDistances };
     } catch (err) {
       console.log(`[zone] error — failing open: ${err.message}`);
       return { allowed: true, restricted: false };
@@ -1753,13 +1902,13 @@ class AttendanceController {
           esc(r.check_in_time || ''),
           esc(r.check_out_time || ''),
           esc(r.work_hours ?? ''),
-          esc(r.is_wfh === 'true' ? 'Yes' : 'No'),
+          esc(r.is_wfh === 'true' ? (r.remote_work_type === 'CLIENT_VISIT' ? 'Client Visit' : r.remote_work_type === 'FIELD_WORK' ? 'Field Work' : r.remote_work_type === 'OFFSITE' ? 'Offsite' : 'WFH') : ''),
           esc(r.override_reason || ''),
         ].join(',');
       });
 
       const csv = [
-        'Name,Email,Date,Status,Check In,Check Out,Hours,WFH,Override Reason',
+        'Name,Email,Date,Status,Check In,Check Out,Hours,Remote Type,Override Reason',
         ...rows,
       ].join('\n');
 
@@ -1781,9 +1930,14 @@ class AttendanceController {
 
   // POST /api/people/attendance/wfh-requests
   async submitWfhRequest(req, res) {
-    const { date_from, date_to, reason } = req.body;
+    const { date_from, date_to, reason, request_type } = req.body;
     if (!date_from || !date_to || !reason) return ResponseHelper.validationError(res, 'date_from, date_to and reason are required');
     if (date_to < date_from) return ResponseHelper.validationError(res, 'date_to must be on or after date_from');
+
+    const validTypes = Object.values(REMOTE_WORK_TYPE);
+    const resolvedType = request_type && validTypes.includes(String(request_type).toUpperCase())
+      ? String(request_type).toUpperCase()
+      : REMOTE_WORK_TYPE.WFH;
 
     const users = await this.db.findWhere(TABLES.USERS, req.tenantId,
       `email = '${req.currentUser.email}'`, { limit: 1 });
@@ -1792,21 +1946,24 @@ class AttendanceController {
 
     // Check for any overlapping non-cancelled request in the requested range
     const existing = await this.db.findWhere(TABLES.WFH_REQUESTS, req.tenantId,
-      `user_id = '${userRowId}' AND status != 'CANCELLED' AND wfh_date <= '${date_to}' AND (wfh_date_to >= '${date_from}' OR (wfh_date_to = '' AND wfh_date >= '${date_from}'))`,
+      `user_id = '${userRowId}' AND status != 'CANCELLED' AND status != 'REJECTED' AND wfh_date <= '${date_to}' AND (wfh_date_to >= '${date_from}' OR (wfh_date_to = '' AND wfh_date >= '${date_from}'))`,
       { limit: 1 });
-    if (existing.length > 0) return ResponseHelper.conflict(res, 'A WFH request already exists overlapping this date range');
+    if (existing.length > 0) return ResponseHelper.conflict(res, 'A remote work request already exists overlapping this date range');
 
     const dateLabel = date_from === date_to ? date_from : `${date_from} to ${date_to}`;
+    const typeLabel = resolvedType === REMOTE_WORK_TYPE.CLIENT_VISIT ? 'Client Visit'
+      : resolvedType === REMOTE_WORK_TYPE.FIELD_WORK ? 'Field Work'
+      : resolvedType === REMOTE_WORK_TYPE.OFFSITE ? 'Offsite'
+      : 'WFH';
+
     const record = await this.db.insert(TABLES.WFH_REQUESTS, {
-      tenant_id:      String(req.tenantId),
-      user_id:        String(userRowId),
-      wfh_date:       date_from,
-      wfh_date_to:    date_to,
+      tenant_id:    String(req.tenantId),
+      user_id:      String(userRowId),
+      wfh_date:     date_from,
+      wfh_date_to:  date_to,
       reason,
-      status:         'PENDING',
-      reviewed_by:    '',
-      reviewer_notes: '',
-      reviewed_at:    '',
+      request_type: resolvedType,
+      status:       'PENDING',
     });
 
     const profiles = await this.db.findWhere(TABLES.USER_PROFILES, req.tenantId,
@@ -1816,15 +1973,15 @@ class AttendanceController {
       try {
         await this.notif.sendInApp({
           tenantId: req.tenantId, userId: String(rmId),
-          title: 'WFH Request',
-          message: `${req.currentUser.name} has requested to work from home on ${dateLabel}`,
+          title: `${typeLabel} Request`,
+          message: `${req.currentUser.name} has requested ${typeLabel} on ${dateLabel}`,
           type: NOTIFICATION_TYPE.WFH_REQUEST_SUBMITTED,
           entityType: 'WFH_REQUEST', entityId: record.ROWID,
         });
       } catch (_) {}
     }
 
-    await this.audit.log({ tenantId: req.tenantId, entityType: 'WFH_REQUEST', entityId: record.ROWID, action: AUDIT_ACTION.CREATE, newValue: { date_from, date_to, reason }, performedBy: userRowId });
+    await this.audit.log({ tenantId: req.tenantId, entityType: 'WFH_REQUEST', entityId: record.ROWID, action: AUDIT_ACTION.CREATE, newValue: { date_from, date_to, reason, request_type: resolvedType }, performedBy: userRowId });
     return ResponseHelper.created(res, record);
   }
 
@@ -1886,18 +2043,22 @@ class AttendanceController {
       reviewed_at:    new Date().toISOString().replace('T', ' ').slice(0, 19),
     });
 
+    const approvedTypeLabel = request.request_type === REMOTE_WORK_TYPE.CLIENT_VISIT ? 'Client Visit'
+      : request.request_type === REMOTE_WORK_TYPE.FIELD_WORK ? 'Field Work'
+      : request.request_type === REMOTE_WORK_TYPE.OFFSITE ? 'Offsite'
+      : 'WFH';
     try {
       await this.notif.sendInApp({
         tenantId: req.tenantId, userId: String(request.user_id),
-        title: 'WFH Request Approved',
-        message: `Your WFH request for ${request.wfh_date_to && request.wfh_date_to !== request.wfh_date ? `${request.wfh_date} to ${request.wfh_date_to}` : request.wfh_date} has been approved`,
+        title: `${approvedTypeLabel} Request Approved`,
+        message: `Your ${approvedTypeLabel} request for ${request.wfh_date_to && request.wfh_date_to !== request.wfh_date ? `${request.wfh_date} to ${request.wfh_date_to}` : request.wfh_date} has been approved`,
         type: NOTIFICATION_TYPE.WFH_APPROVED,
         entityType: 'WFH_REQUEST', entityId: req.params.id,
       });
     } catch (_) {}
 
     await this.audit.log({ tenantId: req.tenantId, entityType: 'WFH_REQUEST', entityId: req.params.id, action: AUDIT_ACTION.APPROVE, newValue: { status: 'APPROVED' }, performedBy: reviewerRowId });
-    return ResponseHelper.success(res, { message: 'WFH request approved' });
+    return ResponseHelper.success(res, { message: `${approvedTypeLabel} request approved` });
   }
 
   // PATCH /api/people/attendance/wfh-requests/:id/reject
@@ -1921,18 +2082,22 @@ class AttendanceController {
       reviewed_at:    new Date().toISOString().replace('T', ' ').slice(0, 19),
     });
 
+    const rejectedTypeLabel = request.request_type === REMOTE_WORK_TYPE.CLIENT_VISIT ? 'Client Visit'
+      : request.request_type === REMOTE_WORK_TYPE.FIELD_WORK ? 'Field Work'
+      : request.request_type === REMOTE_WORK_TYPE.OFFSITE ? 'Offsite'
+      : 'WFH';
     try {
       await this.notif.sendInApp({
         tenantId: req.tenantId, userId: String(request.user_id),
-        title: 'WFH Request Rejected',
-        message: `Your WFH request for ${request.wfh_date_to && request.wfh_date_to !== request.wfh_date ? `${request.wfh_date} to ${request.wfh_date_to}` : request.wfh_date} was rejected. Reason: ${reviewer_notes}`,
+        title: `${rejectedTypeLabel} Request Rejected`,
+        message: `Your ${rejectedTypeLabel} request for ${request.wfh_date_to && request.wfh_date_to !== request.wfh_date ? `${request.wfh_date} to ${request.wfh_date_to}` : request.wfh_date} was rejected. Reason: ${reviewer_notes}`,
         type: NOTIFICATION_TYPE.WFH_REJECTED,
         entityType: 'WFH_REQUEST', entityId: req.params.id,
       });
     } catch (_) {}
 
     await this.audit.log({ tenantId: req.tenantId, entityType: 'WFH_REQUEST', entityId: req.params.id, action: AUDIT_ACTION.REJECT, newValue: { status: 'REJECTED', reviewer_notes }, performedBy: reviewerRowId });
-    return ResponseHelper.success(res, { message: 'WFH request rejected' });
+    return ResponseHelper.success(res, { message: `${rejectedTypeLabel} request rejected` });
   }
 
   // DELETE /api/people/attendance/wfh-requests/:id

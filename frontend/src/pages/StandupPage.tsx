@@ -206,7 +206,7 @@ const StandupPage = () => {
     teamParams,
     { enabled: tab === 'team' && canSeeTeamStandups }
   );
-  const teamStandups   = teamResult?.data ?? [];
+  const teamStandups   = React.useMemo(() => teamResult?.data ?? [], [teamResult?.data]);
   const teamPagination = teamResult?.pagination ?? null;
   const teamTotal      = teamPagination?.total ?? teamStandups.length;
   const teamTotalPages = Math.max(1, teamPagination?.totalPages ?? Math.ceil(teamStandups.length / teamPageSize));

@@ -1006,7 +1006,7 @@ export default function TeamActivityPage() {
     queryFn:  () => teamsApi.list(),
     retry: false,
   });
-  const teams = teamsData?.teams ?? [];
+  const teams = useMemo(() => teamsData?.teams ?? [], [teamsData?.teams]);
 
   // When period changes or team changes, reset user selection
   useEffect(() => { setSelectedUserId(null); }, [period, selectedTeamId]);

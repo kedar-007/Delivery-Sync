@@ -12,7 +12,6 @@ import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import { useI18n } from '../contexts/I18nContext';
 import Button from '../components/ui/Button';
-import Card, { CardHeader, CardTitle } from '../components/ui/Card';
 import { RAGBadge, StatusBadge } from '../components/ui/Badge';
 import Modal, { ModalActions } from '../components/ui/Modal';
 import Alert from '../components/ui/Alert';

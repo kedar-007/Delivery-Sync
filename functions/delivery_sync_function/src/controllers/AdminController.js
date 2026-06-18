@@ -67,10 +67,13 @@ class AdminController {
         } catch (_) {}
       }
 
-      // Get the current user's Catalyst org_id — required by registerUser().
-      // Uses user-scoped app (this.auth) which needs the calling user's token.
-      const currentCatalystUser = await this.auth.getCurrentUser();
-      const orgId = currentCatalystUser.org_id || '';
+      // Get the current user's Catalyst org_id to pass as a hint to registerUser().
+      // getCurrentUser() can return null when the request goes through the admin-scope
+      // auth path (no user token attached). Guard with optional chaining — the admin-scoped
+      // registerUser resolves the org from the app context anyway, and the real org_id is
+      // read back from registeredUser.user_details.org_id on the line below.
+      const currentCatalystUser = await this.auth.getCurrentUser().catch(() => null);
+      const orgId = currentCatalystUser?.org_id || '';
 
       /** Signup email config — Catalyst replaces %LINK% with the activation URL */
       const signupConfig = {

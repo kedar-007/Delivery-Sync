@@ -71,9 +71,9 @@ export default function AiPerformancePage() {
   const isAdmin = canOrgWide;
 
   const { data: usersData } = useUsers();
-  const users = (usersData ?? []) as TenantUser[];
+  const users = useMemo(() => (usersData ?? []) as TenantUser[], [usersData]);
   const { data: teamsData } = useTeams();
-  const allTeams = (teamsData ?? []) as TeamLite[];
+  const allTeams = useMemo(() => (teamsData ?? []) as TeamLite[], [teamsData]);
 
   const myUserId = String(user?.id ?? '');
 

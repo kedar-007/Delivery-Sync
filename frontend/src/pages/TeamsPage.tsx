@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
 import {
   Users, Plus, Trash2, UserPlus, Edit2, Clock, Calendar,
   Crown, Mail, Shield, ChevronRight,
@@ -23,7 +22,7 @@ import { useProjects } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../components/ui/ConfirmDialog';
-import { canDo, PERMISSIONS } from '../utils/permissions';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { useForm, Controller, useWatch } from 'react-hook-form';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -94,9 +93,9 @@ function formatRole(r?: string) {
 // ─── Team Card ────────────────────────────────────────────────────────────────
 
 const TeamCard = ({
-  team, canWrite, onView, onEdit, onDelete,
+  team, canWrite, canManage, onView, onEdit, onDelete,
 }: {
-  team: any; canWrite: boolean;
+  team: any; canWrite: boolean; canManage: boolean;
   onView: (t: any) => void;
   onEdit: (t: any) => void;
   onDelete: (t: any) => void;
@@ -135,22 +134,22 @@ const TeamCard = ({
 
           <div className="flex items-center gap-0.5 shrink-0 ml-2" onClick={(e) => e.stopPropagation()}>
             {canWrite && (
-              <>
-                <button
-                  onClick={() => onEdit(team)}
-                  className="p-1.5 text-gray-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                  title="Edit team"
-                >
-                  <Edit2 size={13} />
-                </button>
-                <button
-                  onClick={() => onDelete(team)}
-                  className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                  title="Delete team"
-                >
-                  <Trash2 size={13} />
-                </button>
-              </>
+              <button
+                onClick={() => onEdit(team)}
+                className="p-1.5 text-gray-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                title="Edit team"
+              >
+                <Edit2 size={13} />
+              </button>
+            )}
+            {canManage && (
+              <button
+                onClick={() => onDelete(team)}
+                className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                title="Delete team"
+              >
+                <Trash2 size={13} />
+              </button>
             )}
           </div>
         </div>
@@ -452,7 +451,8 @@ const TeamsPage = () => {
   const { t } = useI18n();
   const { user } = useAuth();
   const { confirm } = useConfirm();
-  const canWrite = canDo(user?.role, PERMISSIONS.TEAM_WRITE);
+  const canManage = hasPermission(user, PERMISSIONS.TEAM_MANAGE);
+  const canWrite  = hasPermission(user, PERMISSIONS.TEAM_WRITE) || canManage;
 
   const [projectId, setProjectId] = useState('');
   const [showCreate, setShowCreate] = useState(false);
@@ -510,6 +510,7 @@ const TeamsPage = () => {
         reminders_enabled: editTeam.remindersEnabled !== false,
       });
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editTeam?.id]);
 
   const memberForm = useForm<{ user_id: string; role: string }>({ defaultValues: { role: 'DEVELOPER' } });
@@ -571,7 +572,7 @@ const TeamsPage = () => {
         title={t('nav.teams')}
         subtitle="Manage project teams and reporting structure"
         actions={
-          canWrite ? (
+          canManage ? (
             <Button size="sm" icon={<Plus size={14} />} onClick={() => setShowCreate(true)}>
               {t('teams.new')}
             </Button>
@@ -597,7 +598,7 @@ const TeamsPage = () => {
             <div className="py-12 text-center">
               <Users size={32} className="mx-auto mb-3 text-gray-300" />
               <p className="text-sm text-gray-500 mb-4">{t('teams.noTeams')}</p>
-              {canWrite && (
+              {canManage && (
                 <Button size="sm" icon={<Plus size={14} />} onClick={() => setShowCreate(true)}>
                   {t('teams.new')}
                 </Button>
@@ -611,6 +612,7 @@ const TeamsPage = () => {
                 <TeamCard
                   team={t}
                   canWrite={canWrite}
+                  canManage={canManage}
                   onView={setViewTeam}
                   onEdit={(team) => { setEditTeam(team); setCreateError(''); }}
                   onDelete={handleDelete}

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import {
   Bug, X, Upload, AlertTriangle, MessageSquare,
-  Lightbulb, AlertCircle, Send, Loader2, CheckCircle2, Trash2,
+  Lightbulb, Send, Loader2, CheckCircle2, Trash2,
 } from 'lucide-react';
 import { useSubmitBugReport } from '../../hooks/useBugReports';
 import { bugApi } from '../../lib/api';

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Shield, Lock, Unlock, Check, Loader, Sparkles, Wifi, ChevronRight,
-  AlertTriangle, Info, Users, Zap, Eye, EyeOff, X, Search,
+  Shield, Lock, Unlock, Check, Loader, Sparkles, ChevronRight,
+  AlertTriangle, Info, Users, Zap, Eye, X, Search,
   FolderKanban, Clock, Package, BarChart3, LayoutDashboard, Briefcase,
 } from 'lucide-react';
 import Modal, { ModalActions } from './Modal';
@@ -209,6 +209,7 @@ interface AiGuide {
   tip: string;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const AI_GUIDE: Record<string, AiGuide> = {
   IP_CONFIG_WRITE: {
     summary: 'Controls who can manage the office IP whitelist — the network addresses that employees must be on to clock in as Present. The holder can add or remove IP ranges (e.g. 192.168.1.0/24), toggle enforcement on or off, and effectively override location-based attendance controls for the whole organisation.',
@@ -914,36 +915,8 @@ const PERM_INFO: Record<string, { label: string; desc: string }> = {
 
 // ─── Colour helpers ───────────────────────────────────────────────────────────
 
-const GROUP_BG: Record<string, string> = {
-  blue: 'bg-blue-50/60 border-blue-100',
-  emerald: 'bg-emerald-50/60 border-emerald-100',
-  violet: 'bg-violet-50/60 border-violet-100',
-  amber: 'bg-amber-50/60 border-amber-100',
-  teal: 'bg-teal-50/60 border-teal-100',
-  indigo: 'bg-indigo-50/60 border-indigo-100',
-  orange: 'bg-orange-50/60 border-orange-100',
-  rose: 'bg-rose-50/60 border-rose-100',
-  slate: 'bg-slate-50/60 border-slate-100',
-  sky: 'bg-sky-50/60 border-sky-100',
-  red: 'bg-red-50/60 border-red-100',
-  purple: 'bg-purple-50/60 border-purple-100',
-};
 
-const GROUP_TITLE: Record<string, string> = {
-  blue: 'text-blue-700',
-  emerald: 'text-emerald-700',
-  violet: 'text-violet-700',
-  amber: 'text-amber-700',
-  teal: 'text-teal-700',
-  indigo: 'text-indigo-700',
-  orange: 'text-orange-700',
-  rose: 'text-rose-700',
-  slate: 'text-slate-600',
-  sky: 'text-sky-700',
-  red: 'text-red-700',
-  purple: 'text-purple-700',
-};
-
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const RISK_STYLES: Record<string, { bg: string; text: string; label: string }> = {
   low:    { bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700', label: 'Low risk' },
   medium: { bg: 'bg-amber-50 border-amber-200',     text: 'text-amber-700',   label: 'Medium risk' },
@@ -959,147 +932,6 @@ interface Props {
   userName: string;
   userRole: string;
 }
-
-// ─── AI Advisor Panel ─────────────────────────────────────────────────────────
-
-const AiAdvisorPanel = ({
-  selectedPerm,
-  selectedLabel,
-  enabledCount,
-  totalCount,
-  extraCount,
-  revokedCount,
-}: {
-  selectedPerm: string | null;
-  selectedLabel: string;
-  enabledCount: number;
-  totalCount: number;
-  extraCount: number;
-  revokedCount: number;
-}) => {
-  const guide = selectedPerm ? AI_GUIDE[selectedPerm] : null;
-  const risk = guide ? RISK_STYLES[guide.risk] : null;
-
-  return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-purple-100">
-        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-purple-500 to-violet-600 flex items-center justify-center shrink-0">
-          <Sparkles size={14} className="text-white" />
-        </div>
-        <div>
-          <p className="text-xs font-bold text-purple-800">AI Permission Advisor</p>
-          <p className="text-[10px] text-purple-400 leading-none">Click any permission to learn more</p>
-        </div>
-      </div>
-
-      {!guide ? (
-        /* ── Overview when nothing selected ── */
-        <div className="space-y-3 flex-1">
-          <div className="rounded-xl bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-100 p-4 space-y-3">
-            <p className="text-xs font-semibold text-gray-700">Permission Summary</p>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-lg bg-white border border-gray-100 p-2.5 text-center">
-                <p className="text-xl font-bold text-indigo-600">{enabledCount}</p>
-                <p className="text-[10px] text-gray-500">Active</p>
-              </div>
-              <div className="rounded-lg bg-white border border-gray-100 p-2.5 text-center">
-                <p className="text-xl font-bold text-gray-400">{totalCount - enabledCount}</p>
-                <p className="text-[10px] text-gray-500">Inactive</p>
-              </div>
-              <div className="rounded-lg bg-white border border-emerald-100 p-2.5 text-center">
-                <p className="text-xl font-bold text-emerald-600">{extraCount}</p>
-                <p className="text-[10px] text-gray-500">Extra grants</p>
-              </div>
-              <div className="rounded-lg bg-white border border-red-100 p-2.5 text-center">
-                <p className="text-xl font-bold text-red-500">{revokedCount}</p>
-                <p className="text-[10px] text-gray-500">Revoked</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-xl bg-amber-50 border border-amber-100 p-3">
-            <div className="flex items-start gap-2">
-              <Info size={13} className="text-amber-600 mt-0.5 shrink-0" />
-              <div>
-                <p className="text-xs font-semibold text-amber-800 mb-1">How it works</p>
-                <p className="text-[11px] text-amber-700 leading-relaxed">
-                  Permissions inherit from the user's role. You can grant <strong>extra</strong> permissions on top or <strong>revoke</strong> individual defaults without changing the role.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-xl bg-blue-50 border border-blue-100 p-3">
-            <div className="flex items-start gap-2">
-              <Wifi size={13} className="text-blue-600 mt-0.5 shrink-0" />
-              <div>
-                <p className="text-xs font-semibold text-blue-800 mb-1">People Settings access</p>
-                <p className="text-[11px] text-blue-700 leading-relaxed">
-                  The <strong>People Settings</strong> section below shows every tab in that page. Grant <strong>LEAVE_ADMIN</strong> for leave & calendar tabs, <strong>LOCATION_ADMIN</strong> for office locations, or <strong>IP_CONFIG_WRITE</strong> for attendance security tabs.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        /* ── Deep-dive when a permission is selected ── */
-        <div className="space-y-3 flex-1 overflow-y-auto">
-          {/* Permission name + risk badge */}
-          <div className="rounded-xl bg-gradient-to-br from-slate-50 to-gray-50 border border-gray-200 p-3">
-            <div className="flex items-start justify-between gap-2 mb-2">
-              <p className="text-sm font-bold text-gray-900 leading-tight">{selectedLabel}</p>
-              {risk && (
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${risk.bg} ${risk.text}`}>
-                  {risk.label}
-                </span>
-              )}
-            </div>
-            <p className="text-[11px] text-gray-600 leading-relaxed">{guide.summary}</p>
-          </div>
-
-          {/* Unlocks */}
-          <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3">
-            <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider mb-2">What it unlocks</p>
-            <ul className="space-y-1">
-              {guide.unlocks.map((u) => (
-                <li key={u} className="flex items-start gap-1.5">
-                  <Check size={10} className="text-emerald-500 mt-1 shrink-0" />
-                  <span className="text-[11px] text-emerald-800">{u}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Default roles */}
-          <div className="rounded-xl bg-indigo-50 border border-indigo-100 p-3">
-            <p className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider mb-2">Granted by default to</p>
-            <div className="flex flex-wrap gap-1">
-              {guide.defaultRoles.map((r) => (
-                <span key={r} className="text-[10px] px-1.5 py-0.5 bg-white border border-indigo-200 text-indigo-700 rounded font-semibold">
-                  {r.replace(/_/g, ' ')}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Tip */}
-          <div className={`rounded-xl border p-3 ${risk?.bg ?? 'bg-gray-50 border-gray-100'}`}>
-            <div className="flex items-start gap-1.5">
-              <AlertTriangle size={11} className={`${risk?.text ?? 'text-gray-500'} mt-0.5 shrink-0`} />
-              <div>
-                <p className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${risk?.text ?? 'text-gray-600'}`}>
-                  Admin tip
-                </p>
-                <p className={`text-[11px] leading-relaxed ${risk?.text ?? 'text-gray-700'}`}>{guide.tip}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
 
 // ─── Main component ───────────────────────────────────────────────────────────
 

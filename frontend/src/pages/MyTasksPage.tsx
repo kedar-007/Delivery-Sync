@@ -26,6 +26,7 @@ import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { useQuery } from '@tanstack/react-query';
 import UserAvatar from '../components/ui/UserAvatar';
 import MarkdownText from '../components/ui/MarkdownText';
+import MentionTextArea from '../components/ui/MentionTextArea';
 
 // ── Time helpers: HH:MM ↔ decimal hours ──────────────────────────────────────
 const parseHoursInput = (val: string): number => {
@@ -62,6 +63,29 @@ function safeFmt(val: string | undefined | null, fmt: string, fallback = ''): st
     if (isNaN(d.getTime())) return fallback;
     return format(d, fmt);
   } catch { return fallback; }
+}
+
+// ── Mention renderer — highlights @Name in comment text ──────────────────────
+function renderCommentText(text: string, users: { id: string; name: string }[]): React.ReactNode {
+  if (!text) return null;
+  // Split on @word or @word word patterns (greedy toward longest known name)
+  const parts = text.split(/(@[A-Za-z][A-Za-z ]*[A-Za-z]|@[A-Za-z]+)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('@')) {
+      const candidate = part.slice(1).trim();
+      const matched = users.find(
+        (u) => u.name.toLowerCase() === candidate.toLowerCase()
+      );
+      if (matched) {
+        return (
+          <span key={i} className="inline-flex items-center gap-0.5 text-indigo-600 font-semibold bg-indigo-50 rounded px-1 py-0 leading-snug">
+            @{matched.name}
+          </span>
+        );
+      }
+    }
+    return <React.Fragment key={i}>{part}</React.Fragment>;
+  });
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -428,6 +452,7 @@ function TaskDetailPanel({
   task, onClose, allUsers, projects,
   detailTab, setDetailTab,
   taskComments, detailComment, setDetailComment, onAddComment, addCommentPending,
+  mentionedIds, setMentionedIds,
   timerRunning, timerDisplay, onStartTimer, onStopTimer,
   taskTimeEntries, timeEntriesLoading,
   logTimeHours, setLogTimeHours,
@@ -456,6 +481,8 @@ function TaskDetailPanel({
   setDetailComment: (v: string) => void;
   onAddComment: () => void;
   addCommentPending: boolean;
+  mentionedIds: string[];
+  setMentionedIds: (ids: string[]) => void;
   timerRunning: boolean;
   timerDisplay: string;
   onStartTimer: () => void;
@@ -483,8 +510,8 @@ function TaskDetailPanel({
 
   return (
     <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
+      {/* Backdrop — no click-to-close; use the red X button to dismiss */}
+      <div className="fixed inset-0 bg-black/20 z-40" />
 
       {/* Slide-over panel */}
       <div className="fixed top-0 right-0 h-full w-full max-w-2xl bg-white shadow-2xl z-50 flex flex-col overflow-hidden">
@@ -509,70 +536,77 @@ function TaskDetailPanel({
                   <Clock size={11} /> Due {safeFmt(task.dueDate, 'MMM d, yyyy')}
                 </span>
               )}
+              {/* Edit sits with metadata — far from the close button to prevent accidental clicks */}
+              {canEdit && (
+                <button onClick={() => onEdit(task)}
+                  className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-gray-200 text-gray-500 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50 transition-colors"
+                  title="Edit task">
+                  <Edit2 size={11} /> Edit
+                </button>
+              )}
             </div>
           </div>
-          <div className="flex items-center gap-1 shrink-0">
-            {canEdit && (
-              <button onClick={() => onEdit(task)}
-                className="p-1.5 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                title="Edit task">
-                <Edit2 size={15} />
-              </button>
-            )}
-            <button onClick={onClose}
-              className="p-1.5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
-              title="Close">
-              <X size={15} />
-            </button>
-          </div>
+          {/* Close button — top-right, red to be clearly intentional */}
+          <button onClick={onClose}
+            className="p-1.5 rounded text-white bg-red-500 hover:bg-red-600 transition-colors shrink-0"
+            title="Close">
+            <X size={15} />
+          </button>
         </div>
 
-        {/* ── Meta row (assignees, points, labels) ── */}
-        <div className="px-6 py-3 border-b border-gray-100 flex flex-wrap items-center gap-4 text-xs text-gray-500">
-          <div className="flex items-center gap-1.5">
-            <Users size={12} className="text-gray-400" />
+        {/* ── Meta row (assignees, points, labels) — compact ── */}
+        <div className="px-6 py-1.5 border-b border-gray-100 flex flex-wrap items-center gap-3 text-xs text-gray-500">
+          <div className="flex items-center gap-1">
+            <Users size={11} className="text-gray-400" />
             {assigneeIds.length === 0 ? (
-              <span className="text-gray-300 italic">Unassigned</span>
+              <span className="text-gray-300 italic text-[11px]">Unassigned</span>
             ) : (
-              <div className="flex -space-x-1">
-                {assigneeIds.slice(0, 5).map((id) => {
-                  const u = allUsers.find((x) => String(x.id) === id);
-                  const label = u?.name ?? u?.email ?? id;
-                  return u?.avatarUrl ? (
-                    <img key={id} src={u.avatarUrl} alt={label} title={label}
-                      className="w-6 h-6 rounded-full object-cover ring-2 ring-white" />
-                  ) : (
-                    <span key={id} title={label}
-                      className="w-6 h-6 rounded-full bg-indigo-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-white">
-                      {label[0]?.toUpperCase()}
+              <div className="flex items-center gap-1">
+                <div className="flex -space-x-1">
+                  {assigneeIds.slice(0, 4).map((id) => {
+                    const u = allUsers.find((x) => String(x.id) === id);
+                    const label = u?.name ?? u?.email ?? id;
+                    return u?.avatarUrl ? (
+                      <img key={id} src={u.avatarUrl} alt={label} title={label}
+                        className="w-5 h-5 rounded-full object-cover ring-1 ring-white" />
+                    ) : (
+                      <span key={id} title={label}
+                        className="w-5 h-5 rounded-full bg-indigo-500 text-white text-[9px] font-bold flex items-center justify-center ring-1 ring-white">
+                        {label[0]?.toUpperCase()}
+                      </span>
+                    );
+                  })}
+                  {assigneeIds.length > 4 && (
+                    <span className="w-5 h-5 rounded-full bg-gray-200 text-gray-600 text-[9px] font-bold flex items-center justify-center ring-1 ring-white">
+                      +{assigneeIds.length - 4}
                     </span>
-                  );
-                })}
-                {assigneeIds.length > 5 && (
-                  <span className="w-6 h-6 rounded-full bg-gray-200 text-gray-600 text-[10px] font-bold flex items-center justify-center ring-2 ring-white">
-                    +{assigneeIds.length - 5}
-                  </span>
-                )}
+                  )}
+                </div>
+                <span className="text-[11px] text-gray-500 ml-0.5">
+                  {assigneeIds.length === 1
+                    ? (allUsers.find((x) => String(x.id) === assigneeIds[0])?.name ?? 'Assigned')
+                    : `${assigneeIds.length} assignees`}
+                </span>
               </div>
             )}
           </div>
 
           {task.storyPoints != null && (
-            <div className="flex items-center gap-1">
-              <BarChart2 size={12} className="text-gray-400" />
+            <div className="flex items-center gap-0.5">
+              <BarChart2 size={11} className="text-gray-400" />
               <span>{task.storyPoints} pts</span>
             </div>
           )}
 
           {(task.labels ?? []).map((l) => (
-            <span key={l} className="inline-flex items-center gap-0.5 bg-gray-100 text-gray-500 rounded px-1.5 py-0.5">
-              <Tag size={9} /> {l}
+            <span key={l} className="inline-flex items-center gap-0.5 bg-gray-100 text-gray-500 rounded px-1.5 py-0.5 text-[10px]">
+              <Tag size={8} /> {l}
             </span>
           ))}
         </div>
 
         {/* ── Timer bar ── */}
-        <div className="px-6 py-2.5 border-b border-gray-100 bg-indigo-50/50 flex items-center gap-3">
+        <div className="px-6 py-1.5 border-b border-gray-100 bg-indigo-50/50 flex items-center gap-3">
           <div className="font-mono text-sm font-semibold text-indigo-700 tracking-widest w-24 tabular-nums">
             {timerDisplay}
           </div>
@@ -617,23 +651,27 @@ function TaskDetailPanel({
 
           {/* Activity tab */}
           {detailTab === 'activity' && (
-            <div className="p-6 space-y-4">
+            <div className="p-4 space-y-3">
               {/* Add comment */}
-              <div className="flex gap-2">
-                <textarea
-                  className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-200 resize-none"
-                  rows={2}
-                  placeholder="Add a comment…"
+              <div className="space-y-1.5">
+                <MentionTextArea
                   value={detailComment}
-                  onChange={(e) => setDetailComment(e.target.value)}
+                  onChange={setDetailComment}
+                  onMentionsChange={setMentionedIds}
+                  users={allUsers.map((u) => ({ id: String(u.id), name: u.name, email: u.email, avatarUrl: u.avatarUrl }))}
+                  placeholder="Add a comment… Type @ to mention someone"
+                  rows={3}
                   onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) onAddComment(); }}
                 />
-                <button
-                  disabled={!detailComment.trim() || addCommentPending}
-                  onClick={onAddComment}
-                  className="self-end px-3 py-2 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors">
-                  Post
-                </button>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-gray-400">⌘+Enter to post • @ to mention</span>
+                  <button
+                    disabled={!detailComment.trim() || addCommentPending}
+                    onClick={onAddComment}
+                    className="px-3 py-1.5 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors">
+                    {addCommentPending ? 'Posting…' : 'Post'}
+                  </button>
+                </div>
               </div>
 
               {/* Comments list */}
@@ -644,6 +682,7 @@ function TaskDetailPanel({
                   const commenter = allUsers.find((u: TenantUser) => String(u.id) === String(c.user_id));
                   const commenterName = commenter?.name ?? c.authorName ?? c.author ?? c.user ?? 'User';
                   const commenterAvatar = commenter?.avatarUrl;
+                  const commentText: string = c.content ?? c.text ?? c.body ?? '';
                   return (
                   <div key={c.id ?? i} className="flex gap-3">
                     {commenterAvatar ? (
@@ -655,16 +694,14 @@ function TaskDetailPanel({
                     )}
                     <div className="flex-1 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-semibold text-gray-700">
-                          {commenterName}
-                        </span>
+                        <span className="text-xs font-semibold text-gray-700">{commenterName}</span>
                         {c.createdAt && (
-                          <span className="text-[10px] text-gray-400">
-                            {safeFmt(c.createdAt, 'MMM d, h:mm a')}
-                          </span>
+                          <span className="text-[10px] text-gray-400">{safeFmt(c.createdAt, 'MMM d, h:mm a')}</span>
                         )}
                       </div>
-                      <p className="text-xs text-gray-600 leading-relaxed">{c.content ?? c.text ?? c.body}</p>
+                      <p className="text-xs text-gray-600 leading-relaxed">
+                        {renderCommentText(commentText, allUsers)}
+                      </p>
                     </div>
                   </div>
                   );
@@ -902,7 +939,6 @@ export default function MyTasksPage() {
 
   const { data: rawTasks, isLoading, error } = useMyTasks();
   const { data: rawProjects } = useProjects();
-  const updateTask       = useUpdateTask();
   const updateTaskStatus = useUpdateTaskStatus(); // status-only path — allowed for non-creators
   const deleteTask = useDeleteTask();
 
@@ -1055,6 +1091,7 @@ export default function MyTasksPage() {
   const [aiInsight, setAiInsight]                 = useState<string | null>(null);
   const [aiLoading, setAiLoading]                 = useState(false);
   const [detailComment, setDetailComment]         = useState('');
+  const [mentionedIds, setMentionedIds]           = useState<string[]>([]);
   const [logTimeHours, setLogTimeHours]           = useState('');
   const [logTimeDate, setLogTimeDate]             = useState(new Date().toISOString().slice(0, 10));
   const [logTimeDesc, setLogTimeDesc]             = useState('');
@@ -1228,8 +1265,9 @@ export default function MyTasksPage() {
 
   const handleAddComment = async () => {
     if (!detailComment.trim() || !taskDetailId) return;
-    await addComment.mutateAsync({ content: detailComment });
+    await addComment.mutateAsync({ content: detailComment, mentionedUserIds: mentionedIds });
     setDetailComment('');
+    setMentionedIds([]);
   };
 
   // ── Quick Log Time (from row icon) ──
@@ -1473,6 +1511,8 @@ export default function MyTasksPage() {
           setDetailComment={setDetailComment}
           onAddComment={handleAddComment}
           addCommentPending={addComment.isPending}
+          mentionedIds={mentionedIds}
+          setMentionedIds={setMentionedIds}
           timerRunning={timerRunning}
           timerDisplay={timerDisplay}
           onStartTimer={handleStartTimer}

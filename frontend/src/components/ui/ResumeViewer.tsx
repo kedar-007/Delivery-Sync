@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogPanel, DialogTitle, Transition, TransitionChild } from '@headlessui/react';
-import { FileText, X, ExternalLink, Loader2, AlertCircle, Download } from 'lucide-react';
+import { FileText, X, Loader2, AlertCircle, Download } from 'lucide-react';
 
 interface ResumeViewerProps {
   /** API proxy URL — e.g. /server/badge_profile_service/api/bp/profiles/me/resume */

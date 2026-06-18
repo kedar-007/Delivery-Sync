@@ -18,7 +18,7 @@ import { useProjects } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
 import { Action } from '../types';
-import { canDo, PERMISSIONS } from '../utils/permissions';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { useI18n } from '../contexts/I18nContext';
 
 interface ActionForm {
@@ -49,7 +49,7 @@ const ActionsPage = () => {
   if (filterStatus) params.status = filterStatus;
 
   const { user: currentUser } = useAuth();
-  const canWrite = canDo(currentUser?.role, PERMISSIONS.ACTION_WRITE);
+  const canWrite = hasPermission(currentUser, PERMISSIONS.ACTION_WRITE);
   const { data: pagedData, isLoading } = useActionsPaginated(params);
   const actions: Action[] = pagedData?.actions ?? [];
   const total: number = pagedData?.total ?? 0;
