@@ -24,16 +24,60 @@ class AuthController {
   async getCurrentUser(req, res) {
     try {
       const user = req.currentUser;
-      // AuthMiddleware already built the full effective permissions (additive: role base + org role + individual overrides).
-      // Use them directly — no need to rebuild here.
       const permissionsArray = Array.isArray(user.permissions) ? user.permissions : [];
       console.log(`[AuthController] /me user=${user.id} role=${user.role} orgRoleId=${user.orgRoleId} totalPerms=${permissionsArray.length}`);
+
+      // Read tour_completed from user_profiles — kept out of the auth-context cache
+      // because it changes at most once per user lifetime and doesn't affect auth.
+      let tourCompleted = false;
+      if (user.id && user.tenantId) {
+        try {
+          const profiles = await this.db.query(
+            `SELECT tour_completed FROM ${TABLES.USER_PROFILES}` +
+            ` WHERE user_id = '${user.id}' AND tenant_id = '${user.tenantId}' LIMIT 1`
+          );
+          if (profiles.length > 0) {
+            tourCompleted = profiles[0].tour_completed === 'true' || profiles[0].tour_completed === true;
+          }
+        } catch (_) { /* non-fatal — tour will just re-show if table missing */ }
+      }
+
       return ResponseHelper.success(res, {
         user: {
           ...user,
           permissions: permissionsArray,
+          tourCompleted,
         },
       });
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
+   * PATCH /api/auth/tour-complete
+   * Marks the onboarding tour as completed for the current user.
+   * Stored in user_profiles so it persists across devices and browsers.
+   */
+  async markTourComplete(req, res) {
+    try {
+      const { id: userId, tenantId } = req.currentUser;
+      const profiles = await this.db.query(
+        `SELECT ROWID FROM ${TABLES.USER_PROFILES}` +
+        ` WHERE user_id = '${userId}' AND tenant_id = '${tenantId}' LIMIT 1`
+      );
+      if (profiles.length > 0) {
+        await this.db.update(TABLES.USER_PROFILES, { ROWID: profiles[0].ROWID, tour_completed: 'true' });
+      } else {
+        await this.db.insert(TABLES.USER_PROFILES, {
+          tenant_id: tenantId, user_id: userId,
+          tour_completed: 'true',
+          bio: '', photo_url: '', skills: '[]', experience: '[]', certifications: '[]',
+          resume_url: '', social_links: '{}', is_profile_public: 'false',
+        });
+      }
+      console.log(`[AuthController] tour marked complete userId=${userId}`);
+      return ResponseHelper.success(res, { ok: true });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }

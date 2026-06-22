@@ -15,6 +15,7 @@ const normaliseSprint = (r: any) => ({
   capacityPoints:   parseFloat(r.capacity_points  ?? r.capacityPoints  ?? 0),
   completedPoints:  parseFloat(r.completed_points ?? r.completedPoints ?? 0),
   retrospectiveId:  r.retrospective_id ?? r.retrospectiveId ?? null,
+  memberIds:        Array.isArray(r.member_ids) ? r.member_ids.map(String) : [],
   createdBy:        r.CREATORID      ?? r.created_by   ?? r.createdBy,
   createdAt:        r.CREATEDTIME    ?? r.created_at   ?? r.createdAt,
   updatedAt:        r.MODIFIEDTIME   ?? r.updated_at   ?? r.updatedAt,

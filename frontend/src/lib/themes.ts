@@ -39,18 +39,18 @@ export const THEME_PRESETS: ThemePreset[] = [
     vars: {
       '--ds-primary':         '96 165 250',   // blue-400
       '--ds-primary-hover':   '59 130 246',   // blue-500
-      '--ds-bg':              '13 18 30',     // deep navy-gray
-      '--ds-surface':         '22 30 46',     // elevated surface
-      '--ds-surface-hover':   '33 43 63',     // hover surface
-      '--ds-border':          '44 56 80',     // subtle border
-      '--ds-text':            '220 225 235',  // softer than gray-100 — easy on eyes
-      '--ds-text-muted':      '140 150 170',  // readable muted
-      '--ds-text-inverse':    '13 18 30',
-      '--ds-sidebar-bg':      '9 13 22',      // deepest sidebar
-      '--ds-sidebar-hover':   '22 30 46',
+      '--ds-bg':              '20 25 40',     // comfortable dark navy — raised floor for easy eyes
+      '--ds-surface':         '29 36 56',     // clearly elevated card surface
+      '--ds-surface-hover':   '40 49 72',     // visible hover feedback
+      '--ds-border':          '56 68 98',     // crisp, readable border
+      '--ds-text':            '226 232 240',  // 89% white — soft cool white, no eye strain
+      '--ds-text-muted':      '148 162 185',  // strong enough for WCAG AA
+      '--ds-text-inverse':    '20 25 40',
+      '--ds-sidebar-bg':      '13 17 28',     // sidebar slightly darker than bg
+      '--ds-sidebar-hover':   '29 36 56',
       '--ds-sidebar-active':  '37 99 235',    // blue-600
-      '--ds-sidebar-border':  '22 30 46',
-      '--ds-sidebar-text':    '200 210 228',  // readable sidebar text
+      '--ds-sidebar-border':  '29 36 56',
+      '--ds-sidebar-text':    '196 210 230',  // readable sidebar text
       '--ds-accent':          '167 139 250',  // violet-400
     },
   },
@@ -66,8 +66,8 @@ export const THEME_PRESETS: ThemePreset[] = [
       '--ds-surface':         '255 255 255',
       '--ds-surface-hover':   '207 250 254',  // cyan-100
       '--ds-border':          '165 243 252',  // cyan-200
-      '--ds-text':            '22 78 99',     // cyan-900
-      '--ds-text-muted':      '8 145 178',    // cyan-600
+      '--ds-text':            '14 60 80',     // dark cyan — strong contrast
+      '--ds-text-muted':      '12 110 140',   // darkened from cyan-600 → WCAG AA on white
       '--ds-text-inverse':    '255 255 255',
       '--ds-sidebar-bg':      '22 78 99',     // cyan-900
       '--ds-sidebar-hover':   '21 94 117',    // cyan-800
@@ -89,8 +89,8 @@ export const THEME_PRESETS: ThemePreset[] = [
       '--ds-surface':         '255 255 255',
       '--ds-surface-hover':   '255 237 213',  // orange-100
       '--ds-border':          '254 215 170',  // orange-200
-      '--ds-text':            '124 45 18',    // orange-900
-      '--ds-text-muted':      '194 65 12',    // orange-700
+      '--ds-text':            '110 38 14',     // deep orange — strong contrast
+      '--ds-text-muted':      '160 52 8',     // darkened for WCAG AA on white/orange-50
       '--ds-text-inverse':    '255 255 255',
       '--ds-sidebar-bg':      '124 45 18',    // orange-900
       '--ds-sidebar-hover':   '154 52 18',    // orange-800
@@ -131,18 +131,18 @@ export const THEME_PRESETS: ThemePreset[] = [
     vars: {
       '--ds-primary':         '167 139 250',  // violet-400
       '--ds-primary-hover':   '139 92 246',   // violet-500
-      '--ds-bg':              '12 8 32',
-      '--ds-surface':         '22 16 52',
-      '--ds-surface-hover':   '34 27 68',
-      '--ds-border':          '50 42 90',
-      '--ds-text':            '218 212 240',  // soft violet-tinted white
-      '--ds-text-muted':      '155 132 230',  // readable muted violet
-      '--ds-text-inverse':    '12 8 32',
-      '--ds-sidebar-bg':      '8 5 22',
-      '--ds-sidebar-hover':   '22 16 52',
+      '--ds-bg':              '16 13 36',     // comfortable deep violet — raised from near-black
+      '--ds-surface':         '26 21 58',     // clearly elevated card
+      '--ds-surface-hover':   '38 31 78',     // visible hover
+      '--ds-border':          '60 52 106',    // crisp violet border
+      '--ds-text':            '225 220 248',  // soft violet-tinted white, very readable
+      '--ds-text-muted':      '164 150 232',  // good contrast on all dark surfaces
+      '--ds-text-inverse':    '16 13 36',
+      '--ds-sidebar-bg':      '11 8 25',      // slightly darker sidebar
+      '--ds-sidebar-hover':   '26 21 58',
       '--ds-sidebar-active':  '109 40 217',   // violet-700
-      '--ds-sidebar-border':  '34 27 68',
-      '--ds-sidebar-text':    '200 190 235',  // readable sidebar text
+      '--ds-sidebar-border':  '38 31 78',
+      '--ds-sidebar-text':    '202 194 240',  // readable sidebar text
       '--ds-accent':          '236 72 153',   // pink-500
     },
   },
@@ -200,18 +200,18 @@ export const THEME_PRESETS: ThemePreset[] = [
     vars: {
       '--ds-primary':         '52 211 153',   // emerald-400
       '--ds-primary-hover':   '16 185 129',   // emerald-500
-      '--ds-bg':              '2 7 18',
-      '--ds-surface':         '5 16 36',
-      '--ds-surface-hover':   '10 28 56',
-      '--ds-border':          '18 46 78',
-      '--ds-text':            '190 230 215',  // soft emerald-tinted white
-      '--ds-text-muted':      '100 190 160',  // readable muted emerald
-      '--ds-text-inverse':    '2 7 18',
-      '--ds-sidebar-bg':      '1 4 12',
-      '--ds-sidebar-hover':   '5 16 36',
+      '--ds-bg':              '10 22 38',     // deep ocean-teal — dramatically raised from near-black
+      '--ds-surface':         '16 34 58',     // clearly elevated surface
+      '--ds-surface-hover':   '22 46 76',     // visible hover
+      '--ds-border':          '30 65 98',     // teal-tinted border
+      '--ds-text':            '200 236 222',  // soft mint-white, easy on eyes
+      '--ds-text-muted':      '115 196 170',  // readable teal muted
+      '--ds-text-inverse':    '10 22 38',
+      '--ds-sidebar-bg':      '7 14 26',      // slightly darker sidebar
+      '--ds-sidebar-hover':   '16 34 58',
       '--ds-sidebar-active':  '5 150 105',    // emerald-600
-      '--ds-sidebar-border':  '10 28 56',
-      '--ds-sidebar-text':    '160 215 195',  // readable sidebar text
+      '--ds-sidebar-border':  '22 46 76',
+      '--ds-sidebar-text':    '166 220 200',  // readable sidebar text
       '--ds-accent':          '99 102 241',   // indigo-500
     },
   },

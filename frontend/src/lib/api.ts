@@ -40,6 +40,7 @@ export const authApi = {
   acceptInvite: () => api.post('/auth/accept-invite').then((r) => r.data.data),
   setupOrg: (data: { orgName: string; slug: string }) =>
     api.post('/auth/setup-org', data).then((r) => r.data.data),
+  markTourComplete: () => api.patch('/auth/tour-complete').then((r) => r.data),
 };
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -1067,6 +1068,98 @@ export const bugApi = {
 
   saveConfig:       (data: Partial<BugReportConfig> & { tenantId?: string }) =>
     bugClient.put('/config', data).then((r) => r.data.data),
+};
+
+// ─── Project Documentation ────────────────────────────────────────────────────
+
+const docsClient = axios.create({
+  baseURL: '/server/doc_service/api/docs',
+  withCredentials: true,
+  headers: { 'Content-Type': 'application/json' },
+});
+docsClient.interceptors.response.use(
+  (r) => r,
+  (error: AxiosError<{ success: boolean; message: string; code?: string }>) => {
+    const message = error.response?.data?.message || error.message || 'An unexpected error occurred';
+    const enhanced = new Error(message) as Error & { status?: number; code?: string };
+    enhanced.status = error.response?.status;
+    enhanced.code   = (error.response?.data as { code?: string })?.code;
+    return Promise.reject(enhanced);
+  }
+);
+
+// Public share client — no Catalyst session cookies, for unauthenticated share page access.
+// Sending withCredentials:true causes Catalyst to 401 on expired/missing sessions before
+// the function code even runs. Public share routes use server-side system credentials only.
+const publicDocsClient = axios.create({
+  baseURL: '/server/doc_service/api/docs',
+  withCredentials: false,
+  headers: { 'Content-Type': 'application/json' },
+});
+publicDocsClient.interceptors.response.use(
+  (r) => r,
+  (error: AxiosError<{ success: boolean; message: string; code?: string }>) => {
+    const message = error.response?.data?.message || error.message || 'An unexpected error occurred';
+    const enhanced = new Error(message) as Error & { status?: number; code?: string };
+    enhanced.status = error.response?.status;
+    enhanced.code   = (error.response?.data as { code?: string })?.code;
+    return Promise.reject(enhanced);
+  }
+);
+
+export const docsApi = {
+  // Folders
+  listFolders:      (projectId: string, parentFolderId?: string) =>
+    docsClient.get(`/projects/${projectId}/folders`, { params: parentFolderId ? { parentFolderId } : {} }).then((r) => r.data.data ?? []),
+  getFolderContents:(projectId: string, folderId: string) =>
+    docsClient.get(`/projects/${projectId}/folders/${folderId}/contents`).then((r) => r.data.data),
+  createFolder:     (projectId: string, data: { name: string; parentFolderId?: string }) =>
+    docsClient.post(`/projects/${projectId}/folders`, data).then((r) => r.data.data),
+  renameFolder:     (projectId: string, folderId: string, name: string) =>
+    docsClient.put(`/projects/${projectId}/folders/${folderId}`, { name }).then((r) => r.data.data),
+  deleteFolder:     (projectId: string, folderId: string) =>
+    docsClient.delete(`/projects/${projectId}/folders/${folderId}`).then((r) => r.data.data),
+  updateFolderAccess: (projectId: string, folderId: string, data: { visibility: string; allowedUserIds: string[] }) =>
+    docsClient.put(`/projects/${projectId}/folders/${folderId}/access`, data).then((r) => r.data.data),
+
+  // Project members (for folder access modal)
+  getProjectMembers: (projectId: string) =>
+    docsClient.get(`/projects/${projectId}/members`).then((r) => r.data.data ?? []),
+
+  // All tenant users — for granting folder access to non-project members
+  getTenantUsers: () =>
+    docsClient.get('/tenant-users').then((r) => r.data.data ?? []),
+
+  // Documents — pass all=true to return all docs in the project regardless of folder
+  listDocuments:    (projectId: string, folderId?: string, all?: boolean) =>
+    docsClient.get(`/projects/${projectId}/documents`, { params: all ? { all: 'true' } : (folderId !== undefined ? { folderId } : {}) }).then((r) => r.data.data ?? []),
+  uploadDocument:   (projectId: string, data: { name?: string; fileName: string; contentType: string; base64: string; folderId?: string; description?: string; tags?: string[] }) =>
+    docsClient.post(`/projects/${projectId}/documents`, data).then((r) => r.data.data),
+  getDocument:      (projectId: string, docId: string) =>
+    docsClient.get(`/projects/${projectId}/documents/${docId}`).then((r) => r.data.data),
+  updateDocument:   (projectId: string, docId: string, data: { name?: string; description?: string; tags?: string[]; folderId?: string }) =>
+    docsClient.put(`/projects/${projectId}/documents/${docId}`, data).then((r) => r.data.data),
+  deleteDocument:   (projectId: string, docId: string) =>
+    docsClient.delete(`/projects/${projectId}/documents/${docId}`).then((r) => r.data.data),
+  uploadVersion:    (projectId: string, docId: string, data: { fileName: string; contentType: string; base64: string; changeNote?: string }) =>
+    docsClient.post(`/projects/${projectId}/documents/${docId}/versions`, data).then((r) => r.data.data),
+  getVersions:      (projectId: string, docId: string) =>
+    docsClient.get(`/projects/${projectId}/documents/${docId}/versions`).then((r) => r.data.data ?? []),
+
+  // Shares
+  listShares:    (projectId: string) =>
+    docsClient.get(`/projects/${projectId}/shares`).then((r) => r.data.data ?? []),
+  createShare:   (projectId: string, data: { shareType: 'DOCUMENT' | 'FOLDER'; documentId?: string; folderId?: string; accessLevel?: string; linkType?: string; expiresAt?: string }) =>
+    docsClient.post(`/projects/${projectId}/shares`, data).then((r) => r.data.data),
+  revokeShare:   (shareToken: string) =>
+    docsClient.delete(`/shares/${shareToken}`).then((r) => r.data.data),
+
+  // Public share — called by the share page with no Catalyst session cookies.
+  // Use docsClient (with credentials) for logged-in users so MEMBERS links work.
+  publicAccess:       (shareToken: string) =>
+    publicDocsClient.get(`/public/${shareToken}`).then((r) => r.data.data),
+  publicAccessAuthed: (shareToken: string) =>
+    docsClient.get(`/public/${shareToken}`).then((r) => r.data.data),
 };
 
 export default api;

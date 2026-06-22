@@ -487,7 +487,8 @@ class TaskController {
         );
         const mentionedUser = userRows[0];
         if (mentionedUser && mentionedUser.email) {
-          const excerpt = content.length > 200 ? content.slice(0, 197) + '…' : content;
+          const plainText = _htmlToText(content);
+          const excerpt   = plainText.length > 200 ? plainText.slice(0, 197) + '…' : plainText;
           await this.notif.sendMentionedInComment({
             toEmail:        mentionedUser.email,
             toName:         _escapeHtml(mentionedUser.name || 'there'),
@@ -580,6 +581,23 @@ function _escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+// Convert rich HTML comment content to readable plain text for emails.
+// @mention spans become @Name, block tags become spaces, all other tags are stripped.
+function _htmlToText(html) {
+  return String(html || '')
+    .replace(/<span[^>]*data-mention[^>]*>([^<]*)<\/span>/gi, (_, inner) => inner.trim())
+    .replace(/<\/?(p|div|br|li|blockquote|pre|h[1-6])[^>]*>/gi, ' ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 module.exports = TaskController;

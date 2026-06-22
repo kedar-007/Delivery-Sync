@@ -139,6 +139,12 @@ const PERMISSIONS = Object.freeze({
   // BLOCKER_READ / TASK_READ is sufficient — this permission is only needed for
   // cross-project visibility.
   PROJECT_DATA_VIEW_ALL: 'PROJECT_DATA_VIEW_ALL',
+  // ── Project Documentation ──────────────────────────────────────────────────
+  DOC_READ:   'DOC_READ',   // view docs & folders in assigned projects
+  DOC_WRITE:  'DOC_WRITE',  // upload files, create folders, edit metadata
+  DOC_DELETE: 'DOC_DELETE', // delete own docs/folders
+  DOC_SHARE:  'DOC_SHARE',  // create / revoke public share links
+  DOC_ADMIN:  'DOC_ADMIN',  // manage all project docs (delete any)
 });
 
 // ─── Role → Permission Matrix ─────────────────────────────────────────────────
@@ -175,6 +181,7 @@ const ROLE_PERMISSIONS = Object.freeze({
     // Delivery Leads see their own teams via AI_PERFORMANCE; AI_TEAM_ANALYSIS
     // is reserved for admin/PMO/exec (org-wide "All Teams" view).
     PERMISSIONS.AI_INSIGHTS, PERMISSIONS.AI_PERFORMANCE,
+    PERMISSIONS.DOC_READ, PERMISSIONS.DOC_WRITE, PERMISSIONS.DOC_DELETE, PERMISSIONS.DOC_SHARE, PERMISSIONS.DOC_ADMIN,
   ],
   [ROLES.TEAM_MEMBER]: [
     PERMISSIONS.PROJECT_READ,
@@ -201,6 +208,7 @@ const ROLE_PERMISSIONS = Object.freeze({
     PERMISSIONS.ANNOUNCEMENT_READ,
     PERMISSIONS.ORG_READ,
     PERMISSIONS.AI_INSIGHTS, PERMISSIONS.AI_PERFORMANCE,
+    PERMISSIONS.DOC_READ, PERMISSIONS.DOC_WRITE, PERMISSIONS.DOC_DELETE, PERMISSIONS.DOC_SHARE,
   ],
   [ROLES.PMO]: [
     PERMISSIONS.PROJECT_READ, PERMISSIONS.PROJECT_WRITE,
@@ -230,6 +238,7 @@ const ROLE_PERMISSIONS = Object.freeze({
     PERMISSIONS.CONFIG_READ,
     PERMISSIONS.TASK_ASSIGN,
     PERMISSIONS.AI_INSIGHTS, PERMISSIONS.AI_PERFORMANCE, PERMISSIONS.AI_TEAM_ANALYSIS,
+    PERMISSIONS.DOC_READ, PERMISSIONS.DOC_WRITE, PERMISSIONS.DOC_DELETE, PERMISSIONS.DOC_SHARE, PERMISSIONS.DOC_ADMIN,
   ],
   [ROLES.EXEC]: [
     PERMISSIONS.PROJECT_READ,
@@ -259,6 +268,7 @@ const ROLE_PERMISSIONS = Object.freeze({
     PERMISSIONS.CEO_DASHBOARD,
     PERMISSIONS.CTO_DASHBOARD,
     PERMISSIONS.AI_INSIGHTS, PERMISSIONS.AI_PERFORMANCE, PERMISSIONS.AI_TEAM_ANALYSIS,
+    PERMISSIONS.DOC_READ,
   ],
   [ROLES.CLIENT]: [
     PERMISSIONS.PROJECT_READ,

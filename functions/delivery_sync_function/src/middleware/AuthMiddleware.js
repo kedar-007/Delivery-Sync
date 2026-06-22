@@ -16,7 +16,7 @@ const { TABLES, USER_STATUS } = require('../utils/Constants');
 // window per user), which is roughly 6× cheaper while keeping the same
 // DB-reduction benefit. The single get replaces 6 DataStore queries.
 const AUTH_CTX_TTL_HOURS = 1 / 12; // 5 minutes
-const AUTH_CTX_KEY_VERSION = 'v1'; // bump to bust the cache on schema changes
+const AUTH_CTX_KEY_VERSION = 'v2'; // bumped: permissions now always set from base before overrides query
 
 /**
  * AuthMiddleware – resolves the Catalyst Auth session to a Delivery Sync user
@@ -320,26 +320,33 @@ class AuthMiddleware {
           roleBase = roleBase.filter((p) => !AI_GATED.has(p));
         }
         const base = new Set([...roleBase, ...(orgRoleId ? orgRolePermissions : [])]);
+        // Commit base permissions before attempting overrides — if the overrides
+        // query throws (e.g. table missing), everyone keeps their system-role defaults.
+        effectivePermissions = Array.from(base);
         // Per-user permission overrides — direct DB call. The unified
         // authCtx cache above short-circuits this whole path on a warm session.
-        const overrideRows = await db.query(
-          `SELECT permissions FROM ${TABLES.PERMISSION_OVERRIDES} WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = 'true' LIMIT 1`
-        );
-        if (overrideRows.length > 0) {
-          const parsed = JSON.parse(overrideRows[0].permissions || '{}');
-          (parsed.granted || []).forEach((p) => base.add(p));
-          (parsed.revoked || []).forEach((p) => base.delete(p));
-          // Merge per-user module disables on top of org role's module disables
-          const userModuleAccess = parsed.moduleAccess || [];
-          if (userModuleAccess.length > 0) {
-            const merged = new Set([...orgModuleAccess, ...userModuleAccess]);
-            orgModuleAccess = Array.from(merged);
+        try {
+          const overrideRows = await db.query(
+            `SELECT permissions FROM ${TABLES.PERMISSION_OVERRIDES} WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' AND is_active = 'true' LIMIT 1`
+          );
+          if (overrideRows.length > 0) {
+            const parsed = JSON.parse(overrideRows[0].permissions || '{}');
+            (parsed.granted || []).forEach((p) => base.add(p));
+            (parsed.revoked || []).forEach((p) => base.delete(p));
+            // Merge per-user module disables on top of org role's module disables
+            const userModuleAccess = parsed.moduleAccess || [];
+            if (userModuleAccess.length > 0) {
+              const merged = new Set([...orgModuleAccess, ...userModuleAccess]);
+              orgModuleAccess = Array.from(merged);
+            }
+            if (parsed.officeLocationId) {
+              req.currentUser.officeLocationId = String(parsed.officeLocationId);
+            }
+            effectivePermissions = Array.from(base);
           }
-          if (parsed.officeLocationId) {
-            req.currentUser.officeLocationId = String(parsed.officeLocationId);
-          }
+        } catch (overrideErr) {
+          console.warn('[AuthMiddleware] permission_overrides lookup failed (base perms still applied):', overrideErr.message);
         }
-        effectivePermissions = Array.from(base);
 
         // TENANT_ADMIN always gets ORG_WIDE data scope regardless of org role assignment
         if (isFullAdmin) {

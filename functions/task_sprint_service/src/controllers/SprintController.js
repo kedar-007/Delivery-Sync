@@ -4,7 +4,7 @@ const DataStoreService = require('../services/DataStoreService');
 const AuditService     = require('../services/AuditService');
 const NotificationService = require('../services/NotificationService');
 const ResponseHelper   = require('../utils/ResponseHelper');
-const { TABLES, SPRINT_STATUS, AUDIT_ACTION, NOTIFICATION_TYPE } = require('../utils/Constants');
+const { TABLES, SPRINT_STATUS, AUDIT_ACTION, NOTIFICATION_TYPE, PERMISSIONS } = require('../utils/Constants');
 
 class SprintController {
   constructor(catalystApp) {
@@ -19,12 +19,13 @@ class SprintController {
     try {
       const { project_id, status } = req.query;
       const tenantId = req.tenantId;
-      const { id: userId, role, dataScope } = req.currentUser;
+      const { id: userId, role, dataScope, permissions } = req.currentUser;
 
-      // Org-wide users (admins, elevated org roles) see all sprints.
+      // Org-wide / elevated users (admins, leads with SPRINT_VIEW_ALL) see all sprints.
       // Everyone else is restricted to sprints they are explicitly members of.
-      const isOrgWide = role === 'SUPER_ADMIN' || role === 'TENANT_ADMIN'
-        || dataScope === 'ORG_WIDE' || dataScope === 'SUBORDINATES';
+      const canViewAll = role === 'SUPER_ADMIN' || role === 'TENANT_ADMIN'
+        || dataScope === 'ORG_WIDE' || dataScope === 'SUBORDINATES'
+        || (Array.isArray(permissions) && permissions.includes(PERMISSIONS.SPRINT_VIEW_ALL));
 
       let where = project_id ? `project_id = '${DataStoreService.escape(project_id)}'` : null;
       if (status) {
@@ -32,18 +33,21 @@ class SprintController {
         where = where ? `${where} AND ${sc}` : sc;
       }
 
-      if (!isOrgWide) {
+      let sprints;
+      if (canViewAll) {
+        sprints = await this.db.fetchAll(TABLES.SPRINTS, tenantId, where, { orderBy: 'CREATEDTIME DESC' });
+      } else {
         const memberships = await this.db.fetchAll(TABLES.SPRINT_MEMBERS, tenantId,
           `user_id = '${DataStoreService.escape(userId)}'`);
         if (memberships.length === 0) {
           return ResponseHelper.success(res, []);
         }
-        const memberIds = memberships.map((m) => `'${DataStoreService.escape(String(m.sprint_id))}'`).join(',');
-        const memberFilter = `ROWID IN (${memberIds})`;
-        where = where ? `${where} AND ${memberFilter}` : memberFilter;
+        // Filter in JS rather than relying on ZCQL ROWID IN() to avoid edge-case
+        // behaviour with ROWID comparisons in Catalyst ZCQL.
+        const memberSprintIds = new Set(memberships.map((m) => String(m.sprint_id)));
+        const allSprints = await this.db.fetchAll(TABLES.SPRINTS, tenantId, where, { orderBy: 'CREATEDTIME DESC' });
+        sprints = allSprints.filter((s) => memberSprintIds.has(String(s.ROWID)));
       }
-
-      const sprints = await this.db.fetchAll(TABLES.SPRINTS, tenantId, where, { orderBy: 'CREATEDTIME DESC' });
 
       if (sprints.length > 0) {
         // Batch fetch task counts in 2 queries instead of N*2 sequential queries
@@ -133,7 +137,11 @@ class SprintController {
     const tasks = await this.db.findWhere(TABLES.TASKS, req.tenantId,
       `sprint_id = '${sprint.ROWID}' AND parent_task_id = 0`, { orderBy: 'CREATEDTIME ASC', limit: 200 });
 
-    return ResponseHelper.success(res, { ...sprint, tasks });
+    const memberRows = await this.db.findWhere(TABLES.SPRINT_MEMBERS, req.tenantId,
+      `sprint_id = '${sprint.ROWID}'`, { limit: 200 });
+    const member_ids = memberRows.map((m) => String(m.user_id));
+
+    return ResponseHelper.success(res, { ...sprint, tasks, member_ids });
   }
 
   // PUT /api/ts/sprints/:sprintId

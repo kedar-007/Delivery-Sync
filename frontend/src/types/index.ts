@@ -18,6 +18,7 @@ export interface CurrentUser {
   moduleAccess?: string[]; // disabled sidebar module keys from org role
   officeLocationId?: string | null;
   botEnabled?: boolean;
+  tourCompleted?: boolean;
 }
 
 export interface User {
@@ -315,6 +316,95 @@ export interface PortfolioDashboard {
   };
   delayedMilestones: Milestone[];
   topBlockers: Blocker[];
+}
+
+// ─── Project Documentation ────────────────────────────────────────────────────
+
+export interface ProjectDocFolder {
+  id:             string;
+  ROWID?:         string;
+  tenantId:       string;
+  projectId:      string;
+  name:           string;
+  parentFolderId: string | null;
+  createdBy:      string;
+  isDeleted:      string;
+  visibility?:    'ALL' | 'RESTRICTED';
+  allowedUserIds?: string[];
+  createdAt?:     string;
+  updatedAt?:     string;
+}
+
+export interface ProjectMember {
+  userId:    string;
+  projectId: string;
+  role:      string;
+  name:      string;
+  email:     string;
+}
+
+export interface TenantUser {
+  userId: string;
+  name:   string;
+  email:  string;
+  role:   string;
+}
+
+export interface ProjectDocument {
+  id:             string;
+  ROWID?:         string;
+  tenantId:       string;
+  projectId:      string;
+  folderId:       string | null;
+  name:           string;
+  description:    string;
+  fileName:       string;
+  fileUrl:        string;
+  fileSizeKb:     number;
+  mimeType:       string;
+  fileExtension:  string;
+  currentVersion: string;
+  tags:           string[];
+  uploadedBy:     string;
+  createdBy?:     string;
+  isDeleted:      string;
+  versions?:      ProjectDocVersion[];
+  createdAt?:     string;
+  updatedAt?:     string;
+}
+
+export interface ProjectDocVersion {
+  id:            string;
+  ROWID?:        string;
+  documentId:    string;
+  versionNumber: string;
+  fileName:      string;
+  fileUrl:       string;
+  fileSizeKb:    number;
+  mimeType:      string;
+  changeNote:    string;
+  uploadedBy:    string;
+  createdAt?:    string;
+}
+
+export interface ProjectDocShare {
+  id:          string;
+  ROWID?:      string;
+  tenantId:    string;
+  projectId:   string;
+  shareType:   'DOCUMENT' | 'FOLDER';
+  documentId:  string | null;
+  folderId:    string | null;
+  shareToken:  string;
+  shareUrl?:   string;
+  targetName?: string;
+  accessLevel: 'VIEW' | 'DOWNLOAD' | 'EDIT';
+  linkType:    'PUBLIC' | 'MEMBERS';
+  expiresAt:   string | null;
+  isActive:    string;
+  viewCount:   string;
+  createdBy:   string;
+  createdAt?:  string;
 }
 
 // ─── API Response Envelope ────────────────────────────────────────────────────
