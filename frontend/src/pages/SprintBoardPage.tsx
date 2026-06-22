@@ -19,7 +19,7 @@ import {
   ArrowRight, Trash2, Edit2, GitBranch, Users, X, Timer, Paperclip,
   Send, DollarSign, Ban,
 } from 'lucide-react';
-import { timeEntriesApi, aiApi } from '../lib/api';
+import { timeEntriesApi, aiApi, tasksApi, sprintsApi } from '../lib/api';
 import { useSubmitTimeEntry } from '../hooks/useTimeTracking';
 import { format, isPast, parseISO, differenceInDays } from 'date-fns';
 import Layout from '../components/layout/Layout';
@@ -34,6 +34,7 @@ import {
   useSprints,
   useSprintBoard,
   useCreateSprint,
+  useUpdateSprint,
   useStartSprint,
   useCompleteSprint,
   useCreateTask,
@@ -41,6 +42,7 @@ import {
   useUpdateTaskStatus,
   useDeleteTask,
   useTask,
+  useSprint,
   useTaskComments,
   useAddTaskComment,
 } from '../hooks/useTaskSprint';
@@ -51,27 +53,7 @@ import { useI18n } from '../contexts/I18nContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import SprintAnalysisModal from '../components/ui/SprintAnalysisModal';
 import { useAiSprintAnalysis } from '../hooks/useAiInsights';
-import MentionTextArea from '../components/ui/MentionTextArea';
-
-// ── Mention renderer ─────────────────────────────────────────────────────────
-function renderCommentText(text: string, users: { id?: string; ROWID?: string; name?: string }[]): React.ReactNode {
-  if (!text) return null;
-  const parts = text.split(/(@[A-Za-z][A-Za-z ]*[A-Za-z]|@[A-Za-z]+)/g);
-  return parts.map((part, i) => {
-    if (part.startsWith('@')) {
-      const candidate = part.slice(1).trim();
-      const matched = users.find((u) => (u.name ?? '').toLowerCase() === candidate.toLowerCase());
-      if (matched) {
-        return (
-          <span key={i} className="inline-flex items-center gap-0.5 text-indigo-600 font-semibold bg-indigo-50 rounded px-1 leading-snug">
-            @{matched.name}
-          </span>
-        );
-      }
-    }
-    return <React.Fragment key={i}>{part}</React.Fragment>;
-  });
-}
+import RichCommentEditor, { renderRichContent } from '../components/ui/RichCommentEditor';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -309,11 +291,12 @@ function KanbanColumn({ col, tasks, users, onAddTask, onOpenTask, canAddTask = t
 
 // ── Multi-Select Users ────────────────────────────────────────────────────────
 
-function MultiUserSelect({ value, onChange, users, label }: {
+function MultiUserSelect({ value, onChange, users, label, isLoading = false }: {
   value: string[];
   onChange: (ids: string[]) => void;
   users: unknown[];
   label: string;
+  isLoading?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -326,8 +309,12 @@ function MultiUserSelect({ value, onChange, users, label }: {
   const toggle = (id: string) => {
     onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
   };
+  // Try both the id field and ROWID, and also handle numeric vs string mismatch
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const getUser = (id: string) => allUsers.find((u: any) => String(u.id ?? u.ROWID) === id);
+  const getUser = (id: string) => allUsers.find((u: any) => {
+    const uid = String(u.id ?? u.ROWID ?? '');
+    return uid === id || uid === String(Number(id));
+  });
 
   // Close on outside click
   React.useEffect(() => {
@@ -347,10 +334,11 @@ function MultiUserSelect({ value, onChange, users, label }: {
         {value.length === 0 && <span className="text-ds-text-muted text-sm">Select assignees…</span>}
         {value.map((id) => {
           const u = getUser(id);
-          const name = u?.name ?? u?.email ?? id;
+          const stillLoading = !u && (isLoading || allUsers.length === 0);
+          const name = u?.name ?? u?.email ?? (stillLoading ? '…' : id.slice(0, 8) + '…');
           return (
-            <span key={id} className="flex items-center gap-1 bg-indigo-100 text-indigo-700 text-xs rounded-full px-2 py-0.5">
-              <span className="w-4 h-4 rounded-full bg-indigo-400 text-white text-[9px] font-bold flex items-center justify-center">{name[0]?.toUpperCase()}</span>
+            <span key={id} className={`flex items-center gap-1 text-xs rounded-full px-2 py-0.5 ${stillLoading ? 'bg-gray-100 text-gray-400 animate-pulse' : 'bg-indigo-100 text-indigo-700'}`}>
+              <span className={`w-4 h-4 rounded-full text-white text-[9px] font-bold flex items-center justify-center ${stillLoading ? 'bg-gray-300' : 'bg-indigo-400'}`}>{name[0]?.toUpperCase()}</span>
               {name}
               <button type="button" onClick={(e) => { e.stopPropagation(); toggle(id); }} className="hover:text-red-600 ml-0.5">
                 <X size={10} />
@@ -453,6 +441,9 @@ export default function SprintBoardPage() {
   const [activeTask, setActiveTask] = useState<Task | null>(null);       // dragging
   const [taskDetailId, setTaskDetailId] = useState<string | null>(null); // detail modal
   const [showCreateSprint, setShowCreateSprint] = useState(false);
+  const [sprintMemberIds, setSprintMemberIds] = useState<string[]>([]);
+  const [editSprintId, setEditSprintId] = useState<string | null>(null);
+  const [editSprintMemberIds, setEditSprintMemberIds] = useState<string[]>([]);
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [showAIAnalysis, setShowAIAnalysis] = useState(false);
   const sprintAnalysis = useAiSprintAnalysis();
@@ -480,7 +471,7 @@ export default function SprintBoardPage() {
   const [createTaskRequireApproval, setCreateTaskRequireApproval] = useState(false);
   const [editTaskRequireApproval, setEditTaskRequireApproval] = useState(false);
   // task detail tabs / timer / AI
-  const [detailTab, setDetailTab] = useState<'activity' | 'time' | 'ai'>('activity');
+  const [detailTab, setDetailTab] = useState<'comments' | 'time' | 'attachments' | 'ai' | 'audit_logs'>('comments');
   const [taskTimeEntries, setTaskTimeEntries] = useState<any[]>([]);
   const [timeEntriesLoading, setTimeEntriesLoading] = useState(false);
   const [timerRunning, setTimerRunning] = useState(false);
@@ -488,6 +479,7 @@ export default function SprintBoardPage() {
   const [timerDisplay, setTimerDisplay] = useState('00:00:00');
   const [aiInsight, setAiInsight] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [taskAttachments, setTaskAttachments] = useState<any[]>([]);
 
   // Auto-calculate hours when start/end time changes — output in HH:MM format
   React.useEffect(() => {
@@ -509,19 +501,21 @@ export default function SprintBoardPage() {
     ? String(activeSprint.ROWID ?? activeSprint.id ?? '')
     : '';
   const { data: board, isLoading: boardLoading } = useSprintBoard(activeSprintId);
-  const { data: usersData } = useUsers();
+  const { data: usersData, isLoading: usersLoading } = useUsers();
   const { data: fullTask } = useTask(taskDetailId ?? '');
   const { data: comments } = useTaskComments(taskDetailId ?? '');
   const addComment = useAddTaskComment(taskDetailId ?? '');
   const submitTimeEntry = useSubmitTimeEntry();
 
   const createSprint = useCreateSprint();
+  const updateSprintMutation = useUpdateSprint(editSprintId ?? '');
   const startSprint = useStartSprint();
   const completeSprint = useCompleteSprint();
   const createTask = useCreateTask();
   const updateTask = useUpdateTask();
   const updateStatus = useUpdateTaskStatus();
   const deleteTask = useDeleteTask();
+  const { data: editSprintDetail } = useSprint(editSprintId ?? '');
 
   const sprintList: Sprint[] = useMemo(() => Array.isArray(sprints) ? sprints : (sprints as any)?.data ?? [], [sprints]);
   const users: unknown[] = Array.isArray(usersData) ? usersData : (usersData as any)?.data ?? [];
@@ -534,13 +528,28 @@ export default function SprintBoardPage() {
     }
   }, [sprintList, activeSprint]);
 
+  // Populate edit sprint form when detail loads
+  React.useEffect(() => {
+    if (!editSprintDetail || !editSprintId) return;
+    const s = editSprintDetail as any;
+    editSprintForm.reset({
+      name:            s.name            ?? '',
+      goal:            s.goal            ?? '',
+      start_date:      s.start_date      ?? s.startDate      ?? '',
+      end_date:        s.end_date        ?? s.endDate        ?? '',
+      capacity_points: s.capacity_points ?? s.capacityPoints ?? 0,
+    });
+    setEditSprintMemberIds(s.memberIds ?? []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editSprintDetail, editSprintId]);
+
   // Reset detail state when task changes; restore any running timer
   React.useEffect(() => {
     if (!taskDetailId) {
       setTimerRunning(false); setTimerStart(null); setTimerDisplay('00:00:00');
       return;
     }
-    setDetailTab('activity'); setAiInsight(null); setTaskTimeEntries([]);
+    setDetailTab('audit_logs'); setAiInsight(null); setTaskTimeEntries([]); setTaskAttachments([]);
     const saved = localStorage.getItem(`ds_timer_${taskDetailId}`);
     if (saved) {
       const start = parseInt(saved, 10);
@@ -559,6 +568,13 @@ export default function SprintBoardPage() {
     }, 1000);
     return () => clearInterval(iv);
   }, [timerRunning, timerStart]);
+
+  // Populate attachments from fullTask when it loads
+  React.useEffect(() => {
+    if (!fullTask) return;
+    const atts = (fullTask as any)?.attachments;
+    if (Array.isArray(atts)) setTaskAttachments(atts);
+  }, [fullTask]);
 
   // Load time entries when time tab opens
   React.useEffect(() => {
@@ -659,6 +675,8 @@ export default function SprintBoardPage() {
 
   // Sprint form
   const sprintForm = useForm<SprintForm>();
+  const editSprintForm = useForm<SprintForm>();
+
   const onCreateSprint = sprintForm.handleSubmit((data) => {
     createSprint.mutate({
       project_id: projectId,
@@ -667,9 +685,27 @@ export default function SprintBoardPage() {
       start_date: data.start_date,
       end_date: data.end_date,
       capacity_points: data.capacity_points,
+      member_ids: sprintMemberIds,
     }, {
-      onSuccess: () => { setShowCreateSprint(false); sprintForm.reset(); },
+      onSuccess: () => { setShowCreateSprint(false); sprintForm.reset(); setSprintMemberIds([]); },
     });
+  });
+
+  const onSaveEditSprint = editSprintForm.handleSubmit(async (data) => {
+    if (!editSprintId) return;
+    await updateSprintMutation.mutateAsync({
+      name: data.name, goal: data.goal,
+      start_date: data.start_date, end_date: data.end_date,
+      capacity_points: data.capacity_points,
+    });
+    const original: string[] = (editSprintDetail as any)?.memberIds ?? [];
+    const added   = editSprintMemberIds.filter((id) => !original.includes(id));
+    const removed = original.filter((id) => !editSprintMemberIds.includes(id));
+    await Promise.all([
+      ...added.map((uid) => sprintsApi.addMember(editSprintId, { user_id: uid })),
+      ...removed.map((uid) => sprintsApi.removeMember(editSprintId, uid)),
+    ]);
+    setEditSprintId(null);
   });
 
   // Task form
@@ -927,32 +963,48 @@ export default function SprintBoardPage() {
                     COMPLETED: 'bg-ds-border text-ds-text-muted',
                   };
                   return (
-                    <button
+                    <div
                       key={sprint.id}
-                      onClick={() => setActiveSprint(sprint)}
                       className={[
-                        'w-full text-left px-3 py-2.5 rounded-xl transition-all',
+                        'w-full text-left px-3 py-2.5 rounded-xl transition-all group',
                         isActive ? 'bg-indigo-50 border border-indigo-200' : 'hover:bg-ds-surface-hover',
                       ].join(' ')}
                     >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className={`text-xs font-medium truncate ${isActive ? 'text-indigo-700' : 'text-ds-text'}`}>
-                          {sprint.name}
-                        </span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ml-1 ${statusColors[sprint.status] ?? statusColors.PLANNING}`}>
-                          {sprint.status}
-                        </span>
-                      </div>
-                      {sprint.startDate && (
-                        <div className="text-[10px] text-ds-text-muted">
-                          {format(parseISO(sprint.startDate), 'MMM d')} →{' '}
-                          {sprint.endDate ? format(parseISO(sprint.endDate), 'MMM d') : '?'}
+                      <div
+                        className="cursor-pointer"
+                        onClick={() => setActiveSprint(sprint)}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={`text-xs font-medium truncate ${isActive ? 'text-indigo-700' : 'text-ds-text'}`}>
+                            {sprint.name}
+                          </span>
+                          <div className="flex items-center gap-1 flex-shrink-0 ml-1">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${statusColors[sprint.status] ?? statusColors.PLANNING}`}>
+                              {sprint.status}
+                            </span>
+                            {canManageSprint && (
+                              <button
+                                type="button"
+                                title="Edit sprint"
+                                onClick={(e) => { e.stopPropagation(); setEditSprintId(sprint.id); }}
+                                className="w-6 h-6 rounded-lg flex items-center justify-center bg-white border border-gray-200 text-gray-400 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50 shadow-sm opacity-0 group-hover:opacity-100 transition-all"
+                              >
+                                <Edit2 size={11} />
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      )}
-                      {sprint.goal && (
-                        <p className="text-[10px] text-ds-text-muted line-clamp-1 mt-0.5">{sprint.goal}</p>
-                      )}
-                    </button>
+                        {sprint.startDate && (
+                          <div className="text-[10px] text-ds-text-muted">
+                            {format(parseISO(sprint.startDate), 'MMM d')} →{' '}
+                            {sprint.endDate ? format(parseISO(sprint.endDate), 'MMM d') : '?'}
+                          </div>
+                        )}
+                        {sprint.goal && (
+                          <p className="text-[10px] text-ds-text-muted line-clamp-1 mt-0.5">{sprint.goal}</p>
+                        )}
+                      </div>
+                    </div>
                   );
                 })
               )}
@@ -1068,11 +1120,23 @@ export default function SprintBoardPage() {
       {/* ── Create Sprint Modal ──────────────────────────────────────────────── */}
       <Modal
         open={showCreateSprint}
-        onClose={() => { setShowCreateSprint(false); sprintForm.reset(); }}
-        title={t('sprints.modal.createTitle')}
+        onClose={() => {}}
+        closeOnBackdropClick={false}
         size="lg"
       >
         <form onSubmit={onCreateSprint} className="space-y-4">
+          {/* Custom header with red close button */}
+          <div className="flex items-center justify-between -mt-1 mb-1">
+            <h3 className="text-base font-semibold text-ds-text">{t('sprints.modal.createTitle')}</h3>
+            <button
+              type="button"
+              onClick={() => { setShowCreateSprint(false); sprintForm.reset(); setSprintMemberIds([]); }}
+              className="p-1.5 rounded-lg text-white bg-red-500 hover:bg-red-600 transition-colors"
+              title="Close"
+            >
+              <X size={15} />
+            </button>
+          </div>
           <div>
             <label className="form-label">{t('sprints.modal.nameLabel')} *</label>
             <input className="form-input" placeholder="e.g., Sprint 1" {...sprintForm.register('name', { required: true })} />
@@ -1111,9 +1175,71 @@ export default function SprintBoardPage() {
             </div>
           )}
 
+          <MultiUserSelect
+            label="Members"
+            value={sprintMemberIds}
+            onChange={setSprintMemberIds}
+            users={users}
+          />
+
           <ModalActions>
-            <Button variant="secondary" onClick={() => { setShowCreateSprint(false); sprintForm.reset(); }}>{t('common.cancel')}</Button>
+            <Button variant="secondary" onClick={() => { setShowCreateSprint(false); sprintForm.reset(); setSprintMemberIds([]); }}>{t('common.cancel')}</Button>
             <Button type="submit" variant="primary" loading={createSprint.isPending}>{t('sprints.modal.create')}</Button>
+          </ModalActions>
+        </form>
+      </Modal>
+
+      {/* ── Edit Sprint Modal ───────────────────────────────────────────────── */}
+      <Modal
+        open={!!editSprintId}
+        onClose={() => {}}
+        closeOnBackdropClick={false}
+        size="lg"
+      >
+        <form onSubmit={onSaveEditSprint} className="space-y-4">
+          <div className="flex items-center justify-between -mt-1 mb-1">
+            <h3 className="text-base font-semibold text-ds-text">Edit Sprint</h3>
+            <button
+              type="button"
+              onClick={() => setEditSprintId(null)}
+              className="p-1.5 rounded-lg text-white bg-red-500 hover:bg-red-600 transition-colors"
+              title="Close"
+            >
+              <X size={15} />
+            </button>
+          </div>
+          <div>
+            <label className="form-label">Sprint Name *</label>
+            <input className="form-input" placeholder="e.g., Sprint 1" {...editSprintForm.register('name', { required: true })} />
+          </div>
+          <div>
+            <label className="form-label">Goal</label>
+            <textarea className="form-textarea" rows={2} placeholder="What do you aim to achieve?" {...editSprintForm.register('goal')} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">Start Date *</label>
+              <input type="date" className="form-input" {...editSprintForm.register('start_date', { required: true })} />
+            </div>
+            <div>
+              <label className="form-label">End Date *</label>
+              <input type="date" className="form-input" {...editSprintForm.register('end_date', { required: true })} />
+            </div>
+          </div>
+          <div>
+            <label className="form-label">Capacity (Story Points)</label>
+            <input type="number" className="form-input" placeholder="40" {...editSprintForm.register('capacity_points', { valueAsNumber: true })} />
+          </div>
+          <MultiUserSelect
+            label="Members"
+            value={editSprintMemberIds}
+            onChange={setEditSprintMemberIds}
+            users={users}
+            isLoading={usersLoading}
+          />
+          <ModalActions>
+            <Button variant="secondary" onClick={() => setEditSprintId(null)}>{t('common.cancel')}</Button>
+            <Button type="submit" variant="primary" loading={updateSprintMutation.isPending}>Save Changes</Button>
           </ModalActions>
         </form>
       </Modal>
@@ -1231,19 +1357,19 @@ export default function SprintBoardPage() {
         </form>
       </Modal>
 
-      {/* ── Task Detail Modal ────────────────────────────────────────────────── */}
-      {/* ── Task Detail Modal — rich view ─────────────────────────────── */}
-      <Modal
-        open={!!taskDetailId}
-        onClose={() => { setTaskDetailId(null); setCommentText(''); setDetailTab('activity'); setAiInsight(null); }}
-        title=""
-        size="2xl"
-        closeOnBackdropClick={false}
-      >
-        {detailTask && (
-          <div className="-mt-2">
+      {/* ── Task Detail Slide-over ─────────────────────────────────────────── */}
+      {!!taskDetailId && detailTask && (
+        <>
+          {/* Backdrop */}
+          <div className="fixed inset-0 bg-black/20 z-40"
+            onClick={() => { setTaskDetailId(null); setCommentText(''); setDetailTab('audit_logs'); setAiInsight(null); }}
+          />
+
+          {/* Slide-over panel */}
+          <div className="fixed top-0 right-0 h-full w-full max-w-4xl bg-ds-surface shadow-2xl z-50 flex flex-col overflow-hidden">
+
             {/* ── Header ── */}
-            <div className="flex items-start gap-3 mb-5 pb-4 border-b border-ds-border">
+            <div className="flex items-start gap-3 px-6 py-4 border-b border-ds-border bg-ds-surface-hover shrink-0">
               <span className={`mt-1 text-[11px] px-2 py-0.5 rounded-md font-semibold shrink-0 ${TYPE_CONFIG[detailTask.type]?.color ?? 'bg-ds-border text-ds-text'}`}>
                 {TYPE_CONFIG[detailTask.type]?.label}
               </span>
@@ -1266,9 +1392,7 @@ export default function SprintBoardPage() {
                       <Clock size={11} /> {timerDisplay}
                     </span>
                   )}
-                  {/* Edit sits with the metadata — far from the close button to prevent accidental clicks */}
                   <Button size="sm" variant="secondary" icon={<Edit2 size={12} />} onClick={() => { openEdit(detailTask); setTaskDetailId(null); }}>Edit</Button>
-                  {/* Delete needs TASK_WRITE (route guard) + creator-or-admin (backend enforces). */}
                   {canCreateTask && (
                     <Button size="sm" variant="danger" icon={<Trash2 size={12} />} loading={deleteTask.isPending}
                       onClick={async () => {
@@ -1280,9 +1404,8 @@ export default function SprintBoardPage() {
                   )}
                 </div>
               </div>
-              {/* Close button — top-right corner, red to be clearly intentional */}
               <button
-                onClick={() => { setTaskDetailId(null); setCommentText(''); setDetailTab('activity'); setAiInsight(null); }}
+                onClick={() => { setTaskDetailId(null); setCommentText(''); setDetailTab('audit_logs'); setAiInsight(null); }}
                 className="p-1.5 rounded-lg text-white bg-red-500 hover:bg-red-600 transition-colors shrink-0"
                 title="Close"
               >
@@ -1290,8 +1413,9 @@ export default function SprintBoardPage() {
               </button>
             </div>
 
-            {/* ── Two-column body ── */}
-            <div className="flex gap-6">
+            {/* ── Scrollable body ── */}
+            <div className="flex-1 overflow-y-auto">
+            <div className="flex gap-6 p-6">
               {/* Left — main content */}
               <div className="flex-1 min-w-0 space-y-5">
 
@@ -1329,109 +1453,108 @@ export default function SprintBoardPage() {
                   )}
                 </div>
 
-                {/* Attachments */}
-                {((fullTask as any)?.attachments?.length ?? 0) > 0 && (
-                  <div>
-                    <div className="text-[11px] font-bold text-ds-text-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                      <Paperclip size={11} /> Attachments
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {((fullTask as any).attachments as any[]).map((a: any) => (
-                        <a key={a.ROWID ?? a.id ?? a.file_url} href={a.file_url} target="_blank" rel="noopener noreferrer"
-                          className="flex items-center gap-2.5 text-xs bg-ds-surface border border-ds-border rounded-xl px-3 py-2.5 hover:border-indigo-300 hover:bg-indigo-50 transition-all group">
-                          <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0">
-                            <Paperclip size={13} className="text-indigo-500" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate font-semibold text-ds-text group-hover:text-indigo-600">{a.file_name}</div>
-                            <div className="text-[10px] text-ds-text-muted mt-0.5">{a.file_size_kb ? `${a.file_size_kb} KB` : 'File'}</div>
-                          </div>
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* ── Tabs: Activity | Time Logs | AI ── */}
+                {/* ── Tabs: Comments | Time Logs | Files | AI Insights | Audit Logs ── */}
                 <div>
-                  <div className="flex border-b border-ds-border mb-4 -mx-0">
-                    {(['activity', 'time', 'ai'] as const).map((tab) => (
-                      <button key={tab} onClick={() => setDetailTab(tab)}
-                        className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors -mb-px ${detailTab === tab ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-ds-text-muted hover:text-ds-text-muted hover:border-ds-border'}`}>
-                        {tab === 'activity' && <><MessageSquare size={12} />Activity</>}
-                        {tab === 'time' && <><Clock size={12} />Time Logs</>}
-                        {tab === 'ai' && <><Zap size={12} />AI Insights</>}
+                  <div className="flex border-b border-ds-border mb-4 overflow-x-auto">
+                    {([
+                      { key: 'comments',    label: 'Comments',    icon: <MessageSquare size={12} /> },
+                      { key: 'time',        label: 'Time Logs',   icon: <Clock size={12} /> },
+                      { key: 'attachments', label: 'Files',       icon: <Paperclip size={12} /> },
+                      { key: 'ai',          label: 'AI Insights', icon: <Zap size={12} /> },
+                      { key: 'audit_logs',  label: 'Audit Logs',  icon: <ArrowRight size={12} /> },
+                    ] as { key: 'comments' | 'time' | 'attachments' | 'ai' | 'audit_logs'; label: string; icon: React.ReactNode }[]).map(({ key, label, icon }) => (
+                      <button key={key} onClick={() => setDetailTab(key)}
+                        className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors -mb-px whitespace-nowrap ${detailTab === key ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-ds-text-muted hover:text-ds-text hover:border-ds-border'}`}>
+                        {icon}{label}
                       </button>
                     ))}
                   </div>
 
-                  {/* Activity Tab */}
-                  {detailTab === 'activity' && (
-                    <div className="space-y-3">
-                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                        {/* Status history items */}
-                        {((fullTask as any)?.history ?? []).map((h: any, i: number) => (
+                  {/* Audit Logs Tab */}
+                  {detailTab === 'audit_logs' && (
+                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                      {((fullTask as any)?.history ?? []).length === 0 ? (
+                        <div className="text-center py-10 text-ds-text-muted">
+                          <ArrowRight size={20} className="mx-auto mb-2 opacity-30" />
+                          <p className="text-xs">No status changes yet.</p>
+                        </div>
+                      ) : (
+                        ((fullTask as any)?.history ?? []).map((h: any, i: number) => (
                           <div key={`h-${h.ROWID ?? i}`} className="flex items-center gap-2 text-xs py-1.5 px-3 bg-ds-surface-hover rounded-lg">
                             <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
                               <ArrowRight size={9} className="text-amber-600" />
                             </div>
-                            <span className="text-ds-text-muted">Status: </span>
+                            <span className="text-ds-text-muted">Status:</span>
                             <span className="px-1.5 py-0.5 bg-gray-200 rounded text-ds-text-muted text-[11px] font-medium">{h.from_status || '—'}</span>
                             <ArrowRight size={9} className="text-ds-text-muted shrink-0" />
                             <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded text-[11px] font-semibold">{h.to_status}</span>
                             <span className="ml-auto text-[10px] text-ds-text-muted shrink-0">{h.CREATEDTIME ? format(new Date(h.CREATEDTIME), 'MMM d, h:mm a') : ''}</span>
                           </div>
-                        ))}
-                        {/* Comments */}
-                        {(Array.isArray(comments) ? comments : []).map((c: any) => {
-                          const u = users.find((x: any) => String(x.id ?? x.ROWID) === String(c.userId ?? c.user_id));
-                          const name = (u as any)?.name ?? (u as any)?.email ?? 'User';
-                          return (
-                            <div key={c.id ?? c.ROWID} className="flex gap-3">
-                              <div className="w-7 h-7 rounded-full bg-indigo-500 flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0 mt-0.5">
-                                {name[0]?.toUpperCase()}
-                              </div>
-                              <div className="flex-1 bg-ds-surface border border-ds-border rounded-xl px-3 py-2.5 shadow-sm">
-                                <div className="flex items-center justify-between mb-1">
-                                  <span className="text-xs font-semibold text-gray-800">{name}</span>
-                                  <span className="text-[10px] text-ds-text-muted">{c.createdAt ? format(new Date(c.createdAt), 'MMM d, h:mm a') : ''}</span>
-                                </div>
-                                <p className="text-sm text-ds-text leading-snug">
-                                  {renderCommentText(c.content ?? '', users as any[])}
-                                </p>
-                              </div>
-                            </div>
-                          );
-                        })}
-                        {((fullTask as any)?.history ?? []).length === 0 && (Array.isArray(comments) ? comments : []).length === 0 && (
+                        ))
+                      )}
+                    </div>
+                  )}
+
+                  {/* Comments Tab */}
+                  {detailTab === 'comments' && (
+                    <div className="space-y-3">
+                      {/* Comments list */}
+                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                        {(Array.isArray(comments) ? comments : []).length === 0 ? (
                           <div className="text-center py-8 text-ds-text-muted">
                             <MessageSquare size={20} className="mx-auto mb-2 opacity-40" />
-                            <p className="text-xs">No activity yet.</p>
+                            <p className="text-xs">No comments yet. Be the first!</p>
                           </div>
+                        ) : (
+                          (Array.isArray(comments) ? comments : []).map((c: any) => {
+                            const u = users.find((x: any) => String(x.id ?? x.ROWID) === String(c.userId ?? c.user_id));
+                            const name = (u as any)?.name ?? (u as any)?.email ?? 'User';
+                            const avatarUrl = (u as any)?.avatarUrl;
+                            return (
+                              <div key={c.id ?? c.ROWID} className="flex gap-3">
+                                {avatarUrl ? (
+                                  <img src={avatarUrl} alt={name} className="w-7 h-7 rounded-full object-cover shrink-0 mt-0.5" />
+                                ) : (
+                                  <div className="w-7 h-7 rounded-full bg-indigo-500 flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0 mt-0.5">
+                                    {name[0]?.toUpperCase()}
+                                  </div>
+                                )}
+                                <div className="flex-1 bg-ds-surface border border-ds-border rounded-xl px-3 py-2.5 shadow-sm">
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className="text-xs font-semibold text-gray-800">{name}</span>
+                                    <span className="text-[10px] text-ds-text-muted">{c.createdAt ? format(new Date(c.createdAt), 'MMM d, h:mm a') : ''}</span>
+                                  </div>
+                                  <div className="text-sm text-ds-text leading-snug">
+                                    {renderRichContent(c.content ?? '', users as any[])}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
                         )}
                       </div>
                       {/* Add comment */}
-                      <div className="pt-2 border-t border-ds-border space-y-1.5">
-                        <MentionTextArea
+                      <div className="pt-2 border-t border-ds-border space-y-2">
+                        <RichCommentEditor
                           value={commentText}
                           onChange={setCommentText}
                           onMentionsChange={setMentionedIds}
                           users={(users as any[]).map((u: any) => ({ id: String(u.id ?? u.ROWID), name: u.name ?? u.email ?? 'User', email: u.email, avatarUrl: u.avatarUrl }))}
-                          placeholder="Write a comment… Type @ to mention someone"
-                          rows={2}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey && commentText.trim()) {
-                              addComment.mutate({ content: commentText.trim(), mentionedUserIds: mentionedIds });
+                          placeholder="Add a comment… Type @ to mention someone"
+                          minHeight={80}
+                          onCtrlEnter={() => {
+                            if (commentText.replace(/<[^>]*>/g, '').trim()) {
+                              addComment.mutate({ content: commentText, mentionedUserIds: mentionedIds });
                               setCommentText(''); setMentionedIds([]);
                             }
                           }}
                         />
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] text-ds-text-muted">Enter to post • @ to mention</span>
-                          <Button size="sm" disabled={!commentText.trim()} loading={addComment.isPending}
+                          <span className="text-[10px] text-ds-text-muted">⌘+Enter to post • @ to mention</span>
+                          <Button size="sm" disabled={!commentText.replace(/<[^>]*>/g, '').trim()} loading={addComment.isPending}
                             onClick={() => {
-                              if (commentText.trim()) {
-                                addComment.mutate({ content: commentText.trim(), mentionedUserIds: mentionedIds });
+                              if (commentText.replace(/<[^>]*>/g, '').trim()) {
+                                addComment.mutate({ content: commentText, mentionedUserIds: mentionedIds });
                                 setCommentText(''); setMentionedIds([]);
                               }
                             }}>
@@ -1439,6 +1562,67 @@ export default function SprintBoardPage() {
                           </Button>
                         </div>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Files / Attachments Tab */}
+                  {detailTab === 'attachments' && (
+                    <div className="space-y-4">
+                      {/* Upload button */}
+                      <label className="flex items-center gap-2 cursor-pointer w-fit px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg transition-colors">
+                        <Paperclip size={13} />
+                        Attach File
+                        <input
+                          type="file"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file || !taskDetailId) return;
+                            e.target.value = '';
+                            try {
+                              await tasksApi.uploadAttachment(taskDetailId, file);
+                              const updated = await tasksApi.get(taskDetailId);
+                              const atts = (updated as any)?.attachments;
+                              if (Array.isArray(atts)) setTaskAttachments(atts);
+                            } catch { /* silent */ }
+                          }}
+                        />
+                      </label>
+
+                      {/* File list */}
+                      {taskAttachments.length === 0 ? (
+                        <div className="text-center py-10">
+                          <Paperclip size={28} className="mx-auto mb-2 text-gray-300" />
+                          <p className="text-xs text-ds-text-muted">No attachments yet.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {taskAttachments.map((a: any, i: number) => {
+                            const name = a.file_name ?? a.fileName ?? a.name ?? `File ${i + 1}`;
+                            const url  = a.file_url  ?? a.fileUrl  ?? a.url  ?? null;
+                            const size = a.file_size ?? a.fileSize ?? null;
+                            const ext  = name.split('.').pop()?.toLowerCase() ?? '';
+                            const isImage = ['png','jpg','jpeg','gif','webp','svg'].includes(ext);
+                            return (
+                              <div key={a.ROWID ?? i} className="flex items-center gap-3 border border-ds-border rounded-xl px-3 py-2.5 bg-ds-surface hover:bg-ds-surface-hover transition-colors">
+                                <span className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-500 flex items-center justify-center shrink-0 text-[10px] font-bold uppercase">
+                                  {isImage ? '🖼' : ext || '📎'}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-medium text-ds-text truncate">{name}</p>
+                                  {size && <p className="text-[10px] text-ds-text-muted">{(size / 1024).toFixed(1)} KB</p>}
+                                </div>
+                                {url && (
+                                  <a href={url} target="_blank" rel="noopener noreferrer"
+                                    className="text-indigo-600 hover:text-indigo-800 text-xs font-medium shrink-0">
+                                    Download
+                                  </a>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1762,9 +1946,10 @@ export default function SprintBoardPage() {
                 </div>
               </div>
             </div>
-          </div>
-        )}
-      </Modal>
+            </div>{/* end scrollable body */}
+          </div>{/* end slide-over panel */}
+        </>
+      )}
 
       {/* ── Edit Task Modal ────────────────────────────────────────────────── */}
       <Modal

@@ -4,7 +4,7 @@ import {
   CheckSquare, Clock, Filter, Search, ArrowUpRight, Circle, AlertCircle,
   CheckCircle2, Layers, Bug, Bookmark, Zap, Tag, Timer, Edit2, Plus,
   Trash2, Check, X, Paperclip, User, PlayCircle, StopCircle, MessageSquare,
-  Users, BarChart2, Brain,
+  Users, BarChart2, Brain, ArrowRight,
 } from 'lucide-react';
 import { format, parseISO, isPast, addDays, isBefore } from 'date-fns';
 import { useForm } from 'react-hook-form';
@@ -26,7 +26,7 @@ import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { useQuery } from '@tanstack/react-query';
 import UserAvatar from '../components/ui/UserAvatar';
 import MarkdownText from '../components/ui/MarkdownText';
-import MentionTextArea from '../components/ui/MentionTextArea';
+import RichCommentEditor, { renderRichContent } from '../components/ui/RichCommentEditor';
 
 // ── Time helpers: HH:MM ↔ decimal hours ──────────────────────────────────────
 const parseHoursInput = (val: string): number => {
@@ -65,28 +65,6 @@ function safeFmt(val: string | undefined | null, fmt: string, fallback = ''): st
   } catch { return fallback; }
 }
 
-// ── Mention renderer — highlights @Name in comment text ──────────────────────
-function renderCommentText(text: string, users: { id: string; name: string }[]): React.ReactNode {
-  if (!text) return null;
-  // Split on @word or @word word patterns (greedy toward longest known name)
-  const parts = text.split(/(@[A-Za-z][A-Za-z ]*[A-Za-z]|@[A-Za-z]+)/g);
-  return parts.map((part, i) => {
-    if (part.startsWith('@')) {
-      const candidate = part.slice(1).trim();
-      const matched = users.find(
-        (u) => u.name.toLowerCase() === candidate.toLowerCase()
-      );
-      if (matched) {
-        return (
-          <span key={i} className="inline-flex items-center gap-0.5 text-indigo-600 font-semibold bg-indigo-50 rounded px-1 py-0 leading-snug">
-            @{matched.name}
-          </span>
-        );
-      }
-    }
-    return <React.Fragment key={i}>{part}</React.Fragment>;
-  });
-}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -467,13 +445,14 @@ function TaskDetailPanel({
   canEdit,
   taskAttachments,
   onUploadAttachment,
+  fullTaskData,
 }: {
   task: Task;
   onClose: () => void;
   allUsers: TenantUser[];
   projects: Project[];
-  detailTab: 'activity' | 'time' | 'ai' | 'attachments';
-  setDetailTab: (t: 'activity' | 'time' | 'ai' | 'attachments') => void;
+  detailTab: 'comments' | 'time' | 'attachments' | 'ai' | 'audit_logs';
+  setDetailTab: (t: 'comments' | 'time' | 'attachments' | 'ai' | 'audit_logs') => void;
   taskAttachments: any[];
   onUploadAttachment: (file: File) => void;
   taskComments: any[];
@@ -502,6 +481,8 @@ function TaskDetailPanel({
   aiLoading: boolean;
   onEdit: (t: Task) => void;
   canEdit: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  fullTaskData?: any;
 }) {
   const priCfg     = PRIORITY_CONFIG[task.priority] ?? PRIORITY_CONFIG.MEDIUM;
   const stCfg      = STATUS_CONFIG[task.status];
@@ -634,11 +615,12 @@ function TaskDetailPanel({
         {/* ── Tab nav ── */}
         <div className="flex border-b border-gray-100 px-6 bg-white shrink-0">
           {([
-            { key: 'activity',    label: 'Activity',    icon: <MessageSquare size={12} /> },
-            { key: 'attachments', label: 'Files',        icon: <Paperclip size={12} />     },
+            { key: 'comments',    label: 'Comments',    icon: <MessageSquare size={12} />  },
             { key: 'time',        label: 'Time Log',    icon: <Timer size={12} />          },
+            { key: 'attachments', label: 'Files',       icon: <Paperclip size={12} />      },
             { key: 'ai',          label: 'AI Insights', icon: <Brain size={12} />          },
-          ] as { key: 'activity' | 'attachments' | 'time' | 'ai'; label: string; icon: React.ReactNode }[]).map(({ key, label, icon }) => (
+            { key: 'audit_logs',  label: 'Audit Logs',  icon: <ArrowRight size={12} />     },
+          ] as { key: 'comments' | 'time' | 'attachments' | 'ai' | 'audit_logs'; label: string; icon: React.ReactNode }[]).map(({ key, label, icon }) => (
             <button key={key} onClick={() => setDetailTab(key)}
               className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium border-b-2 transition-colors ${detailTab === key ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
               {icon} {label}
@@ -649,24 +631,24 @@ function TaskDetailPanel({
         {/* ── Tab content ── */}
         <div className="flex-1 overflow-y-auto">
 
-          {/* Activity tab */}
-          {detailTab === 'activity' && (
+          {/* Comments tab */}
+          {detailTab === 'comments' && (
             <div className="p-4 space-y-3">
               {/* Add comment */}
-              <div className="space-y-1.5">
-                <MentionTextArea
+              <div className="space-y-2">
+                <RichCommentEditor
                   value={detailComment}
                   onChange={setDetailComment}
                   onMentionsChange={setMentionedIds}
                   users={allUsers.map((u) => ({ id: String(u.id), name: u.name, email: u.email, avatarUrl: u.avatarUrl }))}
                   placeholder="Add a comment… Type @ to mention someone"
-                  rows={3}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) onAddComment(); }}
+                  minHeight={80}
+                  onCtrlEnter={() => { if (detailComment.replace(/<[^>]*>/g, '').trim()) onAddComment(); }}
                 />
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-gray-400">⌘+Enter to post • @ to mention</span>
                   <button
-                    disabled={!detailComment.trim() || addCommentPending}
+                    disabled={!detailComment.replace(/<[^>]*>/g, '').trim() || addCommentPending}
                     onClick={onAddComment}
                     className="px-3 py-1.5 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors">
                     {addCommentPending ? 'Posting…' : 'Post'}
@@ -682,7 +664,7 @@ function TaskDetailPanel({
                   const commenter = allUsers.find((u: TenantUser) => String(u.id) === String(c.user_id));
                   const commenterName = commenter?.name ?? c.authorName ?? c.author ?? c.user ?? 'User';
                   const commenterAvatar = commenter?.avatarUrl;
-                  const commentText: string = c.content ?? c.text ?? c.body ?? '';
+                  const commentBody: string = c.content ?? c.text ?? c.body ?? '';
                   return (
                   <div key={c.id ?? i} className="flex gap-3">
                     {commenterAvatar ? (
@@ -699,9 +681,9 @@ function TaskDetailPanel({
                           <span className="text-[10px] text-gray-400">{safeFmt(c.createdAt, 'MMM d, h:mm a')}</span>
                         )}
                       </div>
-                      <p className="text-xs text-gray-600 leading-relaxed">
-                        {renderCommentText(commentText, allUsers)}
-                      </p>
+                      <div className="text-xs text-gray-600 leading-relaxed">
+                        {renderRichContent(commentBody, allUsers)}
+                      </div>
                     </div>
                   </div>
                   );
@@ -918,6 +900,33 @@ function TaskDetailPanel({
             </div>
           )}
 
+          {/* Audit Logs tab */}
+          {detailTab === 'audit_logs' && (
+            <div className="p-6">
+              <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                {((fullTaskData ?? task as any)?.history ?? []).length === 0 ? (
+                  <div className="text-center py-10 text-gray-400">
+                    <ArrowRight size={20} className="mx-auto mb-2 opacity-30" />
+                    <p className="text-xs">No status changes yet.</p>
+                  </div>
+                ) : (
+                  ((fullTaskData ?? task as any)?.history ?? []).map((h: any, i: number) => (
+                    <div key={`h-${h.ROWID ?? i}`} className="flex items-center gap-2 text-xs py-1.5 px-3 bg-gray-50 border border-gray-100 rounded-lg">
+                      <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                        <ArrowRight size={9} className="text-amber-600" />
+                      </div>
+                      <span className="text-gray-500">Status:</span>
+                      <span className="px-1.5 py-0.5 bg-gray-200 rounded text-gray-500 text-[11px] font-medium">{h.from_status || '—'}</span>
+                      <ArrowRight size={9} className="text-gray-400 shrink-0" />
+                      <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded text-[11px] font-semibold">{h.to_status}</span>
+                      <span className="ml-auto text-[10px] text-gray-400 shrink-0">{h.CREATEDTIME ? safeFmt(h.CREATEDTIME, 'MMM d, h:mm a') : ''}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
     </>
@@ -1082,7 +1091,7 @@ export default function MyTasksPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [detailTab, setDetailTab]                 = useState<'activity' | 'time' | 'ai' | 'attachments'>('activity');
+  const [detailTab, setDetailTab]                 = useState<'comments' | 'time' | 'attachments' | 'ai' | 'audit_logs'>('comments');
   const [taskTimeEntries, setTaskTimeEntries]     = useState<any[]>([]);
   const [timeEntriesLoading, setTimeEntriesLoading] = useState(false);
   const [timerRunning, setTimerRunning]           = useState(false);
@@ -1147,7 +1156,7 @@ export default function MyTasksPage() {
       setLogTimeStartTime('');
       setLogTimeEndTime('');
     }
-    setDetailTab('activity');
+    setDetailTab('comments');
     setAiInsight(null);
     setTaskTimeEntries([]);
     setTaskAttachments([]);
@@ -1538,6 +1547,7 @@ export default function MyTasksPage() {
           aiLoading={aiLoading}
           onEdit={openEdit}
           canEdit={canEditTask(detailTask)}
+          fullTaskData={fullTask}
           taskAttachments={taskAttachments}
           onUploadAttachment={async (file) => {
             if (!taskDetailId) return;

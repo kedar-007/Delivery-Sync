@@ -17,7 +17,8 @@
       "leave_accrual",
       "leave_policy",
       "team_reminder",
-      "people_wish"
+      "people_wish",
+      "doc_service"
     ],
     "ignore": [],
     "source": "functions"

@@ -111,6 +111,12 @@ export const PERMISSIONS = {
   // projects regardless of membership. Not assigned to any default role — must
   // be explicitly granted via org roles or per-user overrides (e.g. PMO, exec).
   PROJECT_DATA_VIEW_ALL: 'PROJECT_DATA_VIEW_ALL',
+  // ── Project Documentation ─────────────────────────────────────────────────
+  DOC_READ:   'DOC_READ',   // view docs & folders in assigned projects
+  DOC_WRITE:  'DOC_WRITE',  // upload files, create folders, edit metadata
+  DOC_DELETE: 'DOC_DELETE', // delete own docs/folders
+  DOC_SHARE:  'DOC_SHARE',  // create / revoke public share links
+  DOC_ADMIN:  'DOC_ADMIN',  // manage all project docs
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -149,6 +155,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.PROFILE_READ,     PERMISSIONS.PROFILE_WRITE,
     PERMISSIONS.ANNOUNCEMENT_READ,
     PERMISSIONS.ORG_READ,
+    PERMISSIONS.DOC_READ, PERMISSIONS.DOC_WRITE, PERMISSIONS.DOC_DELETE,
     // Elevated permissions (TASK_ASSIGN, ATTENDANCE_TEAM_VIEW, SPRINT_WRITE,
     // TIME_APPROVE, AI_*, CEO_DASHBOARD, CTO_DASHBOARD, etc.) are NOT granted
     // by default — admins must assign them via org roles.

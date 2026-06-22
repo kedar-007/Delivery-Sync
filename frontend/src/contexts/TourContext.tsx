@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
-
-const STORAGE_KEY = 'ds_tour_v1';
+import { useAuth } from './AuthContext';
+import { authApi } from '../lib/api';
 
 export interface TourStep {
   id: string;
@@ -121,27 +121,30 @@ const TourContext = createContext<TourContextValue>({
 export const useTour = () => useContext(TourContext);
 
 export const TourProvider = ({ children }: { children: ReactNode }) => {
+  const { user } = useAuth();
   const [isActive, setIsActive] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
-  const [completed, setCompleted] = useState(() => {
-    try {
-      return localStorage.getItem(STORAGE_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
+
+  // Source of truth is user.tourCompleted from the DB.
+  // While the user object is loading (null), we treat as incomplete so we
+  // don't flash the tour. Once user loads and tourCompleted=false, auto-start.
+  const completed = user?.tourCompleted === true;
+
+  const endTour = useCallback(() => {
+    setIsActive(false);
+    // Fire-and-forget — save to DB so this persists across all devices/browsers
+    authApi.markTourComplete().catch(() => {});
+  }, []);
 
   const startTour = useCallback(() => {
     setCurrentStep(0);
     setIsActive(true);
   }, []);
 
-  const endTour = useCallback(() => {
-    setIsActive(false);
-    setCompleted(true);
-    try {
-      localStorage.setItem(STORAGE_KEY, '1');
-    } catch {}
+  // resetTour is called from Help — replays without clearing the DB flag
+  const resetTour = useCallback(() => {
+    setCurrentStep(0);
+    setIsActive(true);
   }, []);
 
   const nextStep = useCallback(() => {
@@ -155,23 +158,17 @@ export const TourProvider = ({ children }: { children: ReactNode }) => {
     setCurrentStep((s) => (s > 0 ? s - 1 : s));
   }, []);
 
-  // resetTour intentionally does NOT clear the localStorage flag so the
-  // auto-start effect never fires again — the user explicitly chose to replay.
-  const resetTour = useCallback(() => {
-    setCurrentStep(0);
-    setIsActive(true);
-  }, []);
-
-  // Auto-start for first-time visitors after layout renders
+  // Auto-start once for first-time users — fires only when user is loaded and
+  // tourCompleted is false. Because `completed` is derived from user.tourCompleted
+  // (DB), this won't trigger again after the user completes the tour on any device.
   useEffect(() => {
-    if (!completed) {
+    if (user && !completed) {
       const t = setTimeout(() => setIsActive(true), 1400);
       return () => clearTimeout(t);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user?.id]); // run once per user session load, not on every render
 
-  // Finish tour when reaching last step and pressing next
   const nextOrFinish = useCallback(() => {
     if (currentStep >= TOUR_STEPS.length - 1) {
       endTour();

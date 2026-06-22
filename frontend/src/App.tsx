@@ -43,6 +43,7 @@ import AssetManagementPage from "./pages/AssetManagementPage";
 import AdminConfigPage from "./pages/AdminConfigPage";
 import PeopleSettingsPage from "./pages/PeopleSettingsPage";
 import ProjectTasksPage from "./pages/ProjectTasksPage";
+import ProjectDocsPage from "./pages/ProjectDocsPage";
 import MyTasksPage from "./pages/MyTasksPage";
 import SprintsPage from "./pages/SprintsPage";
 import HelpPage from "./pages/HelpPage";
@@ -52,6 +53,7 @@ import AccessRevokedPage from "./pages/AccessRevokedPage";
 import BugReportsPage from "./pages/BugReportsPage";
 import AuditLogsPage from "./pages/AuditLogsPage";
 import OrgSetupPage from "./pages/OrgSetupPage";
+import PublicSharePage from "./pages/PublicSharePage";
 import { ConfirmProvider } from "./components/ui/ConfirmDialog";
 import { ToastProvider } from "./components/ui/Toast";
 import { TourProvider } from "./contexts/TourContext";
@@ -122,6 +124,8 @@ const AppRoutes = () => {
             ? <LoginPage />
             : <Navigate to={homePath} replace />
       } />
+      {/* /share/:shareToken is handled at the root level, outside AuthProvider */}
+
       <Route path="/super-admin" element={
         mustLogin ? <Navigate to="/login" replace /> :
         isSuperAdmin ? <SuperAdminPage /> :
@@ -147,6 +151,7 @@ const AppRoutes = () => {
         <Route path="projects/:projectId/sprints"   element={<PermRoute permission="SPRINT_READ"><SprintBoardPage /></PermRoute>} />
         <Route path="projects/:projectId/backlog"   element={<PermRoute permission="TASK_READ"><BacklogPage /></PermRoute>} />
         <Route path="projects/:projectId/tasks"     element={<PermRoute permission="TASK_READ"><ProjectTasksPage /></PermRoute>} />
+        <Route path="projects/:projectId/docs"      element={<PermRoute permission="PROJECT_READ"><ProjectDocsPage /></PermRoute>} />
         <Route path="backlog"    element={<PermRoute permission="TASK_READ"><BacklogPage /></PermRoute>} />
         <Route path="my-tasks"   element={<PermRoute permission="TASK_READ"><MyTasksPage /></PermRoute>} />
         <Route path="sprints"    element={<PermRoute permission="SPRINT_READ"><SprintsPage /></PermRoute>} />
@@ -231,15 +236,21 @@ const App = () => {
 
   return (
     <ToastProvider>
-      <AuthProvider>
-        <ConfirmProvider>
-          <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-            <TourProvider>
-              <AppRoutes />
-            </TourProvider>
-          </HashRouter>
-        </ConfirmProvider>
-      </AuthProvider>
+      <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <Routes>
+          {/* Public share links render outside AuthProvider — no /auth/me call */}
+          <Route path="/share/:shareToken" element={<PublicSharePage />} />
+          <Route path="/*" element={
+            <AuthProvider>
+              <ConfirmProvider>
+                <TourProvider>
+                  <AppRoutes />
+                </TourProvider>
+              </ConfirmProvider>
+            </AuthProvider>
+          } />
+        </Routes>
+      </HashRouter>
     </ToastProvider>
   );
 };

@@ -282,6 +282,7 @@ const ROLE_PRESETS: Record<string, {
       'REPORT_READ','REPORT_WRITE','DASHBOARD_READ',
       'TEAM_READ','ORG_READ','ORG_ROLE_READ',
       'AI_INSIGHTS','AI_PERFORMANCE','AI_TEAM_ANALYSIS',
+      'DOC_READ',
     ],
   },
   techLead: {
@@ -300,6 +301,7 @@ const ROLE_PRESETS: Record<string, {
       'REPORT_READ','REPORT_WRITE','DASHBOARD_READ',
       'TEAM_READ','TEAM_WRITE','ORG_READ','ORG_ROLE_READ','CONFIG_READ',
       'AI_INSIGHTS','AI_PERFORMANCE','AI_TEAM_ANALYSIS',
+      'DOC_READ','DOC_WRITE','DOC_DELETE','DOC_SHARE','DOC_ADMIN',
     ],
   },
   hr: {
@@ -317,6 +319,7 @@ const ROLE_PRESETS: Record<string, {
       'REPORT_READ','REPORT_WRITE','DASHBOARD_READ',
       'TEAM_READ','TEAM_WRITE','ORG_READ','ORG_WRITE','ORG_ROLE_READ',
       'AI_INSIGHTS','AI_PERFORMANCE',
+      'DOC_READ','DOC_WRITE',
     ],
   },
   pm: {
@@ -334,6 +337,7 @@ const ROLE_PRESETS: Record<string, {
       'REPORT_READ','REPORT_WRITE','DASHBOARD_READ',
       'TEAM_READ','TEAM_WRITE','ORG_READ','ORG_ROLE_READ','CONFIG_READ',
       'AI_INSIGHTS','AI_PERFORMANCE','AI_TEAM_ANALYSIS',
+      'DOC_READ','DOC_WRITE','DOC_DELETE','DOC_SHARE','DOC_ADMIN',
     ],
   },
   contributor: {
@@ -353,6 +357,7 @@ const ROLE_PRESETS: Record<string, {
       'ANNOUNCEMENT_READ','NOTIFICATION_READ',
       'REPORT_READ','DASHBOARD_READ',
       'TEAM_READ','ORG_READ',
+      'DOC_READ','DOC_WRITE','DOC_DELETE','DOC_SHARE',
     ],
   },
   itAdmin: {
@@ -487,6 +492,11 @@ const PERM_INFO: Record<string, { label: string; desc: string; risk: 'low' | 'me
   CONFIG_READ:        { label: 'View Config',        desc: 'See feature flags and configurations',          risk: 'low' },
   CONFIG_WRITE:       { label: 'Edit Config',        desc: 'Change features and workflow rules',            risk: 'high' },
   DATA_SEED:          { label: 'Data Seeding',       desc: 'Generate/clear demo or test data',              risk: 'high' },
+  DOC_READ:           { label: 'View Documents',     desc: 'Browse project folders and view files',         risk: 'low' },
+  DOC_WRITE:          { label: 'Upload & Create',    desc: 'Upload files and create folders',               risk: 'low' },
+  DOC_DELETE:         { label: 'Delete Documents',   desc: 'Delete own documents and folders',              risk: 'medium' },
+  DOC_SHARE:          { label: 'Share Documents',    desc: 'Create public and member-only share links',     risk: 'medium' },
+  DOC_ADMIN:          { label: 'Doc Admin',          desc: 'Manage all project docs regardless of owner',   risk: 'high' },
 };
 
 // ─── CRUD permission matrix ───────────────────────────────────────────────────
@@ -566,6 +576,13 @@ const CRUD_MODULES: CrudSection[] = [
       { name: 'AI Insights',    view: 'AI_INSIGHTS',   write: 'AI_PERFORMANCE_SELF', approve: 'AI_PERFORMANCE', admin: 'AI_TEAM_ANALYSIS' },
       { name: 'CEO Dashboard',  view: 'CEO_DASHBOARD' },
       { name: 'CTO Dashboard',  view: 'CTO_DASHBOARD' },
+    ],
+  },
+  {
+    section: 'Documentation',
+    rows: [
+      { name: 'Documents & Folders', view: 'DOC_READ', write: 'DOC_WRITE', approve: 'DOC_SHARE', admin: 'DOC_ADMIN' },
+      { name: 'Delete Documents',    write: 'DOC_DELETE' },
     ],
   },
   {

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Shield, Lock, Unlock, Check, Loader, Sparkles, ChevronRight,
   AlertTriangle, Info, Users, Zap, Eye, X, Search,
-  FolderKanban, Clock, Package, BarChart3, LayoutDashboard, Briefcase,
+  FolderKanban, Clock, Package, BarChart3, LayoutDashboard, Briefcase, FileText,
 } from 'lucide-react';
 import Modal, { ModalActions } from './Modal';
 import Button from './Button';
@@ -41,6 +41,18 @@ const PERM_GROUPS: PermGroup[] = [
       { key: 'MILESTONE_WRITE', label: 'Manage Milestones', desc: 'Create and update milestones' },
       { key: 'SPRINT_READ',     label: 'View Sprints',      desc: 'See sprint boards' },
       { key: 'SPRINT_WRITE',    label: 'Manage Sprints',    desc: 'Create and manage sprints' },
+    ],
+  },
+  {
+    label: 'Documentation',
+    color: 'cyan',
+    icon: <FileText size={12} />,
+    perms: [
+      { key: 'DOC_READ',   label: 'View Documents',   desc: 'Browse project folders and view files' },
+      { key: 'DOC_WRITE',  label: 'Upload & Create',  desc: 'Upload files and create folders in projects' },
+      { key: 'DOC_DELETE', label: 'Delete Documents',  desc: 'Delete own documents and folders' },
+      { key: 'DOC_SHARE',  label: 'Share Documents',   desc: 'Create public and member-only share links' },
+      { key: 'DOC_ADMIN',  label: 'Doc Admin',         desc: 'Manage all project documents regardless of owner' },
     ],
   },
   {
@@ -816,6 +828,13 @@ const CRUD_MODULES: CrudSection[] = [
     ],
   },
   {
+    section: 'Documentation',
+    rows: [
+      { name: 'Documents & Folders', view: 'DOC_READ', write: 'DOC_WRITE', approve: 'DOC_SHARE', admin: 'DOC_ADMIN' },
+      { name: 'Delete Documents',    write: 'DOC_DELETE' },
+    ],
+  },
+  {
     section: 'System & Admin',
     rows: [
       { name: 'Notifications',    view:  'NOTIFICATION_READ' },
@@ -911,6 +930,11 @@ const PERM_INFO: Record<string, { label: string; desc: string }> = {
   CONFIG_READ:        { label: 'View Config',       desc: 'See feature flags and configurations' },
   CONFIG_WRITE:       { label: 'Edit Config',       desc: 'Change features and workflow rules' },
   DATA_SEED:          { label: 'Data Seeding',      desc: 'Generate/clear demo or test data' },
+  DOC_READ:           { label: 'View',              desc: 'Browse project folders and view files' },
+  DOC_WRITE:          { label: 'Upload & Create',   desc: 'Upload files and create folders' },
+  DOC_DELETE:         { label: 'Delete',            desc: 'Delete own documents and folders' },
+  DOC_SHARE:          { label: 'Share',             desc: 'Create public and member-only share links' },
+  DOC_ADMIN:          { label: 'Admin',             desc: 'Manage all project docs regardless of owner' },
 };
 
 // ─── Colour helpers ───────────────────────────────────────────────────────────

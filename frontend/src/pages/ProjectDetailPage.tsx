@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Edit2, Users, CheckSquare, AlertTriangle, Milestone, BarChart2, UserPlus, Trash2, ListChecks, Clock } from 'lucide-react';
+import { ArrowLeft, Edit2, Users, CheckSquare, AlertTriangle, Milestone, BarChart2, UserPlus, Trash2, ListChecks, Clock, FolderOpen } from 'lucide-react';
 import UserHoverCard from '../components/ui/UserHoverCard';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
@@ -108,6 +108,12 @@ const ProjectDetailPage = () => {
                 {t('projects.detail.editProject')}
               </Button>
             )}
+            <Link
+              to={`/${tenantSlug}/projects/${projectId}/docs`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors shadow-sm shrink-0">
+              <FolderOpen size={15} />
+              Directory
+            </Link>
           </div>
         }
       />

@@ -33,7 +33,8 @@ router.get('/logout', (_req, res) => {
 
 // Protected – requires authenticated session
 const auth = AuthMiddleware.authenticate;
-router.get('/me', auth, asyncHandler((req, res) => ctrl(req).getCurrentUser(req, res)));
-router.get('/users', auth, asyncHandler((req, res) => ctrl(req).listTenantUsers(req, res)));
+router.get('/me',              auth, asyncHandler((req, res) => ctrl(req).getCurrentUser(req, res)));
+router.patch('/tour-complete', auth, asyncHandler((req, res) => ctrl(req).markTourComplete(req, res)));
+router.get('/users',           auth, asyncHandler((req, res) => ctrl(req).listTenantUsers(req, res)));
 
 module.exports = router;
