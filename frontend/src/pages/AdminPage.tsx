@@ -487,7 +487,12 @@ const PERM_INFO: Record<string, { label: string; desc: string; risk: 'low' | 'me
   AI_TEAM_ANALYSIS:    { label: 'Org-Wide',    desc: 'Admin-level: view ANY team + the org-wide "All Teams" mode',    risk: 'high' },
   CEO_DASHBOARD:      { label: 'CEO Dashboard',      desc: 'Access the CEO executive dashboard only',                 risk: 'medium' },
   CTO_DASHBOARD:      { label: 'CTO Dashboard',      desc: 'Access the CTO executive dashboard only',                 risk: 'medium' },
-  ADMIN_USERS:        { label: 'Manage Users',       desc: 'Invite, edit, deactivate users',                risk: 'high' },
+  ADMIN_USERS:        { label: 'Full Admin',         desc: 'Full user management — implies all USER_* sub-permissions', risk: 'high' },
+  USER_READ:          { label: 'View Users',         desc: 'See the admin user list',                       risk: 'low' },
+  USER_WRITE:         { label: 'Edit Users',         desc: 'Edit user profile fields (timezone, shift, location)', risk: 'medium' },
+  USER_DELETE:        { label: 'Deactivate',         desc: 'Deactivate / reactivate user accounts',         risk: 'high' },
+  ROLE_ASSIGN:        { label: 'Assign Role',        desc: "Change a user's system role",                   risk: 'high' },
+  PERMISSION_MANAGE:  { label: 'Permissions',        desc: 'Grant or revoke permissions for other users',   risk: 'high' },
   ADMIN_SETTINGS:     { label: 'System Settings',    desc: 'Tenant settings and audit logs',                risk: 'high' },
   CONFIG_READ:        { label: 'View Config',        desc: 'See feature flags and configurations',          risk: 'low' },
   CONFIG_WRITE:       { label: 'Edit Config',        desc: 'Change features and workflow rules',            risk: 'high' },
@@ -534,7 +539,7 @@ const CRUD_MODULES: CrudSection[] = [
     section: 'Time & Attendance',
     rows: [
       { name: 'Time Tracking', view: 'TIME_READ',       write: 'TIME_WRITE',       approve: 'TIME_APPROVE', admin: 'TIME_ANALYTICS', team: 'TIME_TEAM_VIEW' },
-      { name: 'Attendance',    view: 'ATTENDANCE_READ',  write: 'ATTENDANCE_WRITE', approve: 'ATTENDANCE_TEAM_VIEW', admin: 'ATTENDANCE_ADMIN' },
+      { name: 'Attendance',    view: 'ATTENDANCE_READ',  write: 'ATTENDANCE_WRITE', approve: 'ATTENDANCE_TEAM_VIEW', admin: 'ATTENDANCE_ADMIN', team: 'ATTENDANCE_REPORT' },
       { name: 'Leave',         view: 'LEAVE_READ',       write: 'LEAVE_WRITE',      approve: 'LEAVE_APPROVE', admin: 'LEAVE_ADMIN',  team: 'LEAVE_TEAM_VIEW' },
       { name: 'Leave (Org)',   view: 'LEAVE_ORG_VIEW' },
     ],
@@ -589,9 +594,11 @@ const CRUD_MODULES: CrudSection[] = [
     section: 'System & Admin',
     rows: [
       { name: 'Notifications',    view:  'NOTIFICATION_READ' },
-      { name: 'User Management',  write: 'INVITE_USER',     admin: 'ADMIN_USERS' },
+      { name: 'User Management',  view:  'USER_READ',   write: 'USER_WRITE',  approve: 'ROLE_ASSIGN', admin: 'ADMIN_USERS', team: 'PERMISSION_MANAGE' },
+      { name: 'Invite Users',     write: 'INVITE_USER' },
+      { name: 'Deactivate Users', admin: 'USER_DELETE' },
       { name: 'Audit & Settings', admin: 'ADMIN_SETTINGS' },
-      { name: 'System Config',    view:  'CONFIG_READ',     write: 'CONFIG_WRITE' },
+      { name: 'System Config',    view:  'CONFIG_READ', write: 'CONFIG_WRITE' },
       { name: 'Data Seeding',     admin: 'DATA_SEED' },
     ],
   },
@@ -1542,6 +1549,7 @@ const TZ_SHORT: Record<string, string> = {
 // ─── UserRow ──────────────────────────────────────────────────────────────────
 const UserRow = ({
   user, currentUserId, allowedInviteRoles, orgRoles, shifts, officeLocations, canManageLocation,
+  canEditUsers, canDeleteUsers, canAssignRoles, canManagePermissions,
   isEditingRole, editingRole, onStartEdit, onCancelEdit, onRoleChange, onSaveRoleDone, onDeactivate, onActivate,
 }: {
   user: UserType;
@@ -1551,6 +1559,10 @@ const UserRow = ({
   shifts: { id: string; name: string; startTime: string; timezone: string }[];
   officeLocations: { id: string; name: string }[];
   canManageLocation: boolean;
+  canEditUsers: boolean;
+  canDeleteUsers: boolean;
+  canAssignRoles: boolean;
+  canManagePermissions: boolean;
   isEditingRole: boolean;
   editingRole: string;
   onStartEdit: () => void;
@@ -1564,7 +1576,7 @@ const UserRow = ({
   const updateUser = useUpdateAdminUser(user.id);
   const updateLocation = useUpdateUserLocation();
   const isSelf = user.id === currentUserId;
-  const canChangeRole = !isSelf && allowedInviteRoles.length > 0;
+  const canChangeRole = !isSelf && canAssignRoles && allowedInviteRoles.length > 0;
   const [showPerms, setShowPerms] = useState(false);
   const [editingTz, setEditingTz] = useState(false);
   const [tzValue, setTzValue] = useState(user.timezone || '');
@@ -1707,10 +1719,12 @@ const UserRow = ({
                   </span>
                 )}
               </div>
-              <button onClick={() => setEditingTz(true)}
-                className="p-1 rounded text-gray-300 hover:text-blue-600 hover:bg-blue-50 transition-colors" title="Set shift/timezone">
-                <Edit2 size={11} />
-              </button>
+              {canEditUsers && (
+                <button onClick={() => setEditingTz(true)}
+                  className="p-1 rounded text-gray-300 hover:text-blue-600 hover:bg-blue-50 transition-colors" title="Set shift/timezone">
+                  <Edit2 size={11} />
+                </button>
+              )}
             </div>
           )}
         </td>
@@ -1741,21 +1755,23 @@ const UserRow = ({
         <td className="px-4 py-3"><StatusBadge status={user.status} /></td>
         <td className="px-4 py-3">
           <div className="flex items-center gap-2">
-            {/* Permissions button */}
-            <button
-              onClick={() => setShowPerms(true)}
-              className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors"
-              title="Manage permissions"
-            >
-              <KeyRound size={12} /> {t('admin.users.permissions')}
-            </button>
-            {user.status === 'ACTIVE' && !isSelf && (
+            {/* Permissions button — only for users who can manage permissions */}
+            {canManagePermissions && (
+              <button
+                onClick={() => setShowPerms(true)}
+                className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors"
+                title="Manage permissions"
+              >
+                <KeyRound size={12} /> {t('admin.users.permissions')}
+              </button>
+            )}
+            {canDeleteUsers && user.status === 'ACTIVE' && !isSelf && (
               <button onClick={onDeactivate}
                 className="text-xs text-red-600 hover:underline flex items-center gap-1">
                 <UserX size={12} /> {t('admin.users.deactivate')}
               </button>
             )}
-            {user.status === 'INACTIVE' && (
+            {canDeleteUsers && user.status === 'INACTIVE' && (
               <button onClick={onActivate}
                 className="text-xs text-emerald-600 hover:underline flex items-center gap-1">
                 <UserCheck size={12} /> {t('admin.users.activate')}
@@ -1993,6 +2009,12 @@ const AdminPage = () => {
   const { confirm } = useConfirm();
   const canInvite = hasPermission(currentUser, PERMISSIONS.INVITE_USER);
   const canManageRoles = hasPermission(currentUser, PERMISSIONS.ORG_ROLE_WRITE);
+  const isFullAdmin = hasPermission(currentUser, PERMISSIONS.ADMIN_USERS);
+  const canViewUsers        = isFullAdmin || hasPermission(currentUser, PERMISSIONS.USER_READ);
+  const canEditUsers        = isFullAdmin || hasPermission(currentUser, PERMISSIONS.USER_WRITE);
+  const canDeleteUsers      = isFullAdmin || hasPermission(currentUser, PERMISSIONS.USER_DELETE);
+  const canAssignRoles      = isFullAdmin || hasPermission(currentUser, PERMISSIONS.ROLE_ASSIGN);
+  const canManagePermissions = isFullAdmin || hasPermission(currentUser, PERMISSIONS.PERMISSION_MANAGE);
   const allowedInviteRoles = INVITE_ALLOWED_ROLES[currentUser?.role ?? ''] ?? [];
   const [searchParams] = useSearchParams();
   const initialTab = (searchParams.get('tab') as Tab) ?? 'users';
@@ -2153,6 +2175,10 @@ const AdminPage = () => {
                         shifts={shifts as any}
                         officeLocations={officeLocations}
                         canManageLocation={canManageLocations}
+                        canEditUsers={canEditUsers}
+                        canDeleteUsers={canDeleteUsers}
+                        canAssignRoles={canAssignRoles}
+                        canManagePermissions={canManagePermissions}
                         isEditingRole={editingRoleId === u.id}
                         editingRole={editingRole}
                         onStartEdit={() => startEditRole(u.id, u.role)}

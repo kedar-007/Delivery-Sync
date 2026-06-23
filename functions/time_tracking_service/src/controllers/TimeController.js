@@ -276,6 +276,8 @@ class TimeController {
       user_id:     String(userId),
       entry_date:  entryDate,
       hours:       effectiveHours,
+      start_time:  start_time || '',
+      end_time:    end_time   || '',
       description: description || '',
       is_billable: String(is_billable) === 'true' ? 'true' : 'false',
       status:      TIME_STATUS.DRAFT,
@@ -383,6 +385,8 @@ class TimeController {
     if (description !== undefined) updates.description = description;
     if (is_billable !== undefined) updates.is_billable = is_billable ? 'true' : 'false';
     if (task_id !== undefined)     updates.task_id     = task_id;
+    if (start_time !== undefined)  updates.start_time  = start_time || '';
+    if (end_time !== undefined)    updates.end_time    = end_time   || '';
 
     const updated = await this.db.update(TABLES.TIME_ENTRIES, { ROWID: req.params.entryId, ...updates, status: TIME_STATUS.DRAFT });
     await this.audit.log({ tenantId: req.tenantId, entityType: 'TIME_ENTRY', entityId: req.params.entryId, action: AUDIT_ACTION.UPDATE, oldValue: entry, newValue: updated, performedBy: req.currentUser.id });

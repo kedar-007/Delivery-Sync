@@ -80,12 +80,12 @@ export default function ReportBugWidget({ open: openProp, onOpenChange }: Report
   const prevOpenRef  = useRef(false);
   const { mutateAsync: submitReport } = useSubmitBugReport();
 
-  // Reset form state every time the modal transitions from closed → open
-  // so stale type/severity from a previous session never leaks in.
+  // Only reset submitted/error state on reopen — preserve title/description/type/severity
+  // so data survives an accidental close. Form fields are cleared after a successful submit.
   React.useEffect(() => {
     if (isOpen && !prevOpenRef.current) {
-      setTitle(''); setDescription(''); setReportType('BUG'); setSeverity('MEDIUM');
-      setAttachments([]); setSubmitted(false); setError('');
+      setSubmitted(false);
+      setError('');
     }
     prevOpenRef.current = isOpen;
   }, [isOpen]);
@@ -197,6 +197,9 @@ export default function ReportBugWidget({ open: openProp, onOpenChange }: Report
       try { await bugApi.notify(reportId); } catch (_) {}
 
       setSubmitted(true);
+      // Clear draft after successful submit so next open starts fresh
+      setTitle(''); setDescription(''); setReportType('BUG'); setSeverity('MEDIUM');
+      setAttachments([]);
     } catch (err: any) {
       setError(err?.message || 'Failed to submit. Please try again.');
     } finally {
@@ -232,29 +235,28 @@ export default function ReportBugWidget({ open: openProp, onOpenChange }: Report
         <div
           className="fixed inset-0 z-[99991] flex items-end sm:items-center justify-center p-4"
           style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
-          onClick={(e) => { if (e.target === e.currentTarget) handleClose(); }}
         >
           <div
-            className="w-full max-w-lg bg-white dark:bg-gray-900 rounded-2xl shadow-2xl
+            className="w-full max-w-2xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl
               border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col"
             style={{ maxHeight: '90vh' }}
           >
             {/* Header */}
-            <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 dark:border-gray-800 shrink-0">
-              <div className="w-8 h-8 rounded-lg bg-red-50 dark:bg-red-900/30 flex items-center justify-center">
-                <Bug size={16} className="text-red-500" />
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100 dark:border-gray-800 shrink-0">
+              <div className="w-9 h-9 rounded-xl bg-red-50 dark:bg-red-900/30 flex items-center justify-center shrink-0">
+                <Bug size={17} className="text-red-500" />
               </div>
               <div className="flex-1">
                 <p className="font-bold text-sm text-gray-900 dark:text-white">Report an Issue</p>
                 <p className="text-xs text-gray-500">Help us improve by sharing what you found</p>
               </div>
-              <button onClick={handleClose} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-                <X size={16} className="text-gray-500" />
+              <button onClick={handleClose} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors">
+                <X size={16} className="text-red-400 hover:text-red-600" />
               </button>
             </div>
 
             {/* Body */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
               {submitted ? (
                 /* Success state */
                 <div className="flex flex-col items-center justify-center py-10 gap-4 text-center">
@@ -274,43 +276,43 @@ export default function ReportBugWidget({ open: openProp, onOpenChange }: Report
                 </div>
               ) : (
                 <>
-                  {/* Report type */}
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">
-                      Type
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {TYPE_OPTIONS.map((t) => (
-                        <button
-                          key={t.value}
-                          onClick={() => setReportType(t.value)}
-                          className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-semibold transition-all ${
-                            reportType === t.value ? t.color : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300'
-                          }`}
-                        >
-                          {t.icon} {t.label}
-                        </button>
-                      ))}
+                  {/* Type + Severity side-by-side */}
+                  <div className="grid grid-cols-2 gap-5">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">
+                        Type
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {TYPE_OPTIONS.map((t) => (
+                          <button
+                            key={t.value}
+                            onClick={() => setReportType(t.value)}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-semibold transition-all ${
+                              reportType === t.value ? t.color : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300'
+                            }`}
+                          >
+                            {t.icon} {t.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-
-                  {/* Priority — shown for all report types */}
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">
-                      {reportType === 'BUG' || reportType === 'ISSUE' ? 'Severity' : 'Priority'}
-                    </label>
-                    <div className="flex gap-2 flex-wrap">
-                      {SEVERITY_OPTIONS.map((s) => (
-                        <button
-                          key={s.value}
-                          onClick={() => setSeverity(s.value)}
-                          className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-                            severity === s.value ? s.color : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300'
-                          }`}
-                        >
-                          {s.label}
-                        </button>
-                      ))}
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">
+                        {reportType === 'BUG' || reportType === 'ISSUE' ? 'Severity' : 'Priority'}
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {SEVERITY_OPTIONS.map((s) => (
+                          <button
+                            key={s.value}
+                            onClick={() => setSeverity(s.value)}
+                            className={`px-3 py-2 rounded-lg border text-xs font-semibold transition-all text-center ${
+                              severity === s.value ? s.color : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-300'
+                            }`}
+                          >
+                            {s.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
 
@@ -432,7 +434,7 @@ export default function ReportBugWidget({ open: openProp, onOpenChange }: Report
 
             {/* Footer */}
             {!submitted && (
-              <div className="px-5 py-4 border-t border-gray-100 dark:border-gray-800 shrink-0 flex items-center justify-between gap-3">
+              <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-800 shrink-0 flex items-center justify-between gap-3">
                 <p className="text-[11px] text-gray-400">
                   Page: <span className="font-mono">{window.location.pathname}</span>
                 </p>

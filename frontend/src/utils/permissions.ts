@@ -117,6 +117,14 @@ export const PERMISSIONS = {
   DOC_DELETE: 'DOC_DELETE', // delete own docs/folders
   DOC_SHARE:  'DOC_SHARE',  // create / revoke public share links
   DOC_ADMIN:  'DOC_ADMIN',  // manage all project docs
+  // ── Granular user management (sub-permissions of ADMIN_USERS) ────────────
+  // Granting any of these without ADMIN_USERS allows scoped delegation.
+  // ADMIN_USERS always implies all five.
+  USER_READ:         'USER_READ',         // view the user list in admin panel
+  USER_WRITE:        'USER_WRITE',        // edit user profiles (name, timezone, shift, location)
+  USER_DELETE:       'USER_DELETE',       // deactivate / reactivate user accounts
+  ROLE_ASSIGN:       'ROLE_ASSIGN',       // change a user's system role
+  PERMISSION_MANAGE: 'PERMISSION_MANAGE', // grant or revoke individual permissions for other users
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

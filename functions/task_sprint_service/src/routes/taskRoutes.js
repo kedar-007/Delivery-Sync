@@ -18,12 +18,12 @@ router.get('/:taskId',                          RBACMiddleware.require(PERMISSIO
 router.put('/:taskId',                          RBACMiddleware.require(PERMISSIONS.TASK_WRITE),        (req, res) => ctrl(req).update(req, res));
 router.delete('/:taskId',                       RBACMiddleware.require(PERMISSIONS.TASK_WRITE),        (req, res) => ctrl(req).remove(req, res));
 router.patch('/:taskId/status',                 RBACMiddleware.require(PERMISSIONS.TASK_WRITE),        (req, res) => ctrl(req).updateStatus(req, res));
-router.patch('/:taskId/assign',                 RBACMiddleware.require(PERMISSIONS.TASK_WRITE),        (req, res) => ctrl(req).assign(req, res));
+router.patch('/:taskId/assign',                 RBACMiddleware.requireAny(PERMISSIONS.TASK_WRITE, PERMISSIONS.TASK_ASSIGN), (req, res) => ctrl(req).assign(req, res));
 router.patch('/:taskId/move-sprint',            RBACMiddleware.require(PERMISSIONS.TASK_WRITE),        (req, res) => ctrl(req).moveSprint(req, res));
 router.get('/:taskId/history',                  RBACMiddleware.require(PERMISSIONS.TASK_READ),         (req, res) => ctrl(req).getHistory(req, res));
 router.get('/:taskId/comments',                 RBACMiddleware.require(PERMISSIONS.TASK_READ),         (req, res) => ctrl(req).getComments(req, res));
 router.post('/:taskId/comments',                RBACMiddleware.require(PERMISSIONS.TASK_COMMENT_WRITE),(req, res) => ctrl(req).addComment(req, res));
-router.delete('/:taskId/comments/:cid',         RBACMiddleware.require(PERMISSIONS.TASK_COMMENT_WRITE),(req, res) => ctrl(req).deleteComment(req, res));
+router.delete('/:taskId/comments/:cid',         RBACMiddleware.requireAny(PERMISSIONS.TASK_COMMENT_WRITE, PERMISSIONS.TASK_COMMENT_DELETE),(req, res) => ctrl(req).deleteComment(req, res));
 
 // Attachments
 const att = (req) => new AttachmentController(req.catalystApp);

@@ -16,6 +16,7 @@ interface ModalProps {
    * would lose the user's work.
    */
   closeOnBackdropClick?: boolean;
+  closeButtonVariant?: 'default' | 'danger';
 }
 
 const sizeMap = {
@@ -27,7 +28,7 @@ const sizeMap = {
   '3xl': 'max-w-5xl',
 };
 
-const Modal = ({ open, onClose, title, children, size = 'md', closeOnBackdropClick = true }: ModalProps) => (
+const Modal = ({ open, onClose, title, children, size = 'md', closeOnBackdropClick = true, closeButtonVariant = 'default' }: ModalProps) => (
   <Transition show={open}>
     <Dialog onClose={closeOnBackdropClick ? onClose : () => { /* dismiss disabled — use X button or explicit Cancel */ }} className="relative z-50">
       {/* Backdrop */}
@@ -54,7 +55,15 @@ const Modal = ({ open, onClose, title, children, size = 'md', closeOnBackdropCli
               {title && (
                 <div className="flex items-center justify-between mb-5">
                   <DialogTitle className="text-base font-semibold text-ds-text">{title}</DialogTitle>
-                  <button onClick={onClose} className="text-ds-text-muted hover:text-ds-text p-1 rounded-lg hover:bg-ds-surface-hover">
+                  <button
+                    onClick={onClose}
+                    className={clsx(
+                      'p-1.5 rounded-lg transition-colors',
+                      closeButtonVariant === 'danger'
+                        ? 'text-red-400 hover:text-red-600 hover:bg-red-50'
+                        : 'text-ds-text-muted hover:text-ds-text hover:bg-ds-surface-hover'
+                    )}
+                  >
                     <X size={18} />
                   </button>
                 </div>

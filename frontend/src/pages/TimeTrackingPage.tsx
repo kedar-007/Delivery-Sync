@@ -1,8 +1,9 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Clock, Plus, Edit2, Trash2, Send, RotateCcw, CheckCircle2,
   XCircle, DollarSign, CalendarDays, TrendingUp, Users, AlertCircle, Loader2, X, Hash,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -34,6 +35,9 @@ import {
 import { useProjects } from '../hooks/useProjects';
 import { useTasks } from '../hooks/useTaskSprint';
 import { useTeamPeers } from '../hooks/useTeams';
+import { timeEntriesApi } from '../lib/api';
+import { useToast } from '../components/ui/Toast';
+import { WeeklyTimesheetTab } from './WeeklyTimesheetTab';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -56,6 +60,7 @@ interface TimeEntry {
   submittedBy?: string;
   submittedByName?: string;
   submittedAt?: string;
+  createdAt?: string;
   userName?: string;
   userAvatarUrl?: string;
 }
@@ -162,7 +167,12 @@ const fmtH = (h: number | string): string => {
 
 const safeFormat = (dateStr: string, fmt: string) => {
   try {
-    const d = parseISO(dateStr);
+    // Catalyst CREATEDTIME/MODIFIEDTIME: "2026-06-23 11:51:15:839"
+    // Normalise to ISO by replacing the space with T and the last colon (before ms) with a dot
+    const normalised = dateStr
+      .replace(' ', 'T')
+      .replace(/(\d{2}):(\d{3})$/, '$1.$2');
+    const d = parseISO(normalised);
     return isValid(d) ? format(d, fmt) : dateStr;
   } catch {
     return dateStr;
@@ -184,7 +194,12 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
   const createEntry = useCreateTimeEntry();
   const updateEntry = useUpdateTimeEntry();
 
-  const { register, handleSubmit, reset, control, setValue, watch: watchForm, formState: { isSubmitting, errors } } = useForm<TimeEntryFormData>({
+  // Persists new-entry draft values across close/reopen cycles so the user
+  // never loses partially-entered data when they accidentally dismiss the modal.
+  const draftRef = React.useRef<TimeEntryFormData | null>(null);
+  const prevOpenRef = React.useRef(false);
+
+  const { register, handleSubmit, reset, control, setValue, watch: watchForm, getValues, formState: { isSubmitting, errors } } = useForm<TimeEntryFormData>({
     defaultValues: {
       project_id: entry?.projectId ?? '',
       task_id: entry?.taskId ?? '',
@@ -198,7 +213,6 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
     },
   });
 
-  // Watch the selected project so we can load tasks for it
   const watchedProjectId = useWatch({ control, name: 'project_id' });
   const watchedStart = watchForm('start_time');
   const watchedEnd = watchForm('end_time');
@@ -216,32 +230,53 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
     }
   }, [watchedStart, watchedEnd, setValue]);
 
-  // Load tasks only when a project is selected — avoid fetching all tasks otherwise
   const { data: tasksRaw = [], isFetching: tasksFetching } = useTasks(
     watchedProjectId ? { project_id: watchedProjectId } : undefined,
     !!watchedProjectId,
   );
   const tasks = (tasksRaw as Array<{ id: string; title: string; require_approval?: string | boolean }>).filter(Boolean);
-  // While the request is in flight we want a loading state in the dropdown —
-  // otherwise an empty `tasks` array briefly looks like "no tasks exist".
   const tasksLoading = !!watchedProjectId && tasksFetching;
 
   React.useEffect(() => {
-    if (open) {
-      reset({
-        project_id: entry?.projectId ?? '',
-        task_id: entry?.taskId ?? '',
-        description: entry?.description ?? '',
-        date: entry?.date ?? todayStr(),
-        hours: entry?.hours ? decimalToHHMM(Number(entry.hours)) : '1:00',
-        start_time: entry?.startTime ?? '',
-        end_time: entry?.endTime ?? '',
-        is_billable: entry?.isBillable ?? true,
-        notes: entry?.notes ?? '',
-      });
+    const justOpened  = open && !prevOpenRef.current;
+    const justClosed  = !open && prevOpenRef.current;
+
+    if (justOpened) {
+      if (entry) {
+        // Editing an existing entry — always load that entry's data
+        reset({
+          project_id:  entry.projectId ?? '',
+          task_id:     entry.taskId ?? '',
+          description: entry.description ?? '',
+          date:        entry.date ?? todayStr(),
+          hours:       entry.hours ? decimalToHHMM(Number(entry.hours)) : '1:00',
+          start_time:  entry.startTime ?? '',
+          end_time:    entry.endTime ?? '',
+          is_billable: entry.isBillable ?? true,
+          notes:       entry.notes ?? '',
+        });
+        draftRef.current = null;
+      } else if (draftRef.current) {
+        // New entry and we have a saved draft — restore it
+        reset(draftRef.current);
+      } else {
+        reset({
+          project_id: '', task_id: '', description: '',
+          date: todayStr(), hours: '1:00',
+          start_time: '', end_time: '',
+          is_billable: true, notes: '',
+        });
+      }
       setError('');
     }
-  }, [open, entry, reset]);
+
+    if (justClosed && !entry) {
+      // Save whatever the user typed so it's there when they reopen
+      draftRef.current = getValues();
+    }
+
+    prevOpenRef.current = open;
+  }, [open, entry, reset, getValues]);
 
   const onSubmit = async (data: TimeEntryFormData) => {
     try {
@@ -258,7 +293,7 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
       const requireApproval = selectedTask?.require_approval === 'true' || selectedTask?.require_approval === true;
       const payload = {
         ...data,
-        hours: parseHoursInput(data.hours),   // convert "1:30" → 1.5 for backend
+        hours: parseHoursInput(data.hours),
         task_id: data.task_id || undefined,
         require_approval: requireApproval ? 'true' : 'false',
       };
@@ -266,6 +301,7 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
         await updateEntry.mutateAsync({ id: entry.id, data: payload });
       } else {
         await createEntry.mutateAsync(payload);
+        draftRef.current = null; // clear draft on successful submit
       }
       onClose();
     } catch (err: unknown) {
@@ -273,50 +309,72 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
     }
   };
 
-  return (
-    <Modal open={open} onClose={onClose} title={entry ? 'Edit Time Entry' : t('timeTracking.logTime')} size="md">
-      <form onSubmit={handleSubmit(onSubmit as any)} className="space-y-4">
-        {error && <Alert type="error" message={error} />}
-
-        {/* Project selector */}
-        <div>
-          <label className="form-label">{t('timeTracking.form.project')} *</label>
-          <select className="form-select" {...register('project_id', { required: 'Project is required' })}>
-            <option value="">Select project…</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-          {errors.project_id && <p className="text-xs text-red-600 mt-1">{errors.project_id.message}</p>}
+  // Duration banner helper
+  const durationBanner = (() => {
+    if (!watchedStart || !watchedEnd) return null;
+    const [sh, sm] = watchedStart.split(':').map(Number);
+    const [eh, em] = watchedEnd.split(':').map(Number);
+    const diff = (eh * 60 + em) - (sh * 60 + sm);
+    if (diff <= 0) return (
+      <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-lg">
+        <AlertCircle size={14} className="text-red-500 shrink-0" />
+        <span className="text-sm text-red-700 font-medium">End time must be after start time</span>
+      </div>
+    );
+    const hh = Math.floor(diff / 60);
+    const mm = diff % 60;
+    const readable = hh > 0 && mm > 0 ? `${hh}h ${mm}m` : hh > 0 ? `${hh}h` : `${mm}m`;
+    return (
+      <div className="flex items-center justify-between px-4 py-2.5 bg-indigo-50 border border-indigo-200 rounded-lg">
+        <div className="flex items-center gap-2">
+          <Clock size={14} className="text-indigo-500 shrink-0" />
+          <span className="text-sm text-indigo-800 font-medium">Duration: <strong>{readable}</strong></span>
         </div>
+        <span className="text-xs text-indigo-500 bg-indigo-100 px-2 py-0.5 rounded-full font-medium">
+          {decimalToHHMM(Math.round((diff / 60) * 100) / 100)} hrs auto-filled
+        </span>
+      </div>
+    );
+  })();
 
-        {/* Task selector — only shown once a project is chosen.
-            Required: every time entry must be tied to a task so admins can
-            see where each hour actually went.
-            While the task list is being fetched we render a skeleton-style
-            placeholder that matches the select's footprint, so the user
-            doesn't see a misleading "no tasks" hint during the request. */}
-        {watchedProjectId && (
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={entry ? 'Edit Time Entry' : t('timeTracking.logTime')}
+      size="xl"
+      closeOnBackdropClick={false}
+      closeButtonVariant="danger"
+    >
+      <form onSubmit={handleSubmit(onSubmit as any)}>
+        {error && <div className="mb-5"><Alert type="error" message={error} /></div>}
+
+        {/* ── Section 1: Project & Task ── */}
+        <div className="grid grid-cols-2 gap-4 mb-5">
+          <div>
+            <label className="form-label">{t('timeTracking.form.project')} *</label>
+            <select className="form-select" {...register('project_id', { required: 'Project is required' })}>
+              <option value="">Select project…</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            {errors.project_id && <p className="text-xs text-red-600 mt-1">{errors.project_id.message}</p>}
+          </div>
+
           <div>
             <label className="form-label">{t('timeTracking.form.task')} *</label>
-            {tasksLoading ? (
-              // Skeleton: matches the select's footprint so layout doesn't
-              // shift when the real dropdown takes over. Soft indigo tint +
-              // pulsing skeleton bar makes it read as "loading", not "broken".
-              <div
-                className="form-select flex items-center gap-2.5 bg-indigo-50/60 border-indigo-100 text-indigo-700 cursor-wait select-none"
-                aria-busy="true"
-                aria-live="polite"
-              >
-                <Loader2 size={15} className="text-indigo-500 animate-spin shrink-0" />
-                <span className="text-sm font-medium">Loading tasks…</span>
-                <span className="ml-auto h-2.5 w-24 rounded-full bg-indigo-200/70 animate-pulse" />
+            {!watchedProjectId ? (
+              <div className="form-select text-gray-400 text-sm select-none cursor-not-allowed bg-gray-50">
+                Select a project first…
+              </div>
+            ) : tasksLoading ? (
+              <div className="form-select flex items-center gap-2.5 bg-indigo-50/60 border-indigo-100 text-indigo-700 cursor-wait select-none" aria-busy="true">
+                <Loader2 size={14} className="text-indigo-500 animate-spin shrink-0" />
+                <span className="text-sm">Loading tasks…</span>
               </div>
             ) : (
-              <select
-                className="form-select"
-                {...register('task_id', { required: 'Task is required' })}
-              >
+              <select className="form-select" {...register('task_id', { required: 'Task is required' })}>
                 <option value="">Select task…</option>
                 {tasks.map((t) => (
                   <option key={t.id} value={t.id}>{t.title}</option>
@@ -324,19 +382,15 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
               </select>
             )}
             {errors.task_id && <p className="text-xs text-red-600 mt-1">{(errors.task_id as any).message}</p>}
-            {/* Only show the "no tasks" hint after the fetch settles —
-                otherwise it flashes during the initial load. */}
-            {!tasksLoading && tasks.length === 0 && (
-              <p className="text-xs text-amber-600 mt-1">
-                This project has no tasks yet. Ask your project lead to add tasks before logging time.
-              </p>
+            {!tasksLoading && watchedProjectId && tasks.length === 0 && (
+              <p className="text-xs text-amber-600 mt-1">No tasks yet — ask your project lead to add some.</p>
             )}
           </div>
-        )}
+        </div>
 
-        {/* Description */}
-        <div>
-          <label className="form-label">{t('timeTracking.form.description')} / What did you work on? *</label>
+        {/* ── Section 2: Description ── */}
+        <div className="mb-5">
+          <label className="form-label">{t('timeTracking.form.description')} *</label>
           <input
             className="form-input"
             placeholder="What did you work on?"
@@ -345,99 +399,79 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
           {errors.description && <p className="text-xs text-red-600 mt-1">{errors.description.message}</p>}
         </div>
 
-        {/* Start / End Time — set these first; they auto-fill the Hours field */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="form-label">Start Time <span className="text-gray-400 font-normal">(optional)</span></label>
-            <input type="time" className="form-input" {...register('start_time')} />
+        {/* ── Section 3: Time & Date grid ── */}
+        <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 mb-5 space-y-4">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Time Details</p>
+
+          <div className="grid grid-cols-4 gap-4">
+            <div>
+              <label className="form-label">Start Time <span className="text-gray-400 font-normal text-[11px]">(opt)</span></label>
+              <input type="time" className="form-input" {...register('start_time')} />
+            </div>
+            <div>
+              <label className="form-label">End Time <span className="text-gray-400 font-normal text-[11px]">(opt)</span></label>
+              <input type="time" className="form-input" {...register('end_time')} />
+            </div>
+            <div>
+              <label className="form-label">{t('timeTracking.form.date')} *</label>
+              <input type="date" className="form-input" {...register('date', { required: 'Date is required' })} />
+            </div>
+            <div>
+              <label className="form-label">
+                {t('timeTracking.form.hours')} *
+                {watchedStart && watchedEnd && (
+                  <span className="ml-1.5 text-[9px] font-bold text-indigo-600 bg-indigo-100 px-1.5 py-0.5 rounded uppercase tracking-wide">auto</span>
+                )}
+              </label>
+              <input
+                type="text"
+                inputMode="text"
+                placeholder="1:30"
+                className={`form-input font-mono ${watchedStart && watchedEnd ? 'bg-indigo-50 border-indigo-300 text-indigo-800 font-semibold' : ''}`}
+                {...register('hours', {
+                  required: 'Hours is required',
+                  validate: (v) => {
+                    const parsed = parseHoursInput(String(v));
+                    if (!parsed || parsed <= 0) return 'Enter H:MM or decimal (e.g. 1:30 or 1.5)';
+                    if (parsed > 24) return 'Max 24h';
+                    return true;
+                  },
+                })}
+              />
+              {errors.hours && <p className="text-xs text-red-600 mt-1">{errors.hours.message}</p>}
+            </div>
           </div>
-          <div>
-            <label className="form-label">End Time <span className="text-gray-400 font-normal">(optional)</span></label>
-            <input type="time" className="form-input" {...register('end_time')} />
-          </div>
+
+          {durationBanner}
         </div>
 
-        {/* Prominent duration banner — appears as soon as both times are set */}
-        {watchedStart && watchedEnd && (() => {
-          const [sh, sm] = watchedStart.split(':').map(Number);
-          const [eh, em] = watchedEnd.split(':').map(Number);
-          const diff = (eh * 60 + em) - (sh * 60 + sm);
-          if (diff <= 0) return (
-            <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg -mt-1">
-              <AlertCircle size={13} className="text-red-500 shrink-0" />
-              <span className="text-sm text-red-700">End time must be after start time</span>
-            </div>
-          );
-          const hh = Math.floor(diff / 60);
-          const mm = diff % 60;
-          const readable = hh > 0 && mm > 0 ? `${hh}h ${mm}m` : hh > 0 ? `${hh}h` : `${mm} min`;
-          const decimal  = Math.round((diff / 60) * 100) / 100;
-          return (
-            <div className="flex items-center gap-2.5 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg -mt-1">
-              <Clock size={13} className="text-blue-500 shrink-0" />
-              <span className="text-sm text-blue-800">
-                Duration: <strong>{readable}</strong>
-                <span className="text-blue-400 ml-1.5 text-xs">→ Hours auto-filled as <strong className="text-blue-600">{decimalToHHMM(decimal)}</strong></span>
-              </span>
-            </div>
-          );
-        })()}
-
-        <div className="grid grid-cols-2 gap-4">
+        {/* ── Section 4: Billable + Notes ── */}
+        <div className="grid grid-cols-2 gap-4 mb-2">
           <div>
-            <label className="form-label">{t('timeTracking.form.date')} *</label>
-            <input
-              type="date"
-              className="form-input"
-              {...register('date', { required: 'Date is required' })}
+            <label className="form-label">{t('common.notes')} <span className="text-gray-400 font-normal">(optional)</span></label>
+            <textarea
+              className="form-textarea"
+              rows={3}
+              placeholder="Additional context…"
+              {...register('notes')}
             />
           </div>
-          <div>
-            <label className="form-label">
-              {t('timeTracking.form.hours')} *
-              {watchedStart && watchedEnd && (
-                <span className="ml-1.5 text-[10px] font-bold text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded uppercase tracking-wide">auto</span>
-              )}
+          <div className="flex flex-col justify-start pt-6">
+            <label className="flex items-start gap-3 cursor-pointer group">
+              <input
+                id="is_billable"
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                {...register('is_billable')}
+              />
+              <div>
+                <span className="text-sm font-medium text-gray-700 group-hover:text-gray-900">
+                  {t('timeTracking.billable')} hours
+                </span>
+                <p className="text-xs text-gray-400 mt-0.5">Mark this entry as billable to the client</p>
+              </div>
             </label>
-            <input
-              type="text"
-              inputMode="text"
-              placeholder="1:30"
-              className={`form-input font-mono ${watchedStart && watchedEnd ? 'bg-blue-50 border-blue-300 text-blue-800 font-medium' : ''}`}
-              {...register('hours', {
-                required: 'Hours is required',
-                validate: (v) => {
-                  const parsed = parseHoursInput(String(v));
-                  if (!parsed || parsed <= 0) return 'Enter time as H:MM (e.g. 1:30) or decimal (e.g. 1.5)';
-                  if (parsed > 24) return 'Max 24h';
-                  return true;
-                },
-              })}
-            />
-            {errors.hours && <p className="text-xs text-red-600 mt-1">{errors.hours.message}</p>}
           </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <input
-            id="is_billable"
-            type="checkbox"
-            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            {...register('is_billable')}
-          />
-          <label htmlFor="is_billable" className="text-sm text-gray-700 font-medium cursor-pointer">
-            {t('timeTracking.billable')} hours
-          </label>
-        </div>
-
-        <div>
-          <label className="form-label">{t('common.notes')} <span className="text-gray-400 font-normal">(optional)</span></label>
-          <textarea
-            className="form-textarea"
-            rows={3}
-            placeholder="Additional context…"
-            {...register('notes')}
-          />
         </div>
 
         <ModalActions>
@@ -517,6 +551,10 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
   const { t } = useI18n();
   const { confirm: openConfirm } = useConfirm();
   const { user } = useAuth();
+
+  // View mode: 'list' = paginated table, 'weekly' = spreadsheet grid
+  const [viewMode, setViewMode] = useState<'list' | 'weekly'>('list');
+
   // Build id→name map for instant project name lookup
   const projectMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -675,8 +713,61 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
     { key: 'all',       label: 'All Time' },
   ];
 
+  // When weekly view is active, hand off entirely to the weekly grid
+  if (viewMode === 'weekly') {
+    return (
+      <div className="space-y-4">
+        {/* View toggle */}
+        <div className="flex items-center justify-between">
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+            <button
+              onClick={() => setViewMode('list')}
+              className="px-4 py-1.5 text-sm font-medium rounded-md transition-colors text-gray-500 hover:text-gray-700"
+            >
+              List View
+            </button>
+            <button
+              className="px-4 py-1.5 text-sm font-medium rounded-md transition-colors bg-white shadow text-gray-900"
+            >
+              Weekly View
+            </button>
+          </div>
+          <Button size="sm" icon={<Plus size={14} />} onClick={() => { setEditEntry(null); setModalOpen(true); }}>
+            {t('timeTracking.logTime')}
+          </Button>
+        </div>
+
+        <WeeklyTimesheetTab />
+
+        <LogTimeModal
+          open={modalOpen}
+          onClose={() => { setModalOpen(false); setEditEntry(null); }}
+          entry={editEntry}
+          projects={projects}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
+      {/* View toggle */}
+      <div className="flex items-center justify-between">
+        <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+          <button
+            className="px-4 py-1.5 text-sm font-medium rounded-md transition-colors bg-white shadow text-gray-900"
+          >
+            List View
+          </button>
+          <button
+            onClick={() => setViewMode('weekly')}
+            className="px-4 py-1.5 text-sm font-medium rounded-md transition-colors text-gray-500 hover:text-gray-700"
+          >
+            Weekly View
+          </button>
+        </div>
+      </div>
+
       {/* Date / Status Filters */}
       <Card>
         {/* Quick date presets + Clear filters. Active preset is highlighted;
@@ -838,7 +929,7 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
                       its own column so the description shows only the task
                       content (was visually mixing user identity with task
                       details). */}
-                  {[t('timeTracking.form.date'), 'User', t('timeTracking.form.project'), t('timeTracking.form.task'), 'Time', t('timeTracking.form.hours'), t('timeTracking.billable'), t('common.status'), t('common.actions')].map((h) => (
+                  {[t('timeTracking.form.date'), 'User', t('timeTracking.form.project'), t('timeTracking.form.task'), 'Start Time', 'End Time', t('timeTracking.form.hours'), t('timeTracking.billable'), t('common.status'), 'Created', t('common.actions')].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
                       {h}
                     </th>
@@ -883,9 +974,10 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
                       )}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
-                      {entry.startTime && entry.endTime
-                        ? `${entry.startTime.slice(0, 5)} – ${entry.endTime.slice(0, 5)}`
-                        : '—'}
+                      {entry.startTime ? entry.startTime.slice(0, 5) : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
+                      {entry.endTime ? entry.endTime.slice(0, 5) : <span className="text-gray-300">—</span>}
                     </td>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
                       {fmtH(entry.hours)}
@@ -900,6 +992,16 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
                       <Badge variant={statusVariant(entry.status)}>
                         {statusLabel(entry.status)}
                       </Badge>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {entry.createdAt ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-xs text-gray-700">{safeFormat(entry.createdAt, 'MMM d, yyyy')}</span>
+                          <span className="text-xs text-gray-400">{safeFormat(entry.createdAt, 'h:mm a')}</span>
+                        </div>
+                      ) : (
+                        <span className="text-gray-300 text-xs">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
@@ -2015,6 +2117,8 @@ const TeamTimeLogTab = () => {
     </div>
   );
 };
+
+
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
