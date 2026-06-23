@@ -189,6 +189,57 @@ final _pendingApprovalsProvider = FutureProvider.autoDispose<List<dynamic>>((ref
   return [];
 });
 
+/// Loads all tasks for a project from its most-recent active sprint.
+/// Falls back to the newest sprint when none is active.
+final _projectTasksProvider =
+    FutureProvider.autoDispose.family<List<SprintTask>, String>((ref, projectId) async {
+  if (projectId.isEmpty) return [];
+
+  // 1. Fetch sprints for the project
+  final raw = await ApiClient.instance.get<Map<String, dynamic>>(
+    '${AppConstants.baseSprints}/sprints',
+    queryParameters: {'project_id': projectId},
+    fromJson: (r) => r as Map<String, dynamic>,
+  );
+  final d = raw['data'];
+  final sprintList = (d is List
+      ? d
+      : (d is Map ? (d['sprints'] as List? ?? d['data'] as List? ?? []) : []))
+      .whereType<Map<String, dynamic>>().toList();
+
+  if (sprintList.isEmpty) return [];
+
+  // Prefer ACTIVE sprint; fall back to first
+  final sprint = sprintList.firstWhere(
+    (s) => (s['status'] as String? ?? '').toUpperCase() == 'ACTIVE',
+    orElse: () => sprintList.first,
+  );
+  final sprintId = (sprint['ROWID'] ?? sprint['id'])?.toString() ?? '';
+  if (sprintId.isEmpty) return [];
+
+  // 2. Fetch sprint board and flatten tasks from all status columns
+  final board = await ApiClient.instance.get<Map<String, dynamic>>(
+    '${AppConstants.baseSprints}/sprints/$sprintId/board',
+    fromJson: (r) => r as Map<String, dynamic>,
+  );
+  final bd = board['data'];
+  final boardMap = (bd is Map && bd.containsKey('board'))
+      ? bd['board'] as Map?
+      : (bd is Map ? bd : null);
+  if (boardMap == null) return [];
+
+  final tasks = <SprintTask>[];
+  for (final col in boardMap.values) {
+    if (col is List) {
+      tasks.addAll(
+        col.whereType<Map<String, dynamic>>()
+           .map((t) => SprintTask.fromJson(t)),
+      );
+    }
+  }
+  return tasks;
+});
+
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 class TimeTrackingScreen extends ConsumerStatefulWidget {
@@ -206,7 +257,7 @@ class _TimeTrackingScreenState extends ConsumerState<TimeTrackingScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -218,7 +269,7 @@ class _TimeTrackingScreenState extends ConsumerState<TimeTrackingScreen>
     if (mgr != _isManager) {
       _isManager = mgr;
       _tabController.dispose();
-      _tabController = TabController(length: mgr ? 3 : 2, vsync: this);
+      _tabController = TabController(length: mgr ? 4 : 3, vsync: this);
     }
   }
 
@@ -238,8 +289,11 @@ class _TimeTrackingScreenState extends ConsumerState<TimeTrackingScreen>
         backgroundColor: ds.bgPage,
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
           tabs: [
             const Tab(icon: Icon(Icons.list_rounded, size: 18), text: 'My Entries'),
+            const Tab(icon: Icon(Icons.grid_view_rounded, size: 18), text: 'Weekly Log'),
             const Tab(icon: Icon(Icons.bar_chart_rounded, size: 18), text: 'Analytics'),
             if (_isManager)
               const Tab(icon: Icon(Icons.approval_rounded, size: 18), text: 'Approvals'),
@@ -250,6 +304,7 @@ class _TimeTrackingScreenState extends ConsumerState<TimeTrackingScreen>
         controller: _tabController,
         children: [
           _EntriesTab(onRefresh: () => ref.invalidate(_myWeekSummaryProvider)),
+          const _WeeklyLogTab(),
           const _AnalyticsTab(),
           if (_isManager) _ApprovalsTab(),
         ],
@@ -273,6 +328,7 @@ class _TimeTrackingScreenState extends ConsumerState<TimeTrackingScreen>
           ref.invalidate(_myWeekSummaryProvider);
           ref.invalidate(_entriesRangeProvider);
           ref.invalidate(_myEntriesProvider);
+          ref.invalidate(_weeklyGridProvider);
         },
       ),
     );
@@ -894,6 +950,1499 @@ class _PageNumber extends StatelessWidget {
             fontWeight: active ? FontWeight.w700 : FontWeight.w500,
             color: active ? Colors.white : ds.textPrimary,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Weekly log helpers ────────────────────────────────────────────────────────
+
+/// Format hours: 8.0 → '8h', 8.5 → '8h 30m', 0.75 → '45m'.
+String _fmtHrs(double h) {
+  if (h <= 0) return '0h';
+  final hours   = h.floor();
+  final minutes = ((h - hours) * 60).round();
+  if (minutes == 0) return '${hours}h';
+  if (hours == 0) return '${minutes}m';
+  return '${hours}h ${minutes}m';
+}
+
+/// Fetches all entries for a date range scoped to the current user.
+final _weeklyGridProvider = FutureProvider.autoDispose
+    .family<List<Map<String, dynamic>>, ({String from, String to, String? userId})>(
+  (ref, p) async {
+    final qp = <String, String>{'date_from': p.from, 'date_to': p.to};
+    if (p.userId?.isNotEmpty == true) qp['user_id'] = p.userId!;
+    final raw = await ApiClient.instance.get<Map<String, dynamic>>(
+      '${AppConstants.baseTime}/entries',
+      queryParameters: qp,
+      fromJson: (r) => r as Map<String, dynamic>,
+    );
+    final d = raw['data'];
+    final list = d is List
+        ? d
+        : (d is Map ? (d['entries'] as List? ?? d['data'] as List? ?? []) : []);
+    return list.whereType<Map<String, dynamic>>().map(_normaliseEntry).toList();
+  },
+);
+
+/// A project-level row in the weekly grid — aggregates entries by project.
+class _WeekRow {
+  _WeekRow({
+    required this.projectId,
+    required this.projectName,
+    required this.billable,
+    required this.hoursByDate,
+    required this.rawEntries,
+  });
+  final String? projectId;
+  final String projectName;
+  bool billable;
+  final Map<String, double> hoursByDate;
+  final List<Map<String, dynamic>> rawEntries;
+  double get totalHours => hoursByDate.values.fold(0.0, (s, v) => s + v);
+}
+
+// ── Weekly log tab ────────────────────────────────────────────────────────────
+
+class _WeeklyLogTab extends ConsumerStatefulWidget {
+  const _WeeklyLogTab();
+  @override
+  ConsumerState<_WeeklyLogTab> createState() => _WeeklyLogTabState();
+}
+
+class _WeeklyLogTabState extends ConsumerState<_WeeklyLogTab> {
+  late DateTime _weekStart;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _weekStart = DateTime(now.year, now.month, now.day)
+        .subtract(Duration(days: now.weekday - 1));
+  }
+
+  DateTime get _weekEnd => _weekStart.add(const Duration(days: 6));
+  String get _from => DateFormat('yyyy-MM-dd').format(_weekStart);
+  String get _to   => DateFormat('yyyy-MM-dd').format(_weekEnd);
+
+  int get _weekNumber {
+    final d    = _weekStart;
+    final jan4 = DateTime(d.year, 1, 4);
+    final ws1  = jan4.subtract(Duration(days: jan4.weekday - 1));
+    return (d.difference(ws1).inDays / 7).floor() + 1;
+  }
+
+  bool get _canGoNext {
+    final next      = _weekStart.add(const Duration(days: 7));
+    final todayDate = DateTime.now();
+    final today     = DateTime(todayDate.year, todayDate.month, todayDate.day);
+    return next.isBefore(today) || next == today;
+  }
+
+  void _prevWeek() =>
+      setState(() => _weekStart = _weekStart.subtract(const Duration(days: 7)));
+
+  void _nextWeek() {
+    if (_canGoNext) setState(() => _weekStart = _weekStart.add(const Duration(days: 7)));
+  }
+
+  List<_WeekRow> _buildRows(List<Map<String, dynamic>> entries) {
+    final Map<String, _WeekRow> map = {};
+    for (final e in entries) {
+      final pid  = e['projectId'] as String? ?? '';
+      final rawN = e['projectName'] as String? ?? '';
+      final name = rawN.isNotEmpty ? rawN : (pid.isNotEmpty ? pid : 'No Project');
+      final key  = pid.isNotEmpty ? pid : '__none__';
+      final date = e['date'] as String? ?? '';
+      final hrs  = (e['hours'] as num? ?? 0).toDouble();
+      final bill = e['isBillable'] as bool? ?? false;
+
+      map.putIfAbsent(
+        key,
+        () => _WeekRow(
+          projectId:   pid.isNotEmpty ? pid : null,
+          projectName: name,
+          billable:    bill,
+          hoursByDate: {},
+          rawEntries:  [],
+        ),
+      );
+      if (date.isNotEmpty) {
+        map[key]!.hoursByDate[date] = (map[key]!.hoursByDate[date] ?? 0) + hrs;
+      }
+      map[key]!.rawEntries.add(e);
+    }
+    return map.values.toList();
+  }
+
+  void _invalidateAll() {
+    ref.invalidate(_weeklyGridProvider);
+    ref.invalidate(_myWeekSummaryProvider);
+    ref.invalidate(_entriesRangeProvider);
+    ref.invalidate(_myEntriesProvider);
+  }
+
+  void _openCellEditor(
+    BuildContext ctx,
+    String dayKey,
+    _WeekRow row,
+    List<({DateTime dt, String key})> days,
+  ) {
+    final d = days.firstWhere((x) => x.key == dayKey);
+    showModalBottomSheet(
+      context: ctx,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _CellEditorSheet(
+        date:            d.dt,
+        projectId:       row.projectId,
+        projectName:     row.projectName,
+        existingHrs:     row.hoursByDate[dayKey] ?? 0,
+        existingEntries: row.rawEntries
+            .where((e) => e['date'] == dayKey).toList(),
+        onChanged:       _invalidateAll,
+      ),
+    );
+  }
+
+  void _openAddRow(BuildContext ctx) {
+    showModalBottomSheet(
+      context: ctx,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _AddWeeklyRowSheet(
+        weekStart: _weekStart,
+        weekEnd:   _weekEnd,
+        onAdded:   _invalidateAll,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ds   = context.ds;
+    final user = ref.watch(currentUserProvider);
+    final async = ref.watch(
+      _weeklyGridProvider((from: _from, to: _to, userId: user?.id)),
+    );
+
+    final days = List.generate(7, (i) {
+      final dt = _weekStart.add(Duration(days: i));
+      return (dt: dt, key: DateFormat('yyyy-MM-dd').format(dt));
+    });
+    const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+    return RefreshIndicator(
+      onRefresh: () async => _invalidateAll(),
+      color: AppColors.primaryLight,
+      child: async.when(
+        loading: () => _buildShimmer(ds),
+        error: (e, _) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text('$e', style: const TextStyle(color: AppColors.error)),
+          ),
+        ),
+        data: (entries) {
+          final rows = _buildRows(entries);
+
+          final dayTotals = {
+            for (final d in days)
+              d.key: entries
+                  .where((e) => e['date'] == d.key)
+                  .fold(0.0, (s, e) => s + (e['hours'] as num? ?? 0).toDouble()),
+          };
+
+          final totalHrs = entries.fold(
+              0.0, (s, e) => s + (e['hours'] as num? ?? 0).toDouble());
+          final billableHrs = entries
+              .where((e) => e['isBillable'] == true)
+              .fold(0.0, (s, e) => s + (e['hours'] as num? ?? 0).toDouble());
+          final daysLogged =
+              entries.map((e) => e['date'] as String).toSet().length;
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+            children: [
+              // Week navigation
+              _WeekHeader(
+                weekStart:  _weekStart,
+                weekEnd:    _weekEnd,
+                weekNumber: _weekNumber,
+                onPrev:     _prevWeek,
+                onNext:     _nextWeek,
+                canGoNext:  _canGoNext,
+              ).animate().fadeIn(),
+              const SizedBox(height: 12),
+
+              // Summary bar
+              _WeeklySummaryBar(
+                totalHrs:    totalHrs,
+                billableHrs: billableHrs,
+                daysLogged:  daysLogged,
+              ).animate().fadeIn(delay: 60.ms),
+              const SizedBox(height: 16),
+
+              // Project rows
+              if (rows.isEmpty)
+                _WeeklyEmptyState(onAdd: () => _openAddRow(context))
+                    .animate().fadeIn(delay: 100.ms)
+              else
+                for (var i = 0; i < rows.length; i++) ...[
+                  _WeeklyProjectCard(
+                    row:       rows[i],
+                    days:      days,
+                    dayLabels: dayLabels,
+                    onCellTap: (key) =>
+                        _openCellEditor(context, key, rows[i], days),
+                  ).animate()
+                      .fadeIn(delay: Duration(milliseconds: 80 + i * 50))
+                      .slideY(begin: 0.04, duration: 280.ms),
+                  const SizedBox(height: 10),
+                ],
+
+              if (rows.isNotEmpty) ...[
+                _AddWeekRowButton(onTap: () => _openAddRow(context))
+                    .animate().fadeIn(delay: 200.ms),
+                const SizedBox(height: 20),
+              ],
+
+              // Day totals
+              _DayTotalsFooter(
+                days:      days,
+                dayLabels: dayLabels,
+                dayTotals: dayTotals,
+                totalHrs:  totalHrs,
+              ).animate().fadeIn(delay: 240.ms),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildShimmer(DsColors ds) => ListView(
+    padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+    children: [
+      Container(
+        height: 72,
+        decoration: BoxDecoration(
+          color: ds.bgCard,
+          borderRadius: BorderRadius.circular(16),
+        ),
+      ),
+      const SizedBox(height: 12),
+      const ShimmerCard(height: 44),
+      const SizedBox(height: 16),
+      const ShimmerCard(height: 130),
+      const SizedBox(height: 10),
+      const ShimmerCard(height: 130),
+    ],
+  );
+}
+
+// ── Weekly log sub-widgets ─────────────────────────────────────────────────────
+
+class _WeekHeader extends StatelessWidget {
+  const _WeekHeader({
+    required this.weekStart,
+    required this.weekEnd,
+    required this.weekNumber,
+    required this.onPrev,
+    required this.onNext,
+    required this.canGoNext,
+  });
+  final DateTime weekStart, weekEnd;
+  final int weekNumber;
+  final VoidCallback onPrev, onNext;
+  final bool canGoNext;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds  = context.ds;
+    final fmt = DateFormat('d MMM');
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      decoration: BoxDecoration(
+        color: ds.bgCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: ds.border),
+      ),
+      child: Row(children: [
+        IconButton(
+          icon: const Icon(Icons.chevron_left_rounded, size: 22),
+          color: ds.textPrimary,
+          onPressed: onPrev,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+        ),
+        Expanded(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text(
+              '${fmt.format(weekStart)} – ${fmt.format(weekEnd)}, ${weekEnd.year}',
+              style: TextStyle(
+                  fontSize: 14, fontWeight: FontWeight.w700, color: ds.textPrimary),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.14),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                'WEEK $weekNumber',
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.primaryLight,
+                  letterSpacing: 1,
+                ),
+              ),
+            ),
+          ]),
+        ),
+        Opacity(
+          opacity: canGoNext ? 1.0 : 0.3,
+          child: IconButton(
+            icon: const Icon(Icons.chevron_right_rounded, size: 22),
+            color: ds.textPrimary,
+            onPressed: canGoNext ? onNext : null,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+class _WeeklySummaryBar extends StatelessWidget {
+  const _WeeklySummaryBar({
+    required this.totalHrs,
+    required this.billableHrs,
+    required this.daysLogged,
+  });
+  final double totalHrs, billableHrs;
+  final int daysLogged;
+
+  @override
+  Widget build(BuildContext context) => Row(children: [
+    _SummaryPill(
+      icon: Icons.access_time_rounded,
+      label: 'Total',
+      value: _fmtHrs(totalHrs),
+      color: AppColors.primaryLight,
+    ),
+    const SizedBox(width: 8),
+    _SummaryPill(
+      icon: Icons.attach_money_rounded,
+      label: 'Billable',
+      value: _fmtHrs(billableHrs),
+      color: AppColors.ragGreen,
+    ),
+    const SizedBox(width: 8),
+    _SummaryPill(
+      icon: Icons.calendar_today_rounded,
+      label: 'Days',
+      value: '$daysLogged',
+      color: AppColors.info,
+    ),
+  ]);
+}
+
+class _SummaryPill extends StatelessWidget {
+  const _SummaryPill({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+  final IconData icon;
+  final String label, value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds = context.ds;
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.2)),
+        ),
+        child: Row(children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                      fontSize: 9,
+                      color: ds.textMuted,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.3),
+                ),
+                Text(
+                  value,
+                  style: TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w800, color: color),
+                ),
+              ],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+class _WeeklyProjectCard extends StatelessWidget {
+  const _WeeklyProjectCard({
+    required this.row,
+    required this.days,
+    required this.dayLabels,
+    required this.onCellTap,
+  });
+  final _WeekRow row;
+  final List<({DateTime dt, String key})> days;
+  final List<String> dayLabels;
+  final ValueChanged<String> onCellTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds    = context.ds;
+    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+    return Container(
+      decoration: BoxDecoration(
+        color: ds.bgCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: ds.border),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Header
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+          child: Row(children: [
+            Container(
+              width: 8, height: 8,
+              margin: const EdgeInsets.only(right: 8, top: 1),
+              decoration: BoxDecoration(
+                color: row.billable
+                    ? AppColors.ragGreen
+                    : AppColors.primaryLight,
+                shape: BoxShape.circle,
+              ),
+            ),
+            Expanded(
+              child: Text(
+                row.projectName,
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: ds.textPrimary),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            if (row.billable)
+              Container(
+                margin: const EdgeInsets.only(right: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.ragGreen.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                      color: AppColors.ragGreen.withOpacity(0.3)),
+                ),
+                child: const Text(
+                  '\$ Bill',
+                  style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.ragGreen),
+                ),
+              ),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: row.totalHours > 0
+                    ? AppColors.primaryLight.withOpacity(0.14)
+                    : ds.bgElevated,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                _fmtHrs(row.totalHours),
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: row.totalHours > 0
+                      ? AppColors.primaryLight
+                      : ds.textMuted,
+                ),
+              ),
+            ),
+          ]),
+        ),
+
+        Divider(height: 1, color: ds.border),
+
+        // Day cells
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+          child: Row(
+            children: List.generate(7, (i) {
+              final d        = days[i];
+              final hrs      = row.hoursByDate[d.key] ?? 0;
+              final isToday  = d.key == today;
+              final hasHours = hrs > 0;
+
+              final cellBg = hasHours
+                  ? AppColors.primaryLight.withOpacity(0.1)
+                  : isToday
+                      ? AppColors.info.withOpacity(0.06)
+                      : Colors.transparent;
+              final cellBorderColor = hasHours
+                  ? AppColors.primaryLight.withOpacity(0.35)
+                  : isToday
+                      ? AppColors.info.withOpacity(0.25)
+                      : ds.border.withOpacity(0.5);
+
+              return Expanded(
+                child: GestureDetector(
+                  onTap: () => onCellTap(d.key),
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 2),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    decoration: BoxDecoration(
+                      color: cellBg,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                          color: cellBorderColor,
+                          width: hasHours ? 1.5 : 1),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          dayLabels[i],
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: isToday
+                                ? AppColors.info
+                                : ds.textMuted,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 1),
+                        Text(
+                          '${d.dt.day}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: isToday
+                                ? AppColors.info
+                                : ds.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        if (hasHours)
+                          Text(
+                            _fmtHrs(hrs),
+                            style: const TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primaryLight,
+                            ),
+                            textAlign: TextAlign.center,
+                          )
+                        else
+                          Icon(
+                            Icons.add_rounded,
+                            size: 14,
+                            color: ds.textMuted.withOpacity(0.4),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+class _WeeklyEmptyState extends StatelessWidget {
+  const _WeeklyEmptyState({required this.onAdd});
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds = context.ds;
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 24),
+      padding: const EdgeInsets.all(32),
+      decoration: BoxDecoration(
+        color: ds.bgCard,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: ds.border),
+      ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withOpacity(0.1),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.grid_view_rounded,
+            size: 36,
+            color: AppColors.primaryLight,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'No time logged this week',
+          style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: ds.textPrimary),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Add a project row to start\nlogging hours for each day',
+          style: TextStyle(fontSize: 12, color: ds.textMuted, height: 1.5),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 20),
+        ElevatedButton.icon(
+          onPressed: onAdd,
+          icon: const Icon(Icons.add_rounded, size: 18),
+          label: const Text('Add Project Row'),
+        ),
+      ]),
+    );
+  }
+}
+
+class _AddWeekRowButton extends StatelessWidget {
+  const _AddWeekRowButton({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: AppColors.primary.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.primary.withOpacity(0.22)),
+        ),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.add_circle_outline_rounded,
+                size: 18, color: AppColors.primaryLight),
+            SizedBox(width: 8),
+            Text(
+              'Add Project Row',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.primaryLight,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DayTotalsFooter extends StatelessWidget {
+  const _DayTotalsFooter({
+    required this.days,
+    required this.dayLabels,
+    required this.dayTotals,
+    required this.totalHrs,
+  });
+  final List<({DateTime dt, String key})> days;
+  final List<String> dayLabels;
+  final Map<String, double> dayTotals;
+  final double totalHrs;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds    = context.ds;
+    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+      decoration: BoxDecoration(
+        color: ds.bgCard,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: ds.border),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(
+          'DAY TOTALS',
+          style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: ds.textMuted,
+              letterSpacing: 0.8),
+        ),
+        const SizedBox(height: 10),
+        Row(children: [
+          ...List.generate(7, (i) {
+            final d       = days[i];
+            final hrs     = dayTotals[d.key] ?? 0;
+            final isToday = d.key == today;
+
+            return Expanded(
+              child: Column(children: [
+                Text(
+                  dayLabels[i],
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    color: isToday ? AppColors.info : ds.textMuted,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${d.dt.day}',
+                  style: TextStyle(
+                      fontSize: 10,
+                      color: isToday ? AppColors.info : ds.textMuted),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  hrs > 0 ? _fmtHrs(hrs) : '—',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: hrs > 0 ? ds.textPrimary : ds.textMuted,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ]),
+            );
+          }),
+          const SizedBox(width: 6),
+          Container(width: 1, height: 40, color: ds.border),
+          const SizedBox(width: 6),
+          Column(children: [
+            Text(
+              'TOT',
+              style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: ds.textMuted,
+                  letterSpacing: 0.5),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _fmtHrs(totalHrs),
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: AppColors.primaryLight,
+              ),
+            ),
+          ]),
+        ]),
+      ]),
+    );
+  }
+}
+
+// ── Cell editor bottom sheet ───────────────────────────────────────────────────
+
+class _CellEditorSheet extends ConsumerStatefulWidget {
+  const _CellEditorSheet({
+    required this.date,
+    required this.projectId,
+    required this.projectName,
+    required this.existingHrs,
+    required this.existingEntries,
+    required this.onChanged,
+  });
+  final DateTime date;
+  final String? projectId;
+  final String projectName;
+  final double existingHrs;
+  final List<Map<String, dynamic>> existingEntries;
+  final VoidCallback onChanged;
+
+  @override
+  ConsumerState<_CellEditorSheet> createState() => _CellEditorSheetState();
+}
+
+class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
+  final _hoursCtrl = TextEditingController();
+  final _descCtrl  = TextEditingController();
+  bool _billable   = false;
+  bool _loading    = false;
+  String? _error;
+  bool _showAddForm = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _showAddForm = widget.existingHrs == 0;
+    if (widget.existingHrs == 0) _hoursCtrl.text = '8';
+  }
+
+  @override
+  void dispose() {
+    _hoursCtrl.dispose();
+    _descCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final h = double.tryParse(_hoursCtrl.text.trim());
+    if (h == null || h <= 0 || h > 24) {
+      setState(() => _error = 'Enter valid hours (0.5 – 24)');
+      return;
+    }
+    setState(() { _loading = true; _error = null; });
+    try {
+      await ApiClient.instance.post(
+        '${AppConstants.baseTime}/entries',
+        data: {
+          'entry_date':  DateFormat('yyyy-MM-dd').format(widget.date),
+          'hours':       h,
+          'is_billable': _billable,
+          if (widget.projectId?.isNotEmpty == true) 'project_id': widget.projectId,
+          if (_descCtrl.text.trim().isNotEmpty)
+            'description': _descCtrl.text.trim(),
+        },
+      );
+      widget.onChanged();
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      setState(() { _loading = false; _error = e.toString(); });
+    }
+  }
+
+  Future<void> _deleteEntry(String id) async {
+    setState(() => _loading = true);
+    try {
+      await ApiClient.instance.delete(
+          '${AppConstants.baseTime}/entries/$id');
+      widget.onChanged();
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      setState(() { _loading = false; _error = e.toString(); });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ds         = context.ds;
+    final dayFmt     = DateFormat('EEEE, d MMMM yyyy');
+    final hasEntries = widget.existingEntries.isNotEmpty;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: ds.bgPage,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.only(
+        left: 20, right: 20, top: 20,
+        bottom: MediaQuery.viewInsetsOf(context).bottom + 24,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36, height: 4,
+                decoration: BoxDecoration(
+                    color: ds.border,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Header
+            Row(children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      dayFmt.format(widget.date),
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: ds.textMuted,
+                          fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      widget.projectName,
+                      style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: ds.textPrimary),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              if (widget.existingHrs > 0)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryLight.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    _fmtHrs(widget.existingHrs),
+                    style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.primaryLight),
+                  ),
+                ),
+            ]),
+            const SizedBox(height: 16),
+
+            // Existing entries list
+            if (hasEntries) ...[
+              Text(
+                'LOGGED',
+                style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: ds.textMuted,
+                    letterSpacing: 0.8),
+              ),
+              const SizedBox(height: 8),
+              for (final e in widget.existingEntries) ...[
+                _ExistingEntryTile(
+                  entry:    e,
+                  loading:  _loading,
+                  onDelete: () => _deleteEntry(
+                    (e['ROWID'] ?? e['id'] ?? '').toString(),
+                  ),
+                ),
+                const SizedBox(height: 6),
+              ],
+              const SizedBox(height: 12),
+            ],
+
+            // Add-more toggle
+            if (!_showAddForm && hasEntries)
+              GestureDetector(
+                onTap: () => setState(() => _showAddForm = true),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.07),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: AppColors.primary.withOpacity(0.2)),
+                  ),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.add_rounded,
+                          size: 16, color: AppColors.primaryLight),
+                      SizedBox(width: 6),
+                      Text(
+                        'Log More Hours',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.primaryLight),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            if (_showAddForm) ...[
+              if (hasEntries) ...[
+                Text(
+                  'ADD MORE',
+                  style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: ds.textMuted,
+                      letterSpacing: 0.8),
+                ),
+                const SizedBox(height: 8),
+              ],
+              TextField(
+                controller: _hoursCtrl,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Hours *',
+                  prefixIcon: Icon(Icons.access_time_rounded),
+                  suffixText: 'hrs',
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _descCtrl,
+                decoration: const InputDecoration(
+                    labelText: 'What did you work on? (optional)'),
+                maxLines: 2,
+                textCapitalization: TextCapitalization.sentences,
+              ),
+              const SizedBox(height: 10),
+              Row(children: [
+                Switch(
+                  value: _billable,
+                  activeColor: AppColors.ragGreen,
+                  onChanged: (v) => setState(() => _billable = v),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Billable',
+                  style: TextStyle(
+                      color: ds.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13),
+                ),
+              ]),
+              if (_error != null) ...[
+                const SizedBox(height: 6),
+                Text(_error!,
+                    style: const TextStyle(
+                        color: AppColors.error, fontSize: 12)),
+              ],
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _loading ? null : _submit,
+                  child: _loading
+                      ? const SizedBox(
+                          width: 20, height: 20,
+                          child: CircularProgressIndicator(
+                              color: Colors.white, strokeWidth: 2))
+                      : const Text('Save Entry'),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ExistingEntryTile extends StatelessWidget {
+  const _ExistingEntryTile({
+    required this.entry,
+    required this.onDelete,
+    required this.loading,
+  });
+  final Map<String, dynamic> entry;
+  final VoidCallback onDelete;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds     = context.ds;
+    final hrs    = (entry['hours'] as num? ?? 0).toDouble();
+    final desc   = entry['description'] as String? ?? '';
+    final bill   = entry['isBillable'] as bool? ?? false;
+    final status = entry['status'] as String? ?? 'DRAFT';
+
+    final statusColor = switch (status) {
+      'APPROVED'  => AppColors.ragGreen,
+      'SUBMITTED' => AppColors.warning,
+      'REJECTED'  => AppColors.error,
+      _           => AppColors.info,
+    };
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: ds.bgElevated,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: ds.border),
+      ),
+      child: Row(children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Text(
+                  _fmtHrs(hrs),
+                  style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.primaryLight),
+                ),
+                const SizedBox(width: 8),
+                if (bill)
+                  const Text('\$ Bill',
+                      style: TextStyle(
+                          fontSize: 10,
+                          color: AppColors.ragGreen,
+                          fontWeight: FontWeight.w600)),
+                const Spacer(),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    status,
+                    style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        color: statusColor),
+                  ),
+                ),
+              ]),
+              if (desc.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(desc,
+                    style:
+                        TextStyle(fontSize: 11, color: ds.textMuted),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+              ],
+            ],
+          ),
+        ),
+        if (status == 'DRAFT') ...[
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: loading ? null : onDelete,
+            child: Padding(
+              padding: const EdgeInsets.all(4),
+              child: Icon(
+                Icons.delete_outline_rounded,
+                size: 18,
+                color: AppColors.error.withOpacity(0.7),
+              ),
+            ),
+          ),
+        ],
+      ]),
+    );
+  }
+}
+
+// ── Add weekly row sheet ──────────────────────────────────────────────────────
+
+class _AddWeeklyRowSheet extends ConsumerStatefulWidget {
+  const _AddWeeklyRowSheet({
+    required this.weekStart,
+    required this.weekEnd,
+    required this.onAdded,
+  });
+  final DateTime weekStart, weekEnd;
+  final VoidCallback onAdded;
+
+  @override
+  ConsumerState<_AddWeeklyRowSheet> createState() =>
+      _AddWeeklyRowSheetState();
+}
+
+class _AddWeeklyRowSheetState extends ConsumerState<_AddWeeklyRowSheet> {
+  String? _projectId;
+  String? _taskId;
+  String? _taskName;
+  final _descCtrl     = TextEditingController();
+  bool _billable      = false;
+  bool _loading       = false;
+  String? _error;
+  final _dayControllers =
+      List.generate(7, (_) => TextEditingController());
+
+  static const _dayAbbrs  = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  @override
+  void dispose() {
+    _descCtrl.dispose();
+    for (final c in _dayControllers) c.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final entries = <({DateTime date, double hours})>[];
+    for (var i = 0; i < 7; i++) {
+      final raw = _dayControllers[i].text.trim();
+      if (raw.isEmpty) continue;
+      final h = double.tryParse(raw);
+      if (h == null || h <= 0 || h > 24) {
+        setState(
+            () => _error = '${_dayAbbrs[i]}: enter valid hours (0.5–24)');
+        return;
+      }
+      entries.add((
+        date:  widget.weekStart.add(Duration(days: i)),
+        hours: h,
+      ));
+    }
+    if (entries.isEmpty) {
+      setState(() => _error = 'Enter hours for at least one day');
+      return;
+    }
+    setState(() { _loading = true; _error = null; });
+    try {
+      for (final e in entries) {
+        await ApiClient.instance.post(
+          '${AppConstants.baseTime}/entries',
+          data: {
+            'entry_date':  DateFormat('yyyy-MM-dd').format(e.date),
+            'hours':       e.hours,
+            'is_billable': _billable,
+            if (_projectId?.isNotEmpty == true) 'project_id': _projectId,
+            if (_taskId?.isNotEmpty == true)    'task_id':    _taskId,
+            if (_descCtrl.text.trim().isNotEmpty)
+              'description': _descCtrl.text.trim(),
+          },
+        );
+      }
+      widget.onAdded();
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      setState(() { _loading = false; _error = e.toString(); });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ds       = context.ds;
+    final projects = ref.watch(projectsProvider);
+    final fmt      = DateFormat('d MMM');
+    final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+    return Container(
+      decoration: BoxDecoration(
+        color: ds.bgPage,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.only(
+        left: 20, right: 20, top: 20,
+        bottom: MediaQuery.viewInsetsOf(context).bottom + 24,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36, height: 4,
+                decoration: BoxDecoration(
+                    color: ds.border,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            Text(
+              'Add Project Row',
+              style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: ds.textPrimary),
+            ),
+            Text(
+              '${fmt.format(widget.weekStart)} – ${fmt.format(widget.weekEnd)}, ${widget.weekEnd.year}',
+              style: TextStyle(fontSize: 12, color: ds.textMuted),
+            ),
+            const SizedBox(height: 20),
+
+            // Project selector
+            projects.when(
+              data: (list) => DropdownButtonFormField<String>(
+                value: _projectId,
+                decoration:
+                    const InputDecoration(labelText: 'Project (optional)'),
+                items: list
+                    .map((p) => DropdownMenuItem(
+                          value: p.id,
+                          child: Text(p.name,
+                              overflow: TextOverflow.ellipsis),
+                        ))
+                    .toList(),
+                onChanged: (v) => setState(() {
+                  _projectId = v;
+                  _taskId    = null;
+                  _taskName  = null;
+                }),
+                dropdownColor: ds.bgElevated,
+              ),
+              loading: () => const LinearProgressIndicator(),
+              error:   (_, __) => const SizedBox.shrink(),
+            ),
+            const SizedBox(height: 12),
+
+            // Task / Issue picker
+            _TaskPickerField(
+              projectId: _projectId,
+              taskName:  _taskName,
+              onSelect:  () => showModalBottomSheet(
+                context:   context,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (_) => _TaskPickerSheet(
+                  projectId: _projectId!,
+                  onSelect:  (t) => setState(() {
+                    _taskId   = t.id;
+                    _taskName = t.title;
+                  }),
+                ),
+              ),
+              onClear: () =>
+                  setState(() { _taskId = null; _taskName = null; }),
+            ),
+            const SizedBox(height: 14),
+
+            TextField(
+              controller: _descCtrl,
+              decoration: const InputDecoration(
+                  labelText: 'Notes (optional)'),
+              maxLines: 1,
+              textCapitalization: TextCapitalization.sentences,
+            ),
+            const SizedBox(height: 16),
+
+            Text(
+              'HOURS PER DAY',
+              style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: ds.textMuted,
+                  letterSpacing: 0.8),
+            ),
+            const SizedBox(height: 10),
+
+            // 7 day inputs
+            for (var i = 0; i < 7; i++) ...[
+              Builder(builder: (ctx) {
+                final dt      = widget.weekStart.add(Duration(days: i));
+                final label   = '${_dayAbbrs[i]} ${dt.day}';
+                final isToday = DateFormat('yyyy-MM-dd').format(dt) == todayStr;
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(children: [
+                    SizedBox(
+                      width: 58,
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: isToday
+                              ? AppColors.info
+                              : ds.textSecondary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: _dayControllers[i],
+                        keyboardType:
+                            const TextInputType.numberWithOptions(decimal: true),
+                        decoration: InputDecoration(
+                          hintText: '0',
+                          suffixText: 'h',
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(
+                              color: isToday
+                                  ? AppColors.info.withOpacity(0.4)
+                                  : ds.border,
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(
+                                color: AppColors.primaryLight, width: 1.5),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ]),
+                );
+              }),
+            ],
+
+            const SizedBox(height: 4),
+
+            Row(children: [
+              Switch(
+                value: _billable,
+                activeColor: AppColors.ragGreen,
+                onChanged: (v) => setState(() => _billable = v),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Billable hours',
+                style: TextStyle(
+                    color: ds.textPrimary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13),
+              ),
+            ]),
+
+            if (_error != null) ...[
+              const SizedBox(height: 6),
+              Text(_error!,
+                  style: const TextStyle(
+                      color: AppColors.error, fontSize: 12)),
+            ],
+            const SizedBox(height: 16),
+
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _loading ? null : _submit,
+                child: _loading
+                    ? const SizedBox(
+                        width: 20, height: 20,
+                        child: CircularProgressIndicator(
+                            color: Colors.white, strokeWidth: 2))
+                    : const Text('Save Weekly Log'),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1579,6 +3128,315 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
+// ── Task / Issue picker ───────────────────────────────────────────────────────
+
+/// Tappable field that opens a searchable task-picker bottom sheet.
+class _TaskPickerField extends StatelessWidget {
+  const _TaskPickerField({
+    required this.projectId,
+    required this.taskName,
+    required this.onSelect,
+    required this.onClear,
+  });
+  final String? projectId;
+  final String? taskName;
+  final VoidCallback onSelect;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final ds         = context.ds;
+    final hasProject = projectId?.isNotEmpty == true;
+    final hasTask    = taskName?.isNotEmpty == true;
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(
+        'Task / Issue',
+        style: TextStyle(
+            fontSize: 11,
+            color: ds.textMuted,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.5),
+      ),
+      const SizedBox(height: 4),
+      GestureDetector(
+        onTap: hasProject ? onSelect : null,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: ds.bgInput,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: hasTask
+                  ? AppColors.primaryLight.withOpacity(0.45)
+                  : ds.border,
+            ),
+          ),
+          child: Row(children: [
+            Icon(
+              hasTask ? Icons.task_alt_rounded : Icons.search_rounded,
+              size: 18,
+              color: hasTask ? AppColors.primaryLight : ds.textMuted,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                hasTask
+                    ? taskName!
+                    : (hasProject
+                        ? 'Search tasks & issues…'
+                        : 'Select a project first'),
+                style: TextStyle(
+                  color: hasTask ? ds.textPrimary : ds.textMuted,
+                  fontWeight:
+                      hasTask ? FontWeight.w600 : FontWeight.w400,
+                  fontSize: 14,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (hasTask)
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onClear,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: Icon(Icons.close_rounded,
+                      size: 16, color: ds.textMuted),
+                ),
+              ),
+          ]),
+        ),
+      ),
+    ]);
+  }
+}
+
+class _TaskPickerSheet extends ConsumerStatefulWidget {
+  const _TaskPickerSheet({
+    required this.projectId,
+    required this.onSelect,
+  });
+  final String projectId;
+  final ValueChanged<SprintTask> onSelect;
+
+  @override
+  ConsumerState<_TaskPickerSheet> createState() => _TaskPickerSheetState();
+}
+
+class _TaskPickerSheetState extends ConsumerState<_TaskPickerSheet> {
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ds      = context.ds;
+    final async   = ref.watch(_projectTasksProvider(widget.projectId));
+    final tasksAsync = async.whenData((all) => _query.isEmpty
+        ? all
+        : all.where((t) =>
+            t.title.toLowerCase().contains(_query.toLowerCase())).toList());
+
+    return Container(
+      decoration: BoxDecoration(
+        color: ds.bgPage,
+        borderRadius:
+            const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.75,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Handle
+          Center(
+            child: Container(
+              margin: const EdgeInsets.only(top: 12),
+              width: 36, height: 4,
+              decoration: BoxDecoration(
+                  color: ds.border,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          // Header + search
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+              Text(
+                'Select Task / Issue',
+                style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: ds.textPrimary),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _searchCtrl,
+                autofocus: true,
+                onChanged: (v) => setState(() => _query = v),
+                decoration: InputDecoration(
+                  hintText: 'Search by name…',
+                  prefixIcon:
+                      const Icon(Icons.search_rounded, size: 18),
+                  suffixIcon: _query.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 16),
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            setState(() => _query = '');
+                          },
+                        )
+                      : null,
+                  isDense: true,
+                ),
+              ),
+            ]),
+          ),
+          Divider(height: 1, color: ds.border),
+          // Task list
+          Expanded(
+            child: tasksAsync.when(
+              loading: () => const Center(
+                child: CircularProgressIndicator(),
+              ),
+              error: (e, _) => Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text('$e',
+                      style: const TextStyle(
+                          color: AppColors.error, fontSize: 12)),
+                ),
+              ),
+              data: (tasks) => tasks.isEmpty
+                  ? Center(
+                      child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                        Icon(Icons.task_alt_rounded,
+                            size: 44, color: ds.textMuted),
+                        const SizedBox(height: 10),
+                        Text(
+                          _query.isEmpty
+                              ? 'No tasks found for this project'
+                              : 'No tasks match "$_query"',
+                          style: TextStyle(
+                              color: ds.textMuted, fontSize: 13),
+                          textAlign: TextAlign.center,
+                        ),
+                      ]),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+                      itemCount: tasks.length,
+                      itemBuilder: (_, i) => _TaskTile(
+                        task: tasks[i],
+                        onTap: () {
+                          widget.onSelect(tasks[i]);
+                          Navigator.pop(context);
+                        },
+                      ),
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TaskTile extends StatelessWidget {
+  const _TaskTile({required this.task, required this.onTap});
+  final SprintTask task;
+  final VoidCallback onTap;
+
+  Color get _statusColor => switch (task.status.toUpperCase()) {
+        'DONE'        => AppColors.ragGreen,
+        'IN_PROGRESS' => AppColors.info,
+        'BLOCKED'     => AppColors.error,
+        _             => AppColors.textMuted,
+      };
+
+  String get _statusLabel => switch (task.status.toUpperCase()) {
+        'IN_PROGRESS' => 'In Progress',
+        'DONE'        => 'Done',
+        'BLOCKED'     => 'Blocked',
+        _             => 'To Do',
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final ds = context.ds;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(13),
+        decoration: BoxDecoration(
+          color: ds.bgCard,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: ds.border),
+        ),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            width: 7, height: 7,
+            margin: const EdgeInsets.only(right: 10, top: 4),
+            decoration: BoxDecoration(
+                color: _statusColor, shape: BoxShape.circle),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  task.title,
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: ds.textPrimary),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (task.storyPoints != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    '${task.storyPoints} pts',
+                    style: TextStyle(fontSize: 10, color: ds.textMuted),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+            decoration: BoxDecoration(
+              color: _statusColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              _statusLabel,
+              style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: _statusColor),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
 // ── Add time entry sheet ──────────────────────────────────────────────────────
 
 class _AddTimeEntrySheet extends ConsumerStatefulWidget {
@@ -1596,6 +3454,8 @@ class _AddTimeEntrySheetState extends ConsumerState<_AddTimeEntrySheet> {
   // field can never be empty — the picker also disallows null returns.
   DateTime? _date = DateTime.now();
   String? _projectId;
+  String? _taskId;
+  String? _taskName;
   bool _billable          = false;
   bool _sendForApproval   = false;
   bool _loading           = false;
@@ -1675,7 +3535,12 @@ class _AddTimeEntrySheetState extends ConsumerState<_AddTimeEntrySheet> {
               data: (list) => DropdownButtonFormField<String>(
                 value: _projectId,
                 items: list.map((p) => DropdownMenuItem(value: p.id, child: Text(p.name))).toList(),
-                onChanged: (v) => setState(() => _projectId = v),
+                onChanged: (v) => setState(() {
+                  _projectId = v;
+                  // clear task when project changes
+                  _taskId = null;
+                  _taskName = null;
+                }),
                 decoration: const InputDecoration(labelText: 'Project (optional)'),
                 dropdownColor: ds.bgElevated,
               ),
@@ -1684,10 +3549,30 @@ class _AddTimeEntrySheetState extends ConsumerState<_AddTimeEntrySheet> {
             ),
             const SizedBox(height: 12),
 
+            // Task / Issue picker
+            _TaskPickerField(
+              projectId: _projectId,
+              taskName:  _taskName,
+              onSelect:  () => showModalBottomSheet(
+                context:   context,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (_) => _TaskPickerSheet(
+                  projectId: _projectId!,
+                  onSelect:  (t) => setState(() {
+                    _taskId   = t.id;
+                    _taskName = t.title;
+                  }),
+                ),
+              ),
+              onClear: () => setState(() { _taskId = null; _taskName = null; }),
+            ),
+            const SizedBox(height: 12),
+
             // Description
             TextField(
               controller: _descCtrl,
-              decoration: const InputDecoration(labelText: 'What did you work on?'),
+              decoration: const InputDecoration(labelText: 'Notes (optional)'),
               maxLines: 2,
               textCapitalization: TextCapitalization.sentences,
             ),
@@ -1783,6 +3668,7 @@ class _AddTimeEntrySheetState extends ConsumerState<_AddTimeEntrySheet> {
           'hours':       hours,
           'is_billable': _billable,
           if (_projectId != null && _projectId!.isNotEmpty) 'project_id': _projectId,
+          if (_taskId != null && _taskId!.isNotEmpty)       'task_id':    _taskId,
           if (_descCtrl.text.trim().isNotEmpty) 'description': _descCtrl.text.trim(),
         },
       );

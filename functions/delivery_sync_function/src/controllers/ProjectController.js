@@ -149,7 +149,7 @@ class ProjectController {
   async getProjects(req, res) {
     try {
       const { tenantId, id: userId, role } = req.currentUser;
-      const { page, pageSize, status } = req.query;
+      const { page, pageSize, status, member_only } = req.query;
 
       let paged;
       const statusClause = status ? `status = '${DataStoreService.escape(status)}'` : null;
@@ -157,12 +157,17 @@ class ProjectController {
       // Only grant org-wide project visibility to TENANT_ADMIN unconditionally.
       // All other roles rely on their dataScope from org sharing rules — if no rule is set,
       // dataScope is null and they fall through to the membership-based filter below.
+      // member_only=true forces membership-based filtering for all roles (used by personal
+      // timesheet views so that even admins only see projects they belong to).
       const hasViewAll = Array.isArray(req.currentUser.permissions) &&
         req.currentUser.permissions.includes('PROJECT_DATA_VIEW_ALL');
-      const hasOrgWideAccess = role === 'TENANT_ADMIN'
+      const forceMemberOnly = member_only === 'true';
+      const hasOrgWideAccess = !forceMemberOnly && (
+        role === 'TENANT_ADMIN'
         || req.currentUser.dataScope === 'ORG_WIDE'
         || req.currentUser.dataScope === 'SUBORDINATES'
-        || hasViewAll;
+        || hasViewAll
+      );
 
       if (hasOrgWideAccess) {
         paged = await this.db.findPaginated(

@@ -50,14 +50,32 @@ class TaskController {
         req.currentUser.permissions.includes('PROJECT_DATA_VIEW_ALL');
 
       // TEAM_MEMBER: filter in JS so LIKE on JSON text is not needed.
-      // Skipped when the user holds PROJECT_DATA_VIEW_ALL — they should see all
-      // tasks in the requested project even if not the creator or assignee.
+      // Skipped when the user holds PROJECT_DATA_VIEW_ALL.
+      // When project_id is provided, we also check project membership — if the user
+      // belongs to that project (e.g. for timesheet logging) they see all its tasks.
       if (role === 'TEAM_MEMBER' && !hasViewAll) {
-        tasks = tasks.filter(t => {
-          if (String(t.created_by) === userId) return true;
-          try { return JSON.parse(t.assignee_ids || '[]').map(String).includes(userId); }
-          catch { return false; }
-        });
+        if (project_id) {
+          // Check if user is a member of the requested project
+          const memberRows = await this.db.query(
+            `SELECT ROWID FROM ${TABLES.PROJECT_MEMBERS} WHERE project_id = '${DataStoreService.escape(project_id)}' AND user_id = '${userId}' AND tenant_id = '${tenantId}' LIMIT 1`
+          );
+          if (memberRows.length === 0) {
+            // Not a project member — restrict to tasks they created or are assigned to
+            tasks = tasks.filter(t => {
+              if (String(t.created_by) === userId) return true;
+              try { return JSON.parse(t.assignee_ids || '[]').map(String).includes(userId); }
+              catch { return false; }
+            });
+          }
+          // Is a project member → see all tasks in this project (no further filter)
+        } else {
+          // No project_id — show only tasks they created or are assigned to
+          tasks = tasks.filter(t => {
+            if (String(t.created_by) === userId) return true;
+            try { return JSON.parse(t.assignee_ids || '[]').map(String).includes(userId); }
+            catch { return false; }
+          });
+        }
       }
 
       // assignee_id query param: filter in JS (avoids LIKE on JSON column)

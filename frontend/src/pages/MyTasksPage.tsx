@@ -4,7 +4,7 @@ import {
   CheckSquare, Clock, Filter, Search, ArrowUpRight, Circle, AlertCircle,
   CheckCircle2, Layers, Bug, Bookmark, Zap, Tag, Timer, Edit2, Plus,
   Trash2, Check, X, Paperclip, User, PlayCircle, StopCircle, MessageSquare,
-  Users, BarChart2, Brain, ArrowRight,
+  Users, BarChart2, Brain, ArrowRight, Eye, Loader2, Download, Upload, FileText, Image as ImageIcon,
 } from 'lucide-react';
 import { format, parseISO, isPast, addDays, isBefore } from 'date-fns';
 import { useForm } from 'react-hook-form';
@@ -198,30 +198,101 @@ function AssigneeMultiSelect({
 // ── Attachment Picker ─────────────────────────────────────────────────────────
 
 function AttachmentPicker({
-  files, onChange,
-}: { files: File[]; onChange: (f: File[]) => void }) {
-  const handleAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newFiles = Array.from(e.target.files ?? []);
-    onChange([...files, ...newFiles]);
-    e.target.value = '';
+  files, onChange, uploadProgress,
+}: {
+  files: File[];
+  onChange: (f: File[]) => void;
+  uploadProgress?: { current: number; total: number } | null;
+}) {
+  const [previews, setPreviews] = React.useState<string[]>([]);
+  const [dragging, setDragging] = React.useState(false);
+
+  React.useEffect(() => {
+    const urls = files.map(f => f.type.startsWith('image/') ? URL.createObjectURL(f) : '');
+    setPreviews(urls);
+    return () => urls.forEach(u => u && URL.revokeObjectURL(u));
+  }, [files]);
+
+  const addFiles = (incoming: FileList | File[]) => {
+    onChange([...files, ...Array.from(incoming)]);
   };
+
+  const ext = (f: File) => f.name.split('.').pop()?.toUpperCase() ?? 'FILE';
+
   return (
-    <div className="space-y-2">
-      <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-indigo-600 hover:text-indigo-800 transition-colors">
-        <Paperclip size={14} />
-        <span>Add attachments</span>
-        <input type="file" multiple className="hidden" onChange={handleAdd} />
+    <div className="space-y-3">
+      {/* Drop zone */}
+      <label
+        className={`flex flex-col items-center justify-center gap-2 cursor-pointer w-full border-2 border-dashed rounded-xl px-4 py-5 transition-all ${
+          dragging ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
+        }`}
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles(e.dataTransfer.files); }}
+      >
+        <Upload size={20} className={dragging ? 'text-indigo-500' : 'text-gray-400'} />
+        <div className="text-center">
+          <p className="text-sm font-medium text-gray-600">Drop files here or <span className="text-indigo-600">browse</span></p>
+          <p className="text-xs text-gray-400 mt-0.5">Images, PDFs, documents — any format</p>
+        </div>
+        <input type="file" multiple className="hidden" onChange={(e) => { addFiles(e.target.files ?? []); e.target.value = ''; }} />
       </label>
+
+      {/* Queued file cards */}
       {files.length > 0 && (
-        <div className="space-y-1">
-          {files.map((f, i) => (
-            <div key={i} className="flex items-center gap-2 text-xs bg-gray-50 border border-gray-200 rounded px-2 py-1">
-              <Paperclip size={11} className="text-gray-400 shrink-0" />
-              <span className="truncate flex-1 text-gray-700">{f.name}</span>
-              <span className="text-gray-400 shrink-0">{(f.size / 1024).toFixed(1)}KB</span>
-              <button type="button" onClick={() => onChange(files.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-500 shrink-0"><X size={11} /></button>
-            </div>
-          ))}
+        <div className="grid grid-cols-2 gap-2">
+          {files.map((f, i) => {
+            const isImg   = f.type.startsWith('image/');
+            const preview = previews[i];
+            const isUploading = uploadProgress && i < uploadProgress.current;
+            const isDone      = uploadProgress && i < uploadProgress.current;
+
+            return (
+              <div key={i} className="relative flex items-center gap-2.5 bg-white border border-gray-100 rounded-xl p-2.5 shadow-sm group">
+                {/* Thumbnail / icon */}
+                <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-gray-100 flex items-center justify-center">
+                  {isImg && preview
+                    ? <img src={preview} alt={f.name} className="w-full h-full object-cover" />
+                    : <span className="text-[10px] font-bold text-gray-500">{ext(f)}</span>
+                  }
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-gray-800 truncate">{f.name}</p>
+                  <p className="text-[10px] text-gray-400">{(f.size / 1024).toFixed(1)} KB</p>
+                </div>
+                {/* Upload status overlay */}
+                {uploadProgress ? (
+                  i < uploadProgress.current
+                    ? <CheckCircle2 size={14} className="text-green-500 shrink-0" />
+                    : <Loader2 size={14} className="text-indigo-400 animate-spin shrink-0" />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onChange(files.filter((_, j) => j !== i))}
+                    className="shrink-0 p-1 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Uploading summary bar */}
+      {uploadProgress && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg">
+          <Loader2 size={13} className="text-indigo-500 animate-spin shrink-0" />
+          <span className="text-xs text-indigo-700 font-medium">
+            Uploading {uploadProgress.current}/{uploadProgress.total} file{uploadProgress.total > 1 ? 's' : ''}…
+          </span>
+          <div className="flex-1 h-1 bg-indigo-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-indigo-500 rounded-full transition-all duration-300"
+              style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+            />
+          </div>
         </div>
       )}
     </div>
@@ -240,23 +311,31 @@ function TaskFormModal({
 }) {
   const createTask = useCreateTask();
   const updateTask = useUpdateTask();
-  const [assignees, setAssignees]         = useState<string[]>([]);
-  const [attachments, setAttachments]     = useState<File[]>([]);
-  const [formError, setFormError]         = useState('');
+  const [assignees, setAssignees]             = useState<string[]>([]);
+  const [attachments, setAttachments]         = useState<File[]>([]);
+  const [formError, setFormError]             = useState('');
   const [requireApproval, setRequireApproval] = useState(false);
+  const [uploadProgress, setUploadProgress]   = useState<{ current: number; total: number } | null>(null);
   const { user } = useAuth();
-  const canManageApproval   = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TIME_APPROVE);
-  const canAssignToOthers   = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TASK_ASSIGN);
+  const canManageApproval = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TIME_APPROVE);
+  const canAssignToOthers = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TASK_ASSIGN);
   const { data: usersData = [] } = useUsers();
   const users = usersData as TenantUser[];
-
   const { t } = useI18n();
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<TaskFormData>({
+
+  // Draft persistence — preserves create-form data across close/reopen cycles
+  const draftRef    = React.useRef<{ formValues: TaskFormData; assignees: string[]; requireApproval: boolean; attachments: File[] } | null>(null);
+  const prevOpenRef = React.useRef(false);
+
+  const { register, handleSubmit, reset, getValues, formState: { errors, isSubmitting } } = useForm<TaskFormData>({
     defaultValues: { type: 'TASK', priority: 'MEDIUM', status: 'TODO' },
   });
 
   React.useEffect(() => {
-    if (open) {
+    const justOpened = open  && !prevOpenRef.current;
+    const justClosed = !open && prevOpenRef.current;
+
+    if (justOpened) {
       if (editing) {
         reset({
           title:       editing.title,
@@ -270,147 +349,222 @@ function TaskFormModal({
         });
         setAssignees(editing.assigneeIds ?? (editing.assigneeId ? [editing.assigneeId] : []));
         setRequireApproval((editing as any).requireApproval === true);
+        setAttachments([]);
+        draftRef.current = null;
+      } else if (draftRef.current) {
+        reset(draftRef.current.formValues);
+        setAssignees(draftRef.current.assignees);
+        setRequireApproval(draftRef.current.requireApproval);
+        setAttachments(draftRef.current.attachments);
       } else {
         reset({ type: 'TASK', priority: 'MEDIUM', status: 'TODO', project_id: '' });
         setAssignees(user?.id ? [String(user.id)] : []);
         setRequireApproval(false);
+        setAttachments([]);
       }
-      setAttachments([]);
       setFormError('');
     }
-  }, [open, editing, reset, user?.id]);
+
+    if (justClosed && !editing) {
+      draftRef.current = { formValues: getValues(), assignees, requireApproval, attachments };
+    }
+
+    prevOpenRef.current = open;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editing]);
 
   const onSubmit = handleSubmit(async (data) => {
     setFormError('');
     try {
       const payload = {
-        project_id:   data.project_id,
-        title:        data.title,
-        description:  data.description,
-        type:         data.type,
-        priority:     data.priority,
-        status:       data.status,
-        due_date:     data.due_date || undefined,
+        project_id:       data.project_id,
+        title:            data.title,
+        description:      data.description,
+        type:             data.type,
+        priority:         data.priority,
+        status:           data.status,
+        due_date:         data.due_date || undefined,
         labels:           JSON.stringify(data.labels?.split(',').map((s) => s.trim()).filter(Boolean) ?? []),
         assignee_ids:     JSON.stringify(assignees),
         require_approval: requireApproval ? 'true' : 'false',
       };
+      const uploadFiles = async (taskId: string) => {
+        if (!attachments.length) return;
+        setUploadProgress({ current: 0, total: attachments.length });
+        for (let i = 0; i < attachments.length; i++) {
+          await tasksApi.uploadAttachment(taskId, attachments[i]);
+          setUploadProgress({ current: i + 1, total: attachments.length });
+        }
+        setUploadProgress(null);
+      };
+
       if (editing) {
         await updateTask.mutateAsync({ id: editing.id, data: payload });
-        for (const file of attachments) await tasksApi.uploadAttachment(editing.id, file);
+        await uploadFiles(editing.id);
       } else {
         const created = await createTask.mutateAsync(payload) as { ROWID?: string; id?: string };
         const newId = String(created?.ROWID ?? created?.id ?? '');
-        if (newId) for (const file of attachments) await tasksApi.uploadAttachment(newId, file);
+        if (newId) await uploadFiles(newId);
+        draftRef.current = null;
       }
       onClose();
-    } catch (e: unknown) { setFormError((e as Error).message); }
+    } catch (e: unknown) { setUploadProgress(null); setFormError((e as Error).message); }
   });
 
   return (
-    <Modal open={open} onClose={onClose} title={editing ? t('tasks.modal.editTitle') : t('tasks.modal.createTitle')} size="lg">
-      <form onSubmit={onSubmit} className="space-y-4">
-        {formError && <Alert type="error" message={formError} />}
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={editing ? t('tasks.modal.editTitle') : t('tasks.modal.createTitle')}
+      size="2xl"
+      closeOnBackdropClick={false}
+      closeButtonVariant="danger"
+    >
+      <form onSubmit={onSubmit}>
+        {formError && <div className="mb-4"><Alert type="error" message={formError} /></div>}
 
-        <div>
-          <label className="form-label">{t('tasks.modal.titleLabel')} *</label>
-          <input className="form-input" placeholder="Task title" {...register('title', { required: t('validation.required') })} />
-          {errors.title && <p className="text-xs text-red-600 mt-1">{errors.title.message}</p>}
-        </div>
+        {/* Two-column layout */}
+        <div className="flex gap-6 overflow-y-auto max-h-[70vh]">
 
-        <div>
-          <label className="form-label">{t('tasks.modal.descLabel')}</label>
-          <textarea className="form-textarea" rows={3} placeholder="Describe what needs to be done…" {...register('description')} />
-        </div>
+          {/* ── Left: main content (60%) ── */}
+          <div className="flex-[3] min-w-0 space-y-5">
 
-        <div>
-          <label className="form-label">{t('tasks.modal.project')} <span className="text-gray-400 font-normal">(optional)</span></label>
-          <select className="form-select" {...register('project_id')}>
-            <option value="">No project</option>
-            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </div>
-
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="form-label">Type</label>
-            <select className="form-select" {...register('type')}>
-              <option value="TASK">Task</option>
-              <option value="STORY">Story</option>
-              <option value="BUG">Bug</option>
-              <option value="EPIC">Epic</option>
-              <option value="SUBTASK">Subtask</option>
-            </select>
-          </div>
-          <div>
-            <label className="form-label">{t('tasks.modal.priority')}</label>
-            <select className="form-select" {...register('priority')}>
-              <option value="CRITICAL">{t('tasks.priority.critical')}</option>
-              <option value="HIGH">{t('tasks.priority.high')}</option>
-              <option value="MEDIUM">{t('tasks.priority.medium')}</option>
-              <option value="LOW">{t('tasks.priority.low')}</option>
-            </select>
-          </div>
-          <div>
-            <label className="form-label">{t('tasks.modal.status')}</label>
-            <select className="form-select" {...register('status')}>
-              <option value="TODO">{t('tasks.status.todo')}</option>
-              <option value="IN_PROGRESS">{t('tasks.status.inProgress')}</option>
-              <option value="IN_REVIEW">{t('tasks.status.inReview')}</option>
-              <option value="DONE">{t('tasks.status.done')}</option>
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <label className="form-label">{t('tasks.modal.dueDate')} *</label>
-          <input
-            type="date"
-            className="form-input"
-            min={new Date().toISOString().split('T')[0]}
-            {...register('due_date', { required: t('validation.required') })}
-          />
-          {errors.due_date && <p className="form-error">{errors.due_date.message as string}</p>}
-        </div>
-
-        <div>
-          <label className="form-label">Labels <span className="text-gray-400 font-normal">(comma-separated)</span></label>
-          <input className="form-input" placeholder="frontend, urgent, qa…" {...register('labels')} />
-        </div>
-
-        <div>
-          <label className="form-label flex items-center gap-1.5"><User size={13} /> Assignees</label>
-          {canAssignToOthers ? (
-            <AssigneeMultiSelect users={users} value={assignees} onChange={setAssignees} />
-          ) : (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-500">
-              <User size={13} className="text-gray-400" />
-              <span>Assigned to you — contact your lead to reassign</span>
-            </div>
-          )}
-        </div>
-
-        {canManageApproval && (
-          <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
             <div>
-              <p className="text-sm font-medium text-amber-900">Require time entry approval</p>
-              <p className="text-xs text-amber-600 mt-0.5">Time entries will be sent to <strong>you</strong> ({user?.name ?? 'task owner'}) for approval</p>
+              <label className="form-label text-sm font-semibold text-gray-700">{t('tasks.modal.titleLabel')} *</label>
+              <input
+                className="form-input text-base font-medium"
+                placeholder="What needs to be done?"
+                {...register('title', { required: t('validation.required') })}
+              />
+              {errors.title && <p className="text-xs text-red-600 mt-1">{errors.title.message}</p>}
             </div>
-            <button
-              type="button"
-              onClick={() => setRequireApproval((v) => !v)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 ${requireApproval ? 'bg-amber-500' : 'bg-gray-300'}`}
-              role="switch"
-              aria-checked={requireApproval}
-            >
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${requireApproval ? 'translate-x-6' : 'translate-x-1'}`} />
-            </button>
-          </div>
-        )}
 
-        <div>
-          <label className="form-label flex items-center gap-1.5"><Paperclip size={13} /> Attachments <span className="text-gray-400 font-normal">(optional)</span></label>
-          <AttachmentPicker files={attachments} onChange={setAttachments} />
+            <div>
+              <label className="form-label">{t('tasks.modal.descLabel')}</label>
+              <textarea
+                className="form-textarea"
+                rows={5}
+                placeholder="Add more detail — steps, context, acceptance criteria…"
+                {...register('description')}
+              />
+            </div>
+
+            <div>
+              <label className="form-label flex items-center gap-1.5">
+                <User size={13} className="text-gray-400" /> Assignees
+              </label>
+              {canAssignToOthers ? (
+                <AssigneeMultiSelect users={users} value={assignees} onChange={setAssignees} />
+              ) : (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-500">
+                  <User size={13} className="text-gray-400" />
+                  <span>Assigned to you — contact your lead to reassign</span>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="form-label">Labels <span className="text-gray-400 font-normal">(comma-separated)</span></label>
+              <input className="form-input" placeholder="frontend, urgent, qa…" {...register('labels')} />
+            </div>
+
+            <div>
+              <label className="form-label flex items-center gap-1.5">
+                <Paperclip size={13} className="text-gray-400" /> Attachments
+                <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <AttachmentPicker files={attachments} onChange={setAttachments} uploadProgress={uploadProgress} />
+            </div>
+          </div>
+
+          {/* ── Right: attributes sidebar (40%) ── */}
+          <div className="flex-[2] min-w-0 space-y-4">
+
+            {/* Properties */}
+            <div className="rounded-xl border border-gray-100 bg-gray-50 divide-y divide-gray-100 overflow-hidden">
+              <p className="px-4 py-2.5 text-[11px] font-bold text-gray-400 uppercase tracking-widest bg-gray-100/60">
+                Properties
+              </p>
+
+              <div className="px-4 py-3 space-y-3">
+                <div>
+                  <label className="form-label text-[11px]">Type</label>
+                  <select className="form-select text-sm" {...register('type')}>
+                    <option value="TASK">📋  Task</option>
+                    <option value="STORY">📖  Story</option>
+                    <option value="BUG">🐛  Bug</option>
+                    <option value="EPIC">⚡  Epic</option>
+                    <option value="SUBTASK">↳  Subtask</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="form-label text-[11px]">{t('tasks.modal.priority')}</label>
+                  <select className="form-select text-sm" {...register('priority')}>
+                    <option value="CRITICAL">🔴  Critical</option>
+                    <option value="HIGH">🟠  High</option>
+                    <option value="MEDIUM">🟡  Medium</option>
+                    <option value="LOW">🟢  Low</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="form-label text-[11px]">{t('tasks.modal.status')}</label>
+                  <select className="form-select text-sm" {...register('status')}>
+                    <option value="TODO">{t('tasks.status.todo')}</option>
+                    <option value="IN_PROGRESS">{t('tasks.status.inProgress')}</option>
+                    <option value="IN_REVIEW">{t('tasks.status.inReview')}</option>
+                    <option value="DONE">{t('tasks.status.done')}</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="form-label text-[11px]">{t('tasks.modal.project')}</label>
+                  <select className="form-select text-sm" {...register('project_id')}>
+                    <option value="">No project</option>
+                    {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="form-label text-[11px]">{t('tasks.modal.dueDate')} *</label>
+                  <input
+                    type="date"
+                    className="form-input text-sm"
+                    min={new Date().toISOString().split('T')[0]}
+                    {...register('due_date', { required: t('validation.required') })}
+                  />
+                  {errors.due_date && <p className="text-xs text-red-600 mt-1">{errors.due_date.message as string}</p>}
+                </div>
+              </div>
+            </div>
+
+            {/* Approval toggle */}
+            {canManageApproval && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 overflow-hidden">
+                <p className="px-4 py-2.5 text-[11px] font-bold text-amber-500 uppercase tracking-widest bg-amber-100/60">
+                  Settings
+                </p>
+                <div className="flex items-center justify-between px-4 py-3 gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-amber-900">Time approval</p>
+                    <p className="text-xs text-amber-600 mt-0.5 leading-snug">
+                      Time entries will need your sign-off
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setRequireApproval((v) => !v)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 ${requireApproval ? 'bg-amber-500' : 'bg-gray-300'}`}
+                    role="switch"
+                    aria-checked={requireApproval}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${requireApproval ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <ModalActions>
@@ -488,6 +642,23 @@ function TaskDetailPanel({
   const stCfg      = STATUS_CONFIG[task.status];
   const project    = projects.find((p) => p.id === task.projectId);
   const assigneeIds = task.assigneeIds ?? (task.assigneeId ? [task.assigneeId] : []);
+
+  // Attachment upload state — local to this panel
+  const [attUploading, setAttUploading] = useState(false);
+  const [attUploadErr, setAttUploadErr] = useState('');
+  const [previewAtt, setPreviewAtt]     = useState<{ url: string; name: string } | null>(null);
+
+  const handleAttachFile = async (file: File) => {
+    setAttUploading(true);
+    setAttUploadErr('');
+    try {
+      await onUploadAttachment(file);
+    } catch (err: any) {
+      setAttUploadErr(err?.message || 'Upload failed');
+    } finally {
+      setAttUploading(false);
+    }
+  };
 
   return (
     <>
@@ -849,49 +1020,127 @@ function TaskDetailPanel({
           {/* Attachments tab */}
           {detailTab === 'attachments' && (
             <div className="p-6 space-y-4">
+              {/* Image preview lightbox */}
+              {previewAtt && (
+                <div
+                  className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4"
+                  onClick={() => setPreviewAtt(null)}
+                >
+                  <div className="relative max-w-4xl max-h-[90vh] w-full" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={() => setPreviewAtt(null)}
+                      className="absolute -top-3 -right-3 z-10 w-8 h-8 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg"
+                    >
+                      <X size={14} />
+                    </button>
+                    <img
+                      src={previewAtt.url}
+                      alt={previewAtt.name}
+                      className="w-full h-full object-contain rounded-xl shadow-2xl max-h-[85vh]"
+                    />
+                    <p className="text-center text-white/70 text-xs mt-2 truncate">{previewAtt.name}</p>
+                  </div>
+                </div>
+              )}
+
               {/* Upload button */}
-              <label className="flex items-center gap-2 cursor-pointer w-fit px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg transition-colors">
-                <Paperclip size={13} />
-                Attach File
-                <input
-                  type="file"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) { onUploadAttachment(file); e.target.value = ''; }
-                  }}
-                />
-              </label>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-gray-400">{taskAttachments.length} file{taskAttachments.length !== 1 ? 's' : ''}</p>
+                <label className={`flex items-center gap-2 cursor-pointer px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
+                  attUploading
+                    ? 'bg-indigo-100 text-indigo-400 cursor-wait'
+                    : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                }`}>
+                  {attUploading
+                    ? <><Loader2 size={13} className="animate-spin" /> Uploading…</>
+                    : <><Upload size={13} /> Attach File</>
+                  }
+                  <input
+                    type="file"
+                    className="hidden"
+                    disabled={attUploading}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) { handleAttachFile(file); e.target.value = ''; }
+                    }}
+                  />
+                </label>
+              </div>
+
+              {attUploadErr && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+                  <AlertCircle size={13} className="shrink-0" /> {attUploadErr}
+                </div>
+              )}
 
               {/* File list */}
               {taskAttachments.length === 0 ? (
-                <div className="text-center py-10">
-                  <Paperclip size={28} className="mx-auto mb-2 text-gray-200" />
-                  <p className="text-xs text-gray-400">No attachments yet.</p>
+                <div className="text-center py-12">
+                  <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-3">
+                    <Paperclip size={24} className="text-gray-300" />
+                  </div>
+                  <p className="text-sm font-medium text-gray-400">No attachments yet</p>
+                  <p className="text-xs text-gray-300 mt-1">Upload files using the button above</p>
                 </div>
               ) : (
                 <div className="space-y-2">
                   {taskAttachments.map((a: any, i: number) => {
-                    const name = a.file_name ?? a.fileName ?? a.name ?? `File ${i + 1}`;
-                    const url  = a.file_url  ?? a.fileUrl  ?? a.url  ?? null;
-                    const size = a.file_size ?? a.fileSize ?? null;
-                    const ext  = name.split('.').pop()?.toLowerCase() ?? '';
+                    const name    = a.file_name ?? a.fileName ?? a.name ?? `File ${i + 1}`;
+                    const url     = a.file_url  ?? a.fileUrl  ?? a.url  ?? null;
+                    const size    = a.file_size ?? a.fileSize ?? null;
+                    const ext     = name.split('.').pop()?.toLowerCase() ?? '';
                     const isImage = ['png','jpg','jpeg','gif','webp','svg'].includes(ext);
+                    const isDoc   = ['pdf','doc','docx','xls','xlsx','csv','txt'].includes(ext);
+
                     return (
-                      <div key={a.ROWID ?? i} className="flex items-center gap-3 border border-gray-100 rounded-xl px-3 py-2.5 bg-white hover:bg-gray-50 transition-colors">
-                        <span className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-500 flex items-center justify-center shrink-0 text-[10px] font-bold uppercase">
-                          {isImage ? '🖼' : ext || '📎'}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-gray-800 truncate">{name}</p>
-                          {size && <p className="text-[10px] text-gray-400">{(size / 1024).toFixed(1)} KB</p>}
+                      <div key={a.ROWID ?? i} className="group flex items-center gap-3 border border-gray-100 rounded-xl bg-white hover:border-indigo-200 hover:bg-indigo-50/30 transition-all p-3">
+                        {/* Thumbnail / icon */}
+                        <div
+                          className={`w-12 h-12 rounded-xl overflow-hidden shrink-0 flex items-center justify-center ${isImage ? 'cursor-pointer' : 'bg-gray-100'}`}
+                          onClick={() => isImage && url && setPreviewAtt({ url, name })}
+                        >
+                          {isImage && url ? (
+                            <img src={url} alt={name} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className={`w-full h-full flex items-center justify-center ${isDoc ? 'bg-blue-50' : 'bg-gray-100'}`}>
+                              {isDoc
+                                ? <FileText size={20} className="text-blue-400" />
+                                : <Paperclip size={20} className="text-gray-400" />
+                              }
+                            </div>
+                          )}
                         </div>
-                        {url && (
-                          <a href={url} target="_blank" rel="noopener noreferrer"
-                            className="text-indigo-600 hover:text-indigo-800 text-xs font-medium shrink-0">
-                            Download
-                          </a>
-                        )}
+
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-800 truncate">{name}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {size && <span className="text-[11px] text-gray-400">{(size / 1024).toFixed(1)} KB</span>}
+                            <span className="text-[11px] text-gray-300 font-mono uppercase">{ext}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                          {isImage && url && (
+                            <button
+                              onClick={() => setPreviewAtt({ url, name })}
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                              title="Preview"
+                            >
+                              <Eye size={14} />
+                            </button>
+                          )}
+                          {url && (
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                              title="Download"
+                            >
+                              <Download size={14} />
+                            </a>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

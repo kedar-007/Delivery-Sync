@@ -10,6 +10,15 @@ export const useProjects = () =>
     queryFn: () => projectsApi.list().then((d) => d.projects ?? d),
   });
 
+/** Returns only projects the current user is a member of, regardless of role.
+ *  Use this for personal views (timesheets, personal dashboards) so that
+ *  admins see their own projects, not every project in the tenant. */
+export const useMyProjects = () =>
+  useQuery({
+    queryKey: [PROJECTS_KEY, 'mine'],
+    queryFn: () => projectsApi.list({ member_only: 'true' }).then((d) => d.projects ?? d),
+  });
+
 export const useProjectsPaginated = (params: { page?: number; pageSize?: number; status?: string } = {}) =>
   useQuery({
     queryKey: [PROJECTS_KEY, 'paginated', params],

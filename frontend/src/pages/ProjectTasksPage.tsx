@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Plus, Search, Filter, ChevronDown, ChevronUp, Edit2, Trash2,
-  User, Clock, Tag, ArrowUpRight, CheckCircle2, Circle, AlertCircle,
+  User, Users, Clock, Tag, ArrowUpRight, CheckCircle2, Circle, AlertCircle,
   Layers, Bug, Bookmark, Zap, Timer, Check, Paperclip, X,
 } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
@@ -437,10 +437,12 @@ export default function ProjectTasksPage() {
         open={showCreate}
         onClose={() => setShowCreate(false)}
         title={t('tasks.modal.createTitle')}
-        size="lg"
+        size="2xl"
+        closeOnBackdropClick={false}
+        closeButtonVariant="danger"
       >
-        <form onSubmit={onSubmitCreate} className="space-y-4">
-          {formError && <Alert type="error" message={formError} />}
+        <form onSubmit={onSubmitCreate}>
+          {formError && <div className="mb-4"><Alert type="error" message={formError} /></div>}
           <TaskFormFields
             register={register}
             errors={errors}
@@ -465,11 +467,13 @@ export default function ProjectTasksPage() {
         open={!!editTask}
         onClose={() => setEditTask(null)}
         title={t('tasks.modal.editTitle')}
-        size="lg"
+        size="2xl"
+        closeOnBackdropClick={false}
+        closeButtonVariant="danger"
       >
         {editTask && (
-          <form onSubmit={onSubmitEdit} className="space-y-4">
-            {formError && <Alert type="error" message={formError} />}
+          <form onSubmit={onSubmitEdit}>
+            {formError && <div className="mb-4"><Alert type="error" message={formError} /></div>}
             <TaskFormFields
               register={register}
               errors={errors}
@@ -887,161 +891,178 @@ function TaskFormFields({
   };
 
   return (
-    <>
-      <div>
-        <label className="form-label">{t('tasks.modal.titleLabel')} *</label>
-        <input className="form-input" placeholder="Task title" {...register('title', { required: t('validation.required') })} />
-        {errors.title && <p className="text-xs text-red-600 mt-1">{errors.title.message}</p>}
-      </div>
-      <div>
-        <label className="form-label">{t('tasks.modal.descLabel')}</label>
-        <textarea className="form-textarea" rows={3} placeholder="Describe the task…" {...register('description')} />
-      </div>
-      <div className="grid grid-cols-3 gap-3">
-        <div>
-          <label className="form-label">{t('common.type')}</label>
-          <select className="form-select" {...register('type')}>
-            <option value="TASK">Task</option>
-            <option value="STORY">Story</option>
-            <option value="BUG">Bug</option>
-            <option value="EPIC">Epic</option>
-            <option value="SUBTASK">Subtask</option>
-          </select>
-        </div>
-        <div>
-          <label className="form-label">{t('tasks.modal.priority')}</label>
-          <select className="form-select" {...register('priority')}>
-            <option value="CRITICAL">{t('tasks.priority.critical')}</option>
-            <option value="HIGH">{t('tasks.priority.high')}</option>
-            <option value="MEDIUM">{t('tasks.priority.medium')}</option>
-            <option value="LOW">{t('tasks.priority.low')}</option>
-          </select>
-        </div>
-        <div>
-          <label className="form-label">{t('tasks.modal.status')}</label>
-          <select className="form-select" {...register('status')}>
-            <option value="TODO">{t('tasks.status.todo')}</option>
-            <option value="IN_PROGRESS">{t('tasks.status.inProgress')}</option>
-            <option value="IN_REVIEW">{t('tasks.status.inReview')}</option>
-            <option value="DONE">{t('tasks.status.done')}</option>
-          </select>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="form-label">Story Points</label>
-          <input type="number" step="0.5" min="0" className="form-input" placeholder="0"
-            {...register('story_points', { valueAsNumber: true })} />
-        </div>
-        <div>
-          <label className="form-label">Est. {t('common.hours')}</label>
-          <input type="number" step="0.25" min="0" className="form-input" placeholder="0"
-            {...register('estimated_hours', { valueAsNumber: true })} />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="form-label">{t('tasks.modal.dueDate')} *</label>
-          <input
-            type="date"
-            className="form-input"
-            min={new Date().toISOString().split('T')[0]}
-            {...register('due_date', { required: t('validation.required') })}
-          />
-          {errors.due_date && <p className="form-error">{errors.due_date.message as string}</p>}
-        </div>
-        <div>
-          <label className="form-label">{t('sprints.title')}</label>
-          <select className="form-select" {...register('sprint_id')}>
-            <option value="">{t('sprints.backlog')} (no sprint)</option>
-            {sprints.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-      <div>
-        <label className="form-label">
-          {t('tasks.modal.assignee')}
-          {selectedAssignees.length > 0 && (
-            <span className="ml-2 text-xs font-normal text-indigo-600">
-              {selectedAssignees.length} selected
-            </span>
-          )}
-        </label>
-        <AssigneeMultiSelect
-          users={users}
-          value={selectedAssignees}
-          onChange={onAssigneesChange}
-        />
-      </div>
-      <div>
-        <label className="form-label">{t('common.tags')} <span className="text-gray-400 font-normal">(comma separated)</span></label>
-        <input className="form-input" placeholder="frontend, urgent, blocked" {...register('labels')} />
-      </div>
+    <div className="flex gap-6 overflow-y-auto max-h-[70vh]">
 
-      {canManageApproval && (
-        <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
-          <div>
-            <p className="text-sm font-medium text-amber-900">Require time entry approval</p>
-            <p className="text-xs text-amber-600 mt-0.5">Time entries logged on this task will be sent to the task owner for approval</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => onRequireApprovalChange?.(!requireApproval)}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${requireApproval ? 'bg-amber-500' : 'bg-gray-300'}`}
-            role="switch"
-            aria-checked={requireApproval}
-          >
-            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${requireApproval ? 'translate-x-6' : 'translate-x-1'}`} />
-          </button>
-        </div>
-      )}
+      {/* ── Left: main content (60%) ── */}
+      <div className="flex-[3] min-w-0 space-y-5">
 
-      {/* ── Attachments ── */}
-      <div>
-        <label className="form-label flex items-center gap-1.5">
-          <Paperclip size={13} className="text-gray-400" />
-          Attachments
-          <span className="text-gray-400 font-normal text-xs">(optional)</span>
-        </label>
-        <label className="flex items-center gap-2 cursor-pointer w-full border border-dashed border-gray-300 rounded-lg px-4 py-3 text-sm text-gray-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all">
-          <Paperclip size={14} />
-          <span>Click to attach files</span>
+        <div>
+          <label className="form-label text-sm font-semibold text-gray-700">{t('tasks.modal.titleLabel')} *</label>
           <input
-            type="file"
-            multiple
-            className="hidden"
-            onChange={handleFileChange}
+            className="form-input text-base font-medium"
+            placeholder="What needs to be done?"
+            {...register('title', { required: t('validation.required') })}
           />
-        </label>
-        {attachments.length > 0 && (
-          <ul className="mt-2 space-y-1">
-            {attachments.map((file, i) => (
-              <li
-                key={`${file.name}-${i}`}
-                className="flex items-center justify-between text-xs bg-gray-50 border border-gray-100 rounded-lg px-3 py-1.5"
-              >
-                <span className="flex items-center gap-1.5 text-gray-700 truncate">
-                  <Paperclip size={11} className="text-gray-400 flex-shrink-0" />
-                  <span className="truncate">{file.name}</span>
-                  <span className="text-gray-400 flex-shrink-0">
-                    ({(file.size / 1024).toFixed(1)} KB)
+          {errors.title && <p className="text-xs text-red-600 mt-1">{errors.title.message}</p>}
+        </div>
+
+        <div>
+          <label className="form-label">{t('tasks.modal.descLabel')}</label>
+          <textarea
+            className="form-textarea"
+            rows={5}
+            placeholder="Add more detail — steps, context, acceptance criteria…"
+            {...register('description')}
+          />
+        </div>
+
+        <div>
+          <label className="form-label flex items-center gap-1.5">
+            <Users size={13} className="text-gray-400" />
+            {t('tasks.modal.assignee')}
+            {selectedAssignees.length > 0 && (
+              <span className="ml-1 text-xs font-normal text-indigo-600">{selectedAssignees.length} selected</span>
+            )}
+          </label>
+          <AssigneeMultiSelect users={users} value={selectedAssignees} onChange={onAssigneesChange} />
+        </div>
+
+        <div>
+          <label className="form-label">{t('common.tags')} <span className="text-gray-400 font-normal">(comma separated)</span></label>
+          <input className="form-input" placeholder="frontend, urgent, blocked" {...register('labels')} />
+        </div>
+
+        {/* Attachments */}
+        <div>
+          <label className="form-label flex items-center gap-1.5">
+            <Paperclip size={13} className="text-gray-400" />
+            Attachments
+            <span className="text-gray-400 font-normal text-xs">(optional)</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer w-full border border-dashed border-gray-200 rounded-xl px-4 py-3.5 text-sm text-gray-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all">
+            <Paperclip size={14} />
+            <span>Click to attach files</span>
+            <input type="file" multiple className="hidden" onChange={handleFileChange} />
+          </label>
+          {attachments.length > 0 && (
+            <ul className="mt-2 space-y-1">
+              {attachments.map((file, i) => (
+                <li key={`${file.name}-${i}`} className="flex items-center justify-between text-xs bg-gray-50 border border-gray-100 rounded-lg px-3 py-1.5">
+                  <span className="flex items-center gap-1.5 text-gray-700 truncate">
+                    <Paperclip size={11} className="text-gray-400 flex-shrink-0" />
+                    <span className="truncate">{file.name}</span>
+                    <span className="text-gray-400 flex-shrink-0">({(file.size / 1024).toFixed(1)} KB)</span>
                   </span>
-                </span>
-                <button
-                  type="button"
-                  className="ml-2 text-gray-400 hover:text-red-500 transition-colors flex-shrink-0"
-                  onClick={() => removeAttachment(i)}
-                  title="Remove"
-                >
-                  <X size={12} />
-                </button>
-              </li>
-            ))}
-          </ul>
+                  <button type="button" className="ml-2 text-gray-400 hover:text-red-500 transition-colors flex-shrink-0" onClick={() => removeAttachment(i)}>
+                    <X size={12} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {/* ── Right: attributes sidebar (40%) ── */}
+      <div className="flex-[2] min-w-0 space-y-4">
+
+        {/* Properties card */}
+        <div className="rounded-xl border border-gray-100 bg-gray-50 divide-y divide-gray-100 overflow-hidden">
+          <p className="px-4 py-2.5 text-[11px] font-bold text-gray-400 uppercase tracking-widest bg-gray-100/60">
+            Properties
+          </p>
+          <div className="px-4 py-3 space-y-3">
+            <div>
+              <label className="form-label text-[11px]">{t('common.type')}</label>
+              <select className="form-select text-sm" {...register('type')}>
+                <option value="TASK">📋  Task</option>
+                <option value="STORY">📖  Story</option>
+                <option value="BUG">🐛  Bug</option>
+                <option value="EPIC">⚡  Epic</option>
+                <option value="SUBTASK">↳  Subtask</option>
+              </select>
+            </div>
+            <div>
+              <label className="form-label text-[11px]">{t('tasks.modal.priority')}</label>
+              <select className="form-select text-sm" {...register('priority')}>
+                <option value="CRITICAL">🔴  Critical</option>
+                <option value="HIGH">🟠  High</option>
+                <option value="MEDIUM">🟡  Medium</option>
+                <option value="LOW">🟢  Low</option>
+              </select>
+            </div>
+            <div>
+              <label className="form-label text-[11px]">{t('tasks.modal.status')}</label>
+              <select className="form-select text-sm" {...register('status')}>
+                <option value="TODO">{t('tasks.status.todo')}</option>
+                <option value="IN_PROGRESS">{t('tasks.status.inProgress')}</option>
+                <option value="IN_REVIEW">{t('tasks.status.inReview')}</option>
+                <option value="DONE">{t('tasks.status.done')}</option>
+              </select>
+            </div>
+            <div>
+              <label className="form-label text-[11px]">{t('tasks.modal.dueDate')} *</label>
+              <input
+                type="date"
+                className="form-input text-sm"
+                min={new Date().toISOString().split('T')[0]}
+                {...register('due_date', { required: t('validation.required') })}
+              />
+              {errors.due_date && <p className="text-xs text-red-600 mt-1">{errors.due_date.message as string}</p>}
+            </div>
+            <div>
+              <label className="form-label text-[11px]">{t('sprints.title')}</label>
+              <select className="form-select text-sm" {...register('sprint_id')}>
+                <option value="">{t('sprints.backlog')} (no sprint)</option>
+                {sprints.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Estimates card */}
+        <div className="rounded-xl border border-gray-100 bg-gray-50 divide-y divide-gray-100 overflow-hidden">
+          <p className="px-4 py-2.5 text-[11px] font-bold text-gray-400 uppercase tracking-widest bg-gray-100/60">
+            Estimates
+          </p>
+          <div className="px-4 py-3 grid grid-cols-2 gap-3">
+            <div>
+              <label className="form-label text-[11px]">Story Points</label>
+              <input type="number" step="0.5" min="0" className="form-input text-sm" placeholder="0"
+                {...register('story_points', { valueAsNumber: true })} />
+            </div>
+            <div>
+              <label className="form-label text-[11px]">Est. Hours</label>
+              <input type="number" step="0.25" min="0" className="form-input text-sm" placeholder="0"
+                {...register('estimated_hours', { valueAsNumber: true })} />
+            </div>
+          </div>
+        </div>
+
+        {/* Approval settings */}
+        {canManageApproval && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 divide-y divide-amber-100 overflow-hidden">
+            <p className="px-4 py-2.5 text-[11px] font-bold text-amber-500 uppercase tracking-widest bg-amber-100/60">
+              Settings
+            </p>
+            <div className="flex items-center justify-between px-4 py-3 gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-amber-900">Time approval</p>
+                <p className="text-xs text-amber-600 mt-0.5 leading-snug">Entries need sign-off before approval</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onRequireApprovalChange?.(!requireApproval)}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${requireApproval ? 'bg-amber-500' : 'bg-gray-300'}`}
+                role="switch"
+                aria-checked={requireApproval}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${requireApproval ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+          </div>
         )}
       </div>
-    </>
+    </div>
   );
 }
