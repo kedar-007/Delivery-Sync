@@ -17,6 +17,9 @@ interface RichCommentEditorProps {
   onChange: (html: string) => void;
   onMentionsChange?: (ids: string[]) => void;
   users?: User[];
+  /** IDs of users who are members of this task (assignees + creator). When provided the
+   *  mention dropdown shows task members first and non-members in a separate "Others" section. */
+  taskMemberIds?: string[];
   placeholder?: string;
   minHeight?: number;
   onCtrlEnter?: () => void;
@@ -104,6 +107,7 @@ export default function RichCommentEditor({
   onChange,
   onMentionsChange,
   users = [],
+  taskMemberIds,
   placeholder = 'Write a comment… Type @ to mention someone',
   minHeight = 100,
   onCtrlEnter,
@@ -301,14 +305,23 @@ export default function RichCommentEditor({
   }, [onChange, onMentionsChange, updateActiveFormats]);
 
   /* ── @mention insertion ─────────────────────────────────────── */
-  const filteredUsers =
-    mentionQuery !== null
-      ? users.filter(
-          (u) =>
-            u.name.toLowerCase().includes(mentionQuery.toLowerCase()) ||
-            u.email.toLowerCase().includes(mentionQuery.toLowerCase()),
-        ).slice(0, 6)
-      : [];
+  const memberIdSet = React.useMemo(() => new Set(taskMemberIds ?? []), [taskMemberIds]);
+  const hasMemberFilter = (taskMemberIds?.length ?? 0) > 0;
+
+  const { mentionMembers, mentionOthers } = React.useMemo(() => {
+    if (mentionQuery === null) return { mentionMembers: [], mentionOthers: [] };
+    const q = mentionQuery.toLowerCase();
+    const matches = users.filter(
+      (u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q),
+    );
+    if (!hasMemberFilter) return { mentionMembers: matches.slice(0, 8), mentionOthers: [] };
+    const members = matches.filter((u) => memberIdSet.has(u.id)).slice(0, 6);
+    const others  = matches.filter((u) => !memberIdSet.has(u.id)).slice(0, 4);
+    return { mentionMembers: members, mentionOthers: others };
+  }, [mentionQuery, users, hasMemberFilter, memberIdSet]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // flat list used for keyboard highlight index
+  const filteredUsers = [...mentionMembers, ...mentionOthers];
 
   const insertMention = useCallback(
     (user: User) => {
@@ -359,14 +372,60 @@ export default function RichCommentEditor({
       if ((e.metaKey || e.ctrlKey) && e.key === 'b') { e.preventDefault(); execFormat('bold'); return; }
       if ((e.metaKey || e.ctrlKey) && e.key === 'i') { e.preventDefault(); execFormat('italic'); return; }
       if ((e.metaKey || e.ctrlKey) && e.key === 'u') { e.preventDefault(); execFormat('underline'); return; }
+
+      // Mention picker navigation
       if (mentionQuery !== null && filteredUsers.length > 0) {
-        if (e.key === 'ArrowDown') { e.preventDefault(); setMentionHighlight((h) => Math.min(h + 1, filteredUsers.length - 1)); }
-        else if (e.key === 'ArrowUp') { e.preventDefault(); setMentionHighlight((h) => Math.max(h - 1, 0)); }
-        else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(filteredUsers[mentionHighlight]); }
-        else if (e.key === 'Escape') setMentionQuery(null);
+        if (e.key === 'ArrowDown') { e.preventDefault(); setMentionHighlight((h) => Math.min(h + 1, filteredUsers.length - 1)); return; }
+        if (e.key === 'ArrowUp')   { e.preventDefault(); setMentionHighlight((h) => Math.max(h - 1, 0)); return; }
+        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(filteredUsers[mentionHighlight]); return; }
+        if (e.key === 'Escape') { setMentionQuery(null); return; }
+      }
+
+      // Single-backspace removal of mention chips.
+      // contentEditable=false spans normally need TWO backspaces (first selects, second deletes)
+      // which breaks multi-mention removal. Handle it explicitly instead.
+      if (e.key === 'Backspace') {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0 && sel.getRangeAt(0).collapsed) {
+          const range = sel.getRangeAt(0);
+          const { startContainer, startOffset } = range;
+          let candidate: ChildNode | null = null;
+
+          if (startContainer.nodeType === Node.TEXT_NODE && startOffset === 0) {
+            candidate = startContainer.previousSibling;
+          } else if (startContainer.nodeType === Node.ELEMENT_NODE && startOffset > 0) {
+            candidate = (startContainer as Element).childNodes[startOffset - 1];
+          }
+
+          if (candidate instanceof Element && candidate.getAttribute('data-mention') === 'true') {
+            e.preventDefault();
+            const prevSibling = candidate.previousSibling;
+            candidate.parentNode?.removeChild(candidate);
+
+            // Reposition cursor: end of the node before the removed span
+            if (prevSibling) {
+              const nr = document.createRange();
+              if (prevSibling.nodeType === Node.TEXT_NODE) {
+                nr.setStart(prevSibling, prevSibling.textContent?.length ?? 0);
+              } else {
+                const parent = prevSibling.parentNode!;
+                nr.setStart(parent, Array.from(parent.childNodes).indexOf(prevSibling as ChildNode) + 1);
+              }
+              nr.collapse(true);
+              sel.removeAllRanges();
+              sel.addRange(nr);
+            }
+
+            const html = editorRef.current!.innerHTML;
+            onChange(html);
+            setIsEmpty(isEffectivelyEmpty(html));
+            onMentionsChange?.(getMentionIds(html));
+            return;
+          }
+        }
       }
     },
-    [execFormat, filteredUsers, insertMention, mentionHighlight, mentionQuery, onCtrlEnter],
+    [execFormat, filteredUsers, insertMention, mentionHighlight, mentionQuery, onCtrlEnter, onChange, onMentionsChange],
   );
 
   /* ── Close pickers on outside click ────────────────────────── */
@@ -521,29 +580,42 @@ export default function RichCommentEditor({
         {mentionQuery !== null && filteredUsers.length > 0 && (
           <div
             className="absolute z-50 bg-ds-surface border border-ds-border rounded-xl shadow-xl overflow-hidden"
-            style={{ left: Math.max(0, mentionPos.x), top: mentionPos.y, minWidth: 200, maxWidth: 260 }}
+            style={{ left: Math.max(0, mentionPos.x), top: mentionPos.y, minWidth: 220, maxWidth: 280 }}
           >
-            <div className="px-3 py-1.5 border-b border-ds-border">
-              <p className="text-[10px] text-ds-text-muted font-semibold uppercase tracking-wide">Mention</p>
-            </div>
-            {filteredUsers.map((u, idx) => (
-              <button key={u.id} type="button"
-                onMouseDown={(e) => { e.preventDefault(); insertMention(u); }}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 transition-colors text-left ${idx === mentionHighlight ? 'bg-indigo-50' : 'hover:bg-ds-surface-hover'}`}
-              >
-                {u.avatarUrl ? (
-                  <img src={u.avatarUrl} alt={u.name} className="w-7 h-7 rounded-full object-cover shrink-0" />
-                ) : (
-                  <span className="w-7 h-7 rounded-full bg-indigo-500 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
-                    {u.name[0]?.toUpperCase()}
-                  </span>
-                )}
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-ds-text truncate">{u.name}</p>
-                  <p className="text-[10px] text-ds-text-muted truncate">{u.email}</p>
+            {/* Task Members section */}
+            {mentionMembers.length > 0 && (
+              <>
+                <div className="px-3 py-1.5 border-b border-ds-border bg-ds-surface-hover/40">
+                  <p className="text-[10px] text-indigo-500 font-semibold uppercase tracking-wide">Task Members</p>
                 </div>
-              </button>
-            ))}
+                {mentionMembers.map((u, idx) => (
+                  <MentionRow key={u.id} user={u} highlighted={idx === mentionHighlight} onSelect={() => insertMention(u)} />
+                ))}
+              </>
+            )}
+
+            {/* Others section — non-task-members or all when no filter */}
+            {mentionOthers.length > 0 && (
+              <>
+                <div className={`px-3 py-1.5 border-ds-border bg-ds-surface-hover/20 ${mentionMembers.length > 0 ? 'border-t' : ''}`}>
+                  <p className="text-[10px] text-ds-text-muted font-semibold uppercase tracking-wide">
+                    {hasMemberFilter ? 'Others' : 'Users'}
+                  </p>
+                </div>
+                {mentionOthers.map((u, idx) => (
+                  <MentionRow
+                    key={u.id}
+                    user={u}
+                    highlighted={mentionMembers.length + idx === mentionHighlight}
+                    onSelect={() => insertMention(u)}
+                    dimmed
+                  />
+                ))}
+              </>
+            )}
+
+            {/* No filter — single list */}
+            {mentionOthers.length === 0 && mentionMembers.length === 0 && null}
           </div>
         )}
       </div>
@@ -552,6 +624,37 @@ export default function RichCommentEditor({
 }
 
 /* ── Sub-components ─────────────────────────────────────────────── */
+
+function MentionRow({
+  user, highlighted, onSelect, dimmed = false,
+}: {
+  user: User;
+  highlighted: boolean;
+  onSelect: () => void;
+  dimmed?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onMouseDown={(e) => { e.preventDefault(); onSelect(); }}
+      className={`w-full flex items-center gap-2.5 px-3 py-2 transition-colors text-left ${
+        highlighted ? 'bg-indigo-50 dark:bg-indigo-900/30' : 'hover:bg-ds-surface-hover'
+      } ${dimmed ? 'opacity-75' : ''}`}
+    >
+      {user.avatarUrl ? (
+        <img src={user.avatarUrl} alt={user.name} className="w-7 h-7 rounded-full object-cover shrink-0" />
+      ) : (
+        <span className="w-7 h-7 rounded-full bg-indigo-500 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+          {user.name[0]?.toUpperCase()}
+        </span>
+      )}
+      <div className="min-w-0">
+        <p className="text-xs font-semibold text-ds-text truncate">{user.name}</p>
+        <p className="text-[10px] text-ds-text-muted truncate">{user.email}</p>
+      </div>
+    </button>
+  );
+}
 
 function Btn({
   children, onCmd, active, title,

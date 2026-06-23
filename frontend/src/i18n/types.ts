@@ -309,15 +309,10 @@ export interface Translations {
     config: { title: string; save: string; orgName: string; timezone: string; };
     audit: { title: string; noLogs: string; action: string; user: string; timestamp: string; };
   };
-  assets: {
-    title: string; new: string; noAssets: string; scanQr: string;
-    status: { available: string; checkedOut: string; maintenance: string; retired: string; };
-    modal: {
-      createTitle: string; editTitle: string; nameLabel: string;
-      category: string; serialNumber: string; assignTo: string; create: string; save: string;
-    };
-    checkOut: string; checkIn: string; history: string;
-  };
+  // assets uses a broad record so the page can evolve keys without requiring
+  // every locale to be updated in lockstep. Missing keys fall back to the key string.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  assets: Record<string, any>;
   bugs: {
     title: string; new: string; noBugs: string;
     severity: { critical: string; high: string; medium: string; low: string; };

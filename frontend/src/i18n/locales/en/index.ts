@@ -385,14 +385,119 @@ const en: Translations = {
     audit: { title: 'Audit Logs', noLogs: 'No audit logs.', action: 'Action', user: 'User', timestamp: 'Timestamp' },
   },
   assets: {
-    title: 'Asset Management', new: 'New Asset', noAssets: 'No assets found.', scanQr: 'Scan QR Code',
-    status: { available: 'Available', checkedOut: 'Checked Out', maintenance: 'In Maintenance', retired: 'Retired' },
+    // Page chrome
+    title: 'Asset Management', subtitle: 'Track and manage organisational assets',
+    new: 'New Asset', scanQr: 'Scan QR Code',
+
+    // Tabs
+    tabMyAssets: 'My Assets', tabInventory: 'Inventory',
+    tabRequests: 'Requests', tabMaintenance: 'Maintenance',
+
+    // Status
+    status: { available: 'Available', checkedOut: 'Assigned', maintenance: 'In Maintenance', retired: 'Retired' },
+
+    // Inventory
+    noAssets: 'No assets found.', noAssetsDesc: 'Add your first asset to start tracking inventory.',
+    stockByCategory: 'Stock by Category', retireAsset: 'Retire Asset',
+    cost: 'Cost', purchaseDate: 'Purchase Date', purchaseValue: 'Purchase Value',
+    warrantyExpiry: 'Warranty Expiry', selectCategory: 'Select category…',
+
+    // My Assets
+    assignedOn: 'Assigned on', givenBy: 'Given by', approvedBy: 'Approved by',
+    returnBy: 'Return by', awaitingOpsVerification: 'Awaiting ops verification',
+    returnInitiatedDesc: 'Return initiated',
+    qrSticker: 'QR Sticker', qrStickerDesc: 'Scan this sticker to look up the asset.',
+    qrStickerDescDetail: 'Scan with the mobile app or any QR reader to view asset details.',
+    download: 'Download',
+
+    // Requests
+    allRequests: 'All Requests', myRequests: 'My Requests', approvedByMe: 'Approved by Me',
+    newRequest: 'New Request', noRequests: 'No requests',
+    noRequestsDesc: 'No asset requests match the current filter.',
+    noMyRequestsDesc: 'You have not submitted any asset requests yet.',
+    noApprovedDesc: 'You have not approved any requests yet.',
+    noResultsDesc: 'Try a different search or clear the filter.',
+    allStatuses: 'All Statuses', opsAssigned: 'Ops Assigned',
+    processing: 'Processing', handedOver: 'Handed Over',
+    returned: 'Returned', returnVerified: 'Return Verified',
+    inProgress: 'In Progress', fulfilled: 'Fulfilled',
+    requester: 'Requester', categoryAsset: 'Category / Asset',
+    reason: 'Reason', submitted: 'Submitted', neededBy: 'Needed By',
+    verify: 'Verify', action: 'Action',
+
+    // Request flow – browse & select
+    browseSelect: 'Browse & Select',
+    requestDetails: 'Request Details',
+    filterByCategory: 'Filter by category',
+    noStockInCategory: 'No available stock in this category',
+    requestSubmittedOps: 'Send to ops anyway',
+    submitAnyway: 'Submit Anyway',
+    anyAvailable: 'Any available',
+    adminWillPick: 'Admin will assign a specific asset',
+    nextRequestDetails: 'Next: Request Details',
+    selectAsset: 'Select asset…',
+
+    // Approval / ops
+    assignToOps: 'Assign to Operations Team',
+    opsNotifyDesc: 'Selected users/roles will be notified via email and in-app to process and hand over this asset.',
+    roles: 'Roles', individualUsers: 'Individual Users',
+    opsTeamAssigned: 'Ops Team Assigned',
+
+    // Handover
+    checkOut: 'Hand Over', handOver: 'Hand Over', handingOverTo: 'Handing over to',
+    chooseAsset: 'Choose asset…',
+    deviceCredentials: 'Device Credentials',
+    deviceId: 'Device ID / Serial', deviceUsername: 'Username / Login', devicePassword: 'Password',
+    markProcessing: 'Mark Processing',
+
+    // Return
+    checkIn: 'Return Asset', returnThisAsset: 'Return This Asset',
+    reasonForReturn: 'Reason for return (optional)…',
+    initiateReturnDesc: 'Initiating return of {name}',
+    thisAsset: 'this asset', returnInitiated: 'Return Initiated',
+
+    // Verify return
+    verifyReturn: 'Verify Return', returnedBy: 'Returned by',
+    bounceReturnBack: 'Bounce the return back',
+    bounceReturnDesc: 'Use this when the physical handover is incomplete — wrong device, missing accessories, damage not declared.',
+    whatNeedsToBeFixed: 'What needs to be fixed?',
+    bounceBackToRequester: 'Bounce Back to Requester',
+    assetCondition: 'Asset Condition',
+    conditionHelp: 'Select the condition in which the asset was returned.',
+    damageReport: 'Damage Report',
+    damageDescription: 'Damage / Loss Description',
+    estimatedRepairCost: 'Estimated Repair / Replacement Cost',
+    recoveryChecklist: 'Recovery Checklist',
+    recoveryChecklistDesc: 'Tick items that were physically returned. Unticked items will be logged as missing.',
+    verificationNotes: 'Verification Notes',
+    rejectReturn: 'Reject Return', rejectAssetRequest: 'Reject Asset Request',
+    returnVerifiedSection: 'Return Verified',
+    verifiedBy: 'Verified by', returnedItems: 'Returned items', missingItems: 'Missing items',
+    previousReturnBouncedBack: 'Previous Return Bounced Back',
+    activity: 'Activity',
+    requestBeingProcessed: 'This request is currently being processed by the ops team and can no longer be edited.',
+    requestRejected: 'Request Rejected',
+
+    // Maintenance
+    maintenanceSchedule: 'Maintenance Schedule',
+    scheduleMaintenance: 'Schedule Maintenance',
+    noMaintenance: 'No maintenance records',
+    noMaintenanceDesc: 'Schedule asset maintenance to keep track of upkeep.',
+    scheduledDate: 'Scheduled Date', completedDate: 'Completed Date',
+    totalRecords: 'Total Records', scheduledInProgress: 'Scheduled / In Progress',
+    markDone: 'Mark Done', markMaintenanceDone: 'Mark Maintenance as Done',
+    completionNotes: 'Completion Notes',
+    markingDoneDesc: 'Marking this done will set the asset status back to Available.',
+    confirmCompletion: 'Confirm Completion',
+
+    // Modals
     modal: {
-      createTitle: 'New Asset', editTitle: 'Edit Asset', nameLabel: 'Asset Name',
-      category: 'Category', serialNumber: 'Serial Number', assignTo: 'Assign To',
-      create: 'Create Asset', save: 'Save',
+      createTitle: 'Add Asset', editTitle: 'Edit Asset', nameLabel: 'Asset Name',
+      category: 'Category', serialNumber: 'Serial Number', assignTo: 'Select Asset to Hand Over *',
+      create: 'Add Asset', save: 'Save Changes',
     },
-    checkOut: 'Check Out', checkIn: 'Check In', history: 'History',
+
+    history: 'History',
   },
   bugs: {
     title: 'Bug Reports', new: 'Report Bug', noBugs: 'No bug reports found.',

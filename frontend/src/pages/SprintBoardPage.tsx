@@ -466,6 +466,7 @@ export default function SprintBoardPage() {
   const [logTimeStartTime, setLogTimeStartTime] = useState('');
   const [logTimeEndTime, setLogTimeEndTime] = useState('');
   const [logTimeError, setLogTimeError] = useState('');
+  const [editingEntry, setEditingEntry] = useState<any | null>(null);
   const [submittingEntryId, setSubmittingEntryId] = useState<string | null>(null);
   const [timeError, setTimeError] = useState<string | null>(null);
   const [createTaskRequireApproval, setCreateTaskRequireApproval] = useState(false);
@@ -730,6 +731,26 @@ export default function SprintBoardPage() {
     });
   });
 
+  const resetLogTimeForm = () => {
+    setLogTimeHours(''); setLogTimeDesc('');
+    setLogTimeStartTime(''); setLogTimeEndTime('');
+    setLogTimeDate(format(new Date(), 'yyyy-MM-dd'));
+    setLogTimeError(''); setEditingEntry(null);
+  };
+
+  const startEditEntry = (e: any) => {
+    setEditingEntry(e);
+    setLogTimeHours(String(e.hours ?? ''));
+    setLogTimeDesc(e.description ?? '');
+    setLogTimeBillable(e.is_billable === true || e.is_billable === 'true');
+    setLogTimeStartTime(e.start_time ?? e.startTime ?? '');
+    setLogTimeEndTime(e.end_time ?? e.endTime ?? '');
+    const raw = e.entry_date ?? e.date ?? '';
+    setLogTimeDate(raw ? raw.split('T')[0].split(' ')[0] : format(new Date(), 'yyyy-MM-dd'));
+    setLogTimeError('');
+    document.getElementById('sprint-log-time-form')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+
   // Log time against task
   const handleLogTime = async () => {
     if (!detailTask || !logTimeHours) return;
@@ -745,19 +766,29 @@ export default function SprintBoardPage() {
     setLogTimeError('');
     setLogTimePending(true);
     try {
-      await timeEntriesApi.create({
-        project_id: detailTask.projectId ?? projectId,
-        task_id: detailTask.id,
-        entry_date: logTimeDate,
-        hours: parseHoursInput(logTimeHours),
-        description: logTimeDesc || detailTask.title,
-        is_billable: logTimeBillable,
-        require_approval: (detailTask as any).requireApproval === true ? 'true' : 'false',
-        ...(logTimeStartTime ? { start_time: logTimeStartTime } : {}),
-        ...(logTimeEndTime ? { end_time: logTimeEndTime } : {}),
-      });
-      setLogTimeHours(''); setLogTimeDesc('');
-      setLogTimeStartTime(''); setLogTimeEndTime('');
+      if (editingEntry) {
+        const entryId = String(editingEntry.ROWID ?? editingEntry.id ?? '');
+        await timeEntriesApi.update(entryId, {
+          hours:       parseHoursInput(logTimeHours),
+          description: logTimeDesc,
+          is_billable: logTimeBillable,
+          start_time:  logTimeStartTime || '',
+          end_time:    logTimeEndTime   || '',
+        });
+      } else {
+        await timeEntriesApi.create({
+          project_id: detailTask.projectId ?? projectId,
+          task_id: detailTask.id,
+          entry_date: logTimeDate,
+          hours: parseHoursInput(logTimeHours),
+          description: logTimeDesc || detailTask.title,
+          is_billable: logTimeBillable,
+          require_approval: (detailTask as any).requireApproval === true ? 'true' : 'false',
+          ...(logTimeStartTime ? { start_time: logTimeStartTime } : {}),
+          ...(logTimeEndTime ? { end_time: logTimeEndTime } : {}),
+        });
+      }
+      resetLogTimeForm();
       // Refresh time entries list
       if (taskDetailId) {
         setTimeEntriesLoading(true);
@@ -891,6 +922,7 @@ export default function SprintBoardPage() {
       type: task.type,
       priority: task.priority,
       story_points: task.storyPoints ?? undefined,
+      estimated_hours: (task as any).estimatedHours ?? (task as any).estimated_hours ?? undefined,
       due_date: task.dueDate ? task.dueDate.split('T')[0] : '',
       labels: (task.labels ?? []).join(', '),
     });
@@ -1540,6 +1572,10 @@ export default function SprintBoardPage() {
                           onChange={setCommentText}
                           onMentionsChange={setMentionedIds}
                           users={(users as any[]).map((u: any) => ({ id: String(u.id ?? u.ROWID), name: u.name ?? u.email ?? 'User', email: u.email, avatarUrl: u.avatarUrl }))}
+                          taskMemberIds={[
+                            ...(detailTask.assigneeIds ?? (detailTask.assigneeId ? [detailTask.assigneeId] : [])),
+                            (detailTask as any).createdBy,
+                          ].filter((id): id is string => Boolean(id)).map(String)}
                           placeholder="Add a comment… Type @ to mention someone"
                           minHeight={80}
                           onCtrlEnter={() => {
@@ -1660,8 +1696,11 @@ export default function SprintBoardPage() {
                                   ? 'bg-red-100 text-red-600 border-red-200'
                                   : 'bg-slate-100 text-slate-500 border-slate-200';
                             const statusDot = status === 'APPROVED' ? 'bg-emerald-500' : status === 'SUBMITTED' ? 'bg-amber-500' : status === 'REJECTED' ? 'bg-red-500' : 'bg-slate-400';
+                            const isOwn = String(e.user_id ?? e.userId ?? '') === String((user as any)?.id ?? '');
+                            const editable = isOwn && ['DRAFT','REJECTED','SUBMITTED',undefined,null,''].includes(status);
+                            const isBeingEdited = editingEntry && String(editingEntry.ROWID ?? editingEntry.id ?? '') === entryId;
                             return (
-                              <div key={entryId} className="bg-ds-surface border border-ds-border rounded-2xl shadow-sm overflow-hidden">
+                              <div key={entryId} className={`border rounded-2xl shadow-sm overflow-hidden transition-colors ${isBeingEdited ? 'bg-amber-50 border-amber-300' : 'bg-ds-surface border-ds-border'}`}>
                                 {/* Top row */}
                                 <div className="flex items-center gap-3 px-3.5 pt-3 pb-2">
                                   {/* Hours pill */}
@@ -1669,16 +1708,38 @@ export default function SprintBoardPage() {
                                     <Clock size={11} className="mr-1 opacity-80" />
                                     <span className="text-sm font-bold">{fmtH(e.hours ?? 0)}</span>
                                   </div>
-                                  {/* Description + date */}
+                                  {/* Description + date + time range */}
                                   <div className="flex-1 min-w-0">
                                     <p className="text-xs font-semibold text-gray-800 truncate leading-tight">{e.description || 'No description'}</p>
-                                    <p className="text-[10px] text-ds-text-muted mt-0.5">{e.entry_date ? format(parseISO(e.entry_date), 'MMM d, yyyy') : ''}</p>
+                                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                      <p className="text-[10px] text-ds-text-muted">{e.entry_date ? format(parseISO(e.entry_date), 'MMM d, yyyy') : ''}</p>
+                                      {(e.start_time || e.startTime) && (e.end_time || e.endTime) && (
+                                        <span className="flex items-center gap-1 text-[10px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded-md">
+                                          <Clock size={8} />
+                                          {(e.start_time || e.startTime).slice(0, 5)} – {(e.end_time || e.endTime).slice(0, 5)}
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
-                                  {/* Billable badge */}
-                                  <span className={`shrink-0 flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-lg border ${isBillable ? 'bg-green-50 text-green-700 border-green-200' : 'bg-ds-surface-hover text-ds-text-muted border-ds-border'}`}>
-                                    {isBillable ? <DollarSign size={9} /> : <Ban size={9} />}
-                                    {isBillable ? 'Billable' : 'Non-billable'}
-                                  </span>
+                                  {/* Edit + Billable */}
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    {editable && !isBeingEdited && (
+                                      <button
+                                        onClick={() => startEditEntry(e)}
+                                        className="p-1.5 rounded-lg text-ds-text-muted hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                                        title="Edit this entry"
+                                      >
+                                        <Edit2 size={12} />
+                                      </button>
+                                    )}
+                                    {isBeingEdited && (
+                                      <span className="text-[10px] font-semibold text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded">editing</span>
+                                    )}
+                                    <span className={`flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-lg border ${isBillable ? 'bg-green-50 text-green-700 border-green-200' : 'bg-ds-surface-hover text-ds-text-muted border-ds-border'}`}>
+                                      {isBillable ? <DollarSign size={9} /> : <Ban size={9} />}
+                                      {isBillable ? 'Billable' : 'Non-billable'}
+                                    </span>
+                                  </div>
                                 </div>
                                 {/* Bottom row — status + action */}
                                 <div className="flex items-center justify-between px-3.5 pb-3 gap-2">
@@ -1719,9 +1780,16 @@ export default function SprintBoardPage() {
                       )}
 
                       {/* Log time form */}
-                      <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-200 rounded-2xl p-4 space-y-3">
-                        <div className="text-xs font-bold text-indigo-700 flex items-center gap-1.5">
-                          <Timer size={13} /> Log New Time Entry
+                      <div id="sprint-log-time-form" className={`rounded-2xl p-4 space-y-3 border ${editingEntry ? 'bg-amber-50 border-amber-300' : 'bg-gradient-to-br from-indigo-50 to-blue-50 border-indigo-200'}`}>
+                        <div className="flex items-center justify-between">
+                          <div className={`text-xs font-bold flex items-center gap-1.5 ${editingEntry ? 'text-amber-700' : 'text-indigo-700'}`}>
+                            {editingEntry ? <><Edit2 size={13} /> Edit Time Entry</> : <><Timer size={13} /> Log New Time Entry</>}
+                          </div>
+                          {editingEntry && (
+                            <button onClick={resetLogTimeForm} className="text-[11px] text-amber-700 hover:text-amber-900 font-medium flex items-center gap-1">
+                              <X size={11} /> Cancel Edit
+                            </button>
+                          )}
                         </div>
                         {logTimeError && (
                           <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
@@ -1778,7 +1846,10 @@ export default function SprintBoardPage() {
                           </div>
                           <div>
                             <label className="text-[11px] text-ds-text-muted font-medium block mb-1">Date *</label>
-                            <input type="date" className="form-input text-sm" value={logTimeDate} onChange={(e) => setLogTimeDate(e.target.value)} />
+                            <input type="date" className={`form-input text-sm ${editingEntry ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
+                              value={logTimeDate} readOnly={!!editingEntry}
+                              onChange={(e) => !editingEntry && setLogTimeDate(e.target.value)} />
+                            {editingEntry && <p className="text-[10px] text-amber-600 mt-0.5">Date cannot be changed when editing</p>}
                           </div>
                         </div>
                         <div>
@@ -1797,16 +1868,23 @@ export default function SprintBoardPage() {
                             🔧 Non-billable
                           </label>
                         </div>
-                        <Button
-                          size="sm"
-                          variant="primary"
-                          loading={logTimePending}
-                          disabled={!logTimeHours || !logTimeDate}
-                          onClick={handleLogTime}
-                          className="w-full"
-                        >
-                          Save Time Entry
-                        </Button>
+                        <div className="flex gap-2">
+                          {editingEntry && (
+                            <Button size="sm" variant="secondary" onClick={resetLogTimeForm} className="flex-1">
+                              Cancel
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant={editingEntry ? 'outline' : 'primary'}
+                            className={editingEntry ? 'flex-1 !border-amber-400 !text-amber-700 hover:!bg-amber-50' : 'flex-1'}
+                            loading={logTimePending}
+                            disabled={!logTimeHours || !logTimeDate}
+                            onClick={handleLogTime}
+                          >
+                            {editingEntry ? 'Update Entry' : 'Save Time Entry'}
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1956,92 +2034,113 @@ export default function SprintBoardPage() {
         open={!!editTask}
         onClose={() => setEditTask(null)}
         title={t('tasks.modal.editTitle')}
-        size="lg"
+        size="2xl"
+        closeOnBackdropClick={false}
+        closeButtonVariant="danger"
       >
         {editTask && (
-          <form onSubmit={onSaveEdit} className="space-y-4">
-            <div>
-              <label className="form-label">{t('tasks.modal.titleLabel')} *</label>
-              <input className="form-input" {...editForm.register('title', { required: true })} />
-            </div>
-            <div>
-              <label className="form-label">{t('tasks.modal.descLabel')}</label>
-              <textarea className="form-textarea" rows={3} {...editForm.register('description')} />
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="form-label">Type</label>
-                <select className="form-select" {...editForm.register('type')}>
-                  <option value="TASK">Task</option>
-                  <option value="STORY">Story</option>
-                  <option value="BUG">Bug</option>
-                  <option value="EPIC">Epic</option>
-                  <option value="SUBTASK">Subtask</option>
-                </select>
+          <form onSubmit={onSaveEdit}>
+            <div className="flex gap-5 overflow-y-auto max-h-[72vh]">
+              {/* ── Left panel: content ── */}
+              <div className="flex-[3] space-y-4 min-w-0">
+                <div>
+                  <label className="form-label">{t('tasks.modal.titleLabel')} *</label>
+                  <input className="form-input" {...editForm.register('title', { required: true })} />
+                </div>
+                <div>
+                  <label className="form-label">{t('tasks.modal.descLabel')}</label>
+                  <textarea className="form-textarea" rows={4} {...editForm.register('description')} />
+                </div>
+                {canAssignToOthers ? (
+                  <MultiUserSelect label="Assignees" value={editAssigneeIds} onChange={setEditAssigneeIds} users={users} />
+                ) : (
+                  <div>
+                    <label className="form-label">Assignees</label>
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-ds-border bg-ds-surface-hover text-sm text-ds-text-muted">
+                      <User size={13} className="text-ds-text-muted" />
+                      <span>Assigned to you — contact your lead to reassign</span>
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <label className="form-label">Labels <span className="text-ds-text-muted font-normal">(comma separated)</span></label>
+                  <input className="form-input" placeholder="frontend, urgent" {...editForm.register('labels')} />
+                </div>
               </div>
-              <div>
-                <label className="form-label">{t('common.priority')}</label>
-                <select className="form-select" {...editForm.register('priority')}>
-                  <option value="CRITICAL">{t('tasks.priority.critical')}</option>
-                  <option value="HIGH">{t('tasks.priority.high')}</option>
-                  <option value="MEDIUM">{t('tasks.priority.medium')}</option>
-                  <option value="LOW">{t('tasks.priority.low')}</option>
-                </select>
-              </div>
-              <div>
-                <label className="form-label">Story Points</label>
-                <input type="number" step="0.5" className="form-input" {...editForm.register('story_points', { valueAsNumber: true })} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="form-label">{t('tasks.modal.dueDate')} *</label>
-                <input
-                  type="date"
-                  className="form-input"
-                  {...editForm.register('due_date', { required: 'Due date is required' })}
-                />
-                {editForm.formState.errors.due_date && (
-                  <p className="form-error">{editForm.formState.errors.due_date.message as string}</p>
+
+              {/* ── Right panel: properties ── */}
+              <div className="flex-[2] space-y-3 min-w-0">
+                {/* Properties card */}
+                <div className="rounded-xl border border-ds-border bg-ds-surface-hover p-4 space-y-3">
+                  <p className="text-[11px] font-semibold text-ds-text-muted uppercase tracking-wider">Properties</p>
+                  <div>
+                    <label className="form-label">⚡ Type</label>
+                    <select className="form-select" {...editForm.register('type')}>
+                      <option value="TASK">🔷 Task</option>
+                      <option value="STORY">📖 Story</option>
+                      <option value="BUG">🐛 Bug</option>
+                      <option value="EPIC">🚀 Epic</option>
+                      <option value="SUBTASK">🔹 Subtask</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="form-label">🔥 Priority</label>
+                    <select className="form-select" {...editForm.register('priority')}>
+                      <option value="CRITICAL">🔴 {t('tasks.priority.critical')}</option>
+                      <option value="HIGH">🟠 {t('tasks.priority.high')}</option>
+                      <option value="MEDIUM">🟡 {t('tasks.priority.medium')}</option>
+                      <option value="LOW">🟢 {t('tasks.priority.low')}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="form-label">📅 {t('tasks.modal.dueDate')}</label>
+                    <input
+                      type="date"
+                      className="form-input"
+                      {...editForm.register('due_date', { required: 'Due date is required' })}
+                    />
+                    {editForm.formState.errors.due_date && (
+                      <p className="form-error">{editForm.formState.errors.due_date.message as string}</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Estimates card */}
+                <div className="rounded-xl border border-ds-border bg-ds-surface-hover p-4 space-y-3">
+                  <p className="text-[11px] font-semibold text-ds-text-muted uppercase tracking-wider">Estimates</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="form-label">🎯 Story Points</label>
+                      <input type="number" step="0.5" className="form-input" {...editForm.register('story_points', { valueAsNumber: true })} />
+                    </div>
+                    <div>
+                      <label className="form-label">⏱ Est. Hours</label>
+                      <input type="number" step="0.25" className="form-input" {...editForm.register('estimated_hours', { valueAsNumber: true })} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Approval settings */}
+                {canConfigureApproval && (
+                  <div className="flex items-center justify-between rounded-xl bg-amber-50 border border-amber-200 px-4 py-3">
+                    <div>
+                      <p className="text-sm font-medium text-amber-900">Require time entry approval</p>
+                      <p className="text-xs text-amber-600 mt-0.5">Time entries logged on this task need manager approval</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditTaskRequireApproval((v) => !v)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none shrink-0 ${editTaskRequireApproval ? 'bg-amber-500' : 'bg-gray-300'}`}
+                      role="switch"
+                      aria-checked={editTaskRequireApproval}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${editTaskRequireApproval ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
                 )}
               </div>
-              <div>
-                <label className="form-label">Est. Hours</label>
-                <input type="number" step="0.25" className="form-input" {...editForm.register('estimated_hours', { valueAsNumber: true })} />
-              </div>
             </div>
-            {canAssignToOthers ? (
-              <MultiUserSelect label="Assignees" value={editAssigneeIds} onChange={setEditAssigneeIds} users={users} />
-            ) : (
-              <div>
-                <label className="form-label">Assignees</label>
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-ds-border bg-ds-surface-hover text-sm text-ds-text-muted">
-                  <User size={13} className="text-ds-text-muted" />
-                  <span>Assigned to you — contact your lead to reassign</span>
-                </div>
-              </div>
-            )}
-            <div>
-              <label className="form-label">Labels <span className="text-ds-text-muted font-normal">(comma separated)</span></label>
-              <input className="form-input" placeholder="frontend, urgent" {...editForm.register('labels')} />
-            </div>
-            {canConfigureApproval && (
-              <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
-                <div>
-                  <p className="text-sm font-medium text-amber-900">Require time entry approval</p>
-                  <p className="text-xs text-amber-600 mt-0.5">Time entries logged on this task will be sent to the task owner for approval</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setEditTaskRequireApproval((v) => !v)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${editTaskRequireApproval ? 'bg-amber-500' : 'bg-gray-300'}`}
-                  role="switch"
-                  aria-checked={editTaskRequireApproval}
-                >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${editTaskRequireApproval ? 'translate-x-6' : 'translate-x-1'}`} />
-                </button>
-              </div>
-            )}
+
             <ModalActions>
               <Button variant="secondary" onClick={() => setEditTask(null)}>{t('common.cancel')}</Button>
               <Button type="submit" variant="primary" loading={updateTask.isPending}>Save Changes</Button>

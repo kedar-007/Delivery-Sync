@@ -3,15 +3,7 @@
     "name": "task_sprint_service",
     "stack": "node20",
     "type": "advancedio",
-    "env_variables": {
-      "NODE_ENV": "development",
-      "ENVIRONMENT": "development",
-      "FROM_EMAIL": "catalystadmin@dsv360.ai",
-      "APP_URL": "https://dev-ekatva.dsv360.ai",
-      "INTERNAL_SECRET": "kedar",
-      "STRATUS_ATTACHMENTS_BUCKET": "attachments-tasks",
-      "STRATUS_ATTACHMENTS_URL": "https://attachments-tasks-development.zohostratus.in"
-    }
+    "env_variables": {}
   },
   "execution": {
     "main": "index.js"

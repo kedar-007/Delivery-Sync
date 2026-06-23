@@ -2,13 +2,24 @@
 import type { Translations } from './types';
 
 // ── Deep-path resolver ─────────────────────────────────────────────────────────
+// Stops recursion at `any`, `string`, or index-signature objects (Record<string,*>)
+// to avoid "type instantiation excessively deep" when a section uses Record<string,any>.
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type IsIndexSignature<T> = string extends keyof T ? true : false;
 
 export type DeepKeys<T, Prefix extends string = ''> =
-  T extends string ? Prefix :
-  { [K in keyof T]: K extends string
-      ? DeepKeys<T[K], Prefix extends '' ? K : `${Prefix}.${K}`>
-      : never
-  }[keyof T];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [T] extends [any]
+    ? T extends string
+      ? Prefix
+      : IsIndexSignature<T> extends true
+        ? Prefix  // treat Record<string,*> sections as terminal — accept any sub-key at runtime
+        : { [K in keyof T]: K extends string
+              ? DeepKeys<T[K], Prefix extends '' ? K : `${Prefix}.${K}`>
+              : never
+          }[keyof T]
+    : never;
 
 export type TranslationKey = DeepKeys<Translations>;
 

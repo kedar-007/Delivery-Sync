@@ -231,7 +231,7 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
   }, [watchedStart, watchedEnd, setValue]);
 
   const { data: tasksRaw = [], isFetching: tasksFetching } = useTasks(
-    watchedProjectId ? { project_id: watchedProjectId } : undefined,
+    watchedProjectId ? { project_id: watchedProjectId, my_only: 'true' } : undefined,
     !!watchedProjectId,
   );
   const tasks = (tasksRaw as Array<{ id: string; title: string; require_approval?: string | boolean }>).filter(Boolean);
@@ -245,8 +245,8 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
       if (entry) {
         // Editing an existing entry — always load that entry's data
         reset({
-          project_id:  entry.projectId ?? '',
-          task_id:     entry.taskId ?? '',
+          project_id:  entry.projectId ? String(entry.projectId) : '',
+          task_id:     entry.taskId    ? String(entry.taskId)    : '',
           description: entry.description ?? '',
           date:        entry.date ?? todayStr(),
           hours:       entry.hours ? decimalToHHMM(Number(entry.hours)) : '1:00',
@@ -350,6 +350,14 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
         {error && <div className="mb-5"><Alert type="error" message={error} /></div>}
 
         {/* ── Section 1: Project & Task ── */}
+        {/* Edit-mode info banner: show what project/task we're editing */}
+        {entry && (entry.projectName || entry.taskName) && (
+          <div className="flex items-center gap-2 mb-4 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs text-indigo-700">
+            <span className="font-semibold shrink-0">Editing:</span>
+            {entry.projectName && <span className="bg-indigo-100 px-2 py-0.5 rounded font-medium">{entry.projectName}</span>}
+            {entry.taskName && <><span className="text-indigo-400">›</span><span className="bg-indigo-100 px-2 py-0.5 rounded font-medium">{entry.taskName}</span></>}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-4 mb-5">
           <div>
             <label className="form-label">{t('timeTracking.form.project')} *</label>
@@ -363,7 +371,7 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
           </div>
 
           <div>
-            <label className="form-label">{t('timeTracking.form.task')} *</label>
+            <label className="form-label">{t('timeTracking.form.task')} {entry ? '' : '*'}</label>
             {!watchedProjectId ? (
               <div className="form-select text-gray-400 text-sm select-none cursor-not-allowed bg-gray-50">
                 Select a project first…
@@ -374,8 +382,8 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
                 <span className="text-sm">Loading tasks…</span>
               </div>
             ) : (
-              <select className="form-select" {...register('task_id', { required: 'Task is required' })}>
-                <option value="">Select task…</option>
+              <select className="form-select" {...register('task_id', { required: entry ? false : 'Task is required' })}>
+                <option value="">{entry ? 'Keep existing task…' : 'Select task…'}</option>
                 {tasks.map((t) => (
                   <option key={t.id} value={t.id}>{t.title}</option>
                 ))}

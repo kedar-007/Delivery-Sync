@@ -594,6 +594,7 @@ function TaskDetailPanel({
   logTimeStartTime, setLogTimeStartTime,
   logTimeEndTime, setLogTimeEndTime,
   logTimePending, logTimeError, onLogTime,
+  editingEntry, onStartEditEntry, onResetLogTimeForm, currentUserId,
   aiInsight, aiLoading,
   onEdit,
   canEdit,
@@ -631,6 +632,10 @@ function TaskDetailPanel({
   logTimePending: boolean;
   logTimeError: string;
   onLogTime: () => void;
+  editingEntry: any | null;
+  onStartEditEntry: (e: any) => void;
+  onResetLogTimeForm: () => void;
+  currentUserId: string;
   aiInsight: string | null;
   aiLoading: boolean;
   onEdit: (t: Task) => void;
@@ -812,6 +817,7 @@ function TaskDetailPanel({
                   onChange={setDetailComment}
                   onMentionsChange={setMentionedIds}
                   users={allUsers.map((u) => ({ id: String(u.id), name: u.name, email: u.email, avatarUrl: u.avatarUrl }))}
+                  taskMemberIds={[...assigneeIds, task.createdBy].filter((id): id is string => Boolean(id)).map(String)}
                   placeholder="Add a comment… Type @ to mention someone"
                   minHeight={80}
                   onCtrlEnter={() => { if (detailComment.replace(/<[^>]*>/g, '').trim()) onAddComment(); }}
@@ -867,8 +873,17 @@ function TaskDetailPanel({
           {detailTab === 'time' && (
             <div className="p-6 space-y-5">
               {/* Log form */}
-              <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
-                <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Log Time</h4>
+              <div id="detail-log-time-form" className={`rounded-xl p-4 space-y-3 border ${editingEntry ? 'bg-amber-50 border-amber-300' : 'bg-gray-50 border-gray-200'}`}>
+                <div className="flex items-center justify-between">
+                  <h4 className={`text-xs font-semibold uppercase tracking-wide ${editingEntry ? 'text-amber-700' : 'text-gray-700'}`}>
+                    {editingEntry ? '✏️ Edit Time Entry' : 'Log Time'}
+                  </h4>
+                  {editingEntry && (
+                    <button onClick={onResetLogTimeForm} className="text-[11px] text-amber-700 hover:text-amber-900 font-medium flex items-center gap-1">
+                      <X size={11} /> Cancel Edit
+                    </button>
+                  )}
+                </div>
                 {logTimeError && <Alert type="error" message={logTimeError} />}
                 {/* Start / End first — they drive the Hours field */}
                 <div className="grid grid-cols-2 gap-3">
@@ -920,8 +935,10 @@ function TaskDetailPanel({
                   </div>
                   <div>
                     <label className="form-label">Date *</label>
-                    <input type="date" className="form-input"
-                      value={logTimeDate} onChange={(e) => setLogTimeDate(e.target.value)} />
+                    <input type="date" className={`form-input ${editingEntry ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
+                      value={logTimeDate} readOnly={!!editingEntry}
+                      onChange={(e) => !editingEntry && setLogTimeDate(e.target.value)} />
+                    {editingEntry && <p className="text-[10px] text-amber-600 mt-0.5">Date cannot be changed when editing</p>}
                   </div>
                 </div>
                 <div>
@@ -937,9 +954,14 @@ function TaskDetailPanel({
                   </label>
                 </div>
 
-                <div className="flex justify-end">
-                  <Button size="sm" variant="primary" loading={logTimePending} disabled={!logTimeHours} onClick={onLogTime}>
-                    Save Entry
+                <div className="flex items-center justify-end gap-2">
+                  {editingEntry && (
+                    <Button size="sm" variant="secondary" onClick={onResetLogTimeForm}>Cancel</Button>
+                  )}
+                  <Button size="sm" variant={editingEntry ? 'outline' : 'primary'}
+                    className={editingEntry ? '!border-amber-400 !text-amber-700 hover:!bg-amber-50' : ''}
+                    loading={logTimePending} disabled={!logTimeHours} onClick={onLogTime}>
+                    {editingEntry ? 'Update Entry' : 'Save Entry'}
                   </Button>
                 </div>
               </div>
@@ -952,9 +974,14 @@ function TaskDetailPanel({
               ) : (
                 <div className="space-y-2">
                   <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wide">History</h4>
-                  {taskTimeEntries.map((e: any, i: number) => (
-                    <div key={e.id ?? i} className="bg-white border border-gray-100 rounded-xl px-3 py-3 shadow-sm space-y-1.5">
-                      {/* Top row: user + hours + date */}
+                  {taskTimeEntries.map((e: any, i: number) => {
+                    const entryId = String(e.ROWID ?? e.id ?? '');
+                    const isOwn = String(e.user_id ?? e.userId ?? '') === currentUserId;
+                    const editable = isOwn && ['DRAFT','REJECTED','SUBMITTED',undefined,null,''].includes(e.status);
+                    const isBeingEdited = editingEntry && String(editingEntry.ROWID ?? editingEntry.id ?? '') === entryId;
+                    return (
+                    <div key={entryId || i} className={`rounded-xl px-3 py-3 shadow-sm space-y-1.5 border transition-colors ${isBeingEdited ? 'bg-amber-50 border-amber-300' : 'bg-white border-gray-100'}`}>
+                      {/* Top row: user + hours + date + edit */}
                       <div className="flex items-center gap-2">
                         <UserAvatar
                           name={e.user_name || e.userName || '?'}
@@ -971,20 +998,34 @@ function TaskDetailPanel({
                         {e.is_billable && (
                           <span className="text-green-600 font-semibold shrink-0 text-xs" title="Billable">$</span>
                         )}
+                        {editable && !isBeingEdited && (
+                          <button
+                            onClick={() => onStartEditEntry(e)}
+                            className="p-1 rounded-md text-gray-400 hover:text-amber-600 hover:bg-amber-50 transition-colors shrink-0"
+                            title="Edit this entry"
+                          >
+                            <Edit2 size={12} />
+                          </button>
+                        )}
+                        {isBeingEdited && (
+                          <span className="text-[10px] font-semibold text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded shrink-0">editing</span>
+                        )}
                       </div>
                       {/* Description + time range */}
-                      <div className="flex items-center gap-2 pl-7">
+                      <div className="flex items-center gap-2 pl-7 flex-wrap">
                         {e.description && (
-                          <span className="text-[11px] text-gray-500 flex-1 truncate">{e.description}</span>
+                          <span className="text-[11px] text-gray-500 flex-1 truncate min-w-0">{e.description}</span>
                         )}
                         {(e.start_time || e.startTime) && (e.end_time || e.endTime) && (
-                          <span className="text-[11px] text-gray-400 shrink-0">
+                          <span className="flex items-center gap-1 text-[10px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded-md shrink-0">
+                            <Clock size={8} />
                             {(e.start_time || e.startTime).slice(0, 5)} – {(e.end_time || e.endTime).slice(0, 5)}
                           </span>
                         )}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                   <div className="text-right text-xs text-gray-500 pt-1">
                     Total: <span className="font-semibold text-gray-700">
                       {fmtH(taskTimeEntries.reduce((sum: number, e: any) => sum + (parseFloat(e.hours) || 0), 0))}
@@ -1355,6 +1396,7 @@ export default function MyTasksPage() {
   const [logTimeDesc, setLogTimeDesc]             = useState('');
   const [logTimeBillable, setLogTimeBillable]     = useState(false);
   const [logTimeStartTime, setLogTimeStartTime]   = useState('');
+  const [editingEntry, setEditingEntry]           = useState<any | null>(null);
   const [logTimeEndTime, setLogTimeEndTime]       = useState('');
   const [logTimePending, setLogTimePending]       = useState(false);
   const [logTimeError, setLogTimeError]           = useState('');
@@ -1490,6 +1532,27 @@ export default function MyTasksPage() {
     setDetailTab('time');
   };
 
+  const resetLogTimeForm = () => {
+    setLogTimeHours(''); setLogTimeDesc(''); setLogTimeBillable(false);
+    setLogTimeStartTime(''); setLogTimeEndTime('');
+    setLogTimeDate(new Date().toISOString().slice(0, 10));
+    setLogTimeError(''); setEditingEntry(null);
+  };
+
+  const startEditEntry = (e: any) => {
+    setEditingEntry(e);
+    setLogTimeHours(String(e.hours ?? ''));
+    setLogTimeDesc(e.description ?? '');
+    setLogTimeBillable(e.is_billable === true || e.is_billable === 'true');
+    setLogTimeStartTime(e.start_time ?? e.startTime ?? '');
+    setLogTimeEndTime(e.end_time ?? e.endTime ?? '');
+    const raw = e.entry_date ?? e.date ?? '';
+    setLogTimeDate(raw ? raw.split('T')[0].split(' ')[0] : new Date().toISOString().slice(0, 10));
+    setLogTimeError('');
+    // Scroll form into view
+    document.getElementById('detail-log-time-form')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+
   const handleDetailLogTime = async () => {
     if (!taskDetailId || !logTimeHours || !detailTask) return;
     if (logTimeStartTime && logTimeEndTime) {
@@ -1502,19 +1565,29 @@ export default function MyTasksPage() {
     }
     setLogTimePending(true); setLogTimeError('');
     try {
-      await timeEntriesApi.create({
-        project_id:       detailTask.projectId,
-        task_id:          taskDetailId,
-        entry_date:       logTimeDate,
-        hours:            parseHoursInput(logTimeHours),
-        description:      logTimeDesc || detailTask.title,
-        is_billable:      logTimeBillable,
-        require_approval: (detailTask as any).requireApproval === true ? 'true' : 'false',
-        ...(logTimeStartTime ? { start_time: logTimeStartTime } : {}),
-        ...(logTimeEndTime   ? { end_time:   logTimeEndTime   } : {}),
-      });
-      setLogTimeHours(''); setLogTimeDesc(''); setLogTimeBillable(false);
-      setLogTimeStartTime(''); setLogTimeEndTime('');
+      if (editingEntry) {
+        const entryId = String(editingEntry.ROWID ?? editingEntry.id ?? '');
+        await timeEntriesApi.update(entryId, {
+          hours:       parseHoursInput(logTimeHours),
+          description: logTimeDesc,
+          is_billable: logTimeBillable,
+          start_time:  logTimeStartTime || '',
+          end_time:    logTimeEndTime   || '',
+        });
+      } else {
+        await timeEntriesApi.create({
+          project_id:       detailTask.projectId,
+          task_id:          taskDetailId,
+          entry_date:       logTimeDate,
+          hours:            parseHoursInput(logTimeHours),
+          description:      logTimeDesc || detailTask.title,
+          is_billable:      logTimeBillable,
+          require_approval: (detailTask as any).requireApproval === true ? 'true' : 'false',
+          ...(logTimeStartTime ? { start_time: logTimeStartTime } : {}),
+          ...(logTimeEndTime   ? { end_time:   logTimeEndTime   } : {}),
+        });
+      }
+      resetLogTimeForm();
       const r: any = await timeEntriesApi.list({ task_id: taskDetailId });
       setTaskTimeEntries(Array.isArray(r) ? r : r?.data ?? []);
     } catch (e: unknown) { setLogTimeError((e as Error).message); }
@@ -1792,6 +1865,10 @@ export default function MyTasksPage() {
           logTimePending={logTimePending}
           logTimeError={logTimeError}
           onLogTime={handleDetailLogTime}
+          editingEntry={editingEntry}
+          onStartEditEntry={startEditEntry}
+          onResetLogTimeForm={resetLogTimeForm}
+          currentUserId={String((user as any)?.id ?? '')}
           aiInsight={aiInsight}
           aiLoading={aiLoading}
           onEdit={openEdit}
