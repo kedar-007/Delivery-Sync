@@ -5,6 +5,7 @@ import {
   CheckCircle2, Layers, Bug, Bookmark, Zap, Tag, Timer, Edit2, Plus,
   Trash2, Check, X, Paperclip, User, PlayCircle, StopCircle, MessageSquare,
   Users, BarChart2, Brain, ArrowRight, Eye, Loader2, Download, Upload, FileText, Image as ImageIcon,
+  Globe, Building2,
 } from 'lucide-react';
 import { format, parseISO, isPast, addDays, isBefore } from 'date-fns';
 import { useForm } from 'react-hook-form';
@@ -18,7 +19,7 @@ import Alert from '../components/ui/Alert';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import { useAuth } from '../contexts/AuthContext';
 import { useConfirm } from '../components/ui/ConfirmDialog';
-import { useMyTasks, useSearchMyTasks, useUpdateTask, useCreateTask, useDeleteTask, useTask, useTaskComments, useAddTaskComment, useUpdateTaskStatus } from '../hooks/useTaskSprint';
+import { useMyTasks, useSearchMyTasks, useUpdateTask, useCreateTask, useDeleteTask, useTask, useTaskComments, useAddTaskComment, useUpdateTaskStatus, useTasks } from '../hooks/useTaskSprint';
 import { useProjects } from '../hooks/useProjects';
 import { useUsers, TenantUser } from '../hooks/useUsers';
 import { timeEntriesApi, tasksApi, aiApi } from '../lib/api';
@@ -1230,11 +1231,18 @@ export default function MyTasksPage() {
   const { user } = useAuth();
   const { confirm } = useConfirm();
   const canCreateTask = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TASK_WRITE);
+  const canViewOrgTasks = user?.role === 'TENANT_ADMIN' || user?.role === 'SUPER_ADMIN' || hasPermission(user, PERMISSIONS.PROJECT_DATA_VIEW_ALL);
   const canEditTask = (task: Task) => {
     if (!user) return false;
     if (user.role === 'TENANT_ADMIN' || user.role === 'SUPER_ADMIN') return true;
     return task.createdBy != null && String(task.createdBy) === String(user.id);
   };
+
+  const [viewMode, setViewMode] = useState<'mine' | 'org'>('mine');
+  const [orgFilterStatus, setOrgFilterStatus]   = useState('');
+  const [orgFilterProject, setOrgFilterProject] = useState('');
+  const [orgFilterAssignee, setOrgFilterAssignee] = useState('');
+  const [orgSearch, setOrgSearch]               = useState('');
 
   const { data: rawTasks, isLoading, error } = useMyTasks();
   const { data: rawProjects } = useProjects();
@@ -1250,6 +1258,28 @@ export default function MyTasksPage() {
     const arr = Array.isArray(rawTasks) ? rawTasks : (rawTasks as any)?.data ?? [];
     return arr as Task[];
   }, [rawTasks]);
+
+  // ── Org Tasks (PROJECT_DATA_VIEW_ALL) ──
+  const { data: rawOrgTasks, isLoading: orgLoading } = useTasks({}, viewMode === 'org' && canViewOrgTasks);
+  const allOrgTasks: Task[] = useMemo(() => {
+    const arr = Array.isArray(rawOrgTasks) ? rawOrgTasks : (rawOrgTasks as any)?.data ?? [];
+    return arr as Task[];
+  }, [rawOrgTasks]);
+  const filteredOrgTasks = useMemo(() => {
+    const q = orgSearch.trim().toLowerCase();
+    return allOrgTasks.filter((t) => {
+      if (orgFilterStatus  && t.status    !== orgFilterStatus)  return false;
+      if (orgFilterProject && t.projectId !== orgFilterProject) return false;
+      if (orgFilterAssignee) {
+        try {
+          const ids = (t as any).assigneeIds ?? JSON.parse((t as any).assignee_ids || '[]');
+          if (!ids.map(String).includes(orgFilterAssignee)) return false;
+        } catch { return false; }
+      }
+      if (q && !t.title.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [allOrgTasks, orgFilterStatus, orgFilterProject, orgFilterAssignee, orgSearch]);
 
   // Fetch all time entries for the current user once and build a taskId → totalHours map
   const { data: rawTimeEntries = [] } = useQuery({
@@ -1424,11 +1454,11 @@ export default function MyTasksPage() {
 
   const detailTask: Task | null = useMemo(() => {
     if (!taskDetailId) return null;
-    const fromList = allMyTasks.find((t) => t.id === taskDetailId);
+    const fromList = allMyTasks.find((t) => t.id === taskDetailId) ?? allOrgTasks.find((t) => t.id === taskDetailId);
     if (fromList) return fromList;
     if (fullTask && (fullTask as any).id) return fullTask as unknown as Task;
     return null;
-  }, [taskDetailId, allMyTasks, fullTask]);
+  }, [taskDetailId, allMyTasks, allOrgTasks, fullTask]);
 
   // Restore timer from localStorage when opening a task
   useEffect(() => {
@@ -1634,16 +1664,58 @@ export default function MyTasksPage() {
   return (
     <Layout>
       <Header
-        title={t('nav.myTasks')}
-        subtitle={`${allMyTasks.length} task${allMyTasks.length !== 1 ? 's' : ''} assigned to you`}
-        actions={canCreateTask ? (
-          <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={openCreate}>
-            {t('tasks.new')}
-          </Button>
-        ) : undefined}
+        title={viewMode === 'org' ? 'All Org Tasks' : t('nav.myTasks')}
+        subtitle={viewMode === 'org'
+          ? `${allOrgTasks.length} task${allOrgTasks.length !== 1 ? 's' : ''} across the organisation`
+          : `${allMyTasks.length} task${allMyTasks.length !== 1 ? 's' : ''} assigned to you`}
+        actions={
+          <div className="flex items-center gap-2">
+            {canViewOrgTasks && (
+              <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+                <button onClick={() => setViewMode('mine')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'mine' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>
+                  My Tasks
+                </button>
+                <button onClick={() => setViewMode('org')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${viewMode === 'org' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>
+                  <Globe size={11} /> Org Tasks
+                </button>
+              </div>
+            )}
+            {canCreateTask && (
+              <Button size="sm" variant="primary" icon={<Plus size={14} />} onClick={openCreate}>
+                {t('tasks.new')}
+              </Button>
+            )}
+          </div>
+        }
       />
 
       <div className="p-6 space-y-4">
+        {/* Org Tasks view */}
+        {viewMode === 'org' && canViewOrgTasks && (
+          <OrgTasksView
+            tasks={filteredOrgTasks}
+            allTasks={allOrgTasks}
+            projects={projects}
+            users={allDetailUsers}
+            loading={orgLoading}
+            filterStatus={orgFilterStatus}
+            setFilterStatus={setOrgFilterStatus}
+            filterProject={orgFilterProject}
+            setFilterProject={setOrgFilterProject}
+            filterAssignee={orgFilterAssignee}
+            setFilterAssignee={setOrgFilterAssignee}
+            search={orgSearch}
+            setSearch={setOrgSearch}
+            onOpen={(t) => setTaskDetailId(t.id)}
+            onStatusChange={handleStatusChange}
+          />
+        )}
+
+        {/* My Tasks view */}
+        {viewMode === 'mine' && (
+        <>
         {/* Tabs */}
         <div className="flex gap-1 border-b border-gray-100">
           {([
@@ -1788,6 +1860,8 @@ export default function MyTasksPage() {
             </div>
           </div>
         )}
+        </>
+        )}
       </div>
 
       {/* ── Task Create/Edit Modal ── */}
@@ -1887,6 +1961,201 @@ export default function MyTasksPage() {
         />
       )}
     </Layout>
+  );
+}
+
+// ── Org Tasks View ────────────────────────────────────────────────────────────
+
+function OrgTasksView({
+  tasks, allTasks, projects, users, loading,
+  filterStatus, setFilterStatus,
+  filterProject, setFilterProject,
+  filterAssignee, setFilterAssignee,
+  search, setSearch,
+  onOpen, onStatusChange,
+}: {
+  tasks: Task[]; allTasks: Task[]; projects: Project[]; users: TenantUser[]; loading: boolean;
+  filterStatus: string; setFilterStatus: (v: string) => void;
+  filterProject: string; setFilterProject: (v: string) => void;
+  filterAssignee: string; setFilterAssignee: (v: string) => void;
+  search: string; setSearch: (v: string) => void;
+  onOpen: (t: Task) => void;
+  onStatusChange: (t: Task, s: string) => void;
+}) {
+  const [orgPage, setOrgPage] = useState(1);
+  const PAGE = 25;
+  const paginated = tasks.slice((orgPage - 1) * PAGE, orgPage * PAGE);
+  const totalPages = Math.ceil(tasks.length / PAGE);
+
+  const statusCount = (s: string) => allTasks.filter((t) => t.status === s).length;
+
+  const getProject = (id: string) => projects.find((p) => p.id === id);
+  const getUser    = (id: string) => users.find((u) => String((u as any).id ?? (u as any).ROWID) === String(id));
+
+  const hasFilters = !!(filterStatus || filterProject || filterAssignee || search);
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-16 text-gray-400 gap-2">
+      <Loader2 size={18} className="animate-spin" />
+      <span className="text-sm">Loading org tasks…</span>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* Summary chips */}
+      <div className="flex flex-wrap gap-2 items-center">
+        {(['TODO','IN_PROGRESS','IN_REVIEW','DONE'] as const).map((s) => {
+          const cfg = STATUS_CONFIG[s];
+          return (
+            <button key={s} onClick={() => setFilterStatus(filterStatus === s ? '' : s)}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-all ${
+                filterStatus === s ? 'bg-gray-900 text-white border-gray-900' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'
+              }`}>
+              {cfg.icon}
+              {cfg.label}
+              <span className="ml-0.5 font-bold">{statusCount(s)}</span>
+            </button>
+          );
+        })}
+        <span className="ml-auto text-xs text-gray-400">{allTasks.length} total</span>
+      </div>
+
+      {/* Filter bar */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <div className="relative flex-1 min-w-48">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <input className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-200 outline-none"
+            placeholder="Search org tasks…" value={search} onChange={(e) => { setSearch(e.target.value); setOrgPage(1); }} />
+        </div>
+        <select className="text-sm border border-gray-200 rounded-lg px-2 py-2 outline-none min-w-32"
+          value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setOrgPage(1); }}>
+          <option value="">All Statuses</option>
+          <option value="TODO">To Do</option>
+          <option value="IN_PROGRESS">In Progress</option>
+          <option value="IN_REVIEW">In Review</option>
+          <option value="DONE">Done</option>
+        </select>
+        <select className="text-sm border border-gray-200 rounded-lg px-2 py-2 outline-none min-w-40"
+          value={filterProject} onChange={(e) => { setFilterProject(e.target.value); setOrgPage(1); }}>
+          <option value="">All Projects</option>
+          {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <select className="text-sm border border-gray-200 rounded-lg px-2 py-2 outline-none min-w-40"
+          value={filterAssignee} onChange={(e) => { setFilterAssignee(e.target.value); setOrgPage(1); }}>
+          <option value="">All Assignees</option>
+          {users.map((u) => {
+            const uid = String((u as any).id ?? (u as any).ROWID ?? '');
+            return <option key={uid} value={uid}>{(u as any).name ?? (u as any).email}</option>;
+          })}
+        </select>
+        {hasFilters && (
+          <button onClick={() => { setFilterStatus(''); setFilterProject(''); setFilterAssignee(''); setSearch(''); setOrgPage(1); }}
+            className="text-xs text-red-500 hover:text-red-700 font-medium">
+            Clear
+          </button>
+        )}
+      </div>
+
+      {/* Table */}
+      {paginated.length === 0 ? (
+        <div className="text-center py-12 text-gray-400">
+          <Building2 size={32} className="mx-auto mb-2 opacity-30" />
+          <p className="text-sm">{hasFilters ? 'No tasks match these filters.' : 'No tasks in the organisation yet.'}</p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+          {/* Header row */}
+          <div className="grid text-xs font-semibold text-gray-400 uppercase tracking-wide px-4 py-2.5 bg-gray-50 border-b border-gray-100"
+            style={{ gridTemplateColumns: '2fr 100px 90px 80px 160px 80px 110px' }}>
+            <span>Title</span>
+            <span>Status</span>
+            <span>Priority</span>
+            <span>Type</span>
+            <span>Project</span>
+            <span>Assignees</span>
+            <span>Due Date</span>
+          </div>
+          {paginated.map((task, i) => {
+            const proj = getProject(task.projectId ?? '');
+            const STATUS_CFG: Record<string, { label: string; cls: string }> = {
+              TODO:        { label: 'To Do',       cls: 'bg-gray-100 text-gray-600' },
+              IN_PROGRESS: { label: 'In Progress', cls: 'bg-blue-100 text-blue-700' },
+              IN_REVIEW:   { label: 'In Review',   cls: 'bg-amber-100 text-amber-700' },
+              DONE:        { label: 'Done',         cls: 'bg-green-100 text-green-700' },
+            };
+            const PRIO_CFG: Record<string, string> = {
+              CRITICAL: 'text-red-600 font-bold',
+              HIGH:     'text-orange-500 font-semibold',
+              MEDIUM:   'text-yellow-600',
+              LOW:      'text-gray-400',
+            };
+            const TYPE_ICONS: Record<string, React.ReactNode> = {
+              BUG:   <Bug size={12} className="text-red-500" />,
+              STORY: <Bookmark size={12} className="text-violet-500" />,
+              EPIC:  <Zap size={12} className="text-amber-500" />,
+              TASK:  <CheckSquare size={12} className="text-indigo-500" />,
+            };
+            let assigneeIds: string[] = [];
+            try { assigneeIds = JSON.parse((task as any).assignee_ids || '[]').map(String); } catch { /* */ }
+            const sCfg = STATUS_CFG[task.status] ?? STATUS_CFG.TODO;
+            return (
+              <div key={task.id}
+                onClick={() => onOpen(task)}
+                className={`grid items-center px-4 py-3 cursor-pointer hover:bg-indigo-50/40 transition-colors ${i > 0 ? 'border-t border-gray-100' : ''}`}
+                style={{ gridTemplateColumns: '2fr 100px 90px 80px 160px 80px 110px' }}>
+                <div className="flex items-center gap-2 min-w-0 pr-3">
+                  {TYPE_ICONS[task.type] ?? <CheckSquare size={12} className="text-gray-400" />}
+                  <span className="text-sm text-gray-800 font-medium truncate">{task.title}</span>
+                </div>
+                <div>
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${sCfg.cls}`}>{sCfg.label}</span>
+                </div>
+                <div className={`text-xs ${PRIO_CFG[task.priority ?? ''] ?? 'text-gray-400'}`}>
+                  {task.priority ?? '—'}
+                </div>
+                <div className="text-xs text-gray-500">{task.type}</div>
+                <div className="text-xs text-gray-600 truncate">{proj?.name ?? '—'}</div>
+                <div className="flex -space-x-1">
+                  {assigneeIds.slice(0, 3).map((id) => {
+                    const u = getUser(id);
+                    return <UserAvatar key={id} name={(u as any)?.name ?? (u as any)?.email ?? ''} avatarUrl={(u as any)?.avatarUrl} size="xs" />;
+                  })}
+                  {assigneeIds.length > 3 && (
+                    <span className="w-5 h-5 rounded-full bg-gray-200 text-[9px] text-gray-500 flex items-center justify-center font-semibold">
+                      +{assigneeIds.length - 3}
+                    </span>
+                  )}
+                  {assigneeIds.length === 0 && <span className="text-xs text-gray-300">—</span>}
+                </div>
+                <div className="text-xs text-gray-500">
+                  {task.dueDate ? safeFmt(task.dueDate, 'MMM d, yyyy') : '—'}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between text-xs text-gray-500 pt-1">
+          <span>Showing {(orgPage - 1) * PAGE + 1}–{Math.min(orgPage * PAGE, tasks.length)} of {tasks.length}</span>
+          <div className="flex gap-1">
+            <button onClick={() => setOrgPage((p) => Math.max(1, p - 1))} disabled={orgPage === 1}
+              className="px-2.5 py-1 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-40">Prev</button>
+            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => i + 1).map((pg) => (
+              <button key={pg} onClick={() => setOrgPage(pg)}
+                className={`px-2.5 py-1 rounded border ${pg === orgPage ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-200 hover:bg-gray-50'}`}>
+                {pg}
+              </button>
+            ))}
+            <button onClick={() => setOrgPage((p) => Math.min(totalPages, p + 1))} disabled={orgPage >= totalPages}
+              className="px-2.5 py-1 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-40">Next</button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

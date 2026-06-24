@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useForm, Controller } from 'react-hook-form';
+import { Globe, Plus, User } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
@@ -13,7 +14,7 @@ import EmptyState from '../components/ui/EmptyState';
 import UserPicker from '../components/ui/UserPicker';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import { useBlockers, useCreateBlocker, useResolveBlocker, useUpdateBlocker } from '../hooks/useBlockers';
-import { useProjects } from '../hooks/useProjects';
+import { useProjects, useMyProjects } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
 import { Blocker } from '../types';
@@ -55,9 +56,13 @@ const BlockersPage = () => {
   if (filterStatus) params.status = filterStatus;
 
   const { user: currentUser } = useAuth();
+  const canViewOrgData = currentUser?.role === 'TENANT_ADMIN' || currentUser?.role === 'SUPER_ADMIN' || hasPermission(currentUser, PERMISSIONS.PROJECT_DATA_VIEW_ALL);
+  const [viewMode, setViewMode] = useState<'mine' | 'org'>('mine');
   const canWrite = hasPermission(currentUser, PERMISSIONS.BLOCKER_WRITE);
   const { data: blockers = [], isLoading } = useBlockers(params);
-  const { data: projects = [] } = useProjects();
+  const { data: allOrgProjects = [] } = useProjects();
+  const { data: myProjects = [] } = useMyProjects();
+  const projects = canViewOrgData && viewMode === 'org' ? allOrgProjects : myProjects.length > 0 ? myProjects : allOrgProjects;
   const { data: users = [] } = useUsers();
   const createBlocker = useCreateBlocker();
   const resolveBlocker = useResolveBlocker();
@@ -134,11 +139,15 @@ const BlockersPage = () => {
         title={t('nav.blockers')}
         subtitle={`${openBlockers.length} open · ${resolvedBlockers.length} resolved`}
         actions={
-          canWrite ? (
-            <Button onClick={() => setShowCreate(true)}>{t('blockers.new')}</Button>
-          ) : (
-            <span className="text-sm text-gray-400">No permission to raise blockers</span>
-          )
+          <div className="flex items-center gap-2">
+            {canViewOrgData && (
+              <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+                <button onClick={() => setViewMode('mine')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${viewMode === 'mine' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}><User size={11} /> My Projects</button>
+                <button onClick={() => setViewMode('org')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${viewMode === 'org' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}><Globe size={11} /> All Org</button>
+              </div>
+            )}
+            {canWrite && <Button onClick={() => { setShowCreate(true); }} icon={<Plus size={16} />}>{t('blockers.new')}</Button>}
+          </div>
         }
       />
 

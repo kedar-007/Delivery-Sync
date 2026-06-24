@@ -532,6 +532,10 @@ class UserController {
         });
       }
 
+      // Bust the cached auth context so the new location reflects immediately
+      // instead of serving the stale cached officeLocationId until TTL expiry.
+      await CacheService.invalidateUserAuthCtx(this.catalystApp, userId);
+
       return ResponseHelper.success(res, { officeLocationId: officeLocationId || null }, 'Location updated');
     } catch (err) {
       console.error('[UserController.updateMyLocation]', err.message);

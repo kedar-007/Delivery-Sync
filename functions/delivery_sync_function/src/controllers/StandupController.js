@@ -99,6 +99,7 @@ class StandupController {
       // showing only the caller's own standups even after the permission is
       // granted. A separate "Team Standups" tab passes scope=team explicitly.
       const isLimitedToOwn = role === 'TEAM_MEMBER'
+        && !userPerms.includes('PROJECT_DATA_VIEW_ALL')
         && req.currentUser.dataScope !== 'ORG_WIDE'
         && req.currentUser.dataScope !== 'SUBORDINATES';
       const hasTeamView    = userPerms.includes(PERMISSIONS.STANDUP_TEAM_VIEW);
@@ -248,7 +249,7 @@ class StandupController {
 
       // Same visibility ladder as getStandups: org-wide → all, STANDUP_TEAM_VIEW → peers, else own.
       const userPerms      = Array.isArray(req.currentUser.permissions) ? req.currentUser.permissions : [];
-      const isLimitedToOwn = role === 'TEAM_MEMBER' && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
+      const isLimitedToOwn = role === 'TEAM_MEMBER' && !userPerms.includes('PROJECT_DATA_VIEW_ALL') && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
       const hasTeamView    = userPerms.includes(PERMISSIONS.STANDUP_TEAM_VIEW);
       let userFilter = '';
       if (isLimitedToOwn) {

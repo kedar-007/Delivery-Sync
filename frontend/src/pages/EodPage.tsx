@@ -10,7 +10,7 @@ import EmptyState from '../components/ui/EmptyState';
 import { PageLoader } from '../components/ui/Spinner';
 import VoiceRecorder from '../components/voice/VoiceRecorder';
 import VoiceAiInsights from '../components/voice/VoiceAiInsights';
-import { useProjects } from '../hooks/useProjects';
+import { useProjects, useMyProjects } from '../hooks/useProjects';
 import { useTeamPeers } from '../hooks/useTeams';
 import { useSubmitEod, useUpdateEod, useEodRollup, useEod, useEodPaged } from '../hooks/useEod';
 import { useProcessVoice, type EodVoiceResult } from '../hooks/useVoiceAI';
@@ -18,7 +18,7 @@ import { format, subDays, startOfWeek, endOfWeek } from 'date-fns';
 import {
   CheckCircle, Sparkles, History, Pencil, X,
   FolderOpen, ChevronDown, ChevronRight, TrendingUp,
-  Users as UsersIcon,
+  Users as UsersIcon, Globe, User,
 } from 'lucide-react';
 import { useI18n } from '../contexts/I18nContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -193,12 +193,23 @@ const EodPage = () => {
   // was broken).
   const [eodDateFilter, setEodDateFilter] = useState(today);
   const [editingEntry, setEditingEntry] = useState<EodEntry | null>(null);
-  const { data: projects = [], isLoading: projectsLoading } = useProjects();
+  const { data: allOrgProjects = [], isLoading: projectsLoading } = useProjects();
+  const { data: myProjects = [] } = useMyProjects();
   const submitEod = useSubmitEod();
   const updateEod = useUpdateEod();
   const { data: myEods = [], isLoading: myLoading } = useEod();
   const { user: authUser } = useAuth();
-  const canSeeTeamEods = hasPermission(authUser, PERMISSIONS.EOD_TEAM_VIEW);
+  const canSeeTeamEods = hasPermission(authUser, PERMISSIONS.EOD_TEAM_VIEW)
+    || hasPermission(authUser, PERMISSIONS.PROJECT_DATA_VIEW_ALL)
+    || authUser?.role === 'TENANT_ADMIN' || authUser?.role === 'SUPER_ADMIN';
+  const isOrgWideEods = (hasPermission(authUser, PERMISSIONS.PROJECT_DATA_VIEW_ALL)
+    || authUser?.role === 'TENANT_ADMIN' || authUser?.role === 'SUPER_ADMIN')
+    && !hasPermission(authUser, PERMISSIONS.EOD_TEAM_VIEW);
+  const canViewOrgData = authUser?.role === 'TENANT_ADMIN' || authUser?.role === 'SUPER_ADMIN'
+    || hasPermission(authUser, PERMISSIONS.PROJECT_DATA_VIEW_ALL);
+  const [viewMode, setViewMode] = useState<'mine' | 'org'>('mine');
+  const submitProjects = myProjects.length > 0 ? myProjects : allOrgProjects;
+  const viewProjects = (canViewOrgData && viewMode === 'org') ? allOrgProjects : submitProjects;
 
   // Team EOD filter + pagination state — mirrors the Team Standups tab so
   // managers get the same UX across both views. Defaults to "Today" so the
@@ -300,7 +311,7 @@ const EodPage = () => {
 
   // Group visible EODs by project
   const projectColorMap = new Map<string, string>();
-  (projects as any[]).forEach((p, i) => {
+  (submitProjects as any[]).forEach((p, i) => {
     projectColorMap.set(p.id, PROJECT_COLORS[i % PROJECT_COLORS.length]);
   });
 
@@ -412,11 +423,20 @@ const EodPage = () => {
 
   if (projectsLoading) return <Layout><PageLoader /></Layout>;
 
-  const eodProjects = projects as any[];
+  const eodProjects = submitProjects as any[];
 
   return (
     <Layout>
-      <Header title={t('nav.eod')} subtitle={t('eod.title')} />
+      <Header
+        title={t('nav.eod')}
+        subtitle={t('eod.title')}
+        actions={canViewOrgData ? (
+          <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+            <button onClick={() => setViewMode('mine')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${viewMode === 'mine' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}><User size={11} /> My Projects</button>
+            <button onClick={() => setViewMode('org')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${viewMode === 'org' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}><Globe size={11} /> All Org</button>
+          </div>
+        ) : undefined}
+      />
       <div className="p-6 space-y-5">
 
         {/* Tabs — Team EOD only visible to users with EOD_TEAM_VIEW */}
@@ -446,7 +466,7 @@ const EodPage = () => {
                 ) : (
                   <span className="flex items-center gap-1.5">
                     <UsersIcon size={14} />
-                    {t('eod.tabs.teamToday')}
+                    {isOrgWideEods ? 'Org EODs' : t('eod.tabs.teamToday')}
                     {teamEods.length > 0 && (
                       <span className="bg-violet-100 text-violet-700 text-xs font-bold px-1.5 py-0.5 rounded-full">
                         {teamEods.length}
@@ -688,7 +708,7 @@ const EodPage = () => {
           <div className="space-y-4">
             {/* Project pills */}
             <div className="flex flex-wrap gap-2">
-              {(projects as any[]).map((p: { id: string; name: string }, i: number) => (
+              {(viewProjects as any[]).map((p: { id: string; name: string }, i: number) => (
                 <button key={p.id} type="button"
                   onClick={() => setRollupProjectId(p.id)}
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${
@@ -856,7 +876,7 @@ const EodPage = () => {
                     onChange={(e) => setTeamProjectId(e.target.value)}
                   >
                     <option value="">{t('eod.allProjects')}</option>
-                    {(projects as Array<{ id: string; name: string }>).map((p) => (
+                    {(viewProjects as Array<{ id: string; name: string }>).map((p) => (
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
                   </select>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useForm, Controller } from 'react-hook-form';
-import { Plus, Lock, Pencil } from 'lucide-react'; // ✅ Added Pencil
+import { Plus, Lock, Pencil, Globe, User } from 'lucide-react'; // ✅ Added Pencil
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import { useI18n } from '../contexts/I18nContext';
@@ -19,7 +19,7 @@ import {
   useDependencies, useCreateDependency, useUpdateDependency,
   useAssumptions, useCreateAssumption, useUpdateAssumption,
 } from '../hooks/useRaid'; // ✅ Added update hooks
-import { useProjects } from '../hooks/useProjects';
+import { useProjects, useMyProjects } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
@@ -41,8 +41,12 @@ const RaidPage = () => {
   const [renameError, setRenameError] = useState('');
 
   const { user: currentUser } = useAuth();
+  const canViewOrgData = currentUser?.role === 'TENANT_ADMIN' || currentUser?.role === 'SUPER_ADMIN' || hasPermission(currentUser, PERMISSIONS.PROJECT_DATA_VIEW_ALL);
+  const [viewMode, setViewMode] = useState<'mine' | 'org'>('mine');
   const canWrite = hasPermission(currentUser, PERMISSIONS.RAID_WRITE);
-  const { data: projects = [] } = useProjects();
+  const { data: allOrgProjects = [] } = useProjects();
+  const { data: myProjects = [] } = useMyProjects();
+  const projects = canViewOrgData && viewMode === 'org' ? allOrgProjects : myProjects.length > 0 ? myProjects : allOrgProjects;
   const { data: users = [] } = useUsers();
   const params: Record<string, string> = {};
   if (filterProject) params.projectId = filterProject;
@@ -263,9 +267,33 @@ const RaidPage = () => {
     <Layout>
       <Header title={t('nav.raidRegister')}
         subtitle={`${t('raid.types.risk')}s, ${t('raid.types.issue')}s, ${t('raid.types.dependency').replace(/y$/, 'ies')}, ${t('raid.types.assumption')}s`}
-        actions={canWrite
-          ? <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>{t('raid.new')}</Button>
-          : <span className="flex items-center gap-1.5 text-sm text-gray-400"><Lock size={14} />{t('errors.unauthorized')}</span>}
+        actions={
+          <div className="flex items-center gap-2">
+            {canViewOrgData && (
+              <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('mine')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'mine' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  <User size={14} />
+                  {t('common.mine') ?? 'Mine'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('org')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'org' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  <Globe size={14} />
+                  {t('common.org') ?? 'Org'}
+                </button>
+              </div>
+            )}
+            {canWrite
+              ? <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>{t('raid.new')}</Button>
+              : <span className="flex items-center gap-1.5 text-sm text-gray-400"><Lock size={14} />{t('errors.unauthorized')}</span>}
+          </div>
+        }
       />
       <div className="p-6 space-y-5">
 

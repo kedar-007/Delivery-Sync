@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useForm, Controller } from 'react-hook-form';
-import { Plus, Lock } from 'lucide-react';
+import { Plus, Lock, Globe, User } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
@@ -14,7 +14,7 @@ import { PageSkeleton } from '../components/ui/Skeleton';
 import UserPicker from '../components/ui/UserPicker';
 import { useActionsPaginated, useCreateAction, useUpdateAction } from '../hooks/useActions';
 import Pagination from '../components/ui/Pagination';
-import { useProjects } from '../hooks/useProjects';
+import { useProjects, useMyProjects } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useAuth } from '../contexts/AuthContext';
 import { Action } from '../types';
@@ -49,12 +49,16 @@ const ActionsPage = () => {
   if (filterStatus) params.status = filterStatus;
 
   const { user: currentUser } = useAuth();
+  const canViewOrgData = currentUser?.role === 'TENANT_ADMIN' || currentUser?.role === 'SUPER_ADMIN' || hasPermission(currentUser, PERMISSIONS.PROJECT_DATA_VIEW_ALL);
+  const [viewMode, setViewMode] = useState<'mine' | 'org'>('mine');
   const canWrite = hasPermission(currentUser, PERMISSIONS.ACTION_WRITE);
   const { data: pagedData, isLoading } = useActionsPaginated(params);
   const actions: Action[] = pagedData?.actions ?? [];
   const total: number = pagedData?.total ?? 0;
   const totalPages: number = pagedData?.totalPages ?? 1;
-  const { data: projects = [] } = useProjects();
+  const { data: allOrgProjects = [] } = useProjects();
+  const { data: myProjects = [] } = useMyProjects();
+  const projects = canViewOrgData && viewMode === 'org' ? allOrgProjects : myProjects.length > 0 ? myProjects : allOrgProjects;
   const { data: users = [] } = useUsers();
   const createAction = useCreateAction();
   const updateAction = useUpdateAction(editingAction?.id ?? '');
@@ -96,9 +100,18 @@ const ActionsPage = () => {
   return (
     <Layout>
       <Header title={t('nav.actions')} subtitle={`${total} action${total !== 1 ? 's' : ''}`}
-        actions={canWrite
-          ? <Button onClick={() => { setEditingAction(null); reset({ project_id: preselectedProject, priority: 'MEDIUM' }); setShowCreate(true); }} icon={<Plus size={16} />}>{t('actions.new')}</Button>
-          : <span className="flex items-center gap-1.5 text-sm text-gray-400"><Lock size={14} />{t('errors.forbidden')}</span>}
+        actions={
+          <div className="flex items-center gap-2">
+            {canViewOrgData && (
+              <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+                <button onClick={() => setViewMode('mine')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${viewMode === 'mine' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}><User size={11} /> My Projects</button>
+                <button onClick={() => setViewMode('org')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${viewMode === 'org' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}><Globe size={11} /> All Org</button>
+              </div>
+            )}
+            {canWrite ? <Button onClick={() => { setEditingAction(null); reset({ project_id: preselectedProject, priority: 'MEDIUM' }); setShowCreate(true); }} icon={<Plus size={16} />}>{t('actions.new')}</Button>
+              : <span className="flex items-center gap-1.5 text-sm text-gray-400"><Lock size={14} />{t('errors.forbidden')}</span>}
+          </div>
+        }
       />
       <div className="p-6 space-y-5">
 

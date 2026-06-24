@@ -385,6 +385,10 @@ class AdminController {
         });
       }
 
+      // Bust the cached auth context so the user's new location is visible
+      // immediately (their own view reads officeLocationId from this cache).
+      await CacheService.invalidateUserAuthCtx(req.catalystApp, userId);
+
       return ResponseHelper.success(res, { userId, officeLocationId: officeLocationId || null });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
@@ -553,8 +557,7 @@ class AdminController {
       // Other users' caches expire within 5 minutes (TTL) naturally.
       try {
         const cache = new CacheService(req.catalystApp);
-        const AUTH_CTX_KEY_VERSION = 'v1';
-        await cache.invalidate(`authCtx:${AUTH_CTX_KEY_VERSION}:${String(userId)}`);
+        await cache.invalidate(`authCtx:v2:${String(userId)}`);
       } catch (_) { /* non-fatal */ }
 
       return ResponseHelper.success(res, { name: trimmed });
@@ -764,12 +767,23 @@ class AdminController {
       const cleanRevoked = revoked.filter(isValidPermKey);
       const cleanModuleAccess = Array.isArray(moduleAccess) ? moduleAccess.filter((m) => typeof m === 'string') : [];
 
-      const permJson = JSON.stringify({ granted: cleanGranted, revoked: cleanRevoked, moduleAccess: cleanModuleAccess });
-
       const existing = await this.db.query(
-        `SELECT ROWID FROM ${TABLES.PERMISSION_OVERRIDES} ` +
+        `SELECT ROWID, permissions FROM ${TABLES.PERMISSION_OVERRIDES} ` +
         `WHERE tenant_id = '${tenantId}' AND user_id = '${userId}' LIMIT 1`
       );
+
+      // Merge into the existing override JSON so other keys (e.g. officeLocationId)
+      // are preserved — rebuilding from scratch would silently wipe the user's location.
+      let currentOverride = {};
+      if (existing.length > 0) {
+        try { currentOverride = JSON.parse(existing[0].permissions || '{}'); } catch (_) {}
+      }
+      const permJson = JSON.stringify({
+        ...currentOverride,
+        granted: cleanGranted,
+        revoked: cleanRevoked,
+        moduleAccess: cleanModuleAccess,
+      });
 
       if (existing.length > 0) {
         await this.db.update(TABLES.PERMISSION_OVERRIDES, {

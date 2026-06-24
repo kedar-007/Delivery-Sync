@@ -247,13 +247,17 @@ class CacheService {
    *   - Org-role assignment (user_org_roles table)
    *   - Per-user permission overrides (permission_overrides table)
    *   - Org-role permissions change (setRolePermissions — iterate all members)
+   *
+   * KEY VERSIONING: delivery_sync_function AuthMiddleware uses authCtx:v2 (bumped from v1).
+   * All other services still use authCtx:<service>:v1. Update this list whenever a
+   * service bumps its AUTH_CTX_KEY_VERSION constant.
    */
   static async invalidateUserAuthCtx(catalystApp, userId) {
     try {
       const cache = new CacheService(catalystApp);
       const uid = String(userId);
       await Promise.allSettled([
-        cache.invalidate(`authCtx:v1:${uid}`),           // delivery_sync_function
+        cache.invalidate(`authCtx:v2:${uid}`),           // delivery_sync_function (v2 since bumped)
         cache.invalidate(`authCtx:people:v1:${uid}`),    // people_service
         cache.invalidate(`authCtx:tasks:v1:${uid}`),     // task_sprint_service
         cache.invalidate(`authCtx:assets:v1:${uid}`),    // asset_service
@@ -261,6 +265,7 @@ class CacheService {
         cache.invalidate(`authCtx:badges:v1:${uid}`),    // badge_profile_service
         cache.invalidate(`authCtx:admin:v1:${uid}`),     // admin_config_service
         cache.invalidate(`authCtx:time:v1:${uid}`),      // time_tracking_service
+        cache.invalidate(`authCtx:docs:v1:${uid}`),      // doc_service
       ]);
     } catch (_) {}
   }

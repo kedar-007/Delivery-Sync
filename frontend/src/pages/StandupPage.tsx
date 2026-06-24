@@ -11,7 +11,7 @@ import EmptyState from '../components/ui/EmptyState';
 import { PageLoader } from '../components/ui/Spinner';
 import VoiceRecorder from '../components/voice/VoiceRecorder';
 import VoiceAiInsights from '../components/voice/VoiceAiInsights';
-import { useProjects } from '../hooks/useProjects';
+import { useProjects, useMyProjects } from '../hooks/useProjects';
 import { useTeamPeers } from '../hooks/useTeams';
 import {
   useSubmitStandup, useUpdateStandup,
@@ -21,7 +21,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import UserAvatar from '../components/ui/UserAvatar';
-import { Users as UsersIcon } from 'lucide-react';
+import { Users as UsersIcon, Globe, User } from 'lucide-react';
 import { useProcessVoice, type StandupVoiceResult } from '../hooks/useVoiceAI';
 import { format, subDays, startOfWeek, endOfWeek } from 'date-fns';
 import {
@@ -168,11 +168,24 @@ const StandupPage = () => {
   // 7-day backdate window: standups can be entered for today or up to 7 days
   // back. Future dates are never allowed.
   const minDate = format(subDays(new Date(), 7), 'yyyy-MM-dd');
-  const { data: projects = [], isLoading: projectsLoading } = useProjects();
+  const { data: allOrgProjects = [], isLoading: projectsLoading } = useProjects();
+  const { data: myProjects = [] } = useMyProjects();
   const { data: todayStandups = [] } = useMyTodayStandup();
   const { data: myStandups = [], isLoading: myLoading } = useStandups();
   const { user: authUser } = useAuth();
-  const canSeeTeamStandups = hasPermission(authUser, PERMISSIONS.STANDUP_TEAM_VIEW);
+  const canSeeTeamStandups = hasPermission(authUser, PERMISSIONS.STANDUP_TEAM_VIEW)
+    || hasPermission(authUser, PERMISSIONS.PROJECT_DATA_VIEW_ALL)
+    || authUser?.role === 'TENANT_ADMIN' || authUser?.role === 'SUPER_ADMIN';
+  const isOrgWideStandups = (hasPermission(authUser, PERMISSIONS.PROJECT_DATA_VIEW_ALL)
+    || authUser?.role === 'TENANT_ADMIN' || authUser?.role === 'SUPER_ADMIN')
+    && !hasPermission(authUser, PERMISSIONS.STANDUP_TEAM_VIEW);
+  const canViewOrgData = authUser?.role === 'TENANT_ADMIN' || authUser?.role === 'SUPER_ADMIN'
+    || hasPermission(authUser, PERMISSIONS.PROJECT_DATA_VIEW_ALL);
+  const [viewMode, setViewMode] = useState<'mine' | 'org'>('mine');
+  // submitProjects is always member-only (you submit for your own projects).
+  // viewProjects drives the rollup pills and team-tab project filter.
+  const submitProjects = myProjects.length > 0 ? myProjects : allOrgProjects;
+  const viewProjects = (canViewOrgData && viewMode === 'org') ? allOrgProjects : submitProjects;
   // Team Standups filter + pagination state. Date defaults to "Today" so the
   // tab loads useful data immediately — users can widen the range as needed.
   const [teamDateFrom, setTeamDateFrom] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
@@ -375,11 +388,11 @@ const StandupPage = () => {
   if (projectsLoading) return <Layout><PageLoader /></Layout>;
 
   const submittedProjectIds = new Set(todayStandups.map((s: { projectId: string }) => s.projectId));
-  const standupProjects = projects as any[];
+  const standupProjects = submitProjects as any[];
 
   // Group "My Submissions" by project
   const projectColorMap = new Map<string, string>();
-  (projects as any[]).forEach((p, i) => {
+  (submitProjects as any[]).forEach((p, i) => {
     projectColorMap.set(p.id, PROJECT_COLORS[i % PROJECT_COLORS.length]);
   });
 
@@ -396,7 +409,16 @@ const StandupPage = () => {
 
   return (
     <Layout>
-      <Header title={t('nav.standup')} subtitle={t('standup.subtitle')} />
+      <Header
+        title={t('nav.standup')}
+        subtitle={t('standup.subtitle')}
+        actions={canViewOrgData ? (
+          <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+            <button onClick={() => setViewMode('mine')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${viewMode === 'mine' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}><User size={11} /> My Projects</button>
+            <button onClick={() => setViewMode('org')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${viewMode === 'org' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}><Globe size={11} /> All Org</button>
+          </div>
+        ) : undefined}
+      />
       <div className="p-6 space-y-5">
 
         {/* Tabs — Team Standups only visible to users with STANDUP_TEAM_VIEW */}
@@ -426,7 +448,7 @@ const StandupPage = () => {
                 ) : (
                   <span className="flex items-center gap-1.5">
                     <UsersIcon size={14} />
-                    {t('standup.tabs.teamStandups')}
+                    {isOrgWideStandups ? 'Org Standups' : t('standup.tabs.teamStandups')}
                     {teamStandups.length > 0 && (
                       <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-1.5 py-0.5 rounded-full">
                         {teamStandups.length}
@@ -467,7 +489,7 @@ const StandupPage = () => {
                 <div>
                   <p className="text-sm font-medium text-green-800">{t('standup.submittedToday')}</p>
                   <p className="text-xs text-green-600 mt-0.5">
-                    {submittedProjectIds.size} project(s): {(projects as any[])
+                    {submittedProjectIds.size} project(s): {(submitProjects as any[])
                       .filter((p: { id: string }) => submittedProjectIds.has(p.id))
                       .map((p: { name: string }) => p.name).join(', ')}
                   </p>
@@ -700,7 +722,7 @@ const StandupPage = () => {
           <div className="space-y-4">
             {/* Project pills */}
             <div className="flex flex-wrap gap-2">
-              {(projects as any[]).map((p: { id: string; name: string }, i: number) => (
+              {(viewProjects as any[]).map((p: { id: string; name: string }, i: number) => (
                 <button key={p.id} type="button"
                   onClick={() => setRollupProjectId(p.id)}
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${
@@ -852,7 +874,7 @@ const StandupPage = () => {
                     onChange={(e) => setTeamProjectId(e.target.value)}
                   >
                     <option value="">{t('standup.selectProject')}</option>
-                    {(projects as Array<{ id: string; name: string }>).map((p) => (
+                    {(viewProjects as Array<{ id: string; name: string }>).map((p) => (
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
                   </select>

@@ -30,7 +30,8 @@ class ReportController {
       if (!project) return ResponseHelper.notFound(res, 'Project not found');
 
       // TEAM_MEMBER reports are scoped to their own standup/EOD activity only (unless org-wide access)
-      const isLimitedToOwn = role === 'TEAM_MEMBER' && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
+      const userPerms_ = Array.isArray(req.currentUser.permissions) ? req.currentUser.permissions : [];
+      const isLimitedToOwn = role === 'TEAM_MEMBER' && !userPerms_.includes('PROJECT_DATA_VIEW_ALL') && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
       const userFilter = isLimitedToOwn ? ` AND user_id = '${userId}'` : '';
       const actionFilter = isLimitedToOwn ? ` AND assigned_to = '${userId}'` : '';
 
@@ -143,7 +144,8 @@ class ReportController {
       if (projectId) conditions.push(`project_id = '${DataStoreService.escape(projectId)}'`);
       if (reportType) conditions.push(`report_type = '${DataStoreService.escape(reportType)}'`);
       // TEAM_MEMBER only sees reports they generated (unless org-wide access)
-      const isLimitedToOwn = role === 'TEAM_MEMBER' && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
+      const userPerms_ = Array.isArray(req.currentUser.permissions) ? req.currentUser.permissions : [];
+      const isLimitedToOwn = role === 'TEAM_MEMBER' && !userPerms_.includes('PROJECT_DATA_VIEW_ALL') && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
       if (isLimitedToOwn) conditions.push(`generated_by = '${DataStoreService.escape(currentUserId)}'`);
 
       const reports = await this.db.findWhere(TABLES.REPORTS, tenantId,
@@ -234,7 +236,8 @@ class ReportController {
       const { projectId, userId, startDate, endDate } = req.query;
 
       // TEAM_MEMBER can only see their own performance (unless org role grants org-wide access)
-      const isLimitedToOwn = role === 'TEAM_MEMBER' && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
+      const userPerms_ = Array.isArray(req.currentUser.permissions) ? req.currentUser.permissions : [];
+      const isLimitedToOwn = role === 'TEAM_MEMBER' && !userPerms_.includes('PROJECT_DATA_VIEW_ALL') && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
       const targetUserId = isLimitedToOwn ? currentUserId : (userId || currentUserId);
       const from = startDate || DataStoreService.daysAgo(30);
       const to = endDate || DataStoreService.today();

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { Plus, CheckCircle, Clock, Flag } from 'lucide-react';
+import { Plus, CheckCircle, Clock, Flag, Globe, User } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import { useI18n } from '../contexts/I18nContext';
@@ -12,7 +12,7 @@ import Modal, { ModalActions } from '../components/ui/Modal';
 import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
 import { PageLoader } from '../components/ui/Spinner';
-import { useProjects, useMilestones, useCreateMilestone, useUpdateMilestone } from '../hooks/useProjects';
+import { useProjects, useMyProjects, useMilestones, useCreateMilestone, useUpdateMilestone } from '../hooks/useProjects';
 import { Milestone } from '../types';
 import { format } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
@@ -31,6 +31,8 @@ const MilestonesPage = () => {
   // MILESTONE_WRITE — they were seeing the button, clicking it, and getting
   // a raw permission-error message instead of a clean read-only view.
   const canWrite = hasPermission(user, PERMISSIONS.MILESTONE_WRITE);
+  const canViewOrgData = user?.role === 'TENANT_ADMIN' || user?.role === 'SUPER_ADMIN' || hasPermission(user, PERMISSIONS.PROJECT_DATA_VIEW_ALL);
+  const [viewMode, setViewMode] = useState<'mine' | 'org'>('mine');
   const [searchParams] = useSearchParams();
   const preselectedProject = searchParams.get('projectId') || '';
   const [selectedProject, setSelectedProject] = useState(preselectedProject);
@@ -38,7 +40,9 @@ const MilestonesPage = () => {
   const [editingMilestone, setEditingMilestone] = useState<Milestone | null>(null);
   const [createError, setCreateError] = useState('');
 
-  const { data: projects = [], isLoading: projectsLoading } = useProjects();
+  const { data: allOrgProjects = [], isLoading: projectsLoading } = useProjects();
+  const { data: myProjects = [] } = useMyProjects();
+  const projects = canViewOrgData && viewMode === 'org' ? allOrgProjects : myProjects.length > 0 ? myProjects : allOrgProjects;
   const { data: milestones = [], isLoading: milestonesLoading } = useMilestones(selectedProject);
   const createMilestone = useCreateMilestone(selectedProject);
   const updateMilestone = useUpdateMilestone(selectedProject, editingMilestone?.id || '');
@@ -87,7 +91,17 @@ const MilestonesPage = () => {
   return (
     <Layout>
       <Header title={t('nav.milestones')} subtitle={selectedProject ? `${milestones.length} milestones · ${overdue.length} overdue` : t('projects.searchPlaceholder')}
-        actions={selectedProject && canWrite && <Button onClick={openCreate} icon={<Plus size={16} />}>{t('milestones.new')}</Button>}
+        actions={
+          <div className="flex items-center gap-2">
+            {canViewOrgData && (
+              <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+                <button onClick={() => setViewMode('mine')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${viewMode === 'mine' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}><User size={11} /> My Projects</button>
+                <button onClick={() => setViewMode('org')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${viewMode === 'org' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}><Globe size={11} /> All Org</button>
+              </div>
+            )}
+            {selectedProject && canWrite && <Button onClick={openCreate} icon={<Plus size={16} />}>{t('milestones.new')}</Button>}
+          </div>
+        }
       />
       <div className="p-6 space-y-5">
         <select className="form-select max-w-xs" value={selectedProject} onChange={(e) => setSelectedProject(e.target.value)}>

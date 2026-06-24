@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { Plus, Pencil, CalendarDays, Lightbulb, Zap } from 'lucide-react'; // Added icons
+import { Plus, Pencil, CalendarDays, Lightbulb, Zap, Globe, User } from 'lucide-react'; // Added icons
 import UserAvatar from '../components/ui/UserAvatar';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
@@ -13,7 +13,9 @@ import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
 import { PageLoader } from '../components/ui/Spinner';
 import { useDecisions, useCreateDecision, useUpdateDecision } from '../hooks/useDecisions'; // Added useUpdateDecision
-import { useProjects } from '../hooks/useProjects';
+import { useProjects, useMyProjects } from '../hooks/useProjects';
+import { useAuth } from '../contexts/AuthContext';
+import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { Decision } from '../types';
 import { format } from 'date-fns';
 import { useI18n } from '../contexts/I18nContext';
@@ -35,10 +37,16 @@ const DecisionsPage = () => {
   const [renamingDecision, setRenamingDecision] = useState<{ id: string; title: string } | null>(null);
   const [renameError, setRenameError] = useState('');
 
+  const { user } = useAuth();
+  const canViewOrgData = user?.role === 'TENANT_ADMIN' || user?.role === 'SUPER_ADMIN' || hasPermission(user, PERMISSIONS.PROJECT_DATA_VIEW_ALL);
+  const [viewMode, setViewMode] = useState<'mine' | 'org'>('mine');
+
   const params: Record<string, string> = {};
   if (filterProject) params.projectId = filterProject;
   const { data: decisions = [], isLoading } = useDecisions(params);
-  const { data: projects = [] } = useProjects();
+  const { data: allOrgProjects = [] } = useProjects();
+  const { data: myProjects = [] } = useMyProjects();
+  const projects = canViewOrgData && viewMode === 'org' ? allOrgProjects : myProjects.length > 0 ? myProjects : allOrgProjects;
   const createDecision = useCreateDecision();
 
   // Update hook
@@ -93,7 +101,31 @@ const DecisionsPage = () => {
       <Header
         title={t('nav.decisions')}
         subtitle={`${decisions.length} ${t('decisions.title')}`}
-        actions={<Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>{t('decisions.new')}</Button>}
+        actions={
+          <div className="flex items-center gap-2">
+            {canViewOrgData && (
+              <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('mine')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'mine' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  <User size={14} />
+                  Mine
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('org')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'org' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  <Globe size={14} />
+                  Org
+                </button>
+              </div>
+            )}
+            <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>{t('decisions.new')}</Button>
+          </div>
+        }
       />
       <div className="p-6 space-y-5">
 

@@ -483,6 +483,7 @@ class AttendanceController {
     const hasAdminPerm  = await this._checkAttendanceAdmin(req);
     const userPerms     = Array.isArray(req.currentUser.permissions) ? req.currentUser.permissions : [];
     const hasTeamView   = userPerms.includes(PERMISSIONS.ATTENDANCE_TEAM_VIEW);
+    const hasViewAll    = userPerms.includes('PROJECT_DATA_VIEW_ALL');
 
     // Resolve caller's own row id once — used for both own-only and team-view
     // branches.
@@ -493,7 +494,7 @@ class AttendanceController {
       callerUid = users && users.length > 0 ? String(users[0].ROWID) : req.currentUser.id;
     }
 
-    if (isManager || hasAdminPerm) {
+    if (isManager || hasAdminPerm || hasViewAll) {
       // No additional restriction — optional user_id filter passes through.
       if (uid) where += `user_id = '${DataStoreService.escape(uid)}' AND `;
     } else if (hasTeamView || await this._isTeamLead(req.tenantId, callerUid)) {

@@ -82,7 +82,7 @@ module.exports = async (jobRequest, context) => {
       let uOffset = 0;
       while (true) {
         const page = await db.query(
-          `SELECT ROWID FROM ${TABLES.USERS}` +
+          `SELECT ROWID, CREATEDTIME FROM ${TABLES.USERS}` +
           ` WHERE tenant_id = '${tenantId}' AND status = 'ACTIVE'` +
           ` LIMIT 300 OFFSET ${uOffset}`
         );
@@ -115,11 +115,21 @@ module.exports = async (jobRequest, context) => {
       for (const user of users) {
         const userId = String(user.ROWID);
 
-        // ── 5. Probation check using date_of_joining from user_profiles ──────────
-        // If no profile record exists yet, skip the probation gate (safe default).
+        // ── 5. Probation check ───────────────────────────────────────────────────
+        // Prefer the explicit date_of_joining (admin-set employment start date).
+        // If it isn't set yet, fall back to the account creation time — i.e. when
+        // the user first joined the application — so brand-new joiners are still
+        // gated by probation and receive NO accrual until they clear it (fail-safe).
         const joiningDateStr = joiningMap[userId];
+        let probationStart   = null;
         if (joiningDateStr) {
-          const monthsSinceJoin = (now - new Date(joiningDateStr)) / (1000 * 60 * 60 * 24 * 30.44);
+          probationStart = new Date(joiningDateStr);
+        } else if (user.CREATEDTIME) {
+          probationStart = new Date(Number(user.CREATEDTIME));
+        }
+
+        if (probationStart && !isNaN(probationStart.getTime())) {
+          const monthsSinceJoin = (now - probationStart) / (1000 * 60 * 60 * 24 * 30.44);
           if (monthsSinceJoin < probationMonths) {
             totalSkipped++;
             continue;
