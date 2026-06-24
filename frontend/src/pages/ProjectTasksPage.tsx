@@ -215,7 +215,7 @@ export default function ProjectTasksPage() {
         estimated_hours: data.estimated_hours || undefined,
         due_date:        data.due_date || undefined,
         sprint_id:       data.sprint_id || undefined,
-        assignee_id:     selectedAssignees[0] ?? undefined,
+        assignee_ids:    JSON.stringify(selectedAssignees),
         labels:          JSON.stringify(data.labels?.split(',').map((s) => s.trim()).filter(Boolean) ?? []),
         require_approval: requireApproval ? 'true' : 'false',
       });
@@ -239,7 +239,7 @@ export default function ProjectTasksPage() {
           estimated_hours: data.estimated_hours || undefined,
           due_date:        data.due_date || undefined,
           sprint_id:       data.sprint_id || undefined,
-          assignee_id:     selectedAssignees[0] ?? undefined,
+          assignee_ids:    JSON.stringify(selectedAssignees),
           labels:          JSON.stringify(data.labels?.split(',').map((s) => s.trim()).filter(Boolean) ?? []),
           require_approval: requireApproval ? 'true' : 'false',
         },

@@ -25,7 +25,10 @@ class SprintController {
       // Everyone else is restricted to sprints they are explicitly members of.
       const canViewAll = role === 'SUPER_ADMIN' || role === 'TENANT_ADMIN'
         || dataScope === 'ORG_WIDE' || dataScope === 'SUBORDINATES'
-        || (Array.isArray(permissions) && permissions.includes(PERMISSIONS.SPRINT_VIEW_ALL));
+        || (Array.isArray(permissions) && (
+          permissions.includes(PERMISSIONS.SPRINT_VIEW_ALL) ||
+          permissions.includes(PERMISSIONS.PROJECT_DATA_VIEW_ALL)
+        ));
 
       let where = project_id ? `project_id = '${DataStoreService.escape(project_id)}'` : null;
       if (status) {

@@ -37,10 +37,11 @@ class TimeController {
     //   2. TIME_TEAM_VIEW or team lead  → see team peers' entries only
     //   3. (fallback)                   → own entries only
     const MANAGER_ROLES = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
+    const userPerms   = Array.isArray(me.permissions) ? me.permissions : [];
     const canSeeAll = MANAGER_ROLES.includes(me.role)
       || me.dataScope === 'ORG_WIDE'
-      || me.dataScope === 'SUBORDINATES';
-    const userPerms   = Array.isArray(me.permissions) ? me.permissions : [];
+      || me.dataScope === 'SUBORDINATES'
+      || userPerms.includes('PROJECT_DATA_VIEW_ALL');
     const hasTeamView = userPerms.includes(PERMISSIONS.TIME_TEAM_VIEW);
     const callerUid   = String(me.id);
 
@@ -514,10 +515,11 @@ class TimeController {
     // Team-scope: resolve which user IDs this caller may see.
     const MANAGER_ROLES_A = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
     const me_a = req.currentUser;
+    const userPerms_a  = Array.isArray(me_a.permissions) ? me_a.permissions : [];
     const canSeeAll_a = MANAGER_ROLES_A.includes(me_a.role)
       || me_a.dataScope === 'ORG_WIDE'
-      || me_a.dataScope === 'SUBORDINATES';
-    const userPerms_a  = Array.isArray(me_a.permissions) ? me_a.permissions : [];
+      || me_a.dataScope === 'SUBORDINATES'
+      || userPerms_a.includes('PROJECT_DATA_VIEW_ALL');
     const hasTeamView_a = userPerms_a.includes(PERMISSIONS.TIME_TEAM_VIEW);
     let allowedUserIds = null; // null → unrestricted
     if (!canSeeAll_a) {
@@ -658,11 +660,12 @@ class TimeController {
     // Guard: non-managers can only view their own activity OR a team peer's.
     const me_b = req.currentUser;
     const MANAGER_ROLES_B = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
+    const userPerms_b   = Array.isArray(me_b.permissions) ? me_b.permissions : [];
     const canSeeAll_b = MANAGER_ROLES_B.includes(me_b.role)
       || me_b.dataScope === 'ORG_WIDE'
-      || me_b.dataScope === 'SUBORDINATES';
+      || me_b.dataScope === 'SUBORDINATES'
+      || userPerms_b.includes('PROJECT_DATA_VIEW_ALL');
     if (!canSeeAll_b && String(me_b.id) !== String(user_id)) {
-      const userPerms_b   = Array.isArray(me_b.permissions) ? me_b.permissions : [];
       const hasTeamView_b = userPerms_b.includes(PERMISSIONS.TIME_TEAM_VIEW);
       const callerUid_b   = String(me_b.id);
       const isLead_b = hasTeamView_b || await this._isTeamLead(tenantId, callerUid_b);

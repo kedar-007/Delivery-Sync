@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { Globe, User } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
@@ -23,7 +24,7 @@ import {
   useUpdateTask,
   useDeleteTask,
 } from '../hooks/useTaskSprint';
-import { useProjects } from '../hooks/useProjects';
+import { useProjects, useMyProjects } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
 import { useI18n } from '../contexts/I18nContext';
 
@@ -96,6 +97,8 @@ const BacklogPage = () => {
   const { projectId = '' } = useParams<{ tenantSlug: string; projectId?: string }>();
   const { user } = useAuth();
   const canManageApproval = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TIME_APPROVE);
+  const canViewOrgData = user?.role === 'TENANT_ADMIN' || user?.role === 'SUPER_ADMIN' || hasPermission(user, PERMISSIONS.PROJECT_DATA_VIEW_ALL);
+  const [viewMode, setViewMode] = useState<'mine' | 'org'>('mine');
 
   // When accessed via /projects/:projectId/backlog the project is fixed from the URL.
   // When accessed via /backlog (no context) the user must select a project first.
@@ -123,7 +126,9 @@ const BacklogPage = () => {
   const [moveError, setMoveError] = useState('');
 
   // Data
-  const { data: allProjects = [] } = useProjects();
+  const { data: allOrgProjects = [] } = useProjects();
+  const { data: myProjects = [] } = useMyProjects();
+  const allProjects = canViewOrgData && viewMode === 'org' ? allOrgProjects : myProjects.length > 0 ? myProjects : allOrgProjects;
   const { data: backlogTasks = [], isLoading, error } = useBacklog(selectedProjectId);
   const { data: sprints = [] } = useSprints(selectedProjectId);
   const { data: users = [] } = useUsers();
@@ -293,9 +298,17 @@ const BacklogPage = () => {
             : t('sprints.backlog')
         }
         actions={
-          <Button onClick={() => setShowCreate(true)} disabled={!selectedProjectId}>
-            {t('tasks.new')}
-          </Button>
+          <div className="flex items-center gap-3">
+            {canViewOrgData ? (
+              <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+                <button onClick={() => setViewMode('mine')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${viewMode === 'mine' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}><User size={11} /> My Projects</button>
+                <button onClick={() => setViewMode('org')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${viewMode === 'org' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}><Globe size={11} /> All Org</button>
+              </div>
+            ) : undefined}
+            <Button onClick={() => setShowCreate(true)} disabled={!selectedProjectId}>
+              {t('tasks.new')}
+            </Button>
+          </div>
         }
       />
 

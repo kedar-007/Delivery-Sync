@@ -130,13 +130,36 @@ class CronController {
           uOffset += 300;
         }
 
+        // Build userId → date_of_joining map (admin-set employment start date)
+        const joiningMap = {};
+        let pOffset = 0;
+        while (true) {
+          const page = await db.query(
+            `SELECT user_id, date_of_joining FROM ${TABLES.USER_PROFILES}` +
+            ` WHERE tenant_id = '${tenantId}' AND date_of_joining IS NOT NULL LIMIT 200 OFFSET ${pOffset}`
+          );
+          for (const p of page) {
+            if (p.user_id && p.date_of_joining) joiningMap[String(p.user_id)] = p.date_of_joining;
+          }
+          if (page.length < 200) break;
+          pOffset += 200;
+        }
+
         for (const user of users) {
           const userId = String(user.ROWID);
 
-          // Probation check — CREATEDTIME is epoch ms
-          const createdMs = Number(user.CREATEDTIME);
-          if (createdMs) {
-            const monthsSinceJoin = (now - new Date(createdMs)) / (1000 * 60 * 60 * 24 * 30.44);
+          // Probation check — prefer admin-set date_of_joining; fall back to the
+          // account creation time (when the user first joined the app). New joiners
+          // are gated by probation and receive NO accrual until they clear it.
+          const joiningDateStr = joiningMap[userId];
+          let probationStart   = null;
+          if (joiningDateStr) {
+            probationStart = new Date(joiningDateStr);
+          } else if (user.CREATEDTIME) {
+            probationStart = new Date(Number(user.CREATEDTIME));
+          }
+          if (probationStart && !isNaN(probationStart.getTime())) {
+            const monthsSinceJoin = (now - probationStart) / (1000 * 60 * 60 * 24 * 30.44);
             if (monthsSinceJoin < probationMonths) { totalSkipped++; continue; }
           }
 

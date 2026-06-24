@@ -2112,8 +2112,9 @@ const getLeaveColor = (idx: number) => LEAVE_COLORS[idx % LEAVE_COLORS.length];
 
 export const LeaveBalancesTab = () => {
   const [setOpen, setSetOpen] = useState(false);
+  const [editingBalance, setEditingBalance] = useState<BalanceRecord | null>(null);
   const [submitError, setSubmitError] = useState('');
-  const [filterUser, setFilterUser] = useState('');
+  const [searchUser, setSearchUser] = useState('');
   const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
   const { t } = useI18n();
 
@@ -2127,32 +2128,42 @@ export const LeaveBalancesTab = () => {
   const deleteBalance = useDeleteLeaveBalance();
   const balances: BalanceRecord[] = raw as BalanceRecord[];
 
+  const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } = useForm<SetBalanceForm>({
+    defaultValues: { allocated_days: 0, carry_forward_days: 0 },
+  });
+
   const handleDelete = (b: BalanceRecord) => {
     if (!window.confirm(`Delete ${b.leaveTypeName} balance for ${b.userName ?? b.userId}? This cannot be undone.`)) return;
     deleteBalance.mutate(b.id);
   };
 
+  const handleEdit = (b: BalanceRecord) => {
+    setEditingBalance(b);
+    setValue('user_id', b.userId);
+    setValue('leave_type_id', b.leaveTypeId);
+    setValue('allocated_days', b.allocated);
+    setValue('carry_forward_days', 0);
+    setSetOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setSetOpen(false);
+    setEditingBalance(null);
+    reset({ allocated_days: 0, carry_forward_days: 0 });
+  };
+
   // Use || not ?? so empty-string userName falls back to userId
   const getUserKey = (b: BalanceRecord) => b.userName || b.userId || 'Unknown';
 
-  const userKeys = Array.from(
-    new Set(balances.map(getUserKey).filter(Boolean))
-  ).sort() as string[];
-
-  const filtered = filterUser
-    ? balances.filter((b) => getUserKey(b) === filterUser)
+  const filtered = searchUser
+    ? balances.filter((b) => getUserKey(b).toLowerCase().includes(searchUser.toLowerCase()))
     : balances;
-
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<SetBalanceForm>({
-    defaultValues: { allocated_days: 0, carry_forward_days: 0 },
-  });
 
   const onSet = async (data: SetBalanceForm) => {
     try {
       setSubmitError('');
       await setBalance.mutateAsync(data);
-      reset({ allocated_days: 0, carry_forward_days: 0 });
-      setSetOpen(false);
+      handleCloseModal();
     } catch (err: unknown) {
       setSubmitError((err as Error).message);
     }
@@ -2175,16 +2186,20 @@ export const LeaveBalancesTab = () => {
 
       {/* Toolbar */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <label className="form-label">Filter by Employee</label>
-          <select
-            className="form-select"
-            value={filterUser}
-            onChange={(e) => setFilterUser(e.target.value)}
-          >
-            <option value="">All employees</option>
-            {userKeys.map((k) => <option key={k} value={k}>{k}</option>)}
-          </select>
+        <div className="relative">
+          <label className="form-label">Search Employee</label>
+          <div className="relative">
+            <input
+              type="text"
+              className="form-input pl-8 w-56"
+              placeholder="Search by name…"
+              value={searchUser}
+              onChange={(e) => setSearchUser(e.target.value)}
+            />
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+            </svg>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -2254,13 +2269,22 @@ export const LeaveBalancesTab = () => {
                       >
                         <div className="flex items-start justify-between gap-1">
                           <p className="text-xs font-semibold text-gray-700 truncate">{b.leaveTypeName}</p>
-                          <button
-                            onClick={() => handleDelete(b)}
-                            className="p-0.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0"
-                            title="Delete balance"
-                          >
-                            <Trash2 size={11} />
-                          </button>
+                          <div className="flex items-center gap-0.5 shrink-0">
+                            <button
+                              onClick={() => handleEdit(b)}
+                              className="p-0.5 rounded text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                              title="Edit balance"
+                            >
+                              <Pencil size={11} />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(b)}
+                              className="p-0.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                              title="Delete balance"
+                            >
+                              <Trash2 size={11} />
+                            </button>
+                          </div>
                         </div>
 
                         <div className="flex items-end justify-between">
@@ -2390,13 +2414,22 @@ export const LeaveBalancesTab = () => {
                           </div>
                         </td>
                         <td className="px-4 py-3 text-center">
-                          <button
-                            onClick={() => handleDelete(b)}
-                            className="p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
-                            title="Delete balance"
-                          >
-                            <Trash2 size={13} />
-                          </button>
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() => handleEdit(b)}
+                              className="p-1 rounded text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                              title="Edit balance"
+                            >
+                              <Pencil size={13} />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(b)}
+                              className="p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                              title="Delete balance"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -2408,31 +2441,57 @@ export const LeaveBalancesTab = () => {
         </div>
       )}
 
-      {/* Set Balance Modal */}
+      {/* Set / Edit Balance Modal */}
       <Modal
         open={setOpen}
-        onClose={() => { setSetOpen(false); reset(); }}
-        title="Set Leave Balance"
+        onClose={handleCloseModal}
+        title={editingBalance ? 'Edit Leave Balance' : 'Set Leave Balance'}
         size="sm"
       >
         <form onSubmit={handleSubmit(onSet)} className="space-y-4">
           {submitError && <Alert type="error" message={submitError} />}
           <div>
             <label className="form-label">Employee *</label>
-            <select className="form-select" {...register('user_id', { required: 'Required' })}>
-              <option value="">Select employee…</option>
-              {allUsers.map((u) => (
-                <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
-              ))}
-            </select>
+            {editingBalance ? (
+              <>
+                <input
+                  type="text"
+                  className="form-input bg-gray-50 cursor-not-allowed"
+                  value={editingBalance.userName ?? editingBalance.userId}
+                  readOnly
+                  disabled
+                />
+                <input type="hidden" {...register('user_id', { required: 'Required' })} />
+              </>
+            ) : (
+              <select className="form-select" {...register('user_id', { required: 'Required' })}>
+                <option value="">Select employee…</option>
+                {allUsers.map((u) => (
+                  <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                ))}
+              </select>
+            )}
             {errors.user_id && <p className="form-error">{errors.user_id.message}</p>}
           </div>
           <div>
             <label className="form-label">Leave Type *</label>
-            <select className="form-select" {...register('leave_type_id', { required: 'Required' })}>
-              <option value="">Select leave type…</option>
-              {leaveTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
+            {editingBalance ? (
+              <>
+                <input
+                  type="text"
+                  className="form-input bg-gray-50 cursor-not-allowed"
+                  value={editingBalance.leaveTypeName}
+                  readOnly
+                  disabled
+                />
+                <input type="hidden" {...register('leave_type_id', { required: 'Required' })} />
+              </>
+            ) : (
+              <select className="form-select" {...register('leave_type_id', { required: 'Required' })}>
+                <option value="">Select leave type…</option>
+                {leaveTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            )}
             {errors.leave_type_id && <p className="form-error">{errors.leave_type_id.message}</p>}
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -2462,11 +2521,11 @@ export const LeaveBalancesTab = () => {
             </div>
           </div>
           <ModalActions>
-            <Button variant="outline" type="button" onClick={() => setSetOpen(false)}>
+            <Button variant="outline" type="button" onClick={handleCloseModal}>
               {t('common.cancel')}
             </Button>
-            <Button type="submit" loading={isSubmitting} icon={<Upload size={14} />}>
-              Set Balance
+            <Button type="submit" loading={isSubmitting} icon={editingBalance ? <Pencil size={14} /> : <Upload size={14} />}>
+              {editingBalance ? 'Update Balance' : 'Set Balance'}
             </Button>
           </ModalActions>
         </form>

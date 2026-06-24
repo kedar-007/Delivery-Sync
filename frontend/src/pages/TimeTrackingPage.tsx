@@ -3,11 +3,11 @@ import { useParams } from 'react-router-dom';
 import {
   Clock, Plus, Edit2, Trash2, Send, RotateCcw, CheckCircle2,
   XCircle, DollarSign, CalendarDays, TrendingUp, Users, AlertCircle, Loader2, X, Hash,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, Globe, User as UserIcon, Award,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
-  PieChart, Pie, Legend,
+  PieChart, Pie, Legend, AreaChart, Area, CartesianGrid,
 } from 'recharts';
 import { format, startOfWeek, endOfWeek, subDays, addDays, startOfMonth, endOfMonth, eachDayOfInterval, parseISO, isValid } from 'date-fns';
 import { useForm, useWatch } from 'react-hook-form';
@@ -34,7 +34,7 @@ import {
 } from '../hooks/useTimeTracking';
 import { useProjects } from '../hooks/useProjects';
 import { useTasks } from '../hooks/useTaskSprint';
-import { useTeamPeers } from '../hooks/useTeams';
+import { useTeamPeers, useTeams } from '../hooks/useTeams';
 import { timeEntriesApi } from '../lib/api';
 import { useToast } from '../components/ui/Toast';
 import { WeeklyTimesheetTab } from './WeeklyTimesheetTab';
@@ -1676,6 +1676,923 @@ const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
   );
 };
 
+// ── Org Time Tab (full org-wide view for PROJECT_DATA_VIEW_ALL / TENANT_ADMIN / SUPER_ADMIN) ──
+
+const ORG_DATE_PRESETS = [
+  { key: 'today',     label: 'Today' },
+  { key: 'yesterday', label: 'Yesterday' },
+  { key: 'week',      label: 'This Week' },
+  { key: 'month',     label: 'This Month' },
+  { key: 'custom',    label: 'Custom' },
+] as const;
+type OrgDatePreset = typeof ORG_DATE_PRESETS[number]['key'];
+
+const OrgTimeTab = () => {
+  const { t } = useI18n();
+
+  const [subTab,         setSubTab]         = useState<'analytics' | 'entries'>('analytics');
+  const [datePreset, setDatePreset] = useState<OrgDatePreset>('week');
+  const [customFrom, setCustomFrom] = useState(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [customTo,   setCustomTo]   = useState(() => format(new Date(), 'yyyy-MM-dd'));
+  const [filterProject,  setFilterProject]  = useState('');
+  const [filterUser,     setFilterUser]     = useState('');
+  const [filterTeam,     setFilterTeam]     = useState('');
+  const [filterBillable, setFilterBillable] = useState<'' | 'true' | 'false'>('');
+  const [filterStatus,   setFilterStatus]   = useState('');
+  const [memberSearch,   setMemberSearch]   = useState('');
+  const [memberDropOpen, setMemberDropOpen] = useState(false);
+  const [teamSearch,     setTeamSearch]     = useState('');
+  const [teamDropOpen,   setTeamDropOpen]   = useState(false);
+  const [page,     setPage]     = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const memberDropRef = useRef<HTMLDivElement>(null);
+  const teamDropRef   = useRef<HTMLDivElement>(null);
+
+  const { data: allProjects = [] } = useProjects();
+  const { data: teamPeers   = [] } = useTeamPeers();
+  const { data: allTeams    = [] } = useTeams();
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (memberDropRef.current && !memberDropRef.current.contains(e.target as Node)) setMemberDropOpen(false);
+      if (teamDropRef.current   && !teamDropRef.current.contains(e.target as Node))   setTeamDropOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // Compute date range from preset
+  const { dateFrom, dateTo } = useMemo(() => {
+    const now = new Date();
+    if (datePreset === 'today')     { const d = format(now, 'yyyy-MM-dd'); return { dateFrom: d, dateTo: d }; }
+    if (datePreset === 'yesterday') { const d = format(subDays(now, 1), 'yyyy-MM-dd'); return { dateFrom: d, dateTo: d }; }
+    if (datePreset === 'week')  return { dateFrom: format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd'), dateTo: format(endOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd') };
+    if (datePreset === 'month') return { dateFrom: format(startOfMonth(now), 'yyyy-MM-dd'), dateTo: format(endOfMonth(now), 'yyyy-MM-dd') };
+    return { dateFrom: customFrom, dateTo: customTo };
+  }, [datePreset, customFrom, customTo]);
+
+  const dateError = useMemo(() =>
+    datePreset === 'custom' && customFrom && customTo && customFrom > customTo
+      ? 'Start date must be before end date' : '',
+    [datePreset, customFrom, customTo]);
+
+  useEffect(() => { setPage(1); }, [dateFrom, dateTo, filterProject, filterUser, filterTeam, filterBillable, filterStatus, pageSize]);
+
+  // Analytics params: always org-wide; filterUser drills into a specific member
+  const analyticsParams = useMemo(() => {
+    if (dateError) return undefined;
+    const p: Record<string, string> = {};
+    if (dateFrom) p.date_from = dateFrom;
+    if (dateTo)   p.date_to   = dateTo;
+    if (filterProject) p.project_id = filterProject;
+    if (filterUser)    p.user_id    = filterUser;
+    return p;
+  }, [dateFrom, dateTo, filterProject, filterUser, dateError]);
+
+  // Entries: paginated + status/billable filters
+  const entriesParams = useMemo(() => {
+    if (!analyticsParams) return undefined;
+    const p: Record<string, string> = { ...analyticsParams, page: String(page), pageSize: String(pageSize) };
+    if (filterStatus)   p.status      = filterStatus;
+    if (filterBillable) p.is_billable = filterBillable;
+    return p;
+  }, [analyticsParams, page, pageSize, filterStatus, filterBillable]);
+
+  const { data: analyticsResult, isLoading: analyticsLoading } = useTimeEntries(analyticsParams ?? {});
+  const { data: entriesResult,   isLoading: entriesLoading   } = useTimeEntries(
+    subTab === 'entries' && !filterTeam ? (entriesParams ?? undefined) : undefined,
+  );
+
+  // userId set for the selected team (client-side filtering)
+  const teamMemberIds = useMemo(() => {
+    if (!filterTeam) return null;
+    const team = (allTeams as Array<{ id: string; members: Array<{ id: string }> }>).find(t => t.id === filterTeam);
+    return new Set((team?.members ?? []).map(m => m.id));
+  }, [filterTeam, allTeams]);
+
+  // Raw → team-filtered → billable-filtered
+  const rawEntries = useMemo(() => (analyticsResult?.data ?? []) as TimeEntry[], [analyticsResult]);
+  const allEntries = useMemo(() => {
+    let entries = teamMemberIds
+      ? rawEntries.filter(e => teamMemberIds.has(String((e as any).userId || (e as any).user_id || '')))
+      : rawEntries;
+    if (filterBillable === 'true')  entries = entries.filter(e => e.isBillable);
+    if (filterBillable === 'false') entries = entries.filter(e => !e.isBillable);
+    return entries;
+  }, [rawEntries, teamMemberIds, filterBillable]);
+
+  // Entries tab: server-side pagination normally; client-side when team-filtered
+  const pageEntries = useMemo(() => {
+    if (filterTeam && teamMemberIds) {
+      const start = (page - 1) * pageSize;
+      return allEntries.slice(start, start + pageSize);
+    }
+    return (entriesResult?.data ?? []) as TimeEntry[];
+  }, [filterTeam, teamMemberIds, allEntries, entriesResult, page, pageSize]);
+
+  const pagination = filterTeam ? null : (entriesResult?.pagination ?? null);
+  const totalCount = filterTeam ? allEntries.length : (pagination?.total ?? pageEntries.length);
+  const totalPages = Math.max(1, filterTeam ? Math.ceil(allEntries.length / pageSize) : (pagination?.totalPages ?? Math.ceil(pageEntries.length / pageSize)));
+
+  // ── Analytics aggregates ──────────────────────────────────────────────────
+  const totalHours       = useMemo(() => Math.round(allEntries.reduce((s, e) => s + (parseFloat(String(e.hours)) || 0), 0) * 100) / 100, [allEntries]);
+  const billableHours    = useMemo(() => Math.round(allEntries.filter(e => e.isBillable).reduce((s, e) => s + (parseFloat(String(e.hours)) || 0), 0) * 100) / 100, [allEntries]);
+  const nonBillableHours = Math.round((totalHours - billableHours) * 100) / 100;
+  const uniqueMembers    = useMemo(() => new Set(allEntries.filter(e => (e as any).userId).map(e => String((e as any).userId))).size, [allEntries]);
+  const uniqueProjects   = useMemo(() => new Set(allEntries.filter(e => e.projectId).map(e => e.projectId)).size, [allEntries]);
+  const activeDays       = useMemo(() => new Set(allEntries.filter(e => e.date).map(e => e.date)).size, [allEntries]);
+  const billableRatioPct = totalHours > 0 ? Math.round((billableHours / totalHours) * 100) : 0;
+  const avgHoursPerDay   = activeDays    > 0 ? Math.round((totalHours / activeDays)    * 10) / 10 : 0;
+  const avgHoursPerMember = uniqueMembers > 0 ? Math.round((totalHours / uniqueMembers) * 10) / 10 : 0;
+
+  // Day-of-week breakdown (Mon=0 … Sun=6)
+  const byDayOfWeek = useMemo(() => {
+    const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const totals = [0, 0, 0, 0, 0, 0, 0];
+    const counts = [0, 0, 0, 0, 0, 0, 0];
+    for (const e of allEntries) {
+      if (!e.date) continue;
+      const d = parseISO(e.date);
+      if (!isValid(d)) continue;
+      const dow = (d.getDay() + 6) % 7;
+      totals[dow] += parseFloat(String(e.hours)) || 0;
+      counts[dow]++;
+    }
+    return DAYS.map((name, i) => ({
+      name,
+      total: Math.round(totals[i] * 10) / 10,
+      avg:   counts[i] > 0 ? Math.round((totals[i] / counts[i]) * 10) / 10 : 0,
+      count: counts[i],
+    }));
+  }, [allEntries]);
+
+  // Top 10 tasks by hours
+  const byTask = useMemo(() => {
+    const m = new Map<string, { name: string; total: number; billable: number; count: number; projectName: string }>();
+    for (const e of allEntries) {
+      const key  = e.taskId ? `id:${e.taskId}` : e.taskName ? `n:${e.taskName}` : e.description ? `d:${e.description}` : '__none__';
+      const name = e.taskName || e.description || 'No description';
+      const proj = (e as any).projectName || e.projectName || '';
+      if (!m.has(key)) m.set(key, { name, total: 0, billable: 0, count: 0, projectName: proj });
+      const h = parseFloat(String(e.hours)) || 0;
+      m.get(key)!.total += h;
+      if (e.isBillable) m.get(key)!.billable += h;
+      m.get(key)!.count++;
+    }
+    return Array.from(m.values())
+      .map(t => ({ ...t, total: Math.round(t.total * 10) / 10, billable: Math.round(t.billable * 10) / 10 }))
+      .sort((a, b) => b.total - a.total).slice(0, 10);
+  }, [allEntries]);
+
+  const maxTaskHours = useMemo(() => Math.max(1, ...byTask.map(t => t.total)), [byTask]);
+
+  const byUser = useMemo(() => {
+    const m = new Map<string, { name: string; avatarUrl: string; total: number; billable: number; nonBillable: number; count: number }>();
+    for (const e of allEntries) {
+      const uid  = String((e as any).userId || (e as any).user_id || '');
+      const name = (e as any).userName || 'Unknown';
+      if (!m.has(uid)) m.set(uid, { name, avatarUrl: (e as any).userAvatarUrl || '', total: 0, billable: 0, nonBillable: 0, count: 0 });
+      const h = parseFloat(String(e.hours)) || 0;
+      const r = m.get(uid)!;
+      r.total += h;
+      if (e.isBillable) r.billable += h; else r.nonBillable += h;
+      r.count++;
+    }
+    return Array.from(m.values())
+      .map(r => ({ ...r, total: Math.round(r.total * 10) / 10, billable: Math.round(r.billable * 10) / 10, nonBillable: Math.round(r.nonBillable * 10) / 10 }))
+      .sort((a, b) => b.total - a.total);
+  }, [allEntries]);
+
+  const byProject = useMemo(() => {
+    const hrs  = new Map<string, { name: string; total: number; billable: number; count: number }>();
+    const mbrs = new Map<string, Set<string>>();
+    for (const e of allEntries) {
+      const pid  = e.projectId || '';
+      const name = (e as any).projectName || pid || 'Unknown';
+      if (!hrs.has(pid))  hrs.set(pid,  { name, total: 0, billable: 0, count: 0 });
+      if (!mbrs.has(pid)) mbrs.set(pid, new Set());
+      const h = parseFloat(String(e.hours)) || 0;
+      hrs.get(pid)!.total   += h;
+      if (e.isBillable) hrs.get(pid)!.billable += h;
+      hrs.get(pid)!.count   += 1;
+      const uid = String((e as any).userId || '');
+      if (uid) mbrs.get(pid)!.add(uid);
+    }
+    return Array.from(hrs.entries())
+      .map(([pid, v]) => ({ ...v, memberCount: mbrs.get(pid)?.size ?? 0 }))
+      .sort((a, b) => b.total - a.total);
+  }, [allEntries]);
+
+  const dailyData = useMemo(() => {
+    const m: Record<string, { date: string; total: number; billable: number; count: number }> = {};
+    for (const e of allEntries) {
+      const d = e.date || '';
+      if (!m[d]) m[d] = { date: d, total: 0, billable: 0, count: 0 };
+      const h = parseFloat(String(e.hours)) || 0;
+      m[d].total += h;
+      if (e.isBillable) m[d].billable += h;
+      m[d].count += 1;
+    }
+    return Object.values(m).sort((a, b) => a.date.localeCompare(b.date)).map(d => ({
+      ...d,
+      total:   Math.round(d.total   * 10) / 10,
+      billable: Math.round(d.billable * 10) / 10,
+      label:   safeFormat(d.date, 'MMM d'),
+    }));
+  }, [allEntries]);
+
+  const statusBreakdown = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const e of allEntries) c[e.status] = (c[e.status] ?? 0) + 1;
+    return [
+      { name: 'Approved',  value: c['APPROVED']  ?? 0, color: '#22c55e' },
+      { name: 'Submitted', value: c['SUBMITTED'] ?? 0, color: '#3b82f6' },
+      { name: 'Draft',     value: c['DRAFT']     ?? 0, color: '#94a3b8' },
+      { name: 'Rejected',  value: c['REJECTED']  ?? 0, color: '#ef4444' },
+    ].filter(s => s.value > 0);
+  }, [allEntries]);
+
+  const maxUserHours = useMemo(() => Math.max(1, ...byUser.map(u => u.total)),    [byUser]);
+  const maxProjHours = useMemo(() => Math.max(1, ...byProject.map(p => p.total)), [byProject]);
+
+  // userId → { teamId, teamName } lookup built from org team roster
+  const teamByUser = useMemo(() => {
+    const m = new Map<string, { teamId: string; teamName: string }>();
+    for (const team of allTeams as Array<{ id: string; name: string; members: Array<{ id: string }> }>) {
+      for (const member of team.members ?? []) {
+        if (!m.has(member.id)) m.set(member.id, { teamId: team.id, teamName: team.name });
+      }
+    }
+    return m;
+  }, [allTeams]);
+
+  const byTeam = useMemo(() => {
+    const m = new Map<string, { teamId: string; teamName: string; total: number; billable: number; nonBillable: number; count: number; memberSet: Set<string> }>();
+    for (const e of allEntries) {
+      const uid  = String((e as any).userId || (e as any).user_id || '');
+      const info = teamByUser.get(uid);
+      const key  = info?.teamId   ?? '__none__';
+      const name = info?.teamName ?? 'No Team';
+      if (!m.has(key)) m.set(key, { teamId: key, teamName: name, total: 0, billable: 0, nonBillable: 0, count: 0, memberSet: new Set() });
+      const h = parseFloat(String(e.hours)) || 0;
+      const rec = m.get(key)!;
+      rec.total += h;
+      if (e.isBillable) rec.billable += h; else rec.nonBillable += h;
+      rec.count += 1;
+      if (uid) rec.memberSet.add(uid);
+    }
+    return Array.from(m.values())
+      .map(r => ({ ...r, billable: Math.round(r.billable * 10) / 10, nonBillable: Math.round(r.nonBillable * 10) / 10, total: Math.round(r.total * 10) / 10, memberCount: r.memberSet.size }))
+      .sort((a, b) => b.total - a.total);
+  }, [allEntries, teamByUser]);
+
+  const maxTeamHours = useMemo(() => Math.max(1, ...byTeam.map(t => t.total)), [byTeam]);
+
+  const hasAnyFilter = !!(filterProject || filterUser || filterTeam || filterBillable || filterStatus);
+  const clearFilters = () => { setFilterProject(''); setFilterUser(''); setFilterTeam(''); setFilterBillable(''); setFilterStatus(''); };
+  const selectedTeam = filterTeam
+    ? (allTeams as Array<{ id: string; name: string; description?: string; memberCount?: number; leadName?: string }>).find(t => t.id === filterTeam)
+    : null;
+
+  const Pagination = () => (
+    <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-t border-gray-100 bg-gray-50">
+      <div className="flex items-center gap-4 text-xs text-gray-600">
+        <span>Showing <strong>{((page - 1) * pageSize) + 1}–{Math.min(page * pageSize, totalCount)}</strong> of <strong>{totalCount.toLocaleString()}</strong> entries</span>
+        <span className="flex items-center gap-1.5">
+          <label className="text-gray-500">Rows:</label>
+          <select value={pageSize} onChange={e => setPageSize(parseInt(e.target.value, 10) || 20)} className="text-xs border border-gray-300 rounded px-1.5 py-0.5 bg-white">
+            {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </span>
+      </div>
+      <div className="flex items-center gap-1">
+        <button disabled={page === 1} onClick={() => setPage(1)} className="px-2 py-1 text-xs border border-gray-200 rounded hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed">«</button>
+        <button disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))} className="px-2 py-1 text-xs border border-gray-200 rounded hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed">←</button>
+        {Array.from({ length: totalPages }, (_, i) => i + 1)
+          .filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+          .reduce<(number | '...')[]>((acc, p, i, arr) => {
+            if (i > 0 && (p as number) - (arr[i - 1] as number) > 1) acc.push('...');
+            acc.push(p); return acc;
+          }, [])
+          .map((p, i) => p === '...' ? (
+            <span key={`oe-${i}`} className="px-1 text-gray-400 text-xs">…</span>
+          ) : (
+            <button key={p} onClick={() => setPage(p as number)} className={`min-w-[28px] px-2 py-1 text-xs border rounded ${page === p ? 'bg-blue-600 text-white border-blue-600 font-semibold' : 'border-gray-200 hover:bg-white'}`}>{p}</button>
+          ))}
+        <button disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))} className="px-2 py-1 text-xs border border-gray-200 rounded hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed">→</button>
+        <button disabled={page >= totalPages} onClick={() => setPage(totalPages)} className="px-2 py-1 text-xs border border-gray-200 rounded hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed">»</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+
+      {/* ── Summary line ─────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-end gap-3 min-h-[28px]">
+        {analyticsLoading && <Loader2 size={14} className="animate-spin text-gray-400" />}
+        {!analyticsLoading && allEntries.length > 0 && (
+          <span className="text-xs text-gray-500">{allEntries.length.toLocaleString()} entries · <strong>{fmtH(totalHours)}</strong> · {billableRatioPct}% billable</span>
+        )}
+      </div>
+
+      {/* ── Filter bar ───────────────────────────────────────────────────── */}
+      <Card>
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          {ORG_DATE_PRESETS.map(({ key, label }) => (
+            <button key={key} type="button" onClick={() => setDatePreset(key)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                datePreset === key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+              }`}>
+              {label}
+            </button>
+          ))}
+          {hasAnyFilter && (
+            <button type="button" onClick={clearFilters}
+              className="ml-auto px-3 py-1.5 text-xs font-medium rounded-full border border-red-200 text-red-600 bg-white hover:bg-red-50 transition-colors flex items-center gap-1">
+              <X size={11} /> Clear filters
+            </button>
+          )}
+        </div>
+
+        <div className="grid gap-3 grid-cols-2 md:grid-cols-6">
+          {datePreset === 'custom' ? (
+            <>
+              <div>
+                <label className="form-label">From</label>
+                <input type="date" className={`form-input ${dateError ? 'border-red-400' : ''}`} value={customFrom} onChange={e => setCustomFrom(e.target.value)} />
+              </div>
+              <div>
+                <label className="form-label">To</label>
+                <input type="date" className={`form-input ${dateError ? 'border-red-400' : ''}`} value={customTo} onChange={e => setCustomTo(e.target.value)} />
+              </div>
+            </>
+          ) : (
+            <div className="col-span-2 flex items-center">
+              <span className="text-sm text-gray-600 font-medium">
+                {safeFormat(dateFrom, 'MMM d, yyyy')} → {safeFormat(dateTo, 'MMM d, yyyy')}
+              </span>
+            </div>
+          )}
+          <div>
+            <label className="form-label">Project</label>
+            <select className="form-select" value={filterProject} onChange={e => { setFilterProject(e.target.value); setPage(1); }}>
+              <option value="">All Projects</option>
+              {(allProjects as Array<{ id: string; name: string }>).map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div ref={memberDropRef} className="relative">
+            <label className="form-label">Member</label>
+            <button
+              type="button"
+              onClick={() => { setMemberDropOpen(o => !o); setMemberSearch(''); }}
+              className="form-select w-full text-left flex items-center justify-between gap-2"
+            >
+              <span className={filterUser ? 'text-gray-900' : 'text-gray-400'}>
+                {filterUser
+                  ? (teamPeers as Array<{ id: string; name: string }>).find(p => p.id === filterUser)?.name ?? 'Member'
+                  : 'All Members'}
+              </span>
+              <ChevronRight size={13} className={`text-gray-400 transition-transform ${memberDropOpen ? 'rotate-90' : ''}`} />
+            </button>
+            {memberDropOpen && (
+              <div className="absolute z-50 mt-1 w-full min-w-[200px] bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                <div className="p-2 border-b border-gray-100">
+                  <input
+                    autoFocus
+                    type="text"
+                    placeholder="Search members…"
+                    value={memberSearch}
+                    onChange={e => setMemberSearch(e.target.value)}
+                    className="w-full text-sm px-2.5 py-1.5 border border-gray-200 rounded-md outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
+                  />
+                </div>
+                <ul className="max-h-52 overflow-y-auto py-1">
+                  {[{ id: '', name: 'All Members' }, ...(teamPeers as Array<{ id: string; name: string }>)]
+                    .filter(p => !memberSearch || p.name.toLowerCase().includes(memberSearch.toLowerCase()))
+                    .map(p => (
+                      <li key={p.id}>
+                        <button
+                          type="button"
+                          onClick={() => { setFilterUser(p.id); setPage(1); setMemberDropOpen(false); setMemberSearch(''); }}
+                          className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 transition-colors flex items-center gap-2 ${filterUser === p.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-gray-700'}`}
+                        >
+                          {p.id && <UserAvatar name={p.name} size="xs" />}
+                          {p.name}
+                        </button>
+                      </li>
+                    ))}
+                </ul>
+                {(teamPeers as Array<{ id: string; name: string }>).filter(p => memberSearch && p.name.toLowerCase().includes(memberSearch.toLowerCase())).length === 0 && memberSearch && (
+                  <p className="text-xs text-gray-400 text-center py-3">No members match "{memberSearch}"</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Team searchable dropdown */}
+          <div ref={teamDropRef} className="relative">
+            <label className="form-label">Team</label>
+            <button
+              type="button"
+              onClick={() => { setTeamDropOpen(o => !o); setTeamSearch(''); }}
+              className={`form-select w-full text-left flex items-center justify-between gap-2 ${filterTeam ? 'border-blue-400 ring-1 ring-blue-100' : ''}`}
+            >
+              <span className={filterTeam ? 'text-gray-900 font-medium' : 'text-gray-400'}>
+                {filterTeam
+                  ? (allTeams as Array<{ id: string; name: string }>).find(t => t.id === filterTeam)?.name ?? 'Team'
+                  : 'All Teams'}
+              </span>
+              <ChevronRight size={13} className={`text-gray-400 transition-transform ${teamDropOpen ? 'rotate-90' : ''}`} />
+            </button>
+            {teamDropOpen && (
+              <div className="absolute z-50 mt-1 w-full min-w-[200px] bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                <div className="p-2 border-b border-gray-100">
+                  <input
+                    autoFocus
+                    type="text"
+                    placeholder="Search teams…"
+                    value={teamSearch}
+                    onChange={e => setTeamSearch(e.target.value)}
+                    className="w-full text-sm px-2.5 py-1.5 border border-gray-200 rounded-md outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
+                  />
+                </div>
+                <ul className="max-h-52 overflow-y-auto py-1">
+                  {[{ id: '', name: 'All Teams' }, ...(allTeams as Array<{ id: string; name: string; memberCount?: number }>)]
+                    .filter(t => !teamSearch || t.name.toLowerCase().includes(teamSearch.toLowerCase()))
+                    .map(t => (
+                      <li key={t.id}>
+                        <button
+                          type="button"
+                          onClick={() => { setFilterTeam(t.id); setPage(1); setTeamDropOpen(false); setTeamSearch(''); }}
+                          className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 transition-colors flex items-center justify-between ${filterTeam === t.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-gray-700'}`}
+                        >
+                          <span>{t.name}</span>
+                          {t.id && t.memberCount !== undefined && (
+                            <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full shrink-0">{t.memberCount}m</span>
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                </ul>
+                {(allTeams as Array<{ name: string }>).filter(t => teamSearch && t.name.toLowerCase().includes(teamSearch.toLowerCase())).length === 0 && teamSearch && (
+                  <p className="text-xs text-gray-400 text-center py-3">No teams match "{teamSearch}"</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Billable toggle */}
+          <div>
+            <label className="form-label">Billable</label>
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden" style={{ height: '36px' }}>
+              {([['', 'All'], ['true', 'Bill.'], ['false', 'Non-bill.']] as [string, string][]).map(([val, lbl]) => (
+                <button key={val} type="button" onClick={() => { setFilterBillable(val as any); setPage(1); }}
+                  className={`flex-1 text-xs font-medium transition-colors border-r last:border-r-0 border-gray-200 ${filterBillable === val ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Date validation error */}
+        {dateError && (
+          <div className="mt-2 flex items-center gap-1.5 text-xs text-red-600">
+            <AlertCircle size={12} /> {dateError}
+          </div>
+        )}
+      </Card>
+
+      {/* ── Sub-tab switcher ───────────────────────────────────────────────── */}
+      <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+        {(['analytics', 'entries'] as const).map(st => (
+          <button key={st} onClick={() => setSubTab(st)}
+            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${subTab === st ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>
+            {st === 'analytics' ? 'Analytics' : 'All Entries'}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Analytics sub-tab ─────────────────────────────────────────────── */}
+      {subTab === 'analytics' && (
+        analyticsLoading ? <PageSkeleton /> : dateError ? (
+          <div className="flex items-center justify-center h-40 text-sm text-red-500 gap-2"><AlertCircle size={16} /> {dateError}</div>
+        ) : (
+          <div className="space-y-5">
+            {/* Team context banner */}
+            {selectedTeam && (
+              <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                    <Users size={16} className="text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-blue-900">{selectedTeam.name}</p>
+                    <p className="text-xs text-blue-600">
+                      {selectedTeam.memberCount ?? '?'} member{(selectedTeam.memberCount ?? 0) !== 1 ? 's' : ''}
+                      {selectedTeam.leadName ? ` · Lead: ${selectedTeam.leadName}` : ''}
+                      {selectedTeam.description ? ` · ${selectedTeam.description}` : ''}
+                    </p>
+                  </div>
+                </div>
+                <button type="button" onClick={() => setFilterTeam('')}
+                  className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-1 px-2 py-1 rounded hover:bg-blue-100 transition-colors">
+                  <X size={11} /> Clear
+                </button>
+              </div>
+            )}
+
+            {/* Summary stat cards — 8 cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <StatCard label="Total Hours"    value={`${Math.round(totalHours * 10) / 10}h`}       icon={<Clock size={20} />}        color="blue"   />
+              <StatCard label="Billable Hours" value={`${Math.round(billableHours * 10) / 10}h`}    icon={<DollarSign size={20} />}   color="green"  />
+              <StatCard label="Non-Billable"   value={`${Math.round(nonBillableHours * 10) / 10}h`} icon={<Clock size={20} />}        color="amber"  />
+              <StatCard label="Billable %"     value={`${billableRatioPct}%`}                       icon={<Award size={20} />}        color="green"  />
+              <StatCard label="Active Members" value={uniqueMembers}         icon={<Users size={20} />}        color="purple" />
+              <StatCard label="Projects"      value={uniqueProjects}         icon={<TrendingUp size={20} />}   color="blue"   />
+              <StatCard label="Avg h/Day"     value={`${avgHoursPerDay}h`}  icon={<CalendarDays size={20} />} color="purple" />
+              <StatCard label="Avg h/Member"  value={`${avgHoursPerMember}h`} icon={<UserIcon size={20} />}   color="blue"   />
+            </div>
+
+            {allEntries.length === 0 ? (
+              <EmptyState icon={<Clock size={36} />} title="No time entries" description="No entries found for the selected period and filters." />
+            ) : (
+              <>
+                {/* Daily trend — Area chart with gradient fills */}
+                <Card>
+                  <h3 className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                    <TrendingUp size={15} className="text-blue-500" /> Daily Hours Trend
+                  </h3>
+                  <p className="text-xs text-gray-400 mb-4">Total vs billable hours per day</p>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <AreaChart data={dailyData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                      <defs>
+                        <linearGradient id="gradTotal" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.18} />
+                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="gradBillable" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%"  stopColor="#22c55e" stopOpacity={0.22} />
+                          <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                      <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} unit="h" width={30} />
+                      <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                        formatter={(val: number, name: string) => [`${val}h`, name === 'total' ? 'Total' : 'Billable']} />
+                      <Legend formatter={val => <span style={{ fontSize: 11, color: '#6b7280' }}>{val === 'total' ? 'Total' : 'Billable'}</span>} iconSize={8} iconType="circle" />
+                      <Area type="monotone" dataKey="total"    name="total"    stroke="#3b82f6" strokeWidth={2} fill="url(#gradTotal)"    dot={false} activeDot={{ r: 4 }} />
+                      <Area type="monotone" dataKey="billable" name="billable" stroke="#22c55e" strokeWidth={2} fill="url(#gradBillable)" dot={false} activeDot={{ r: 4 }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </Card>
+
+                {/* Day-of-week + Top tasks */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                  <Card>
+                    <h3 className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                      <CalendarDays size={15} className="text-indigo-500" /> Hours by Day of Week
+                    </h3>
+                    <p className="text-xs text-gray-400 mb-4">Average hours logged per weekday</p>
+                    <ResponsiveContainer width="100%" height={180}>
+                      <BarChart data={byDayOfWeek} barCategoryGap="25%">
+                        <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} unit="h" width={28} />
+                        <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                          formatter={(val: number, _name: string, payload: any) => {
+                            const d = payload?.payload;
+                            return [`${val}h avg · ${d?.count ?? 0} entries`, 'Hours'];
+                          }} />
+                        <Bar dataKey="avg" radius={[4, 4, 0, 0]}>
+                          {byDayOfWeek.map((_entry, idx) => (
+                            <Cell key={idx} fill={idx >= 5 ? '#f59e0b' : '#6366f1'} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <div className="flex gap-4 mt-2 text-[10px] text-gray-400">
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-500 inline-block" />Weekday</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />Weekend</span>
+                    </div>
+                  </Card>
+
+                  <Card>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                        <Award size={15} className="text-amber-500" /> Top Tasks
+                      </h3>
+                      <span className="text-[11px] text-gray-400">by hours logged</span>
+                    </div>
+                    {byTask.length === 0 ? (
+                      <p className="text-xs text-gray-400 text-center py-6">No task data available</p>
+                    ) : (
+                      <div className="space-y-2.5 overflow-y-auto pr-1" style={{ maxHeight: 320 }}>
+                        {byTask.slice(0, 8).map((t, idx) => {
+                          const billPct = t.total > 0 ? Math.round((t.billable / t.total) * 100) : 0;
+                          const barPct  = maxTaskHours > 0 ? (t.total / maxTaskHours) * 100 : 0;
+                          return (
+                            <div key={idx}>
+                              <div className="flex items-center justify-between mb-1">
+                                <div className="min-w-0 flex-1 mr-2">
+                                  <span className="text-xs font-medium text-gray-700 truncate block">{t.name}</span>
+                                  {t.projectName && <span className="text-[10px] text-gray-400 truncate block">{t.projectName}</span>}
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className="text-[10px] text-gray-400">{billPct}% bill.</span>
+                                  <span className="text-xs font-semibold text-gray-800">{t.total}h</span>
+                                </div>
+                              </div>
+                              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden flex" style={{ width: `${barPct}%` }}>
+                                <div className="h-full bg-green-500" style={{ width: `${billPct}%` }} />
+                                <div className="h-full bg-amber-400" style={{ width: `${100 - billPct}%` }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </Card>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                  {/* Top members by hours — split billable/non-billable bar */}
+                  <Card>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                        <Users size={15} className="text-indigo-500" /> Members by Hours
+                      </h3>
+                      <span className="text-[11px] text-gray-400">{byUser.length} member{byUser.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    {byUser.length === 0 ? (
+                      <p className="text-xs text-gray-400 text-center py-6">No member data</p>
+                    ) : (
+                      <div className="overflow-y-auto space-y-3 pr-1" style={{ maxHeight: 360 }}>
+                        {byUser.map(u => {
+                          const barPct  = maxUserHours > 0 ? (u.total / maxUserHours) * 100 : 0;
+                          const billPct = u.total > 0 ? Math.round((u.billable / u.total) * 100) : 0;
+                          return (
+                            <div key={u.name}>
+                              <div className="flex items-center justify-between mb-1">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <UserAvatar name={u.name} avatarUrl={u.avatarUrl} size="xs" />
+                                  <span className="text-xs font-medium text-gray-700 truncate max-w-[140px]">{u.name}</span>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className="text-[10px] text-gray-400">{billPct}% billable</span>
+                                  <span className="text-xs font-semibold text-gray-800">{Math.round(u.total * 10) / 10}h</span>
+                                </div>
+                              </div>
+                              {/* Split billable / non-billable progress bar */}
+                              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden flex" style={{ width: `${barPct}%` }}>
+                                {u.total > 0 && (
+                                  <>
+                                    <div className="h-full bg-green-500" style={{ width: `${(u.billable / u.total) * 100}%` }} />
+                                    <div className="h-full bg-amber-400" style={{ width: `${(u.nonBillable / u.total) * 100}%` }} />
+                                  </>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-gray-400 mt-0.5">{u.count} entr{u.count === 1 ? 'y' : 'ies'}</p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </Card>
+
+                  {/* Projects */}
+                  <Card>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                        <TrendingUp size={15} className="text-blue-500" /> Projects
+                      </h3>
+                      <span className="text-[11px] text-gray-400">{byProject.length} project{byProject.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div className="overflow-y-auto space-y-3 pr-1" style={{ maxHeight: 360 }}>
+                      {byProject.map(p => {
+                        const pct     = maxProjHours > 0 ? (p.total / maxProjHours) * 100 : 0;
+                        const billPct = p.total > 0 ? Math.round((p.billable / p.total) * 100) : 0;
+                        return (
+                          <div key={p.name}>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-medium text-gray-700 truncate max-w-[160px]">{p.name || 'Unknown'}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] text-gray-400">{p.memberCount}m · {billPct}% bill.</span>
+                                <span className="text-xs font-semibold text-gray-800">{Math.round(p.total * 10) / 10}h</span>
+                              </div>
+                            </div>
+                            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                            </div>
+                            <p className="text-[10px] text-gray-400 mt-0.5">{p.count} entr{p.count === 1 ? 'y' : 'ies'}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {/* Billable ratio summary */}
+                    {totalHours > 0 && (
+                      <div className="mt-4 pt-4 border-t border-gray-100">
+                        <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
+                          <span>Org billable ratio</span>
+                          <span className="font-semibold text-gray-700">{Math.round((billableHours / totalHours) * 100)}%</span>
+                        </div>
+                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden flex">
+                          <div className="h-full bg-green-500 rounded-l-full" style={{ width: `${(billableHours / totalHours) * 100}%` }} />
+                          <div className="h-full bg-amber-400 rounded-r-full" style={{ width: `${((totalHours - billableHours) / totalHours) * 100}%` }} />
+                        </div>
+                        <div className="flex gap-4 mt-1.5 text-[10px] text-gray-500">
+                          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" />{Math.round(billableHours * 10) / 10}h billable</span>
+                          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" />{Math.round(nonBillableHours * 10) / 10}h non-billable</span>
+                        </div>
+                      </div>
+                    )}
+                  </Card>
+                </div>
+
+                {/* Team analytics — shown when no specific team is selected */}
+                {!filterTeam && byTeam.length > 0 && (
+                  <Card>
+                    <div className="flex items-center justify-between mb-1">
+                      <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                        <Users size={15} className="text-blue-500" /> Team Comparison
+                      </h3>
+                      <span className="text-[11px] text-gray-400">{byTeam.length} team{byTeam.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    <p className="text-xs text-gray-400 mb-5">Billable vs non-billable hours per team for the selected period</p>
+
+                    {/* Stacked bar chart */}
+                    <ResponsiveContainer width="100%" height={Math.max(160, byTeam.length * 44)}>
+                      <BarChart data={byTeam.map(t => ({ name: t.teamName, billable: t.billable, nonBillable: t.nonBillable, total: t.total }))}
+                        layout="vertical" barCategoryGap="30%" barGap={0} margin={{ left: 8, right: 40, top: 4, bottom: 4 }}>
+                        <XAxis type="number" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} unit="h" />
+                        <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#374151' }} axisLine={false} tickLine={false} width={100} />
+                        <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                          formatter={(val: number, name: string) => [`${val}h`, name === 'billable' ? 'Billable' : 'Non-Billable']} />
+                        <Legend formatter={val => <span style={{ fontSize: 11, color: '#6b7280' }}>{val === 'billable' ? 'Billable' : 'Non-Billable'}</span>} iconSize={8} iconType="circle" />
+                        <Bar dataKey="billable"    name="billable"    stackId="a" fill="#22c55e" radius={[0, 0, 0, 0]} />
+                        <Bar dataKey="nonBillable" name="nonBillable" stackId="a" fill="#f59e0b" radius={[0, 3, 3, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+
+                    {/* Team rows with billable ratio */}
+                    <div className="mt-5 space-y-3 border-t border-gray-100 pt-4">
+                      {byTeam.map(team => {
+                        const billPct = team.total > 0 ? Math.round((team.billable / team.total) * 100) : 0;
+                        const widthPct = maxTeamHours > 0 ? (team.total / maxTeamHours) * 100 : 0;
+                        return (
+                          <div key={team.teamId}>
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-medium text-gray-800 truncate max-w-[180px]">{team.teamName}</span>
+                                <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">{team.memberCount}m</span>
+                              </div>
+                              <div className="flex items-center gap-3 text-xs">
+                                <span className="text-green-600 font-medium">{team.billable}h</span>
+                                <span className="text-amber-500 font-medium">{team.nonBillable}h</span>
+                                <span className="text-gray-500 w-14 text-right">{billPct}% bill.</span>
+                              </div>
+                            </div>
+                            {/* Stacked progress bar */}
+                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden flex" style={{ width: `${widthPct}%` }}>
+                              {team.total > 0 && (
+                                <>
+                                  <div className="h-full bg-green-500 rounded-l-full" style={{ width: `${(team.billable / team.total) * 100}%` }} />
+                                  <div className="h-full bg-amber-400 rounded-r-full" style={{ width: `${(team.nonBillable / team.total) * 100}%` }} />
+                                </>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-gray-400 mt-0.5">{team.count} entr{team.count === 1 ? 'y' : 'ies'} · {team.total}h total</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </Card>
+                )}
+
+                {/* Status breakdown */}
+                {statusBreakdown.length > 0 && (
+                  <Card>
+                    <h3 className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                      <Hash size={15} className="text-indigo-500" /> Entry Status Breakdown
+                    </h3>
+                    <p className="text-xs text-gray-400 mb-4">Across all {allEntries.length.toLocaleString()} entries for this period</p>
+                    <div className="flex items-center gap-8">
+                      <ResponsiveContainer width={160} height={160}>
+                        <PieChart>
+                          <Pie data={statusBreakdown} cx="50%" cy="50%" innerRadius={46} outerRadius={68} dataKey="value" strokeWidth={2}>
+                            {statusBreakdown.map((s, i) => <Cell key={i} fill={s.color} />)}
+                          </Pie>
+                          <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }} formatter={(val: number) => [val.toLocaleString(), 'entries']} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="flex-1 space-y-3">
+                        {statusBreakdown.map(s => (
+                          <div key={s.name} className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
+                              <span className="text-sm text-gray-600">{s.name}</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-sm font-semibold text-gray-800">{s.value.toLocaleString()}</span>
+                              <span className="text-[10px] text-gray-400 ml-1.5">({Math.round((s.value / allEntries.length) * 100)}%)</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </Card>
+                )}
+              </>
+            )}
+          </div>
+        )
+      )}
+
+      {/* ── Entries sub-tab ────────────────────────────────────────────────── */}
+      {subTab === 'entries' && (
+        <div className="space-y-3">
+          {/* Status filter (entries-only) */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-gray-500">Status:</label>
+            {['', 'DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED'].map(s => (
+              <button key={s} type="button" onClick={() => { setFilterStatus(s); setPage(1); }}
+                className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                  filterStatus === s ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                }`}>
+                {s || 'All'}
+              </button>
+            ))}
+          </div>
+
+          <Card padding={false}>
+            <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-900">Org Time Entries</h3>
+              {pagination && (
+                <span className="text-xs text-gray-500">{totalCount.toLocaleString()} total entr{totalCount !== 1 ? 'ies' : 'y'}</span>
+              )}
+            </div>
+
+            {entriesLoading ? (
+              <SkeletonTable rows={10} />
+            ) : pageEntries.length === 0 ? (
+              <EmptyState icon={<Clock size={32} />} title="No entries" description="No time entries match the selected filters." />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-100">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      {['Date', 'Member', 'Project', 'Task / Description', 'Start', 'End', 'Hours', 'Billable', 'Status'].map(h => (
+                        <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {pageEntries.map(entry => (
+                      <tr key={entry.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{safeFormat(entry.date, 'MMM d, yyyy')}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {(entry as any).userName ? (
+                            <div className="flex items-center gap-2">
+                              <UserAvatar name={(entry as any).userName} avatarUrl={(entry as any).userAvatarUrl} size="sm" />
+                              <span className="text-sm text-gray-700">{(entry as any).userName}</span>
+                            </div>
+                          ) : <span className="text-xs text-gray-300">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700 max-w-[140px] truncate whitespace-nowrap">{entry.projectName || entry.projectId || '—'}</td>
+                        <td className="px-4 py-3 text-sm max-w-xs">
+                          {entry.taskName ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-medium text-gray-900 truncate">{entry.taskName}</span>
+                              {entry.description && <span className="text-xs text-gray-500 truncate">{entry.description}</span>}
+                            </div>
+                          ) : <span className="text-gray-600 truncate block">{entry.description || '—'}</span>}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{entry.startTime ? entry.startTime.slice(0, 5) : <span className="text-gray-300">—</span>}</td>
+                        <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{entry.endTime   ? entry.endTime.slice(0, 5)   : <span className="text-gray-300">—</span>}</td>
+                        <td className="px-4 py-3 text-sm font-semibold text-gray-900 whitespace-nowrap">{fmtH(entry.hours)}</td>
+                        <td className="px-4 py-3 text-center">
+                          {entry.isBillable ? <CheckCircle2 size={15} className="text-green-600 mx-auto" /> : <XCircle size={15} className="text-gray-300 mx-auto" />}
+                        </td>
+                        <td className="px-4 py-3"><Badge variant={statusVariant(entry.status)}>{statusLabel(entry.status)}</Badge></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {pageEntries.length > 0 && <Pagination />}
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── Approvals Tab ─────────────────────────────────────────────────────────────
 
 const ApprovalsTab = () => {
@@ -2136,11 +3053,17 @@ const TimeTrackingPage = () => {
   const { t } = useI18n();
   const { user } = useAuth();
   useParams<{ tenantSlug: string }>();
+  const [viewMode, setViewMode] = useState<'my' | 'org'>('my');
   const [activeTab, setActiveTab] = useState<Tab>('my-log');
 
-  const isManager     = hasPermission(user, PERMISSIONS.TIME_APPROVE);
-  const canTeamView   = hasPermission(user, PERMISSIONS.TIME_TEAM_VIEW)
-                     || hasPermission(user, PERMISSIONS.TIME_ANALYTICS);
+  const isManager   = hasPermission(user, PERMISSIONS.TIME_APPROVE);
+  const isOrgWide   = hasPermission(user, PERMISSIONS.PROJECT_DATA_VIEW_ALL)
+                   || user?.role === 'TENANT_ADMIN' || user?.role === 'SUPER_ADMIN';
+  const canTeamView = hasPermission(user, PERMISSIONS.TIME_TEAM_VIEW)
+                   || hasPermission(user, PERMISSIONS.TIME_ANALYTICS)
+                   || isOrgWide;
+  // team tab for leads who don't have full org-wide access (org-wide users get the richer OrgTimeTab)
+  const isTeamLeadOnly = canTeamView && !isOrgWide;
 
   const { data: projects = [] } = useProjects();
   const { data: pendingApprovals = [] } = useTimeApprovals({ status: 'SUBMITTED' }, isManager);
@@ -2149,8 +3072,8 @@ const TimeTrackingPage = () => {
   const tabs: Array<{ id: Tab; label: string; hidden?: boolean; badge?: number }> = [
     { id: 'my-log',    label: t('timeTracking.tabs.myLogs') },
     { id: 'this-week', label: 'My Analytics' },
-    { id: 'team',      label: t('timeTracking.tabs.team'),  hidden: !canTeamView },
-    { id: 'approvals', label: 'Approvals',  hidden: !isManager, badge: pendingCount },
+    { id: 'team',      label: t('timeTracking.tabs.team'), hidden: !isTeamLeadOnly },
+    { id: 'approvals', label: 'Approvals', hidden: !isManager, badge: pendingCount },
   ];
 
   const visibleTabs = tabs.filter((t) => !t.hidden);
@@ -2158,38 +3081,62 @@ const TimeTrackingPage = () => {
   return (
     <Layout>
       <Header
-        title={t('timeTracking.title')}
-        subtitle="Log and manage your time entries"
+        title={viewMode === 'org' ? 'Org Time & Analytics' : t('timeTracking.title')}
+        subtitle={viewMode === 'org' ? 'Organisation-wide time entries and insights' : 'Log and manage your time entries'}
+        actions={
+          isOrgWide ? (
+            <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+              <button
+                onClick={() => setViewMode('my')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'my' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                My Time
+              </button>
+              <button
+                onClick={() => setViewMode('org')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${viewMode === 'org' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <Globe size={11} /> Org Time
+              </button>
+            </div>
+          ) : undefined
+        }
       />
 
       <div className="p-6 space-y-5">
-        {/* Tab bar */}
-        <div className="flex gap-1 border-b border-gray-200">
-          {visibleTabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors flex items-center gap-2 ${
-                activeTab === tab.id
-                  ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              {tab.label}
-              {tab.badge && tab.badge > 0 ? (
-                <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold rounded-full bg-red-500 text-white">
-                  {tab.badge > 99 ? '99+' : tab.badge}
-                </span>
-              ) : null}
-            </button>
-          ))}
-        </div>
+        {viewMode === 'org' && isOrgWide ? (
+          <OrgTimeTab />
+        ) : (
+          <>
+            {/* Tab bar */}
+            <div className="flex gap-1 border-b border-gray-200">
+              {visibleTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors flex items-center gap-2 ${
+                    activeTab === tab.id
+                      ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50'
+                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  {tab.label}
+                  {tab.badge && tab.badge > 0 ? (
+                    <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold rounded-full bg-red-500 text-white">
+                      {tab.badge > 99 ? '99+' : tab.badge}
+                    </span>
+                  ) : null}
+                </button>
+              ))}
+            </div>
 
-        {/* Tab content */}
-        {activeTab === 'my-log'    && <MyTimeLogTab projects={projects as Array<{ id: string; name: string }>} />}
-        {activeTab === 'this-week' && <AnalyticsTab projects={projects as Array<{ id: string; name: string }>} />}
-        {activeTab === 'team'      && canTeamView && <TeamTimeLogTab />}
-        {activeTab === 'approvals' && isManager && <ApprovalsTab />}
+            {/* Tab content */}
+            {activeTab === 'my-log'    && <MyTimeLogTab projects={projects as Array<{ id: string; name: string }>} />}
+            {activeTab === 'this-week' && <AnalyticsTab projects={projects as Array<{ id: string; name: string }>} />}
+            {activeTab === 'team'      && isTeamLeadOnly && <TeamTimeLogTab />}
+            {activeTab === 'approvals' && isManager && <ApprovalsTab />}
+          </>
+        )}
       </div>
     </Layout>
   );

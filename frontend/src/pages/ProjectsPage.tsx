@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Plus, Search, Calendar, Pencil, Loader2 } from 'lucide-react';
+import { Plus, Search, Calendar, Pencil, Loader2, Globe, User } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
@@ -30,6 +30,8 @@ const ProjectsPage = () => {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const { user } = useAuth();
   const canCreateProject = hasPermission(user, PERMISSIONS.PROJECT_WRITE);
+  const canViewOrgProjects = user?.role === 'TENANT_ADMIN' || user?.role === 'SUPER_ADMIN' || hasPermission(user, PERMISSIONS.PROJECT_DATA_VIEW_ALL);
+  const [viewMode, setViewMode] = useState<'mine' | 'org'>('mine');
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -49,8 +51,11 @@ const ProjectsPage = () => {
 
   const isSearchMode = debouncedSearch.length >= 2;
 
+  // For users with org-wide access, default to 'mine'. Toggle controls member_only.
+  // Regular users always see only their member projects (backend enforces this).
+  const memberOnlyParam = (!canViewOrgProjects || viewMode === 'mine') ? 'true' : undefined;
   const { data: pagedData, isLoading: listLoading, error: listError } = useProjectsPaginated(
-    !isSearchMode ? { page, pageSize: PAGE_SIZE } : {}
+    !isSearchMode ? { page, pageSize: PAGE_SIZE, ...(memberOnlyParam ? { member_only: memberOnlyParam } : {}) } : {}
   );
   const { data: searchData, isLoading: searchLoading, error: searchError } = useSearchProjects(debouncedSearch);
 
@@ -117,14 +122,32 @@ const ProjectsPage = () => {
   return (
     <Layout>
       <Header
-        title={t('nav.allProjects')}
-        subtitle={isSearchMode ? `${total} ${t('common.noResults').split(' ')[0].toLowerCase()} for "${debouncedSearch}"` : `${total} ${t('nav.projects').toLowerCase()}`}
+        title={canViewOrgProjects && viewMode === 'org' ? 'All Org Projects' : t('nav.allProjects')}
+        subtitle={isSearchMode ? `${total} results for "${debouncedSearch}"` : `${total} ${t('nav.projects').toLowerCase()}`}
         actions={
-          canCreateProject ? (
-            <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>
-              {t('projects.new')}
-            </Button>
-          ) : undefined
+          <div className="flex items-center gap-2">
+            {canViewOrgProjects && (
+              <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+                <button
+                  onClick={() => { setViewMode('mine'); setPage(1); }}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${viewMode === 'mine' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  <User size={11} /> My Projects
+                </button>
+                <button
+                  onClick={() => { setViewMode('org'); setPage(1); }}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${viewMode === 'org' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  <Globe size={11} /> All Org
+                </button>
+              </div>
+            )}
+            {canCreateProject && (
+              <Button onClick={() => setShowCreate(true)} icon={<Plus size={16} />}>
+                {t('projects.new')}
+              </Button>
+            )}
+          </div>
         }
       />
 

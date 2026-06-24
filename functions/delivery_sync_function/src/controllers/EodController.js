@@ -93,7 +93,7 @@ class EodController {
       //   - ?scope=team + EOD_TEAM_VIEW perm → team peers
       //   - otherwise → own only (My Submissions tab keeps working unchanged)
       const userPerms      = Array.isArray(req.currentUser.permissions) ? req.currentUser.permissions : [];
-      const isLimitedToOwn = role === 'TEAM_MEMBER' && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
+      const isLimitedToOwn = role === 'TEAM_MEMBER' && !userPerms.includes('PROJECT_DATA_VIEW_ALL') && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
       const hasTeamView    = userPerms.includes(PERMISSIONS.EOD_TEAM_VIEW);
       const wantsTeamScope = String(req.query.scope || '').toLowerCase() === 'team';
 
@@ -239,7 +239,7 @@ class EodController {
 
       // TEAM_MEMBER only sees their own entries in rollup (unless org role grants org-wide access)
       const userPerms      = Array.isArray(req.currentUser.permissions) ? req.currentUser.permissions : [];
-      const isLimitedToOwn = role === 'TEAM_MEMBER' && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
+      const isLimitedToOwn = role === 'TEAM_MEMBER' && !userPerms.includes('PROJECT_DATA_VIEW_ALL') && req.currentUser.dataScope !== 'ORG_WIDE' && req.currentUser.dataScope !== 'SUBORDINATES';
       const hasTeamView    = userPerms.includes(PERMISSIONS.EOD_TEAM_VIEW);
       let userFilter = '';
       if (isLimitedToOwn) {

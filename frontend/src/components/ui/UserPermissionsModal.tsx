@@ -35,12 +35,13 @@ const PERM_GROUPS: PermGroup[] = [
     color: 'violet',
     icon: <Zap size={12} />,
     perms: [
-      { key: 'PROJECT_READ',    label: 'View Projects',     desc: 'See project list and details' },
-      { key: 'PROJECT_WRITE',   label: 'Manage Projects',   desc: 'Create and edit projects' },
-      { key: 'MILESTONE_READ',  label: 'View Milestones',   desc: 'See milestones and deadlines' },
-      { key: 'MILESTONE_WRITE', label: 'Manage Milestones', desc: 'Create and update milestones' },
-      { key: 'SPRINT_READ',     label: 'View Sprints',      desc: 'See sprint boards' },
-      { key: 'SPRINT_WRITE',    label: 'Manage Sprints',    desc: 'Create and manage sprints' },
+      { key: 'PROJECT_READ',          label: 'View Projects',          desc: 'See project list and details' },
+      { key: 'PROJECT_WRITE',         label: 'Manage Projects',        desc: 'Create and edit projects' },
+      { key: 'MILESTONE_READ',        label: 'View Milestones',        desc: 'See milestones and deadlines' },
+      { key: 'MILESTONE_WRITE',       label: 'Manage Milestones',      desc: 'Create and update milestones' },
+      { key: 'SPRINT_READ',           label: 'View Sprints',           desc: 'See sprint boards' },
+      { key: 'SPRINT_WRITE',          label: 'Manage Sprints',         desc: 'Create and manage sprints' },
+      { key: 'PROJECT_DATA_VIEW_ALL', label: 'Org-Wide Data Access',   desc: 'View ALL org data regardless of project membership — tasks, sprints, standups, EODs, time entries, attendance, leave & docs. Enables the Org Tasks view.' },
     ],
   },
   {
@@ -770,12 +771,13 @@ const CRUD_MODULES: CrudSection[] = [
       { name: 'Projects',    view: 'PROJECT_READ',   write: 'PROJECT_WRITE' },
       { name: 'Milestones',  view: 'MILESTONE_READ', write: 'MILESTONE_WRITE' },
       { name: 'Sprints',     view: 'SPRINT_READ',    write: 'SPRINT_WRITE' },
-      { name: 'Tasks',         view: 'TASK_READ',          write: 'TASK_WRITE',         approve: 'TASK_ASSIGN' },
+      { name: 'Tasks',       view: 'TASK_READ',      write: 'TASK_WRITE',    approve: 'TASK_ASSIGN' },
       { name: 'Task Comments', write: 'TASK_COMMENT_WRITE', admin: 'TASK_COMMENT_DELETE' },
       { name: 'Actions',     view: 'ACTION_READ',    write: 'ACTION_WRITE' },
       { name: 'Blockers',    view: 'BLOCKER_READ',   write: 'BLOCKER_WRITE' },
       { name: 'RAID Log',    view: 'RAID_READ',      write: 'RAID_WRITE' },
       { name: 'Decisions',   view: 'DECISION_READ',  write: 'DECISION_WRITE' },
+      { name: 'Org-Wide View', view: 'PROJECT_DATA_VIEW_ALL' },
     ],
   },
   {
@@ -785,6 +787,7 @@ const CRUD_MODULES: CrudSection[] = [
       // and the Attendance row) so admins can toggle it from the matrix.
       { name: 'Standups',    view: 'STANDUP_READ',  write: 'STANDUP_SUBMIT', team: 'STANDUP_TEAM_VIEW', admin: 'STANDUP_DELETE' },
       { name: 'EOD Reports', view: 'EOD_READ',      write: 'EOD_SUBMIT',     team: 'EOD_TEAM_VIEW',     admin: 'EOD_DELETE' },
+      { name: 'Org-Wide View', view: 'PROJECT_DATA_VIEW_ALL' },
     ],
   },
   {
@@ -794,6 +797,7 @@ const CRUD_MODULES: CrudSection[] = [
       { name: 'Attendance',    view: 'ATTENDANCE_READ',  write: 'ATTENDANCE_WRITE', approve: 'ATTENDANCE_TEAM_VIEW',  admin: 'ATTENDANCE_ADMIN', team: 'ATTENDANCE_REPORT' },
       { name: 'Leave',         view: 'LEAVE_READ',       write: 'LEAVE_WRITE',      approve: 'LEAVE_APPROVE',         admin: 'LEAVE_ADMIN',             team: 'LEAVE_TEAM_VIEW' },
       { name: 'Leave (Org)',   view: 'LEAVE_ORG_VIEW' },
+      { name: 'Org-Wide View', view: 'PROJECT_DATA_VIEW_ALL' },
     ],
   },
   {
@@ -845,8 +849,9 @@ const CRUD_MODULES: CrudSection[] = [
   {
     section: 'System & Admin',
     rows: [
-      { name: 'Notifications',    view:  'NOTIFICATION_READ' },
-      { name: 'User Management',  view:  'USER_READ',       write: 'USER_WRITE',   approve: 'ROLE_ASSIGN',  admin: 'ADMIN_USERS', team: 'PERMISSION_MANAGE' },
+      { name: 'Notifications',        view:  'NOTIFICATION_READ' },
+      { name: 'Org-Wide Data Access', view:  'PROJECT_DATA_VIEW_ALL' },
+      { name: 'User Management',      view:  'USER_READ',   write: 'USER_WRITE',   approve: 'ROLE_ASSIGN',  admin: 'ADMIN_USERS', team: 'PERMISSION_MANAGE' },
       { name: 'Invite Users',     write: 'INVITE_USER' },
       { name: 'Deactivate Users', admin: 'USER_DELETE' },
       { name: 'Audit & Settings', admin: 'ADMIN_SETTINGS' },
@@ -858,9 +863,10 @@ const CRUD_MODULES: CrudSection[] = [
 
 // Short labels for CRUD matrix cells — mirrors AdminPage PERM_INFO
 const PERM_INFO: Record<string, { label: string; desc: string }> = {
-  PROJECT_READ:       { label: 'View',              desc: 'See project list and details' },
-  PROJECT_WRITE:      { label: 'Manage',            desc: 'Create and edit projects, add members' },
-  MILESTONE_READ:     { label: 'View',              desc: 'See milestone due dates and status' },
+  PROJECT_READ:          { label: 'View',       desc: 'See project list and details' },
+  PROJECT_WRITE:         { label: 'Manage',     desc: 'Create and edit projects, add members' },
+  PROJECT_DATA_VIEW_ALL: { label: 'Org-Wide',   desc: 'View ALL org data regardless of project membership — tasks, sprints, standups, EODs, time entries, attendance, leave & docs. Enables the Org Tasks view.' },
+  MILESTONE_READ:        { label: 'View',       desc: 'See milestone due dates and status' },
   MILESTONE_WRITE:    { label: 'Manage',            desc: 'Create and update milestones' },
   SPRINT_READ:        { label: 'View',              desc: 'See sprint boards and velocity' },
   SPRINT_WRITE:       { label: 'Manage',            desc: 'Create, start, complete sprints' },

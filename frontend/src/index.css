@@ -383,13 +383,20 @@ html.dark .divide-gray-300 > *    { border-color: rgb(var(--ds-border)) !importa
     @apply flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium cursor-pointer;
     transition: background-color 150ms ease, color 150ms ease;
   }
-  .sidebar-item-active {
+  .sidebar-item-active,
+  .sidebar-item-active:hover,
+  .sidebar-item-active:focus {
     background-color: rgb(var(--ds-sidebar-active));
     color: #fff;
     box-shadow: 0 2px 8px rgb(var(--ds-sidebar-active) / 0.35);
   }
+  /* Keep icon + label white even though the global `a`/`a:hover` rules try to
+     tint links with the accent colour (which is unreadable on the active pill). */
+  .sidebar-item-active span,
+  .sidebar-item-active svg { color: #fff; }
   .sidebar-item-inactive { color: rgb(var(--ds-sidebar-text) / 0.75); }
-  .sidebar-item-inactive:hover {
+  .sidebar-item-inactive:hover,
+  .sidebar-item-inactive:focus {
     background-color: rgb(var(--ds-sidebar-hover) / 0.7);
     color: rgb(var(--ds-sidebar-text));
   }

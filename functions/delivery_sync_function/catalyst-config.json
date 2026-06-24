@@ -3,25 +3,7 @@
     "name": "delivery_sync_function",
     "stack": "node20",
     "type": "advancedio",
-    "env_variables": {
-      "NODE_ENV": "development",
-      "ENVIRONMENT": "development",
-      "APP_BASE_URL": "https://dev-ekatva.dsv360.ai",
-      "APP_URL": "https://dev-ekatva.dsv360.ai",
-      "FROM_EMAIL": "catalystadmin@dsv360.ai",
-      "INTERNAL_SECRET": "kedar",
-      "ROLE_ID_TENANT_ADMIN": "17682000000989450",
-      "ROLE_ID_DELIVERY_LEAD": "17682000000989455",
-      "ROLE_ID_TEAM_MEMBER": "17682000000989460",
-      "ROLE_ID_PMO": "17682000000989465",
-      "ROLE_ID_EXEC": "17682000000989470",
-      "ROLE_ID_CLIENT": "17682000000989475",
-      "ROLE_ID_SUPER_ADMIN": "17682000001011209",
-      "STRATUS_BUCKET_NAME": "profiles-users",
-      "STRATUS_USER_AVATARS_URL": "https://profiles-users-development.zohostratus.in",
-      "WISHES_POOL_NAME": "PeopleWishes",
-      "WISHES_POOL_ID": "17682000001912007"
-    }
+    "env_variables": {}
   },
   "execution": {
     "main": "index.js"

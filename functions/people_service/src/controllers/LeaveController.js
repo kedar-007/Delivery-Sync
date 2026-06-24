@@ -276,8 +276,8 @@ class LeaveController {
       }
       const ids = validIds.map(id => `'${id}'`).join(',');
       where = `user_id IN (${ids})`;
-    } else if (mine === 'true' || me.role === 'TEAM_MEMBER') {
-      // My own leaves only (default for any non-admin caller).
+    } else if (mine === 'true' || (me.role === 'TEAM_MEMBER' && !(Array.isArray(me.permissions) && me.permissions.includes('PROJECT_DATA_VIEW_ALL')))) {
+      // My own leaves only (default for any non-admin caller without org-wide access).
       where = `user_id = '${me.id}'`;
     }
 

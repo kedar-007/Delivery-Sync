@@ -19,7 +19,7 @@ export const useMyProjects = () =>
     queryFn: () => projectsApi.list({ member_only: 'true' }).then((d) => d.projects ?? d),
   });
 
-export const useProjectsPaginated = (params: { page?: number; pageSize?: number; status?: string } = {}) =>
+export const useProjectsPaginated = (params: { page?: number; pageSize?: number; status?: string; member_only?: string } = {}) =>
   useQuery({
     queryKey: [PROJECTS_KEY, 'paginated', params],
     queryFn: () => projectsApi.list(params as Record<string, string | number>),

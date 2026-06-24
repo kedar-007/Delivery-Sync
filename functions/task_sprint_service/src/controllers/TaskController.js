@@ -23,14 +23,20 @@ class TaskController {
       const userId = req.currentUser.id;
       const role = req.currentUser.role;
 
+      // PROJECT_DATA_VIEW_ALL grants full org-wide read — evaluated before any
+      // role-based SQL restriction so it correctly overrides DELIVERY_LEAD scoping.
+      const hasViewAll = Array.isArray(req.currentUser.permissions) &&
+        req.currentUser.permissions.includes('PROJECT_DATA_VIEW_ALL');
+
       let where = 'parent_task_id = 0';
       if (project_id) where += ` AND project_id = '${DataStoreService.escape(project_id)}'`;
       if (sprint_id)  where += ` AND sprint_id = '${DataStoreService.escape(sprint_id)}'`;
       if (status)     where += ` AND status = '${DataStoreService.escape(status)}'`;
       if (type)       where += ` AND type = '${DataStoreService.escape(type)}'`;
 
-      // For DELIVERY_LEAD, restrict to their project memberships
-      if (role === 'DELIVERY_LEAD') {
+      // Restrict DELIVERY_LEAD to their project memberships unless they hold
+      // PROJECT_DATA_VIEW_ALL, in which case they see the full org task list.
+      if (role === 'DELIVERY_LEAD' && !hasViewAll) {
         const memberRows = await this.db.query(
           `SELECT project_id FROM ${TABLES.PROJECT_MEMBERS} WHERE user_id = '${userId}' AND tenant_id = '${tenantId}'`
         );
@@ -42,20 +48,22 @@ class TaskController {
           where += ` AND created_by = '${userId}'`;
         }
       }
-      // TENANT_ADMIN, PMO, EXEC, CLIENT: no additional filter
+      // TENANT_ADMIN, PMO, EXEC, CLIENT, and PROJECT_DATA_VIEW_ALL holders: no additional filter
 
-      let tasks = await this.db.findWhere(TABLES.TASKS, tenantId, where, { orderBy: 'CREATEDTIME DESC', limit: 200 });
-
-      // PROJECT_DATA_VIEW_ALL holders see all project tasks without JS restriction.
-      const hasViewAll = Array.isArray(req.currentUser.permissions) &&
-        req.currentUser.permissions.includes('PROJECT_DATA_VIEW_ALL');
+      let tasks = await this.db.findWhere(TABLES.TASKS, tenantId, where, { orderBy: 'CREATEDTIME DESC', limit: 300 });
 
       // Shared helper: keep only tasks the current user created or is assigned to.
-      const filterToMine = (list) => list.filter(t => {
-        if (String(t.created_by) === userId) return true;
-        try { return JSON.parse(t.assignee_ids || '[]').map(String).includes(userId); }
-        catch { return false; }
-      });
+      // Checks both the JSON assignee_ids array and the scalar assignee_id column so
+      // tasks created before the multi-assignee migration are not silently excluded.
+      const isAssignedToMe = (t) => {
+        try {
+          if (JSON.parse(t.assignee_ids || '[]').map(String).includes(userId)) return true;
+        } catch {}
+        return String(t.assignee_id || '') === userId;
+      };
+      const filterToMine = (list) => list.filter(t =>
+        String(t.created_by) === userId || isAssignedToMe(t)
+      );
 
       // my_only=true: always restrict to owned/assigned tasks regardless of role or
       // project membership. Used by time-logging flows so users can't accidentally
@@ -63,9 +71,9 @@ class TaskController {
       if (myOnly) {
         tasks = filterToMine(tasks);
       } else if (role === 'TEAM_MEMBER' && !hasViewAll) {
-        // TEAM_MEMBER: filter in JS so LIKE on JSON text is not needed.
-        // When project_id is provided, check project membership — project members
-        // see all tasks in that project (sprint board, project view).
+        // TEAM_MEMBER: restrict to own tasks (assigned/created).
+        // When a project_id is given, project members see all tasks in that project
+        // (sprint board, kanban) — consistent with the project tasks view.
         if (project_id) {
           const memberRows = await this.db.query(
             `SELECT ROWID FROM ${TABLES.PROJECT_MEMBERS} WHERE project_id = '${DataStoreService.escape(project_id)}' AND user_id = '${userId}' AND tenant_id = '${tenantId}' LIMIT 1`
@@ -75,6 +83,7 @@ class TaskController {
           }
           // Is a project member → see all tasks in this project (no further filter)
         } else {
+          // No project filter (My Tasks view): only show tasks the user owns or is assigned to.
           tasks = filterToMine(tasks);
         }
       }
@@ -97,18 +106,21 @@ class TaskController {
   async myTasks(req, res) {
     try {
       const userId = req.currentUser.id;
-      // Fetch recent non-cancelled tasks for the tenant and filter in JS.
-      // ZCQL LIKE on JSON text columns is unreliable — JS filtering is definitive.
-      const allTasks = await this.db.findWhere(TABLES.TASKS, req.tenantId,
+      const tenantId = req.tenantId;
+
+      // Fetch recent non-cancelled tasks and restrict to tasks the user created
+      // or is assigned to. Checks both the JSON assignee_ids array and the
+      // scalar assignee_id column so legacy single-assignee tasks are not missed.
+      const allTasks = await this.db.findWhere(TABLES.TASKS, tenantId,
         `status != 'CANCELLED' AND parent_task_id = 0`,
-        { orderBy: 'CREATEDTIME DESC', limit: 200 });
+        { orderBy: 'CREATEDTIME DESC', limit: 300 });
 
       const tasks = allTasks.filter((t) => {
         if (String(t.created_by) === userId) return true;
         try {
-          const ids = JSON.parse(t.assignee_ids || '[]');
-          return ids.map(String).includes(userId);
-        } catch { return false; }
+          if (JSON.parse(t.assignee_ids || '[]').map(String).includes(userId)) return true;
+        } catch {}
+        return String(t.assignee_id || '') === userId;
       });
 
       return ResponseHelper.success(res, tasks);

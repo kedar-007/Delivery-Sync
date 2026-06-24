@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router-dom';
 import {
   GitBranch, Plus, Play, CheckCircle2, Clock, Layers,
   ChevronRight, Search, Calendar, BarChart2, ClipboardCheck,
+  Globe, User,
 } from 'lucide-react';
 import { addDays, format, isPast, parseISO } from 'date-fns';
 import { useQuery } from '@tanstack/react-query';
@@ -16,7 +17,7 @@ import EmptyState from '../components/ui/EmptyState';
 import { PageSkeleton } from '../components/ui/Skeleton';
 import Alert from '../components/ui/Alert';
 import Modal, { ModalActions } from '../components/ui/Modal';
-import { useProjects } from '../hooks/useProjects';
+import { useProjects, useMyProjects } from '../hooks/useProjects';
 import { useCreateSprint } from '../hooks/useTaskSprint';
 import { sprintsApi } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -229,6 +230,8 @@ export default function SprintsPage() {
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const { user } = useAuth();
   const isOrgWide      = hasPermission(user, PERMISSIONS.ORG_ROLE_READ);
+  const canViewOrgData = user?.role === 'TENANT_ADMIN' || user?.role === 'SUPER_ADMIN' || hasPermission(user, PERMISSIONS.PROJECT_DATA_VIEW_ALL);
+  const [viewMode, setViewMode] = useState<'mine' | 'org'>('mine');
   const canManageSprint = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.SPRINT_WRITE);
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
@@ -241,7 +244,9 @@ export default function SprintsPage() {
   const [capacityPoints, setCapacityPoints] = useState('0');
   const [createError, setCreateError] = useState('');
 
-  const { data: rawProjects = [], isLoading: projectsLoading, error: projectsError } = useProjects();
+  const { data: rawAllProjects = [], isLoading: projectsLoading, error: projectsError } = useProjects();
+  const { data: rawMyProjects = [] } = useMyProjects();
+  const rawProjects = canViewOrgData && viewMode === 'org' ? rawAllProjects : rawMyProjects.length > 0 ? rawMyProjects : rawAllProjects;
   const { data: usersData = [] } = useUsers();
   const allUsers = usersData as Array<{ id: string; name: string; email: string; avatarUrl?: string }>;
   const [memberSearch, setMemberSearch] = useState('');
@@ -397,6 +402,12 @@ export default function SprintsPage() {
         subtitle={`${projectsWithSprints.length} ${projectsWithSprints.length !== 1 ? t('projects.title').toLowerCase() : t('projects.title').toLowerCase()} ${t('sprints.board').toLowerCase()}`}
         actions={
           <div className="flex items-center gap-2">
+            {canViewOrgData ? (
+              <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+                <button onClick={() => setViewMode('mine')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${viewMode === 'mine' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}><User size={11} /> My Projects</button>
+                <button onClick={() => setViewMode('org')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${viewMode === 'org' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}><Globe size={11} /> All Org</button>
+              </div>
+            ) : undefined}
             {canManageSprint && (
               <Button size="sm" icon={<Plus size={14} />} onClick={openCreate}>
                 {t('sprints.new')}
