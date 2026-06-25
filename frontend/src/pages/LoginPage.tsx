@@ -93,7 +93,11 @@ export default function LoginPage() {
         (window as any).catalyst.auth.signIn("loginDivElementId", {
           service_url: "/app/index.html",
           css_url: `${window.location.origin}/app/embedded_signIn.custom.css`,
-          is_customize_forgot_password: true,
+          // forgot_password_css_url replaces Catalyst's default stylesheet on the
+          // IAM v2 (Puvi) password-reset page. The .custom.css MUST be the current
+          // v2 template + our brand layer — an old-design CSS leaves the page
+          // unstyled (panels stack, raw text). (is_customize_forgot_password is not
+          // a real SDK param — the SDK keys off forgot_password_css_url itself.)
           forgot_password_css_url: `${window.location.origin}/app/embedded_password_reset.custom.css`,
         });
       } else {

@@ -1,5 +1,26 @@
 'use strict';
 
+// ── Process-wide ZCQL concurrency gate ───────────────────────────────────────
+// Catalyst caps the number of simultaneous DataStore operations per app. We
+// bound how many ZCQL queries this function process keeps in flight so that
+// bursts (parallel endpoints, Promise.all fan-outs) QUEUE instead of
+// overflowing the cap. Tunable via CATALYST_ZCQL_CONCURRENCY (default 8).
+const ZCQL_MAX_CONCURRENCY = parseInt(process.env.CATALYST_ZCQL_CONCURRENCY, 10) || 8;
+
+class ZcqlSemaphore {
+  constructor(max) { this._max = max; this._active = 0; this._queue = []; }
+  acquire() {
+    if (this._active < this._max) { this._active += 1; return Promise.resolve(); }
+    return new Promise((resolve) => { this._queue.push(resolve); });
+  }
+  release() {
+    const next = this._queue.shift();
+    if (next) next();            // hand the slot straight to the next waiter
+    else this._active -= 1;      // no waiter: free the slot
+  }
+}
+const zcqlGate = new ZcqlSemaphore(ZCQL_MAX_CONCURRENCY);
+
 class DataStoreService {
   constructor(catalystApp) {
     if (!catalystApp) throw new Error('catalystApp is required for DataStoreService');
@@ -11,19 +32,43 @@ class DataStoreService {
   // ─── ZCQL Read ───────────────────────────────────────────────────────────────
 
   async query(zcqlQuery) {
-    try {
-      const result = await this.zcql.executeZCQLQuery(zcqlQuery);
-      if (!Array.isArray(result)) return [];
-      return result.map((row) => {
-        const tableValues = Object.values(row);
-        if (tableValues.length > 0 && typeof tableValues[0] === 'object' && tableValues[0] !== null) {
-          return Object.assign({}, ...tableValues);
-        }
-        return row;
-      });
-    } catch (err) {
-      console.error('[DataStoreService] ZCQL error:', zcqlQuery, err.message);
-      throw new Error(`Database query failed: ${err.message}`);
+    // Catalyst caps the number of *concurrent* DataStore operations. Under a
+    // burst, queries fail transiently with "Concurrency limit reached for the
+    // feature COMPONENT". Retry those with exponential backoff + jitter.
+    const MAX_ATTEMPTS = 5;
+    let attempt = 0;
+    for (;;) {
+      await zcqlGate.acquire();
+      let result;
+      let error;
+      try {
+        result = await this.zcql.executeZCQLQuery(zcqlQuery);
+      } catch (err) {
+        error = err;
+      } finally {
+        zcqlGate.release(); // free the slot before any backoff sleep
+      }
+
+      if (!error) {
+        if (!Array.isArray(result)) return [];
+        return result.map((row) => {
+          const tableValues = Object.values(row);
+          if (tableValues.length > 0 && typeof tableValues[0] === 'object' && tableValues[0] !== null) {
+            return Object.assign({}, ...tableValues);
+          }
+          return row;
+        });
+      }
+
+      attempt += 1;
+      if (/concurrency limit reached/i.test(error.message || '') && attempt < MAX_ATTEMPTS) {
+        const delay = Math.min(2000, 100 * 2 ** (attempt - 1)) + Math.floor(Math.random() * 100);
+        console.warn(`[DataStoreService] concurrency limit hit, retry ${attempt}/${MAX_ATTEMPTS - 1} in ${delay}ms`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+      console.error('[DataStoreService] ZCQL error:', zcqlQuery, error.message);
+      throw new Error(`Database query failed: ${error.message}`);
     }
   }
 

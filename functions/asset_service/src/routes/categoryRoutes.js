@@ -1,11 +1,12 @@
 'use strict';
 const express = require('express');
 const router  = express.Router();
+const asyncHandler = require('express-async-handler');
 const RBACMiddleware  = require('../middleware/RBACMiddleware');
 const AssetController = require('../controllers/AssetController');
 const { PERMISSIONS } = require('../utils/Constants');
 const ctrl = (req) => new AssetController(req.catalystApp);
-router.get('/',         RBACMiddleware.require(PERMISSIONS.ASSET_READ),  (req, res) => ctrl(req).listCategories(req, res));
-router.post('/',        RBACMiddleware.require(PERMISSIONS.ASSET_ADMIN), (req, res) => ctrl(req).createCategory(req, res));
-router.put('/:catId',   RBACMiddleware.require(PERMISSIONS.ASSET_ADMIN), (req, res) => ctrl(req).updateCategory(req, res));
+router.get('/',         RBACMiddleware.require(PERMISSIONS.ASSET_READ),  asyncHandler((req, res) => ctrl(req).listCategories(req, res)));
+router.post('/',        RBACMiddleware.require(PERMISSIONS.ASSET_ADMIN), asyncHandler((req, res) => ctrl(req).createCategory(req, res)));
+router.put('/:catId',   RBACMiddleware.require(PERMISSIONS.ASSET_ADMIN), asyncHandler((req, res) => ctrl(req).updateCategory(req, res)));
 module.exports = router;

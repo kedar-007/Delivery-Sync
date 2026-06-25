@@ -2,10 +2,11 @@
 const express = require('express');
 const router  = express.Router();
 const CronController = require('../controllers/CronController');
-router.post('/attendance-anomaly',      CronController.attendanceAnomaly);
-router.post('/leave-approval-reminder', CronController.leaveApprovalReminder);
-router.post('/monthly-accrual',         CronController.monthlyAccrual);
-router.post('/year-end-carry-forward',  CronController.yearEndCarryForward);
-router.post('/send-reminders',          CronController.sendReminders);
-router.post('/send-team-reminder',      CronController.sendTeamReminder);
+const asyncHandler = require('express-async-handler');
+router.post('/attendance-anomaly',      asyncHandler(CronController.attendanceAnomaly));
+router.post('/leave-approval-reminder', asyncHandler(CronController.leaveApprovalReminder));
+router.post('/monthly-accrual',         asyncHandler(CronController.monthlyAccrual));
+router.post('/year-end-carry-forward',  asyncHandler(CronController.yearEndCarryForward));
+router.post('/send-reminders',          asyncHandler(CronController.sendReminders));
+router.post('/send-team-reminder',      asyncHandler(CronController.sendTeamReminder));
 module.exports = router;

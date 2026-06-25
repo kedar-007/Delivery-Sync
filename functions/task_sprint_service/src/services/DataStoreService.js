@@ -10,6 +10,27 @@
  *  - ZCQL (Zoho Catalyst Query Language) is used for all reads because it
  *    supports WHERE clauses; Catalyst table APIs are used for writes.
  */
+// ── Process-wide ZCQL concurrency gate ───────────────────────────────────────
+// Catalyst caps the number of simultaneous DataStore operations per app. We
+// bound how many ZCQL queries this function process keeps in flight so that
+// bursts (parallel endpoints, Promise.all fan-outs) QUEUE instead of
+// overflowing the cap. Tunable via CATALYST_ZCQL_CONCURRENCY (default 8).
+const ZCQL_MAX_CONCURRENCY = parseInt(process.env.CATALYST_ZCQL_CONCURRENCY, 10) || 8;
+
+class ZcqlSemaphore {
+  constructor(max) { this._max = max; this._active = 0; this._queue = []; }
+  acquire() {
+    if (this._active < this._max) { this._active += 1; return Promise.resolve(); }
+    return new Promise((resolve) => { this._queue.push(resolve); });
+  }
+  release() {
+    const next = this._queue.shift();
+    if (next) next();            // hand the slot straight to the next waiter
+    else this._active -= 1;      // no waiter: free the slot
+  }
+}
+const zcqlGate = new ZcqlSemaphore(ZCQL_MAX_CONCURRENCY);
+
 class DataStoreService {
   /**
    * @param {object} catalystApp – Initialised Catalyst SDK instance from req.catalystApp
@@ -29,29 +50,52 @@ class DataStoreService {
    * @returns {Promise<object[]>}
    */
   async query(zcqlQuery) {
-    try {
-      const result = await this.zcql.executeZCQLQuery(zcqlQuery);
-      if (!Array.isArray(result)) return [];
+    // The gate caps concurrent ZCQL ops; the retry is the safety net for the
+    // rare transient "Concurrency limit reached for the feature COMPONENT".
+    const MAX_ATTEMPTS = 5;
+    let attempt = 0;
+    for (;;) {
+      await zcqlGate.acquire();
+      let result;
+      let error;
+      try {
+        result = await this.zcql.executeZCQLQuery(zcqlQuery);
+      } catch (err) {
+        error = err;
+      } finally {
+        zcqlGate.release(); // free the slot before any backoff sleep
+      }
 
-      // Catalyst ZCQL wraps each row's columns under the table name:
-      //   [{ users: { ROWID: "1", tenant_id: "2", email: "..." } }]
-      // Flatten to plain objects:
-      //   [{ ROWID: "1", tenant_id: "2", email: "..." }]
-      return result.map((row) => {
-        const tableValues = Object.values(row);
-        if (
-          tableValues.length > 0 &&
-          typeof tableValues[0] === 'object' &&
-          tableValues[0] !== null
-        ) {
-          // Merge all table objects (handles JOINs with multiple tables too)
-          return Object.assign({}, ...tableValues);
-        }
-        return row;
-      });
-    } catch (err) {
-      console.error('[DataStoreService] ZCQL error:', zcqlQuery, err.message);
-      throw new Error(`Database query failed: ${err.message}`);
+      if (!error) {
+        if (!Array.isArray(result)) return [];
+        // Catalyst ZCQL wraps each row's columns under the table name:
+        //   [{ users: { ROWID: "1", tenant_id: "2", ... } }] -> flatten to plain objects.
+        return result.map((row) => {
+          const tableValues = Object.values(row);
+          if (
+            tableValues.length > 0 &&
+            typeof tableValues[0] === 'object' &&
+            tableValues[0] !== null
+          ) {
+            // Merge all table objects (handles JOINs with multiple tables too)
+            return Object.assign({}, ...tableValues);
+          }
+          return row;
+        });
+      }
+
+      attempt += 1;
+      if (/concurrency limit reached/i.test(error.message || '') && attempt < MAX_ATTEMPTS) {
+        // 100/200/400/800ms (capped 2s) + up to 100ms jitter
+        const delay = Math.min(2000, 100 * 2 ** (attempt - 1)) + Math.floor(Math.random() * 100);
+        console.warn(
+          `[DataStoreService] concurrency limit hit, retry ${attempt}/${MAX_ATTEMPTS - 1} in ${delay}ms`
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+      console.error('[DataStoreService] ZCQL error:', zcqlQuery, error.message);
+      throw new Error(`Database query failed: ${error.message}`);
     }
   }
 

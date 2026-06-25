@@ -19,9 +19,11 @@ class TimeController {
   // Pagination is OPT-IN: pass `page` in the query string to get back a
   // wrapped envelope `{ entries, pagination }`. Without `page` the response
   // stays a plain array (legacy callers — analytics tab, summary aggregation
-  // — keep working without changes).
+  // — keep working without changes). Pass `user_ids` (comma-separated) to scope
+  // the list to a set of members — used by the org tab's Team filter so it
+  // paginates server-side instead of capping client-side.
   async list(req, res) {
-    const { project_id, task_id, user_id, date_from, date_to, status, is_billable } = req.query;
+    const { project_id, task_id, user_id, user_ids, date_from, date_to, status, is_billable } = req.query;
     const tenantId = req.tenantId;
     const me = req.currentUser;
 
@@ -45,26 +47,39 @@ class TimeController {
     const hasTeamView = userPerms.includes(PERMISSIONS.TIME_TEAM_VIEW);
     const callerUid   = String(me.id);
 
+    // The requested member filter: a single user_id, or a comma-separated
+    // user_ids list (org Team filter). Always intersected with what the caller
+    // is allowed to see below.
+    const requested = user_id
+      ? [String(user_id)]
+      : (user_ids ? String(user_ids).split(',').map((s) => s.trim()).filter(Boolean) : null);
+    const addUserClause = (ids) => {
+      if (ids.length === 1) {
+        where += `user_id = '${DataStoreService.escape(ids[0])}' AND `;
+      } else {
+        const inList = ids.map((id) => `'${DataStoreService.escape(id)}'`).join(',');
+        where += `user_id IN (${inList}) AND `;
+      }
+    };
+
     if (canSeeAll) {
-      if (user_id) where += `user_id = '${DataStoreService.escape(user_id)}' AND `;
+      if (requested && requested.length) addUserClause(requested);
     } else if (hasTeamView || await this._isTeamLead(tenantId, callerUid)) {
       const scope = new TeamScopeService(this.db);
-      const peerIds = await scope.getTeamPeerUserIds(tenantId, callerUid);
+      const peerIds = (await scope.getTeamPeerUserIds(tenantId, callerUid)).map(String);
       let allowed = peerIds;
-      if (user_id) {
-        allowed = peerIds.filter((id) => String(id) === String(user_id));
+      if (requested && requested.length) {
+        allowed = peerIds.filter((id) => requested.includes(id));
         if (allowed.length === 0) {
+          // The requested member(s) fall outside the caller's team scope.
           const empty = paginated ? { entries: [], pagination: { page: 1, pageSize, total: 0, totalPages: 1, hasMore: false } } : [];
           return ResponseHelper.success(res, empty);
         }
       }
       if (allowed.length === 0) {
         where += `user_id = '${DataStoreService.escape(callerUid)}' AND `;
-      } else if (allowed.length === 1) {
-        where += `user_id = '${DataStoreService.escape(allowed[0])}' AND `;
       } else {
-        const inList = allowed.map((id) => `'${DataStoreService.escape(id)}'`).join(',');
-        where += `user_id IN (${inList}) AND `;
+        addUserClause(allowed);
       }
     } else {
       where += `user_id = '${DataStoreService.escape(callerUid)}' AND `;
@@ -177,9 +192,13 @@ class TimeController {
     const sun     = new Date(mon);    sun.setUTCDate(mon.getUTCDate() + 6);
     const from    = mon.toISOString().split('T')[0];
     const to      = sun.toISOString().split('T')[0];
-    const entries = await this.db.findWhere(TABLES.TIME_ENTRIES, req.tenantId,
-      `user_id = '${req.currentUser.id}' AND entry_date >= '${from}' AND entry_date <= '${to}'`,
-      { orderBy: 'entry_date ASC', limit: 100 });
+    // queryAll pages past the 300-row cap so a heavy week never truncates the
+    // totals (findWhere's 100-row limit silently under-counted busy weeks).
+    const entries = await this.db.queryAll(
+      `SELECT * FROM ${TABLES.TIME_ENTRIES} WHERE tenant_id = '${DataStoreService.escape(String(req.tenantId))}'`
+      + ` AND user_id = '${DataStoreService.escape(String(req.currentUser.id))}'`
+      + ` AND entry_date >= '${DataStoreService.escape(from)}' AND entry_date <= '${DataStoreService.escape(to)}'`
+      + ` ORDER BY entry_date ASC`);
 
     // Enrich entries with project name — fetch only referenced projects.
     // Filter BEFORE String() so null / undefined don't become 'null' / 'undefined'.
@@ -196,7 +215,11 @@ class TimeController {
     const enrichedEntries = entries.map(e => ({ ...e, project_name: projMap[String(e.project_id)] || '' }));
 
     const total   = entries.reduce((s, e) => s + (parseFloat(e.hours) || 0), 0);
-    const billable = entries.filter(e => e.is_billable === 'true').reduce((s, e) => s + (parseFloat(e.hours) || 0), 0);
+    // Catalyst returns is_billable as boolean true OR string 'true' depending on
+    // the column type — normalise before comparing or billable_hours reads 0.
+    const billable = entries
+      .filter(e => String(e.is_billable).toLowerCase() === 'true')
+      .reduce((s, e) => s + (parseFloat(e.hours) || 0), 0);
     return ResponseHelper.success(res, { entries: enrichedEntries, total_hours: total, billable_hours: billable, week_start: from, week_end: to });
   }
 
@@ -217,7 +240,7 @@ class TimeController {
     for (const e of entries) {
       if (!byUser[e.user_id]) byUser[e.user_id] = { user_id: e.user_id, total: 0, billable: 0, entries: 0 };
       byUser[e.user_id].total    += parseFloat(e.hours) || 0;
-      byUser[e.user_id].billable += (e.is_billable === 'true') ? (parseFloat(e.hours) || 0) : 0;
+      byUser[e.user_id].billable += (String(e.is_billable).toLowerCase() === 'true') ? (parseFloat(e.hours) || 0) : 0;
       byUser[e.user_id].entries  += 1;
     }
 
@@ -648,6 +671,240 @@ class TimeController {
         total_entries:      entries.length,
       },
       members,
+    });
+  }
+
+  // GET /api/time/entries/analytics/org?date_from=&date_to=&project_id=&user_id=&user_ids=&is_billable=&status=
+  //
+  // Server-side aggregation for the org analytics tab. Every breakdown is built
+  // with ZCQL GROUP BY / SUM() / COUNT() so we never transfer raw entry rows and
+  // never trip the 300-row SELECT cap (group counts stay well under it). This
+  // replaces the old client-side aggregation that summed only the first page of
+  // entries and therefore under-counted "All members" totals.
+  async orgAnalytics(req, res) {
+    const { date_from, date_to, project_id, user_id, user_ids, is_billable, status } = req.query;
+    const tenantId = req.tenantId;
+    if (!date_from || !date_to) {
+      return ResponseHelper.validationError(res, 'date_from and date_to are required');
+    }
+
+    const esc = DataStoreService.escape;
+    const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+    // ── Permission scope: which user IDs may this caller aggregate over? ──
+    // Mirrors list()'s visibility ladder. null → unrestricted (whole tenant).
+    const MANAGER_ROLES = ['TENANT_ADMIN', 'PMO', 'DELIVERY_LEAD'];
+    const me = req.currentUser;
+    const userPerms = Array.isArray(me.permissions) ? me.permissions : [];
+    const canSeeAll = MANAGER_ROLES.includes(me.role)
+      || me.dataScope === 'ORG_WIDE'
+      || me.dataScope === 'SUBORDINATES'
+      || userPerms.includes('PROJECT_DATA_VIEW_ALL');
+    let scopeIds = null;
+    if (!canSeeAll) {
+      const callerUid = String(me.id);
+      if (userPerms.includes(PERMISSIONS.TIME_TEAM_VIEW) || await this._isTeamLead(tenantId, callerUid)) {
+        const scope = new TeamScopeService(this.db);
+        scopeIds = new Set((await scope.getTeamPeerUserIds(tenantId, callerUid)).map(String));
+      } else {
+        scopeIds = new Set([callerUid]);
+      }
+    }
+
+    // Requested member filter (single user, or a team's member list), then
+    // intersect with the permission scope.
+    let userFilter = null;
+    if (user_id) userFilter = new Set([String(user_id)]);
+    else if (user_ids) userFilter = new Set(String(user_ids).split(',').map((s) => s.trim()).filter(Boolean));
+    if (scopeIds) {
+      userFilter = userFilter
+        ? new Set([...userFilter].filter((id) => scopeIds.has(id)))
+        : scopeIds;
+    }
+
+    const emptyPayload = {
+      period:  { from: date_from, to: date_to },
+      summary: { total_hours: 0, billable_hours: 0, non_billable_hours: 0, total_entries: 0 },
+      by_user: [], by_project: [], by_task: [], by_day: [], by_status: [],
+    };
+    if (userFilter && userFilter.size === 0) return ResponseHelper.success(res, emptyPayload);
+
+    // ── Shared WHERE clause ──
+    let where = `tenant_id = '${esc(String(tenantId))}'`
+      + ` AND entry_date >= '${esc(date_from)}' AND entry_date <= '${esc(date_to)}'`;
+    if (project_id) where += ` AND project_id = '${esc(project_id)}'`;
+    if (userFilter) {
+      const inList = [...userFilter].map((id) => `'${esc(id)}'`).join(',');
+      where += ` AND user_id IN (${inList})`;
+    }
+    if (status) where += ` AND status = '${esc(status)}'`;
+    if (is_billable === 'true')  where += ` AND is_billable = 'true'`;
+    if (is_billable === 'false') where += ` AND is_billable = 'false'`;
+
+    // ── Aggregate helpers (queryAll pages past ZCQL's 300-row GROUP BY cap) ──
+    const T = TABLES.TIME_ENTRIES;
+
+    // GROUP BY <col> → Map<key, number>. Reads the aggregate as the first
+    // non-key column so it works regardless of how ZCQL aliases SUM()/COUNT().
+    const groupAgg = async (col, aggExpr, w) => {
+      const rows = await this.db.queryAll(`SELECT ${col}, ${aggExpr} FROM ${T} WHERE ${w} GROUP BY ${col}`);
+      const map = new Map();
+      for (const r of rows) {
+        const key = r[col] == null ? '' : String(r[col]);
+        let val = 0;
+        for (const [k, v] of Object.entries(r)) { if (k === col) continue; val = Number(v) || 0; break; }
+        map.set(key, val);
+      }
+      return map;
+    };
+
+    // GROUP BY <col>, is_billable → Map<key, {total, billable}>. The billable
+    // split is decided on the STORED is_billable value (normalised in JS), which
+    // is robust whether Catalyst returns boolean true or the string 'true'. A
+    // brittle `is_billable = 'true'` WHERE filter would read 0 billable hours for
+    // a boolean column — the same bug class as my-week's billable_hours.
+    const groupHoursSplit = async (col, w) => {
+      const rows = await this.db.queryAll(`SELECT ${col}, is_billable, SUM(hours) FROM ${T} WHERE ${w} GROUP BY ${col}, is_billable`);
+      const map = new Map();
+      for (const r of rows) {
+        const key = r[col] == null ? '' : String(r[col]);
+        const billable = String(r.is_billable).toLowerCase() === 'true';
+        let hrs = 0;
+        for (const [k, v] of Object.entries(r)) {
+          if (k === col || k === 'is_billable') continue;
+          hrs = Number(v) || 0; break;
+        }
+        const cur = map.get(key) || { total: 0, billable: 0 };
+        cur.total += hrs;
+        if (billable) cur.billable += hrs;
+        map.set(key, cur);
+      }
+      return map;
+    };
+
+    // Total entry count via a scalar COUNT — a single row, immune to the cap.
+    const scalarCount = async (w) => {
+      const rows = await this.db.query(`SELECT COUNT(ROWID) FROM ${T} WHERE ${w}`);
+      return rows && rows.length ? (Number(Object.values(rows[0])[0]) || 0) : 0;
+    };
+
+    const [
+      billSummary, cntTotal,
+      uH, uCount,
+      pH, pCount,
+      tH, tCount,
+      dH, dCount,
+      sCount, pmPairs,
+    ] = await Promise.all([
+      groupAgg('is_billable', 'SUM(hours)',   where),  // ≤2 rows → exact headline split
+      scalarCount(where),
+      groupHoursSplit('user_id',    where),
+      groupAgg('user_id',    'COUNT(ROWID)',  where),
+      groupHoursSplit('project_id', where),
+      groupAgg('project_id', 'COUNT(ROWID)',  where),
+      groupHoursSplit('task_id',    where),
+      groupAgg('task_id',    'COUNT(ROWID)',  where),
+      groupHoursSplit('entry_date', where),
+      groupAgg('entry_date', 'COUNT(ROWID)',  where),
+      groupAgg('status',     'COUNT(ROWID)',  where),
+      // Distinct (project, member) pairs → per-project member count. GROUP BY
+      // dedupes the pairs; queryAll pages them so we never lose any.
+      this.db.queryAll(`SELECT project_id, user_id FROM ${T} WHERE ${where} GROUP BY project_id, user_id`),
+    ]);
+
+    let sumTotal = 0, sumBill = 0;
+    for (const [k, v] of billSummary) { sumTotal += v; if (String(k).toLowerCase() === 'true') sumBill += v; }
+
+    // ── Enrichment: names for the IDs that actually appeared ──
+    const validId = (id) => id && id !== '0' && id !== 'null' && id !== 'undefined';
+    const userIds = [...uH.keys()].filter(validId);
+    const projIds = [...pH.keys()].filter(validId);
+    const taskIds = [...tH.keys()].filter(validId);
+    const userMap = {}, projMap = {}, taskMap = {};
+    const fetches = [];
+    if (userIds.length) {
+      const inList = userIds.map((id) => `'${esc(id)}'`).join(',');
+      fetches.push(this.db.query(`SELECT ROWID, name, avatar_url FROM ${TABLES.USERS} WHERE ROWID IN (${inList})`)
+        .then((rows) => rows.forEach((u) => { userMap[String(u.ROWID)] = u; })).catch(() => {}));
+    }
+    if (projIds.length) {
+      const inList = projIds.map((id) => `'${esc(id)}'`).join(',');
+      fetches.push(this.db.query(`SELECT ROWID, name FROM ${TABLES.PROJECTS} WHERE ROWID IN (${inList})`)
+        .then((rows) => rows.forEach((p) => { projMap[String(p.ROWID)] = p.name || ''; })).catch(() => {}));
+    }
+    if (taskIds.length) {
+      const inList = taskIds.map((id) => `'${esc(id)}'`).join(',');
+      fetches.push(this.db.query(`SELECT ROWID, title, project_id FROM ${TABLES.TASKS} WHERE ROWID IN (${inList})`)
+        .then((rows) => rows.forEach((t) => { taskMap[String(t.ROWID)] = t; })).catch(() => {}));
+    }
+    await Promise.all(fetches);
+    // projMap may miss projects only referenced via tasks — backfill from tasks
+    Object.values(taskMap).forEach((t) => {
+      const pid = String(t.project_id || '');
+      if (pid && projMap[pid] === undefined) projMap[pid] = projMap[pid] || '';
+    });
+
+    // ── Assemble breakdowns ──
+    const by_user = userIds.map((uid) => ({
+      user_id: uid,
+      user_name: userMap[uid]?.name || 'Unknown',
+      user_avatar_url: userMap[uid]?.avatar_url || '',
+      total_hours:    round2(uH.get(uid)?.total),
+      billable_hours: round2(uH.get(uid)?.billable),
+      entries_count:  Math.round(uCount.get(uid) || 0),
+    })).sort((a, b) => b.total_hours - a.total_hours);
+
+    const membersByProj = {};
+    for (const r of pmPairs) {
+      const pid = String(r.project_id || ''); const uid = String(r.user_id || '');
+      if (!pid) continue;
+      (membersByProj[pid] = membersByProj[pid] || new Set()).add(uid);
+    }
+    const by_project = projIds.map((pid) => ({
+      project_id: pid,
+      project_name: projMap[pid] || 'Unknown',
+      total_hours:    round2(pH.get(pid)?.total),
+      billable_hours: round2(pH.get(pid)?.billable),
+      entries_count:  Math.round(pCount.get(pid) || 0),
+      member_count:   membersByProj[pid]?.size || 0,
+    })).sort((a, b) => b.total_hours - a.total_hours);
+
+    const by_task = taskIds.map((tid) => {
+      const task = taskMap[tid] || {};
+      const pid = String(task.project_id || '');
+      return {
+        task_id: tid,
+        task_name: task.title || 'Untitled task',
+        project_name: projMap[pid] || '',
+        total_hours:    round2(tH.get(tid)?.total),
+        billable_hours: round2(tH.get(tid)?.billable),
+        entries_count:  Math.round(tCount.get(tid) || 0),
+      };
+    }).sort((a, b) => b.total_hours - a.total_hours).slice(0, 20);
+
+    const by_day = [...dH.keys()].map((d) => ({
+      date: String(d).split('T')[0].split(' ')[0],
+      total_hours:    round2(dH.get(d)?.total),
+      billable_hours: round2(dH.get(d)?.billable),
+      entries_count:  Math.round(dCount.get(d) || 0),
+    })).sort((a, b) => a.date.localeCompare(b.date));
+
+    const by_status = [...sCount.keys()].filter(Boolean).map((st) => ({
+      status: st, entries_count: Math.round(sCount.get(st) || 0),
+    }));
+
+    const totalHours    = round2(sumTotal);
+    const billableHours = round2(sumBill);
+
+    return ResponseHelper.success(res, {
+      period:  { from: date_from, to: date_to },
+      summary: {
+        total_hours:        totalHours,
+        billable_hours:     billableHours,
+        non_billable_hours: round2(totalHours - billableHours),
+        total_entries:      Math.round(cntTotal),
+      },
+      by_user, by_project, by_task, by_day, by_status,
     });
   }
 
