@@ -1,6 +1,7 @@
 'use strict';
 const express              = require('express');
 const router               = express.Router();
+const asyncHandler         = require('express-async-handler');
 const RBACMiddleware       = require('../middleware/RBACMiddleware');
 const AssetScanController  = require('../controllers/AssetScanController');
 const { PERMISSIONS }      = require('../utils/Constants');
@@ -17,9 +18,9 @@ const scanGate = RBACMiddleware.requireAny(
 );
 
 // Native scan — client decodes the QR and sends the raw token.
-router.get('/:token', scanGate, (req, res) => ctrl(req).scanByToken(req, res));
+router.get('/:token', scanGate, asyncHandler((req, res) => ctrl(req).scanByToken(req, res)));
 
 // Zia fallback — client uploads an image, server decodes via Zia Barcode Scanner.
-router.post('/decode', scanGate, (req, res) => ctrl(req).decodeAndScan(req, res));
+router.post('/decode', scanGate, asyncHandler((req, res) => ctrl(req).decodeAndScan(req, res)));
 
 module.exports = router;

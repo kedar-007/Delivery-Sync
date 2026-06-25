@@ -30,7 +30,7 @@ import {
   useCreateTimeEntry, useUpdateTimeEntry, useDeleteTimeEntry,
   useSubmitTimeEntry, useRetractTimeEntry,
   useTimeApprovals, useApproveTime, useRejectTime,
-  useTeamMemberEntries,
+  useTeamMemberEntries, useOrgAnalytics, useAllTimeEntries,
 } from '../hooks/useTimeTracking';
 import { useProjects } from '../hooks/useProjects';
 import { useTasks } from '../hooks/useTaskSprint';
@@ -165,6 +165,28 @@ const fmtH = (h: number | string): string => {
   return `${mins}m`;
 };
 
+// Decimal hours → zero-padded "HH:MM" (e.g. 9.25 → "09:15"). Used for the
+// day-wise Daily Activity Summary totals in the My Logs list view.
+const fmtHM = (h: number | string): string => {
+  const v = typeof h === 'string' ? parseFloat(h) : h;
+  const totalMin = Math.round((Number(v) || 0) * 60);
+  const hrs = Math.floor(totalMin / 60);
+  const mins = totalMin % 60;
+  return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+};
+
+// Time-of-day "HH:MM[:SS]" → minutes since midnight (null if unparseable).
+// Used for the time-of-day filter and per-day gap (untracked window) detection.
+const timeToMin = (t?: string | null): number | null => {
+  if (!t) return null;
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(t));
+  if (!m) return null;
+  return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+};
+// Minutes since midnight → "HH:MM".
+const minToTime = (min: number): string =>
+  `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+
 const safeFormat = (dateStr: string, fmt: string) => {
   try {
     // Catalyst CREATEDTIME/MODIFIEDTIME: "2026-06-23 11:51:15:839"
@@ -198,6 +220,9 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
   // never loses partially-entered data when they accidentally dismiss the modal.
   const draftRef = React.useRef<TimeEntryFormData | null>(null);
   const prevOpenRef = React.useRef(false);
+  // Set when the modal closes due to a successful submit (vs. a dismissal) so
+  // the close handler knows NOT to preserve the just-saved values as a draft.
+  const justSubmittedRef = React.useRef(false);
 
   const { register, handleSubmit, reset, control, setValue, watch: watchForm, getValues, formState: { isSubmitting, errors } } = useForm<TimeEntryFormData>({
     defaultValues: {
@@ -271,8 +296,14 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
     }
 
     if (justClosed && !entry) {
-      // Save whatever the user typed so it's there when they reopen
-      draftRef.current = getValues();
+      if (justSubmittedRef.current) {
+        // Closed because the entry was saved — start fresh next time.
+        draftRef.current = null;
+        justSubmittedRef.current = false;
+      } else {
+        // Dismissed without saving — preserve what the user typed.
+        draftRef.current = getValues();
+      }
     }
 
     prevOpenRef.current = open;
@@ -301,7 +332,8 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
         await updateEntry.mutateAsync({ id: entry.id, data: payload });
       } else {
         await createEntry.mutateAsync(payload);
-        draftRef.current = null; // clear draft on successful submit
+        draftRef.current = null;          // clear draft on successful submit
+        justSubmittedRef.current = true;  // tell the close handler not to re-save it
       }
       onClose();
     } catch (err: unknown) {
@@ -576,6 +608,10 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
   const [filterDateTo, setFilterDateTo] = useState('');
   const [filterProject, setFilterProject] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  // Time-of-day window (HH:MM). Filters entries to those overlapping the window
+  // AND defines the working window used to surface per-day "no log" gaps.
+  const [filterTimeFrom, setFilterTimeFrom] = useState('');
+  const [filterTimeTo, setFilterTimeTo] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(5);
 
@@ -590,13 +626,16 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
     setFilterDateTo('');
     setFilterProject('');
     setFilterStatus('');
+    setFilterTimeFrom('');
+    setFilterTimeTo('');
     setViewProject('');
     setViewTask('');
   };
 
   // True when any filter is non-default — used to show/hide the Clear button.
   const hasAnyFilter = Boolean(
-    filterDateFrom || filterDateTo || filterProject || filterStatus || viewProject || viewTask
+    filterDateFrom || filterDateTo || filterProject || filterStatus ||
+    filterTimeFrom || filterTimeTo || viewProject || viewTask
   );
 
   // Load tasks for the currently selected view-filter project
@@ -609,7 +648,7 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
   // must be useEffect, not inside useMemo
   useEffect(() => {
     setPage(1);
-  }, [filterDateFrom, filterDateTo, filterProject, filterStatus, viewProject, viewTask, pageSize]);
+  }, [filterDateFrom, filterDateTo, filterProject, filterStatus, filterTimeFrom, filterTimeTo, viewProject, viewTask, pageSize]);
 
   // Build query params for the backend. We now push viewProject / viewTask
   // down to the server too (was previously client-side filtered after fetch).
@@ -643,6 +682,81 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
     : allEntries.slice((page - 1) * pageSize, page * pageSize);
   const totalCount  = pagination?.total ?? allEntries.length;
   const totalPages  = Math.max(1, pagination?.totalPages ?? Math.ceil(allEntries.length / pageSize));
+
+  // Apply the time-of-day window (client-side, on the current page). An entry is
+  // kept when its [start, end] overlaps the window. Untimed entries are dropped
+  // only while the time filter is active (they can't be placed on a timeline).
+  const filteredEntries = useMemo(() => {
+    const fromMin = timeToMin(filterTimeFrom);
+    const toMin   = timeToMin(filterTimeTo);
+    if (fromMin == null && toMin == null) return entries as TimeEntry[];
+    return (entries as TimeEntry[]).filter((e) => {
+      const s = timeToMin(e.startTime);
+      if (s == null) return false;
+      const end = timeToMin(e.endTime) ?? s;
+      if (fromMin != null && end <= fromMin) return false; // entirely before window
+      if (toMin != null && s >= toMin) return false;       // entirely after window
+      return true;
+    });
+  }, [entries, filterTimeFrom, filterTimeTo]);
+
+  // Group the displayed entries by calendar day so the list reads as a daily
+  // work log: each day shows its entries, a Daily Activity Summary (billable /
+  // non-billable / total) and the GAPS — time windows with no log — so the user
+  // can see when they forgot to track. Newest day first.
+  const dayGroups = useMemo(() => {
+    const winStart = timeToMin(filterTimeFrom);
+    const winEnd   = timeToMin(filterTimeTo);
+
+    const groups = new Map<string, TimeEntry[]>();
+    for (const e of filteredEntries) {
+      const key = String(e.date || '').slice(0, 10);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(e);
+    }
+    return Array.from(groups.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([date, items]) => {
+        let billable = 0;
+        let nonBillable = 0;
+        for (const it of items) {
+          const h = Number(it.hours) || 0;
+          if (it.isBillable) billable += h; else nonBillable += h;
+        }
+
+        // Build the covered timeline from entries that have a real start+end,
+        // merge overlaps, then derive the uncovered gaps between them. When a
+        // working window (from/to time) is set, also flag the leading/trailing
+        // gaps so a day that starts late / ends early is visible too.
+        const timed = items
+          .map((it) => ({ s: timeToMin(it.startTime), e: timeToMin(it.endTime) }))
+          .filter((x): x is { s: number; e: number } => x.s != null && x.e != null && x.e > x.s)
+          .sort((a, b) => a.s - b.s);
+        const merged: Array<[number, number]> = [];
+        for (const { s, e } of timed) {
+          const last = merged[merged.length - 1];
+          if (!last || s > last[1]) merged.push([s, e]);
+          else last[1] = Math.max(last[1], e);
+        }
+        const gaps: Array<{ start: number; end: number }> = [];
+        if (merged.length > 0) {
+          if (winStart != null && winStart < merged[0][0]) gaps.push({ start: winStart, end: merged[0][0] });
+          for (let i = 1; i < merged.length; i++) {
+            if (merged[i][0] > merged[i - 1][1]) gaps.push({ start: merged[i - 1][1], end: merged[i][0] });
+          }
+          if (winEnd != null && winEnd > merged[merged.length - 1][1]) {
+            gaps.push({ start: merged[merged.length - 1][1], end: winEnd });
+          }
+        } else if (winStart != null && winEnd != null && winEnd > winStart) {
+          // No timed entries at all that day, but a window is set → the whole window is a gap.
+          gaps.push({ start: winStart, end: winEnd });
+        }
+        const untrackedMin = gaps.reduce((sum, g) => sum + (g.end - g.start), 0);
+
+        return { date, items, billable, nonBillable, total: billable + nonBillable, gaps, untrackedMin };
+      });
+  }, [filteredEntries, filterTimeFrom, filterTimeTo]);
+
   const deleteEntry = useDeleteTimeEntry();
   const submitEntry = useSubmitTimeEntry();
   const retractEntry = useRetractTimeEntry();
@@ -720,6 +834,28 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
     { key: 'week',      label: t('common.thisWeek') },
     { key: 'all',       label: 'All Time' },
   ];
+
+  // When the selected date range sits inside a single Mon–Sun week, expose that
+  // week's days as quick chips so the user can jump straight to one day instead
+  // of scrolling the whole week. Derived from the range, so the chips stay
+  // visible after a day is picked (picking a day narrows from/to to that day).
+  const weekChips = useMemo(() => {
+    if (!filterDateFrom) return null;
+    const fromD = parseISO(filterDateFrom);
+    if (!isValid(fromD)) return null;
+    const wsStr = format(startOfWeek(fromD, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+    const weStr = format(endOfWeek(fromD, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+    // Only show when the whole current range stays within this one week.
+    const toStr = filterDateTo || filterDateFrom;
+    if (toStr > weStr) return null;
+    const days = eachDayOfInterval({ start: parseISO(wsStr), end: parseISO(weStr) }).map((d) => ({
+      date: format(d, 'yyyy-MM-dd'),
+      dow:  format(d, 'EEE'),
+      dom:  format(d, 'd'),
+    }));
+    return { wsStr, weStr, days };
+  }, [filterDateFrom, filterDateTo]);
+  const wholeWeekActive = Boolean(weekChips && filterDateFrom === weekChips.wsStr && filterDateTo === weekChips.weStr);
 
   // When weekly view is active, hand off entirely to the weekly grid
   if (viewMode === 'weekly') {
@@ -813,6 +949,44 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
             </button>
           )}
         </div>
+
+        {/* Weekday quick-jump — shown when the range sits within one week so the
+            user can hop to a single day instead of scrolling the whole week. */}
+        {weekChips && (
+          <div className="flex flex-wrap items-center gap-1.5 mb-3">
+            <span className="text-xs font-medium text-gray-500 mr-1">Jump to day:</span>
+            <button
+              type="button"
+              onClick={() => { setFilterDateFrom(weekChips.wsStr); setFilterDateTo(weekChips.weStr); }}
+              className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
+                wholeWeekActive
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              Whole week
+            </button>
+            {weekChips.days.map((d) => {
+              const active = filterDateFrom === d.date && filterDateTo === d.date;
+              return (
+                <button
+                  key={d.date}
+                  type="button"
+                  onClick={() => { setFilterDateFrom(d.date); setFilterDateTo(d.date); }}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors tabular-nums ${
+                    active
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                  }`}
+                  title={d.date}
+                >
+                  {d.dow} {d.dom}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div>
             <label className="form-label">From</label>
@@ -851,7 +1025,29 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
               <option value="REJECTED">Rejected</option>
             </select>
           </div>
+          <div>
+            <label className="form-label">Start time (from)</label>
+            <input
+              type="time"
+              className="form-input"
+              value={filterTimeFrom}
+              onChange={(e) => setFilterTimeFrom(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="form-label">End time (to)</label>
+            <input
+              type="time"
+              className="form-input"
+              value={filterTimeTo}
+              onChange={(e) => setFilterTimeTo(e.target.value)}
+            />
+          </div>
         </div>
+        <p className="text-xs text-gray-400 mt-2 flex items-center gap-1">
+          <AlertCircle size={12} />
+          Set a start/end time to filter entries by time of day and highlight the windows you haven't logged.
+        </p>
       </Card>
 
       {/* Secondary view filter — by project + task */}
@@ -917,11 +1113,13 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
           <SkeletonTable rows={5} />
         ) : error ? (
           <Alert type="error" message={(error as Error).message} className="m-5" />
-        ) : entries.length === 0 ? (
+        ) : filteredEntries.length === 0 ? (
           <EmptyState
             icon={<Clock size={36} />}
-            title="No time entries"
-            description="Start tracking your time by logging an entry."
+            title={(filterTimeFrom || filterTimeTo) ? 'No entries in this time window' : 'No time entries'}
+            description={(filterTimeFrom || filterTimeTo)
+              ? 'No logs fall within the selected start/end time on this page. Try widening the time window or clearing it.'
+              : 'Start tracking your time by logging an entry.'}
             action={
               <Button size="sm" icon={<Plus size={14} />} onClick={() => setModalOpen(true)}>
                 {t('timeTracking.logTime')}
@@ -929,132 +1127,178 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
             }
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-100">
-              <thead className="bg-gray-50">
-                <tr>
-                  {/* DSV-015: moved User out of the Task Description cell into
-                      its own column so the description shows only the task
-                      content (was visually mixing user identity with task
-                      details). */}
-                  {[t('timeTracking.form.date'), 'User', t('timeTracking.form.project'), t('timeTracking.form.task'), 'Start Time', 'End Time', t('timeTracking.form.hours'), t('timeTracking.billable'), t('common.status'), 'Created', t('common.actions')].map((h) => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {(entries as TimeEntry[]).map((entry) => (
-                  <tr key={entry.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
-                      {safeFormat(entry.date, 'MMM d, yyyy')}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {entry.userName ? (
-                        <div className="flex items-center gap-2">
-                          <UserAvatar name={entry.userName} avatarUrl={entry.userAvatarUrl} size="sm" />
-                          <span className="text-sm text-gray-700">{entry.userName}</span>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-gray-300">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
-                      {entry.projectName || projectMap[entry.projectId] || entry.projectId}
-                    </td>
-                    <td className="px-4 py-3 text-sm max-w-xs">
-                      {entry.taskName ? (
-                        <div className="flex flex-col gap-0.5">
-                          <span className="font-medium text-gray-900 truncate" title={entry.taskName}>
-                            {entry.taskName}
-                          </span>
-                          {entry.description && (
-                            <span className="text-xs text-gray-500 truncate" title={entry.description}>
-                              {entry.description}
+          <div className="overflow-x-auto divide-y divide-gray-100">
+            {dayGroups.map((group) => (
+              <div key={group.date}>
+                {/* ── Day header + Daily Activity Summary ── */}
+                <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 bg-gray-50/70">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                      <CalendarDays size={18} />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900">
+                        {safeFormat(group.date, 'EEEE, MMM d, yyyy')}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {group.items.length} {group.items.length === 1 ? 'entry' : 'entries'} · Daily Activity Summary
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 sm:gap-5">
+                    <div className="text-center">
+                      <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">{t('timeTracking.billable')}</div>
+                      <span className="inline-block mt-0.5 px-2 py-0.5 rounded-md text-xs font-semibold bg-green-50 text-green-700 tabular-nums">
+                        {fmtHM(group.billable)}
+                      </span>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Non-Billable</div>
+                      <span className="inline-block mt-0.5 px-2 py-0.5 rounded-md text-xs font-semibold bg-orange-50 text-orange-700 tabular-nums">
+                        {fmtHM(group.nonBillable)}
+                      </span>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Total Effort</div>
+                      <span className="inline-block mt-0.5 px-2 py-0.5 rounded-md text-xs font-semibold bg-gray-900 text-white tabular-nums">
+                        {fmtHM(group.total)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Untracked windows (no log) for the day ── */}
+                {group.gaps.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 px-5 py-2 bg-amber-50/70 border-t border-amber-100">
+                    <span className="flex items-center gap-1 text-xs font-semibold text-amber-700">
+                      <AlertCircle size={13} /> No logs
+                    </span>
+                    {group.gaps.map((g, i) => (
+                      <span
+                        key={i}
+                        className="px-2 py-0.5 rounded-md text-xs font-medium bg-white text-amber-700 border border-amber-200 tabular-nums"
+                        title="No time entry covers this window"
+                      >
+                        {minToTime(g.start)}–{minToTime(g.end)}
+                      </span>
+                    ))}
+                    <span className="ml-auto text-xs font-medium text-amber-600 tabular-nums">
+                      {fmtH(group.untrackedMin / 60)} untracked
+                    </span>
+                  </div>
+                )}
+
+                {/* ── Day entries ── */}
+                <table className="min-w-full divide-y divide-gray-100">
+                  <thead className="bg-white">
+                    <tr>
+                      {[t('timeTracking.form.project'), t('timeTracking.form.task'), 'Start Time', 'End Time', t('timeTracking.form.hours'), t('timeTracking.billable'), t('common.status'), 'Created', t('common.actions')].map((h) => (
+                        <th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {group.items.map((entry) => (
+                      <tr key={entry.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
+                          {entry.projectName || projectMap[entry.projectId] || entry.projectId}
+                        </td>
+                        <td className="px-4 py-3 text-sm max-w-xs">
+                          {entry.taskName ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-medium text-gray-900 truncate" title={entry.taskName}>
+                                {entry.taskName}
+                              </span>
+                              {entry.description && (
+                                <span className="text-xs text-gray-500 truncate" title={entry.description}>
+                                  {entry.description}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-gray-600 truncate block" title={entry.description}>
+                              {entry.description || <span className="text-gray-300">—</span>}
                             </span>
                           )}
-                        </div>
-                      ) : (
-                        <span className="text-gray-600 truncate block" title={entry.description}>
-                          {entry.description || <span className="text-gray-300">—</span>}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
-                      {entry.startTime ? entry.startTime.slice(0, 5) : <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
-                      {entry.endTime ? entry.endTime.slice(0, 5) : <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
-                      {fmtH(entry.hours)}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {entry.isBillable
-                        ? <CheckCircle2 size={15} className="text-green-600 mx-auto" />
-                        : <XCircle size={15} className="text-gray-300 mx-auto" />
-                      }
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={statusVariant(entry.status)}>
-                        {statusLabel(entry.status)}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {entry.createdAt ? (
-                        <div className="flex flex-col gap-0.5">
-                          <span className="text-xs text-gray-700">{safeFormat(entry.createdAt, 'MMM d, yyyy')}</span>
-                          <span className="text-xs text-gray-400">{safeFormat(entry.createdAt, 'h:mm a')}</span>
-                        </div>
-                      ) : (
-                        <span className="text-gray-300 text-xs">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
-                        {(entry.status === 'DRAFT' || entry.status === 'REJECTED' || entry.status === 'SUBMITTED') && (
-                          <button
-                            onClick={() => openEdit(entry)}
-                            className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors rounded"
-                            title={entry.status === 'SUBMITTED' ? 'Edit (retracts submission)' : 'Edit'}
-                          >
-                            <Edit2 size={14} />
-                          </button>
-                        )}
-                        {entry.status === 'DRAFT' && (
-                          <>
-                            <button
-                              onClick={() => handleSubmit(entry.id)}
-                              className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors rounded"
-                              title="Submit for approval"
-                            >
-                              <Send size={14} />
-                            </button>
-                            <button
-                              onClick={() => handleDelete(entry.id)}
-                              className="p-1.5 text-gray-400 hover:text-red-500 transition-colors rounded"
-                              title="Delete"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </>
-                        )}
-                        {entry.status === 'SUBMITTED' && (
-                          <button
-                            onClick={() => handleRetract(entry.id)}
-                            className="p-1.5 text-gray-400 hover:text-amber-600 transition-colors rounded"
-                            title="Retract submission"
-                          >
-                            <RotateCcw size={14} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
+                          {entry.startTime ? entry.startTime.slice(0, 5) : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
+                          {entry.endTime ? entry.endTime.slice(0, 5) : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
+                          {fmtH(entry.hours)}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {entry.isBillable
+                            ? <CheckCircle2 size={15} className="text-green-600 mx-auto" />
+                            : <XCircle size={15} className="text-gray-300 mx-auto" />
+                          }
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={statusVariant(entry.status)}>
+                            {statusLabel(entry.status)}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {entry.createdAt ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-xs text-gray-700">{safeFormat(entry.createdAt, 'MMM d, yyyy')}</span>
+                              <span className="text-xs text-gray-400">{safeFormat(entry.createdAt, 'h:mm a')}</span>
+                            </div>
+                          ) : (
+                            <span className="text-gray-300 text-xs">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1">
+                            {(entry.status === 'DRAFT' || entry.status === 'REJECTED' || entry.status === 'SUBMITTED') && (
+                              <button
+                                onClick={() => openEdit(entry)}
+                                className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors rounded"
+                                title={entry.status === 'SUBMITTED' ? 'Edit (retracts submission)' : 'Edit'}
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                            )}
+                            {entry.status === 'DRAFT' && (
+                              <>
+                                <button
+                                  onClick={() => handleSubmit(entry.id)}
+                                  className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors rounded"
+                                  title="Submit for approval"
+                                >
+                                  <Send size={14} />
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(entry.id)}
+                                  className="p-1.5 text-gray-400 hover:text-red-500 transition-colors rounded"
+                                  title="Delete"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </>
+                            )}
+                            {entry.status === 'SUBMITTED' && (
+                              <button
+                                onClick={() => handleRetract(entry.id)}
+                                className="p-1.5 text-gray-400 hover:text-amber-600 transition-colors rounded"
+                                title="Retract submission"
+                              >
+                                <RotateCcw size={14} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
           </div>
         )}
 
@@ -1167,6 +1411,7 @@ interface AnalyticsTabProps {
 
 const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
   const { t } = useI18n();
+  const { user } = useAuth();
   const [period, setPeriod] = useState<AnalyticsPeriod>('week');
 
   const projectMap = useMemo(() => {
@@ -1184,17 +1429,19 @@ const AnalyticsTab = ({ projects }: AnalyticsTabProps) => {
   const monthEnd   = format(endOfMonth(now), 'yyyy-MM-dd');
 
   const params = useMemo((): Record<string, string> => {
-    if (period === 'week')    return { date_from: weekStart, date_to: weekEnd };
-    if (period === 'month')   return { date_from: monthStart, date_to: monthEnd };
-    return {};
-  }, [period, weekStart, weekEnd, monthStart, monthEnd]);
+    // Scope to the current user — otherwise an admin (who can see all entries)
+    // would aggregate the whole tenant in their personal "My Analytics".
+    const uid: Record<string, string> = user?.id ? { user_id: String(user.id) } : {};
+    if (period === 'week')    return { ...uid, date_from: weekStart, date_to: weekEnd };
+    if (period === 'month')   return { ...uid, date_from: monthStart, date_to: monthEnd };
+    return uid;
+  }, [period, user?.id, weekStart, weekEnd, monthStart, monthEnd]);
 
   const { data: weekData, isLoading: weekLoading } = useMyWeek();
-  // Analytics needs ALL entries for the period (totals would be wrong with
-  // pagination), so we do NOT pass `page` — the backend returns the legacy
-  // array shape and the hook wraps it as { data: [...], pagination: null }.
-  const { data: entriesResult, isLoading: entriesLoading } = useTimeEntries(
-    period !== 'week' ? params : undefined,
+  // Month / Overall: walk every page so totals & breakdowns cover the whole
+  // period (the non-paginated list caps at 200 rows and would under-count).
+  const { data: entriesResult, isLoading: entriesLoading } = useAllTimeEntries(
+    params, period !== 'week',
   );
 
   const isLoading = period === 'week' ? weekLoading : entriesLoading;
@@ -1739,85 +1986,114 @@ const OrgTimeTab = () => {
 
   useEffect(() => { setPage(1); }, [dateFrom, dateTo, filterProject, filterUser, filterTeam, filterBillable, filterStatus, pageSize]);
 
-  // Analytics params: always org-wide; filterUser drills into a specific member
-  const analyticsParams = useMemo(() => {
+  // The org Team filter is a client-side roster lookup turned into a member-id
+  // list the server filters on — so both analytics and the entries list scope
+  // and paginate server-side instead of capping rows client-side.
+  const teamUserIdsCsv = useMemo(() => {
+    if (!filterTeam) return '';
+    const team = (allTeams as Array<{ id: string; members: Array<{ id: string }> }>).find(t => t.id === filterTeam);
+    return (team?.members ?? []).map(m => m.id).join(',');
+  }, [filterTeam, allTeams]);
+
+  // Analytics: server-side ZCQL GROUP BY aggregation over the FULL date range.
+  // Every active filter is sent as a query param so the cards, charts and the
+  // entries list all reflect the same combined result (the "standard" behaviour
+  // — selecting one filter narrows the rest rather than producing stale totals).
+  const orgParams = useMemo(() => {
     if (dateError) return undefined;
     const p: Record<string, string> = {};
     if (dateFrom) p.date_from = dateFrom;
     if (dateTo)   p.date_to   = dateTo;
-    if (filterProject) p.project_id = filterProject;
-    if (filterUser)    p.user_id    = filterUser;
+    if (filterProject)  p.project_id  = filterProject;
+    if (filterUser)     p.user_id     = filterUser;
+    if (teamUserIdsCsv) p.user_ids    = teamUserIdsCsv;
+    if (filterBillable) p.is_billable = filterBillable;
+    if (filterStatus)   p.status      = filterStatus;
     return p;
-  }, [dateFrom, dateTo, filterProject, filterUser, dateError]);
+  }, [dateFrom, dateTo, filterProject, filterUser, teamUserIdsCsv, filterBillable, filterStatus, dateError]);
 
-  // Entries: paginated + status/billable filters
+  const { data: org, isLoading: analyticsLoading } = useOrgAnalytics(orgParams, subTab === 'analytics' && !!orgParams);
+
+  // Entries tab: server-side pagination with the same filter set.
   const entriesParams = useMemo(() => {
-    if (!analyticsParams) return undefined;
-    const p: Record<string, string> = { ...analyticsParams, page: String(page), pageSize: String(pageSize) };
+    if (dateError) return undefined;
+    const p: Record<string, string> = { page: String(page), pageSize: String(pageSize) };
+    if (dateFrom) p.date_from = dateFrom;
+    if (dateTo)   p.date_to   = dateTo;
+    if (filterProject)  p.project_id  = filterProject;
+    if (filterUser)     p.user_id     = filterUser;
+    if (teamUserIdsCsv) p.user_ids    = teamUserIdsCsv;
     if (filterStatus)   p.status      = filterStatus;
     if (filterBillable) p.is_billable = filterBillable;
     return p;
-  }, [analyticsParams, page, pageSize, filterStatus, filterBillable]);
+  }, [dateFrom, dateTo, filterProject, filterUser, teamUserIdsCsv, filterStatus, filterBillable, page, pageSize, dateError]);
 
-  const { data: analyticsResult, isLoading: analyticsLoading } = useTimeEntries(analyticsParams ?? {});
-  const { data: entriesResult,   isLoading: entriesLoading   } = useTimeEntries(
-    subTab === 'entries' && !filterTeam ? (entriesParams ?? undefined) : undefined,
+  const { data: entriesResult, isLoading: entriesLoading } = useTimeEntries(
+    subTab === 'entries' ? (entriesParams ?? undefined) : undefined,
   );
 
-  // userId set for the selected team (client-side filtering)
-  const teamMemberIds = useMemo(() => {
-    if (!filterTeam) return null;
-    const team = (allTeams as Array<{ id: string; members: Array<{ id: string }> }>).find(t => t.id === filterTeam);
-    return new Set((team?.members ?? []).map(m => m.id));
-  }, [filterTeam, allTeams]);
+  const pageEntries = useMemo(() => (entriesResult?.data ?? []) as TimeEntry[], [entriesResult]);
+  const pagination  = entriesResult?.pagination ?? null;
+  const totalCount  = pagination?.total ?? pageEntries.length;
+  const totalPages  = Math.max(1, pagination?.totalPages ?? (Math.ceil(pageEntries.length / pageSize) || 1));
 
-  // Raw → team-filtered → billable-filtered
-  const rawEntries = useMemo(() => (analyticsResult?.data ?? []) as TimeEntry[], [analyticsResult]);
-  const allEntries = useMemo(() => {
-    let entries = teamMemberIds
-      ? rawEntries.filter(e => teamMemberIds.has(String((e as any).userId || (e as any).user_id || '')))
-      : rawEntries;
-    if (filterBillable === 'true')  entries = entries.filter(e => e.isBillable);
-    if (filterBillable === 'false') entries = entries.filter(e => !e.isBillable);
-    return entries;
-  }, [rawEntries, teamMemberIds, filterBillable]);
-
-  // Entries tab: server-side pagination normally; client-side when team-filtered
-  const pageEntries = useMemo(() => {
-    if (filterTeam && teamMemberIds) {
-      const start = (page - 1) * pageSize;
-      return allEntries.slice(start, start + pageSize);
-    }
-    return (entriesResult?.data ?? []) as TimeEntry[];
-  }, [filterTeam, teamMemberIds, allEntries, entriesResult, page, pageSize]);
-
-  const pagination = filterTeam ? null : (entriesResult?.pagination ?? null);
-  const totalCount = filterTeam ? allEntries.length : (pagination?.total ?? pageEntries.length);
-  const totalPages = Math.max(1, filterTeam ? Math.ceil(allEntries.length / pageSize) : (pagination?.totalPages ?? Math.ceil(pageEntries.length / pageSize)));
-
-  // ── Analytics aggregates ──────────────────────────────────────────────────
-  const totalHours       = useMemo(() => Math.round(allEntries.reduce((s, e) => s + (parseFloat(String(e.hours)) || 0), 0) * 100) / 100, [allEntries]);
-  const billableHours    = useMemo(() => Math.round(allEntries.filter(e => e.isBillable).reduce((s, e) => s + (parseFloat(String(e.hours)) || 0), 0) * 100) / 100, [allEntries]);
-  const nonBillableHours = Math.round((totalHours - billableHours) * 100) / 100;
-  const uniqueMembers    = useMemo(() => new Set(allEntries.filter(e => (e as any).userId).map(e => String((e as any).userId))).size, [allEntries]);
-  const uniqueProjects   = useMemo(() => new Set(allEntries.filter(e => e.projectId).map(e => e.projectId)).size, [allEntries]);
-  const activeDays       = useMemo(() => new Set(allEntries.filter(e => e.date).map(e => e.date)).size, [allEntries]);
+  // ── Analytics aggregates (from the server GROUP BY payload) ─────────────────
+  const totalEntries     = org?.summary.total_entries ?? 0;
+  const totalHours       = org?.summary.total_hours ?? 0;
+  const billableHours    = org?.summary.billable_hours ?? 0;
+  const nonBillableHours = org?.summary.non_billable_hours ?? Math.round((totalHours - billableHours) * 100) / 100;
+  const uniqueMembers    = org?.by_user.length ?? 0;
+  const uniqueProjects   = org?.by_project.length ?? 0;
+  const activeDays       = org?.by_day.length ?? 0;
   const billableRatioPct = totalHours > 0 ? Math.round((billableHours / totalHours) * 100) : 0;
-  const avgHoursPerDay   = activeDays    > 0 ? Math.round((totalHours / activeDays)    * 10) / 10 : 0;
+  const avgHoursPerDay    = activeDays    > 0 ? Math.round((totalHours / activeDays)    * 10) / 10 : 0;
   const avgHoursPerMember = uniqueMembers > 0 ? Math.round((totalHours / uniqueMembers) * 10) / 10 : 0;
 
-  // Day-of-week breakdown (Mon=0 … Sun=6)
+  const byUser = useMemo(() => (org?.by_user ?? []).map(u => ({
+    userId:      u.user_id,
+    name:        u.user_name,
+    avatarUrl:   u.user_avatar_url,
+    total:       u.total_hours,
+    billable:    u.billable_hours,
+    nonBillable: Math.round((u.total_hours - u.billable_hours) * 100) / 100,
+    count:       u.entries_count,
+  })), [org]);
+
+  const byProject = useMemo(() => (org?.by_project ?? []).map(p => ({
+    name:        p.project_name,
+    total:       p.total_hours,
+    billable:    p.billable_hours,
+    count:       p.entries_count,
+    memberCount: p.member_count,
+  })), [org]);
+
+  const byTask = useMemo(() => (org?.by_task ?? []).map(t => ({
+    name:        t.task_name,
+    total:       t.total_hours,
+    billable:    t.billable_hours,
+    count:       t.entries_count,
+    projectName: t.project_name,
+  })), [org]);
+
+  const dailyData = useMemo(() => (org?.by_day ?? []).map(d => ({
+    date:     d.date,
+    total:    Math.round(d.total_hours * 10) / 10,
+    billable: Math.round(d.billable_hours * 10) / 10,
+    count:    d.entries_count,
+    label:    safeFormat(d.date, 'MMM d'),
+  })), [org]);
+
+  // Day-of-week breakdown derived from the daily series (Mon=0 … Sun=6)
   const byDayOfWeek = useMemo(() => {
     const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const totals = [0, 0, 0, 0, 0, 0, 0];
     const counts = [0, 0, 0, 0, 0, 0, 0];
-    for (const e of allEntries) {
-      if (!e.date) continue;
-      const d = parseISO(e.date);
-      if (!isValid(d)) continue;
-      const dow = (d.getDay() + 6) % 7;
-      totals[dow] += parseFloat(String(e.hours)) || 0;
-      counts[dow]++;
+    for (const d of org?.by_day ?? []) {
+      const dt = parseISO(d.date);
+      if (!isValid(dt)) continue;
+      const dow = (dt.getDay() + 6) % 7;
+      totals[dow] += d.total_hours;
+      counts[dow] += d.entries_count;
     }
     return DAYS.map((name, i) => ({
       name,
@@ -1825,94 +2101,20 @@ const OrgTimeTab = () => {
       avg:   counts[i] > 0 ? Math.round((totals[i] / counts[i]) * 10) / 10 : 0,
       count: counts[i],
     }));
-  }, [allEntries]);
-
-  // Top 10 tasks by hours
-  const byTask = useMemo(() => {
-    const m = new Map<string, { name: string; total: number; billable: number; count: number; projectName: string }>();
-    for (const e of allEntries) {
-      const key  = e.taskId ? `id:${e.taskId}` : e.taskName ? `n:${e.taskName}` : e.description ? `d:${e.description}` : '__none__';
-      const name = e.taskName || e.description || 'No description';
-      const proj = (e as any).projectName || e.projectName || '';
-      if (!m.has(key)) m.set(key, { name, total: 0, billable: 0, count: 0, projectName: proj });
-      const h = parseFloat(String(e.hours)) || 0;
-      m.get(key)!.total += h;
-      if (e.isBillable) m.get(key)!.billable += h;
-      m.get(key)!.count++;
-    }
-    return Array.from(m.values())
-      .map(t => ({ ...t, total: Math.round(t.total * 10) / 10, billable: Math.round(t.billable * 10) / 10 }))
-      .sort((a, b) => b.total - a.total).slice(0, 10);
-  }, [allEntries]);
-
-  const maxTaskHours = useMemo(() => Math.max(1, ...byTask.map(t => t.total)), [byTask]);
-
-  const byUser = useMemo(() => {
-    const m = new Map<string, { name: string; avatarUrl: string; total: number; billable: number; nonBillable: number; count: number }>();
-    for (const e of allEntries) {
-      const uid  = String((e as any).userId || (e as any).user_id || '');
-      const name = (e as any).userName || 'Unknown';
-      if (!m.has(uid)) m.set(uid, { name, avatarUrl: (e as any).userAvatarUrl || '', total: 0, billable: 0, nonBillable: 0, count: 0 });
-      const h = parseFloat(String(e.hours)) || 0;
-      const r = m.get(uid)!;
-      r.total += h;
-      if (e.isBillable) r.billable += h; else r.nonBillable += h;
-      r.count++;
-    }
-    return Array.from(m.values())
-      .map(r => ({ ...r, total: Math.round(r.total * 10) / 10, billable: Math.round(r.billable * 10) / 10, nonBillable: Math.round(r.nonBillable * 10) / 10 }))
-      .sort((a, b) => b.total - a.total);
-  }, [allEntries]);
-
-  const byProject = useMemo(() => {
-    const hrs  = new Map<string, { name: string; total: number; billable: number; count: number }>();
-    const mbrs = new Map<string, Set<string>>();
-    for (const e of allEntries) {
-      const pid  = e.projectId || '';
-      const name = (e as any).projectName || pid || 'Unknown';
-      if (!hrs.has(pid))  hrs.set(pid,  { name, total: 0, billable: 0, count: 0 });
-      if (!mbrs.has(pid)) mbrs.set(pid, new Set());
-      const h = parseFloat(String(e.hours)) || 0;
-      hrs.get(pid)!.total   += h;
-      if (e.isBillable) hrs.get(pid)!.billable += h;
-      hrs.get(pid)!.count   += 1;
-      const uid = String((e as any).userId || '');
-      if (uid) mbrs.get(pid)!.add(uid);
-    }
-    return Array.from(hrs.entries())
-      .map(([pid, v]) => ({ ...v, memberCount: mbrs.get(pid)?.size ?? 0 }))
-      .sort((a, b) => b.total - a.total);
-  }, [allEntries]);
-
-  const dailyData = useMemo(() => {
-    const m: Record<string, { date: string; total: number; billable: number; count: number }> = {};
-    for (const e of allEntries) {
-      const d = e.date || '';
-      if (!m[d]) m[d] = { date: d, total: 0, billable: 0, count: 0 };
-      const h = parseFloat(String(e.hours)) || 0;
-      m[d].total += h;
-      if (e.isBillable) m[d].billable += h;
-      m[d].count += 1;
-    }
-    return Object.values(m).sort((a, b) => a.date.localeCompare(b.date)).map(d => ({
-      ...d,
-      total:   Math.round(d.total   * 10) / 10,
-      billable: Math.round(d.billable * 10) / 10,
-      label:   safeFormat(d.date, 'MMM d'),
-    }));
-  }, [allEntries]);
+  }, [org]);
 
   const statusBreakdown = useMemo(() => {
     const c: Record<string, number> = {};
-    for (const e of allEntries) c[e.status] = (c[e.status] ?? 0) + 1;
+    for (const s of org?.by_status ?? []) c[s.status] = s.entries_count;
     return [
       { name: 'Approved',  value: c['APPROVED']  ?? 0, color: '#22c55e' },
       { name: 'Submitted', value: c['SUBMITTED'] ?? 0, color: '#3b82f6' },
       { name: 'Draft',     value: c['DRAFT']     ?? 0, color: '#94a3b8' },
       { name: 'Rejected',  value: c['REJECTED']  ?? 0, color: '#ef4444' },
     ].filter(s => s.value > 0);
-  }, [allEntries]);
+  }, [org]);
 
+  const maxTaskHours = useMemo(() => Math.max(1, ...byTask.map(t => t.total)),    [byTask]);
   const maxUserHours = useMemo(() => Math.max(1, ...byUser.map(u => u.total)),    [byUser]);
   const maxProjHours = useMemo(() => Math.max(1, ...byProject.map(p => p.total)), [byProject]);
 
@@ -1927,25 +2129,25 @@ const OrgTimeTab = () => {
     return m;
   }, [allTeams]);
 
+  // Team comparison derived from per-user hours + the team roster
   const byTeam = useMemo(() => {
     const m = new Map<string, { teamId: string; teamName: string; total: number; billable: number; nonBillable: number; count: number; memberSet: Set<string> }>();
-    for (const e of allEntries) {
-      const uid  = String((e as any).userId || (e as any).user_id || '');
-      const info = teamByUser.get(uid);
+    for (const u of byUser) {
+      const info = teamByUser.get(u.userId);
       const key  = info?.teamId   ?? '__none__';
       const name = info?.teamName ?? 'No Team';
       if (!m.has(key)) m.set(key, { teamId: key, teamName: name, total: 0, billable: 0, nonBillable: 0, count: 0, memberSet: new Set() });
-      const h = parseFloat(String(e.hours)) || 0;
       const rec = m.get(key)!;
-      rec.total += h;
-      if (e.isBillable) rec.billable += h; else rec.nonBillable += h;
-      rec.count += 1;
-      if (uid) rec.memberSet.add(uid);
+      rec.total       += u.total;
+      rec.billable    += u.billable;
+      rec.nonBillable += u.nonBillable;
+      rec.count       += u.count;
+      if (u.userId) rec.memberSet.add(u.userId);
     }
     return Array.from(m.values())
       .map(r => ({ ...r, billable: Math.round(r.billable * 10) / 10, nonBillable: Math.round(r.nonBillable * 10) / 10, total: Math.round(r.total * 10) / 10, memberCount: r.memberSet.size }))
       .sort((a, b) => b.total - a.total);
-  }, [allEntries, teamByUser]);
+  }, [byUser, teamByUser]);
 
   const maxTeamHours = useMemo(() => Math.max(1, ...byTeam.map(t => t.total)), [byTeam]);
 
@@ -1992,8 +2194,8 @@ const OrgTimeTab = () => {
       {/* ── Summary line ─────────────────────────────────────────────────── */}
       <div className="flex items-center justify-end gap-3 min-h-[28px]">
         {analyticsLoading && <Loader2 size={14} className="animate-spin text-gray-400" />}
-        {!analyticsLoading && allEntries.length > 0 && (
-          <span className="text-xs text-gray-500">{allEntries.length.toLocaleString()} entries · <strong>{fmtH(totalHours)}</strong> · {billableRatioPct}% billable</span>
+        {!analyticsLoading && totalEntries > 0 && (
+          <span className="text-xs text-gray-500">{totalEntries.toLocaleString()} entries · <strong>{fmtH(totalHours)}</strong> · {billableRatioPct}% billable</span>
         )}
       </div>
 
@@ -2218,7 +2420,7 @@ const OrgTimeTab = () => {
               <StatCard label="Avg h/Member"  value={`${avgHoursPerMember}h`} icon={<UserIcon size={20} />}   color="blue"   />
             </div>
 
-            {allEntries.length === 0 ? (
+            {totalEntries === 0 ? (
               <EmptyState icon={<Clock size={36} />} title="No time entries" description="No entries found for the selected period and filters." />
             ) : (
               <>
@@ -2479,7 +2681,7 @@ const OrgTimeTab = () => {
                     <h3 className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2">
                       <Hash size={15} className="text-indigo-500" /> Entry Status Breakdown
                     </h3>
-                    <p className="text-xs text-gray-400 mb-4">Across all {allEntries.length.toLocaleString()} entries for this period</p>
+                    <p className="text-xs text-gray-400 mb-4">Across all {totalEntries.toLocaleString()} entries for this period</p>
                     <div className="flex items-center gap-8">
                       <ResponsiveContainer width={160} height={160}>
                         <PieChart>
@@ -2498,7 +2700,7 @@ const OrgTimeTab = () => {
                             </div>
                             <div className="text-right">
                               <span className="text-sm font-semibold text-gray-800">{s.value.toLocaleString()}</span>
-                              <span className="text-[10px] text-gray-400 ml-1.5">({Math.round((s.value / allEntries.length) * 100)}%)</span>
+                              <span className="text-[10px] text-gray-400 ml-1.5">({totalEntries > 0 ? Math.round((s.value / totalEntries) * 100) : 0}%)</span>
                             </div>
                           </div>
                         ))}

@@ -97,6 +97,27 @@ export const useTimeEntries = (params?: Record<string, string>) =>
     },
   });
 
+// Fetch EVERY entry matching the params by walking the paginated endpoint.
+// Used by personal analytics (Month / Overall) so totals/breakdowns cover the
+// whole period instead of the backend's 200-row non-paginated cap.
+export const useAllTimeEntries = (params?: Record<string, string>, enabled = true) =>
+  useQuery<TimeEntriesResult>({
+    queryKey: ['time', 'entries', 'all', params],
+    enabled,
+    queryFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const all: any[] = [];
+      for (let page = 1; page <= 50; page++) { // 50×200 = 10k safety ceiling
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const res = await timeEntriesApi.list({ ...(params ?? {}), page: String(page), pageSize: '200' }) as any;
+        const batch = Array.isArray(res?.entries) ? res.entries : (Array.isArray(res) ? res : []);
+        all.push(...batch);
+        if (!res?.pagination?.hasMore || batch.length === 0) break;
+      }
+      return { data: all.map(normaliseEntry), pagination: null };
+    },
+  });
+
 export const useMyWeek = () =>
   useQuery({
     queryKey: ['time', 'my-week'],
@@ -209,6 +230,26 @@ export const useRetractTimeEntry = () => {
     onError: (e: Error) => toast.error(e.message || 'Failed to retract entry'),
   });
 };
+
+// ── Org Analytics ───────────────────────────────────────────────────────────
+// Server-side ZCQL GROUP BY aggregation — every breakdown the org tab renders,
+// computed over the FULL date range (no client-side row cap).
+export interface OrgAnalytics {
+  period:  { from: string; to: string };
+  summary: { total_hours: number; billable_hours: number; non_billable_hours: number; total_entries: number };
+  by_user:    Array<{ user_id: string; user_name: string; user_avatar_url: string; total_hours: number; billable_hours: number; entries_count: number }>;
+  by_project: Array<{ project_id: string; project_name: string; total_hours: number; billable_hours: number; entries_count: number; member_count: number }>;
+  by_task:    Array<{ task_id: string; task_name: string; project_name: string; total_hours: number; billable_hours: number; entries_count: number }>;
+  by_day:     Array<{ date: string; total_hours: number; billable_hours: number; entries_count: number }>;
+  by_status:  Array<{ status: string; entries_count: number }>;
+}
+
+export const useOrgAnalytics = (params?: Record<string, string>, enabled = true) =>
+  useQuery<OrgAnalytics>({
+    queryKey: ['time', 'analytics', 'org', params],
+    queryFn: () => timeEntriesApi.orgAnalytics(params),
+    enabled,
+  });
 
 // ── Team Analytics ────────────────────────────────────────────────────────────
 export const useTeamAnalytics = (params?: Record<string, string>, enabled = true) =>

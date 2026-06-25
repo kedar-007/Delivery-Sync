@@ -1,11 +1,12 @@
 'use strict';
 const express = require('express');
 const router  = express.Router();
+const asyncHandler = require('express-async-handler');
 const RBACMiddleware       = require('../middleware/RBACMiddleware');
 const MaintenanceController = require('../controllers/MaintenanceController');
 const { PERMISSIONS } = require('../utils/Constants');
 const ctrl = (req) => new MaintenanceController(req.catalystApp);
-router.get('/',           RBACMiddleware.require(PERMISSIONS.ASSET_READ),  (req, res) => ctrl(req).list(req, res));
-router.post('/',          RBACMiddleware.require(PERMISSIONS.ASSET_WRITE), (req, res) => ctrl(req).schedule(req, res));
-router.patch('/:id/complete', RBACMiddleware.require(PERMISSIONS.ASSET_WRITE), (req, res) => ctrl(req).complete(req, res));
+router.get('/',           RBACMiddleware.require(PERMISSIONS.ASSET_READ),  asyncHandler((req, res) => ctrl(req).list(req, res)));
+router.post('/',          RBACMiddleware.require(PERMISSIONS.ASSET_WRITE), asyncHandler((req, res) => ctrl(req).schedule(req, res)));
+router.patch('/:id/complete', RBACMiddleware.require(PERMISSIONS.ASSET_WRITE), asyncHandler((req, res) => ctrl(req).complete(req, res)));
 module.exports = router;

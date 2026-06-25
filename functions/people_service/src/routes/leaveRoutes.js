@@ -4,46 +4,47 @@ const router  = express.Router();
 const RBACMiddleware  = require('../middleware/RBACMiddleware');
 const LeaveController = require('../controllers/LeaveController');
 const { PERMISSIONS } = require('../utils/Constants');
+const asyncHandler = require('express-async-handler');
 const ctrl = (req) => new LeaveController(req.catalystApp, req.adminCatalystApp);
 
 // ── Leave Types ───────────────────────────────────────────────────────────────
-router.get('/types',                          RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    (req, res) => ctrl(req).listTypes(req, res));
-router.post('/types',                         RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).createType(req, res));
-router.put('/types/:typeId',                  RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).updateType(req, res));
+router.get('/types',                          RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    asyncHandler((req, res) => ctrl(req).listTypes(req, res)));
+router.post('/types',                         RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   asyncHandler((req, res) => ctrl(req).createType(req, res)));
+router.put('/types/:typeId',                  RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   asyncHandler((req, res) => ctrl(req).updateType(req, res)));
 
 // ── Leave Balance — specific routes BEFORE dynamic /:userId ──────────────────
-router.get('/balance/all',                    RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).getAllBalances(req, res));
-router.post('/balance/set',                   RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).setBalance(req, res));
-router.delete('/balance/:balanceId',          RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).deleteBalance(req, res));
-router.get('/balance',                        RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    (req, res) => ctrl(req).getBalance(req, res));
-router.get('/balance/:userId',                RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    (req, res) => ctrl(req).getBalance(req, res));
+router.get('/balance/all',                    RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   asyncHandler((req, res) => ctrl(req).getAllBalances(req, res)));
+router.post('/balance/set',                   RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   asyncHandler((req, res) => ctrl(req).setBalance(req, res)));
+router.delete('/balance/:balanceId',          RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   asyncHandler((req, res) => ctrl(req).deleteBalance(req, res)));
+router.get('/balance',                        RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    asyncHandler((req, res) => ctrl(req).getBalance(req, res)));
+router.get('/balance/:userId',                RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    asyncHandler((req, res) => ctrl(req).getBalance(req, res)));
 
 // ── Leave Requests ────────────────────────────────────────────────────────────
-router.get('/requests',                       RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    (req, res) => ctrl(req).listRequests(req, res));
-router.get('/requests/:requestId',            RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    (req, res) => ctrl(req).getRequest(req, res));
-router.post('/request',                       RBACMiddleware.require(PERMISSIONS.LEAVE_WRITE),   (req, res) => ctrl(req).applyLeave(req, res));
-router.post('/requests',                      RBACMiddleware.require(PERMISSIONS.LEAVE_WRITE),   (req, res) => ctrl(req).applyLeave(req, res));
-router.delete('/requests/:requestId',         RBACMiddleware.require(PERMISSIONS.LEAVE_WRITE),   (req, res) => ctrl(req).cancelRequest(req, res));
-router.patch('/requests/:requestId/cancel',   RBACMiddleware.require(PERMISSIONS.LEAVE_WRITE),   (req, res) => ctrl(req).cancelRequest(req, res));
-router.patch('/requests/:requestId/approve',  RBACMiddleware.require(PERMISSIONS.LEAVE_APPROVE), (req, res) => ctrl(req).approveRequest(req, res));
-router.patch('/requests/:requestId/reject',   RBACMiddleware.require(PERMISSIONS.LEAVE_APPROVE), (req, res) => ctrl(req).rejectRequest(req, res));
+router.get('/requests',                       RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    asyncHandler((req, res) => ctrl(req).listRequests(req, res)));
+router.get('/requests/:requestId',            RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    asyncHandler((req, res) => ctrl(req).getRequest(req, res)));
+router.post('/request',                       RBACMiddleware.require(PERMISSIONS.LEAVE_WRITE),   asyncHandler((req, res) => ctrl(req).applyLeave(req, res)));
+router.post('/requests',                      RBACMiddleware.require(PERMISSIONS.LEAVE_WRITE),   asyncHandler((req, res) => ctrl(req).applyLeave(req, res)));
+router.delete('/requests/:requestId',         RBACMiddleware.require(PERMISSIONS.LEAVE_WRITE),   asyncHandler((req, res) => ctrl(req).cancelRequest(req, res)));
+router.patch('/requests/:requestId/cancel',   RBACMiddleware.require(PERMISSIONS.LEAVE_WRITE),   asyncHandler((req, res) => ctrl(req).cancelRequest(req, res)));
+router.patch('/requests/:requestId/approve',  RBACMiddleware.require(PERMISSIONS.LEAVE_APPROVE), asyncHandler((req, res) => ctrl(req).approveRequest(req, res)));
+router.patch('/requests/:requestId/reject',   RBACMiddleware.require(PERMISSIONS.LEAVE_APPROVE), asyncHandler((req, res) => ctrl(req).rejectRequest(req, res)));
 
 // ── Calendar ──────────────────────────────────────────────────────────────────
-router.get('/calendar',                       RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    (req, res) => ctrl(req).calendar(req, res));
-router.get('/overlaps',                       RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    (req, res) => ctrl(req).checkOverlap(req, res));
+router.get('/calendar',                       RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    asyncHandler((req, res) => ctrl(req).calendar(req, res)));
+router.get('/overlaps',                       RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    asyncHandler((req, res) => ctrl(req).checkOverlap(req, res)));
 
 // ── Company Calendar ──────────────────────────────────────────────────────────
-router.get('/company-calendar',               RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    (req, res) => ctrl(req).getCompanyCalendar(req, res));
-router.post('/company-calendar',              RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).createHoliday(req, res));
-router.put('/company-calendar/:holidayId',    RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).updateHoliday(req, res));
-router.delete('/company-calendar/:holidayId', RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).deleteHoliday(req, res));
+router.get('/company-calendar',               RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    asyncHandler((req, res) => ctrl(req).getCompanyCalendar(req, res)));
+router.post('/company-calendar',              RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   asyncHandler((req, res) => ctrl(req).createHoliday(req, res)));
+router.put('/company-calendar/:holidayId',    RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   asyncHandler((req, res) => ctrl(req).updateHoliday(req, res)));
+router.delete('/company-calendar/:holidayId', RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   asyncHandler((req, res) => ctrl(req).deleteHoliday(req, res)));
 
 // ── Calendar Config (locations + weekend policy) ──────────────────────────────
-router.get('/calendar-config',                RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    (req, res) => ctrl(req).getCalendarConfig(req, res));
-router.put('/calendar-config',                RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).saveCalendarConfig(req, res));
+router.get('/calendar-config',                RBACMiddleware.require(PERMISSIONS.LEAVE_READ),    asyncHandler((req, res) => ctrl(req).getCalendarConfig(req, res)));
+router.put('/calendar-config',                RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   asyncHandler((req, res) => ctrl(req).saveCalendarConfig(req, res)));
 
 // ── Leave Accrual Policy ──────────────────────────────────────────────────────
-router.get('/policy',                         RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).getLeavePolicy(req, res));
-router.put('/policy',                         RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   (req, res) => ctrl(req).saveLeavePolicy(req, res));
+router.get('/policy',                         RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   asyncHandler((req, res) => ctrl(req).getLeavePolicy(req, res)));
+router.put('/policy',                         RBACMiddleware.require(PERMISSIONS.LEAVE_ADMIN),   asyncHandler((req, res) => ctrl(req).saveLeavePolicy(req, res)));
 
 module.exports = router;
