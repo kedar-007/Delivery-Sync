@@ -454,7 +454,18 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
             </div>
             <div>
               <label className="form-label">{t('timeTracking.form.date')} *</label>
-              <input type="date" className="form-input" {...register('date', { required: 'Date is required' })} />
+              <input
+                type="date"
+                className="form-input"
+                max={todayStr()}
+                {...register('date', {
+                  required: 'Date is required',
+                  validate: (v) => !v || v <= todayStr() || 'Date cannot be in the future',
+                })}
+              />
+              {errors.date && (
+                <p className="mt-1 text-xs text-red-600">{errors.date.message as string}</p>
+              )}
             </div>
             <div>
               <label className="form-label">
