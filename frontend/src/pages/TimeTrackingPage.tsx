@@ -612,6 +612,10 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
   // AND defines the working window used to surface per-day "no log" gaps.
   const [filterTimeFrom, setFilterTimeFrom] = useState('');
   const [filterTimeTo, setFilterTimeTo] = useState('');
+  // How entries are ordered within each day group.
+  const [sortBy, setSortBy] = useState<
+    'start_asc' | 'start_desc' | 'created_desc' | 'created_asc' | 'hours_desc' | 'hours_asc'
+  >('start_asc');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(5);
 
@@ -716,7 +720,28 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
     }
     return Array.from(groups.entries())
       .sort((a, b) => b[0].localeCompare(a[0]))
-      .map(([date, items]) => {
+      .map(([date, rawItems]) => {
+        // Order each day's entries per the chosen sort. For start-time sorts,
+        // entries without a start time fall to the bottom.
+        const byStart = (a: TimeEntry, b: TimeEntry, dir: 1 | -1) => {
+          const sa = timeToMin(a.startTime);
+          const sb = timeToMin(b.startTime);
+          if (sa == null && sb == null) return 0;
+          if (sa == null) return 1;
+          if (sb == null) return -1;
+          return (sa - sb) * dir;
+        };
+        const items = [...rawItems].sort((a, b) => {
+          switch (sortBy) {
+            case 'start_desc':   return byStart(a, b, -1);
+            case 'created_desc': return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+            case 'created_asc':  return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+            case 'hours_desc':   return (Number(b.hours) || 0) - (Number(a.hours) || 0);
+            case 'hours_asc':    return (Number(a.hours) || 0) - (Number(b.hours) || 0);
+            case 'start_asc':
+            default:             return byStart(a, b, 1);
+          }
+        });
         let billable = 0;
         let nonBillable = 0;
         for (const it of items) {
@@ -755,7 +780,7 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
 
         return { date, items, billable, nonBillable, total: billable + nonBillable, gaps, untrackedMin };
       });
-  }, [filteredEntries, filterTimeFrom, filterTimeTo]);
+  }, [filteredEntries, filterTimeFrom, filterTimeTo, sortBy]);
 
   const deleteEntry = useDeleteTimeEntry();
   const submitEntry = useSubmitTimeEntry();
@@ -1098,15 +1123,32 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
 
       {/* Table */}
       <Card padding={false}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
           <h3 className="text-sm font-semibold text-gray-900">My Time Entries</h3>
-          <Button
-            size="sm"
-            icon={<Plus size={14} />}
-            onClick={() => { setEditEntry(null); setModalOpen(true); }}
-          >
-            {t('timeTracking.logTime')}
-          </Button>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 text-xs text-gray-500">
+              Sort by
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                className="text-xs border border-gray-300 rounded px-2 py-1 bg-white text-gray-700"
+              >
+                <option value="start_asc">Start time (earliest)</option>
+                <option value="start_desc">Start time (latest)</option>
+                <option value="created_desc">Created (newest)</option>
+                <option value="created_asc">Created (oldest)</option>
+                <option value="hours_desc">Hours (high → low)</option>
+                <option value="hours_asc">Hours (low → high)</option>
+              </select>
+            </label>
+            <Button
+              size="sm"
+              icon={<Plus size={14} />}
+              onClick={() => { setEditEntry(null); setModalOpen(true); }}
+            >
+              {t('timeTracking.logTime')}
+            </Button>
+          </div>
         </div>
 
         {isLoading ? (
