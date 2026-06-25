@@ -172,11 +172,10 @@ class SprintController {
     if (sprint.status !== SPRINT_STATUS.PLANNING)
       return ResponseHelper.validationError(res, 'Only PLANNING sprints can be started');
 
-    // Ensure no other sprint is ACTIVE for this project
-    const active = await this.db.findWhere(TABLES.SPRINTS, tenantId,
-      `project_id = '${DataStoreService.escape(sprint.project_id)}' AND status = 'ACTIVE'`, { limit: 1 });
-    if (active.length > 0)
-      return ResponseHelper.conflict(res, 'Another sprint is already active for this project');
+    // A project may run multiple sprints concurrently (e.g. parallel
+    // workstreams / squads on the same project), so we intentionally do NOT
+    // block starting a sprint when another sprint is already active for the
+    // same project.
 
     await this.db.update(TABLES.SPRINTS, { ROWID: sprintId, status: SPRINT_STATUS.ACTIVE });
     await this.audit.log({ tenantId, entityType: 'SPRINT', entityId: sprintId, action: AUDIT_ACTION.STATUS_CHANGE, oldValue: { status: sprint.status }, newValue: { status: SPRINT_STATUS.ACTIVE }, performedBy: req.currentUser.id });
@@ -215,9 +214,25 @@ class SprintController {
     const completedPoints = doneTasks.reduce((sum, t) => sum + (parseFloat(t.story_points) || 0), 0);
 
     await this.db.update(TABLES.SPRINTS, { ROWID: sprintId, status: SPRINT_STATUS.COMPLETED, velocity: completedPoints });
-    await this.audit.log({ tenantId, entityType: 'SPRINT', entityId: sprintId, action: AUDIT_ACTION.STATUS_CHANGE, oldValue: { status: SPRINT_STATUS.ACTIVE }, newValue: { status: SPRINT_STATUS.COMPLETED, completed_points: completedPoints }, performedBy: req.currentUser.id });
 
-    return ResponseHelper.success(res, { message: 'Sprint completed', completed_points: completedPoints });
+    // Carry incomplete work forward: every task in this sprint that isn't DONE
+    // (and hasn't been CANCELLED) is moved back to the project backlog
+    // (sprint_id = 0) so it can be pulled into a future sprint of the same
+    // project. This mirrors standard Scrum behaviour where unfinished items
+    // return to the backlog when the sprint closes.
+    const incompleteTasks = await this.db.findWhere(
+      TABLES.TASKS, tenantId,
+      `sprint_id = '${sprintId}' AND status != 'DONE' AND status != 'CANCELLED'`,
+      { limit: 300 }
+    );
+    for (const t of incompleteTasks) {
+      await this.db.update(TABLES.TASKS, { ROWID: t.ROWID, sprint_id: 0 });
+    }
+    const movedToBacklog = incompleteTasks.length;
+
+    await this.audit.log({ tenantId, entityType: 'SPRINT', entityId: sprintId, action: AUDIT_ACTION.STATUS_CHANGE, oldValue: { status: SPRINT_STATUS.ACTIVE }, newValue: { status: SPRINT_STATUS.COMPLETED, completed_points: completedPoints, moved_to_backlog: movedToBacklog }, performedBy: req.currentUser.id });
+
+    return ResponseHelper.success(res, { message: 'Sprint completed', completed_points: completedPoints, moved_to_backlog: movedToBacklog });
   }
 
   // GET /api/ts/sprints/:sprintId/board

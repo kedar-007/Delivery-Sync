@@ -5,6 +5,7 @@ const AuditService = require('../services/AuditService');
 const NotificationService = require('../services/NotificationService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const { TABLES, TASK_STATUS, TASK_TYPE, AUDIT_ACTION, NOTIFICATION_TYPE } = require('../utils/Constants');
+const WorkAllocation = require('../utils/workAllocation');
 
 class TaskController {
   constructor(catalystApp) {
@@ -156,7 +157,7 @@ class TaskController {
     this.notif.tenantSlug = req.currentUser?.tenantSlug || '';
     const { project_id, sprint_id, parent_task_id, title, description, type, priority,
       assignee_id, assignee_ids, story_points, estimated_hours, due_date,
-      labels, custom_fields, status } = req.body;
+      labels, custom_fields, status, work_allocations } = req.body;
     const tenantId = req.tenantId;
     const userId = req.currentUser.id;
     const role = req.currentUser.role;
@@ -209,6 +210,10 @@ class TaskController {
     const assigneeIdsStr = JSON.stringify(assigneeIdsArr);
     const primaryAssigneeId = assigneeIdsArr[0] || null;
 
+    // Validate + normalise work allocation (re-checks the client-side rules).
+    const allocResult = WorkAllocation.normaliseForStorage(work_allocations);
+    if (allocResult.error) return ResponseHelper.validationError(res, allocResult.error);
+
     const insertData = {
       tenant_id: String(tenantId),
       project_id: String(project_id || 0),
@@ -230,6 +235,12 @@ class TaskController {
     // Store the normalised YYYY-MM-DD (already validated above) so a stray
     // time component from the client doesn't leak into the DATE column.
     insertData.due_date = _dueDateOnly;
+
+    // Persist the allocation and mirror its grand total into estimated_hours.
+    if (allocResult.value) {
+      insertData.work_allocations = allocResult.value;
+      insertData.estimated_hours = allocResult.totalHours;
+    }
 
     const row = await this.db.insert(TABLES.TASKS, insertData);
 
@@ -319,6 +330,14 @@ class TaskController {
     if (updates.labels && typeof updates.labels !== 'string') updates.labels = JSON.stringify(updates.labels);
     if (updates.sprint_id === '' || updates.sprint_id === null) updates.sprint_id = 0;
     if (updates.due_date === '') delete updates.due_date;
+
+    // Validate + persist work allocation; mirror its grand total to estimated_hours.
+    if (req.body.work_allocations !== undefined) {
+      const allocResult = WorkAllocation.normaliseForStorage(req.body.work_allocations);
+      if (allocResult.error) return ResponseHelper.validationError(res, allocResult.error);
+      updates.work_allocations = allocResult.value || '';
+      if (allocResult.value) updates.estimated_hours = allocResult.totalHours;
+    }
 
     const updated = await this.db.update(TABLES.TASKS, { ROWID: taskId, ...updates });
     await this.audit.log({ tenantId: req.tenantId, entityType: 'TASK', entityId: taskId, action: AUDIT_ACTION.UPDATE, oldValue: task, newValue: updated, performedBy: req.currentUser.id });

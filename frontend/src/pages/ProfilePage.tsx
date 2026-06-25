@@ -32,6 +32,7 @@ interface ExtendedForm {
   bio: string; phone: string; department: string; designation: string;
   employee_id: string; birth_date: string; date_of_joining: string;
   timezone: string; resume_url: string;
+  work_hours_per_day: string; business_hours_label: string;
 }
 
 // ── Gradient map ──────────────────────────────────────────────────────────────
@@ -266,6 +267,8 @@ const ProfilePage = () => {
       birth_date: extProfile?.birth_date ? String(extProfile.birth_date).slice(0, 10) : '',
       date_of_joining: extProfile?.date_of_joining ? String(extProfile.date_of_joining).slice(0, 10) : '',
       timezone: extProfile?.timezone ?? '', resume_url: extProfile?.resume_url ?? '',
+      work_hours_per_day: extProfile?.work_hours_per_day != null ? String(extProfile.work_hours_per_day) : '',
+      business_hours_label: extProfile?.business_hours_label ?? '',
     },
   });
 
@@ -508,6 +511,23 @@ const ProfilePage = () => {
                       </optgroup>
                     </select>
                     <p className="text-xs text-gray-400 mt-1">This determines your work day boundaries for attendance tracking.</p>
+                  </div>
+                  <div>
+                    <label className="form-label flex items-center gap-1.5"><Clock size={12} className="text-gray-400" /> Work Hours / Day</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={24}
+                      step="0.25"
+                      className="form-input"
+                      placeholder="8"
+                      {...regExt('work_hours_per_day')}
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Default daily capacity used when allocating task work hours.</p>
+                  </div>
+                  <div>
+                    <label className="form-label flex items-center gap-1.5"><Clock size={12} className="text-gray-400" /> Business Hours Schedule</label>
+                    <input className="form-input" placeholder="Standard Business Hours" {...regExt('business_hours_label')} />
                   </div>
                   <div>
                     <label className="form-label flex items-center gap-1.5"><FileText size={12} className="text-gray-400" /> Resume</label>

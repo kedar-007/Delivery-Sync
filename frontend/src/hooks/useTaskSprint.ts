@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { sprintsApi, tasksApi } from '../lib/api';
 import { useToast } from '../components/ui/Toast';
+import { parseAllocation } from '../lib/workAllocation';
 
 // ── Field Normalisers ─────────────────────────────────────────────────────────
 // Catalyst DataStore: ROWID = PK, CREATEDTIME = created, MODIFIEDTIME = updated, CREATORID = creator
@@ -51,6 +52,7 @@ const normaliseTask = (r: any) => {
     completedAt:    r.completed_at    ?? r.completedAt    ?? null,
     labels:         (() => { try { return JSON.parse(r.labels ?? '[]'); } catch { return []; } })(),
     customFields:    (() => { try { return JSON.parse(r.custom_fields ?? r.customFields ?? '{}'); } catch { return {}; } })(),
+    workAllocation: parseAllocation(r.work_allocations ?? r.workAllocation),
     requireApproval: r.require_approval === true || r.require_approval === 'true' || r.requireApproval === true,
     createdBy:      r.created_by      ?? r.createdBy,
     createdAt:      r.CREATEDTIME     ?? r.created_at     ?? r.createdAt,
@@ -201,6 +203,24 @@ export const useBacklog = (projectId: string) =>
     queryFn: () => tasksApi.backlog(projectId).then(applyNorm(normaliseTask)),
     enabled: !!projectId,
   });
+
+// Pull a backlog task into a sprint (or send a task back to the backlog with
+// sprint_id = 0). Invalidates both the backlog list and the sprint board so the
+// task moves between the two views immediately.
+export const useMoveTaskToSprint = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: ({ taskId, sprintId }: { taskId: string; sprintId: string | number }) =>
+      tasksApi.moveSprint(taskId, { sprint_id: sprintId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tasks'] });
+      qc.invalidateQueries({ queryKey: ['sprints'] });
+      toast.success('Task moved to sprint');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to move task'),
+  });
+};
 
 export const useTask = (id: string) =>
   useQuery({

@@ -28,6 +28,10 @@ import { useQuery } from '@tanstack/react-query';
 import UserAvatar from '../components/ui/UserAvatar';
 import MarkdownText from '../components/ui/MarkdownText';
 import RichCommentEditor, { renderRichContent } from '../components/ui/RichCommentEditor';
+import WorkAllocationField from '../components/tasks/WorkAllocationField';
+import WorkAllocationDisplay from '../components/tasks/WorkAllocationDisplay';
+import { useBusinessHours } from '../hooks/useBusinessHours';
+import { WorkAllocation, serializeAllocation, reconcileEntries, deriveWorkingDates } from '../lib/workAllocation';
 
 // ── Time helpers: HH:MM ↔ decimal hours ──────────────────────────────────────
 const parseHoursInput = (val: string): number => {
@@ -313,24 +317,32 @@ function TaskFormModal({
   const createTask = useCreateTask();
   const updateTask = useUpdateTask();
   const [assignees, setAssignees]             = useState<string[]>([]);
+  const [workAllocation, setWorkAllocation]   = useState<WorkAllocation | null>(null);
   const [attachments, setAttachments]         = useState<File[]>([]);
   const [formError, setFormError]             = useState('');
   const [requireApproval, setRequireApproval] = useState(false);
   const [uploadProgress, setUploadProgress]   = useState<{ current: number; total: number } | null>(null);
   const { user } = useAuth();
   const canManageApproval = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TIME_APPROVE);
-  const canAssignToOthers = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TASK_ASSIGN);
+  // Match the backend: creating a task with assignees only requires TASK_WRITE,
+  // so anyone who can author tasks may assign them to others (not just holders
+  // of the dedicated TASK_ASSIGN permission).
+  const canAssignToOthers = user?.role === 'TENANT_ADMIN'
+    || hasPermission(user, PERMISSIONS.TASK_ASSIGN)
+    || hasPermission(user, PERMISSIONS.TASK_WRITE);
   const { data: usersData = [] } = useUsers();
   const users = usersData as TenantUser[];
+  const { getDefaults } = useBusinessHours();
   const { t } = useI18n();
 
   // Draft persistence — preserves create-form data across close/reopen cycles
-  const draftRef    = React.useRef<{ formValues: TaskFormData; assignees: string[]; requireApproval: boolean; attachments: File[] } | null>(null);
+  const draftRef    = React.useRef<{ formValues: TaskFormData; assignees: string[]; requireApproval: boolean; attachments: File[]; workAllocation: WorkAllocation | null } | null>(null);
   const prevOpenRef = React.useRef(false);
 
-  const { register, handleSubmit, reset, getValues, formState: { errors, isSubmitting } } = useForm<TaskFormData>({
+  const { register, handleSubmit, reset, getValues, watch, formState: { errors, isSubmitting } } = useForm<TaskFormData>({
     defaultValues: { type: 'TASK', priority: 'MEDIUM', status: 'TODO' },
   });
+  const dueDateValue = watch('due_date');
 
   React.useEffect(() => {
     const justOpened = open  && !prevOpenRef.current;
@@ -349,17 +361,20 @@ function TaskFormModal({
           labels:      (editing.labels ?? []).join(', '),
         });
         setAssignees(editing.assigneeIds ?? (editing.assigneeId ? [editing.assigneeId] : []));
+        setWorkAllocation((editing as any).workAllocation ?? null);
         setRequireApproval((editing as any).requireApproval === true);
         setAttachments([]);
         draftRef.current = null;
       } else if (draftRef.current) {
         reset(draftRef.current.formValues);
         setAssignees(draftRef.current.assignees);
+        setWorkAllocation(draftRef.current.workAllocation);
         setRequireApproval(draftRef.current.requireApproval);
         setAttachments(draftRef.current.attachments);
       } else {
         reset({ type: 'TASK', priority: 'MEDIUM', status: 'TODO', project_id: '' });
         setAssignees(user?.id ? [String(user.id)] : []);
+        setWorkAllocation(null);
         setRequireApproval(false);
         setAttachments([]);
       }
@@ -367,7 +382,7 @@ function TaskFormModal({
     }
 
     if (justClosed && !editing) {
-      draftRef.current = { formValues: getValues(), assignees, requireApproval, attachments };
+      draftRef.current = { formValues: getValues(), assignees, requireApproval, attachments, workAllocation };
     }
 
     prevOpenRef.current = open;
@@ -377,6 +392,12 @@ function TaskFormModal({
   const onSubmit = handleSubmit(async (data) => {
     setFormError('');
     try {
+      // Reconcile the allocation against the final assignee selection so removed
+      // users drop out and newly added ones are included before persisting.
+      const alloc = workAllocation && assignees.length
+        ? reconcileEntries(workAllocation, assignees, getDefaults, deriveWorkingDates(workAllocation))
+        : null;
+      const hasAllocation = !!alloc && alloc.entries.length > 0 && alloc.durationDays > 0;
       const payload = {
         project_id:       data.project_id,
         title:            data.title,
@@ -388,6 +409,9 @@ function TaskFormModal({
         labels:           JSON.stringify(data.labels?.split(',').map((s) => s.trim()).filter(Boolean) ?? []),
         assignee_ids:     JSON.stringify(assignees),
         require_approval: requireApproval ? 'true' : 'false',
+        ...(hasAllocation
+          ? { work_allocations: serializeAllocation(alloc!, deriveWorkingDates(alloc!)), estimated_hours: alloc!.totalHours }
+          : {}),
       };
       const uploadFiles = async (taskId: string) => {
         if (!attachments.length) return;
@@ -463,6 +487,15 @@ function TaskFormModal({
                 </div>
               )}
             </div>
+
+            <WorkAllocationField
+              assigneeIds={assignees}
+              users={users}
+              value={workAllocation}
+              onChange={setWorkAllocation}
+              getDefaults={getDefaults}
+              defaultEndDate={dueDateValue || undefined}
+            />
 
             <div>
               <label className="form-label">Labels <span className="text-gray-400 font-normal">(comma-separated)</span></label>
@@ -647,7 +680,20 @@ function TaskDetailPanel({
   const priCfg     = PRIORITY_CONFIG[task.priority] ?? PRIORITY_CONFIG.MEDIUM;
   const stCfg      = STATUS_CONFIG[task.status];
   const project    = projects.find((p) => p.id === task.projectId);
-  const assigneeIds = task.assigneeIds ?? (task.assigneeId ? [task.assigneeId] : []);
+  const assigneeIds: string[] = (fullTaskData as any)?.assigneeIds ?? task.assigneeIds ?? (task.assigneeId ? [task.assigneeId] : []);
+  // Prefer the freshly-fetched full task (guaranteed to carry work_allocations
+  // from getById) and fall back to the list item.
+  const workAllocation = (fullTaskData as any)?.workAllocation ?? (task as any).workAllocation ?? null;
+
+  // Logged hours per user, summed from this task's time entries.
+  const loggedByUser = useMemo(() => {
+    const m: Record<string, number> = {};
+    (taskTimeEntries ?? []).forEach((e: any) => {
+      const uid = String(e.user_id ?? e.userId ?? '');
+      if (uid) m[uid] = (m[uid] ?? 0) + (parseFloat(e.hours) || 0);
+    });
+    return m;
+  }, [taskTimeEntries]);
 
   // Attachment upload state — local to this panel
   const [attUploading, setAttUploading] = useState(false);
@@ -786,6 +832,18 @@ function TaskDetailPanel({
         {task.description && (
           <div className="px-6 py-3 border-b border-gray-100">
             <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{task.description}</p>
+          </div>
+        )}
+
+        {/* ── Work Allocation (read-only) ── */}
+        {workAllocation && (
+          <div className="px-6 py-3 border-b border-gray-100">
+            <WorkAllocationDisplay
+              value={workAllocation}
+              assigneeIds={assigneeIds}
+              users={allUsers}
+              loggedByUser={loggedByUser}
+            />
           </div>
         )}
 

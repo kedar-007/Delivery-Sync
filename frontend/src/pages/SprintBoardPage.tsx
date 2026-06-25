@@ -17,11 +17,16 @@ import {
   AlertCircle, CheckCircle2, PlayCircle, Clock,
   Filter, Search, User, Zap, BarChart2,
   ArrowRight, Trash2, Edit2, GitBranch, Users, X, Timer, Paperclip,
-  Send, DollarSign, Ban,
+  Send, DollarSign, Ban, Layers, TrendingDown,
 } from 'lucide-react';
+import {
+  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip as RechartsTooltip, Legend,
+} from 'recharts';
+import { useQueryClient } from '@tanstack/react-query';
 import { timeEntriesApi, aiApi, tasksApi, sprintsApi } from '../lib/api';
 import { useSubmitTimeEntry } from '../hooks/useTimeTracking';
-import { format, isPast, parseISO, differenceInDays } from 'date-fns';
+import { format, isPast, parseISO, differenceInDays, addDays } from 'date-fns';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
@@ -45,6 +50,8 @@ import {
   useSprint,
   useTaskComments,
   useAddTaskComment,
+  useBacklog,
+  useMoveTaskToSprint,
 } from '../hooks/useTaskSprint';
 import { useProject } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
@@ -54,6 +61,10 @@ import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import SprintAnalysisModal from '../components/ui/SprintAnalysisModal';
 import { useAiSprintAnalysis } from '../hooks/useAiInsights';
 import RichCommentEditor, { renderRichContent } from '../components/ui/RichCommentEditor';
+import WorkAllocationField from '../components/tasks/WorkAllocationField';
+import WorkAllocationDisplay from '../components/tasks/WorkAllocationDisplay';
+import { useBusinessHours } from '../hooks/useBusinessHours';
+import { WorkAllocation, serializeAllocation, reconcileEntries, deriveWorkingDates } from '../lib/workAllocation';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -72,9 +83,13 @@ interface Task {
   assigneeIds?: string[];
   storyPoints?: number;
   dueDate?: string;
+  completedAt?: string | null;
   sprintId?: string;
   projectId?: string;
   labels?: string[];
+  // Subtasks are attached to each parent by the board endpoint (raw rows).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  subtasks?: any[];
 }
 
 interface Sprint {
@@ -175,6 +190,13 @@ function TaskCard({ task, users, onOpen, isDragOverlay = false }: {
   const p = PRIORITY_CONFIG[task.priority] ?? PRIORITY_CONFIG.MEDIUM;
   const typeCfg = TYPE_CONFIG[task.type] ?? TYPE_CONFIG.TASK;
   const isOverdue = task.dueDate && isPast(parseISO(task.dueDate)) && task.status !== 'DONE';
+  // Sub-task roll-up: count completed vs total so the card shows progress
+  // without opening the task. Subtask rows come straight from the board API
+  // (snake_case), so read `status` directly.
+  const subtasks = Array.isArray(task.subtasks) ? task.subtasks : [];
+  const subtaskTotal = subtasks.length;
+  const subtaskDone = subtasks.filter((s) => String(s?.status) === 'DONE').length;
+  const subtaskPct = subtaskTotal > 0 ? Math.round((subtaskDone / subtaskTotal) * 100) : 0;
 
   return (
     <div
@@ -203,6 +225,22 @@ function TaskCard({ task, users, onOpen, isDragOverlay = false }: {
           {(task.labels ?? []).slice(0, 3).map((l) => (
             <span key={l} className="text-[10px] bg-ds-border text-ds-text-muted rounded px-1.5 py-0.5">{l}</span>
           ))}
+        </div>
+      )}
+
+      {/* Sub-task roll-up */}
+      {subtaskTotal > 0 && (
+        <div className="mb-2">
+          <div className="flex items-center justify-between text-[10px] text-ds-text-muted mb-0.5">
+            <span className="flex items-center gap-1">
+              <CheckCircle2 size={10} className={subtaskDone === subtaskTotal ? 'text-green-500' : 'text-ds-text-muted'} />
+              {subtaskDone}/{subtaskTotal} subtasks
+            </span>
+            <span>{subtaskPct}%</span>
+          </div>
+          <div className="h-1 bg-ds-border rounded-full overflow-hidden">
+            <div className={`h-full rounded-full ${subtaskDone === subtaskTotal ? 'bg-green-500' : 'bg-indigo-400'}`} style={{ width: `${subtaskPct}%` }} />
+          </div>
         </div>
       )}
 
@@ -431,7 +469,14 @@ export default function SprintBoardPage() {
   const canManageSprint = isTenantAdmin || hasPermission(user, PERMISSIONS.SPRINT_WRITE);    // new / start / complete sprint
   const canCreateTask = isTenantAdmin || hasPermission(user, PERMISSIONS.TASK_WRITE);      // + Add Task buttons + delete
   const canConfigureApproval = isTenantAdmin || hasPermission(user, PERMISSIONS.TIME_APPROVE); // require-time-entry-approval toggle
-  const canAssignToOthers = isTenantAdmin || hasPermission(user, PERMISSIONS.TASK_ASSIGN);
+  // Assigning tasks to other users is allowed for anyone who can author tasks.
+  // The backend only requires TASK_WRITE to create a task with assignees (and
+  // TASK_WRITE *or* TASK_ASSIGN to reassign), so gating the picker on TASK_ASSIGN
+  // alone was stricter than the API — it hid the assignee selector from leads
+  // who hold TASK_WRITE, forcing every task to default to "assigned to you".
+  const canAssignToOthers = isTenantAdmin
+    || hasPermission(user, PERMISSIONS.TASK_ASSIGN)
+    || hasPermission(user, PERMISSIONS.TASK_WRITE);
   // Kept for backwards compat with any remaining `isAdmin` reference; aliased
   // to canManageSprint since those are the truly sprint-gated controls.
   const isAdmin = canManageSprint;
@@ -445,12 +490,23 @@ export default function SprintBoardPage() {
   const [editSprintId, setEditSprintId] = useState<string | null>(null);
   const [editSprintMemberIds, setEditSprintMemberIds] = useState<string[]>([]);
   const [showCreateTask, setShowCreateTask] = useState(false);
+  const [showBacklog, setShowBacklog] = useState(false);
+  const [backlogSearch, setBacklogSearch] = useState('');
+  const [showBurndown, setShowBurndown] = useState(false);
+  const [showCompleteSprint, setShowCompleteSprint] = useState(false);
+  // How to handle tasks that aren't DONE when the sprint is completed:
+  // 'backlog' (default), 'sprint:<id>' to bulk-move into another sprint, or
+  // 'cancel' to bulk-close them.
+  const [completeDestination, setCompleteDestination] = useState<string>('backlog');
+  const [completingSprint, setCompletingSprint] = useState(false);
   const [showAIAnalysis, setShowAIAnalysis] = useState(false);
   const sprintAnalysis = useAiSprintAnalysis();
   const [createTaskStatus, setCreateTaskStatus] = useState<TaskStatus>('TODO');
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
+  const [createWorkAllocation, setCreateWorkAllocation] = useState<WorkAllocation | null>(null);
   const [editTask, setEditTask] = useState<Task | null>(null);
   const [editAssigneeIds, setEditAssigneeIds] = useState<string[]>([]);
+  const [editWorkAllocation, setEditWorkAllocation] = useState<WorkAllocation | null>(null);
   const [filterPriority, setFilterPriority] = useState<string>('');
   const [filterType, setFilterType] = useState<string>('');
   const [searchQ, setSearchQ] = useState('');
@@ -473,6 +529,9 @@ export default function SprintBoardPage() {
   const [editTaskRequireApproval, setEditTaskRequireApproval] = useState(false);
   // task detail tabs / timer / AI
   const [detailTab, setDetailTab] = useState<'comments' | 'time' | 'attachments' | 'ai' | 'audit_logs'>('comments');
+  // Parent task selected when creating a SUBTASK from the Create Task modal.
+  const [createParentTaskId, setCreateParentTaskId] = useState('');
+  const [parentError, setParentError] = useState('');
   const [taskTimeEntries, setTaskTimeEntries] = useState<any[]>([]);
   const [timeEntriesLoading, setTimeEntriesLoading] = useState(false);
   const [timerRunning, setTimerRunning] = useState(false);
@@ -503,6 +562,7 @@ export default function SprintBoardPage() {
     : '';
   const { data: board, isLoading: boardLoading } = useSprintBoard(activeSprintId);
   const { data: usersData, isLoading: usersLoading } = useUsers();
+  const { getDefaults: getBusinessHoursDefaults } = useBusinessHours();
   const { data: fullTask } = useTask(taskDetailId ?? '');
   const { data: comments } = useTaskComments(taskDetailId ?? '');
   const addComment = useAddTaskComment(taskDetailId ?? '');
@@ -517,6 +577,8 @@ export default function SprintBoardPage() {
   const updateStatus = useUpdateTaskStatus();
   const deleteTask = useDeleteTask();
   const { data: editSprintDetail } = useSprint(editSprintId ?? '');
+  const { data: backlogTasks = [], isLoading: backlogLoading } = useBacklog(projectId ?? '');
+  const moveTaskToSprint = useMoveTaskToSprint();
 
   const sprintList: Sprint[] = useMemo(() => Array.isArray(sprints) ? sprints : (sprints as any)?.data ?? [], [sprints]);
   const users: unknown[] = Array.isArray(usersData) ? usersData : (usersData as any)?.data ?? [];
@@ -617,6 +679,72 @@ export default function SprintBoardPage() {
   const doneCount = (boardData['DONE'] ?? []).length;
   const totalCount = allTasks.length;
 
+  const qc = useQueryClient();
+
+  // Tasks not yet DONE — drives the Complete-Sprint carry-over flow.
+  const incompleteTasks = COLUMNS
+    .filter((c) => c.key !== 'DONE')
+    .flatMap((col) => boardData[col.key] ?? []);
+
+  // Other sprints in this project we could bulk-move unfinished work into
+  // (a completed sprint can't receive tasks).
+  const otherSprints = sprintList.filter((s) => s.id !== activeSprint?.id && s.status !== 'COMPLETED');
+
+  // ── Burndown series ──────────────────────────────────────────────────────────
+  // Built client-side from the board: total committed story points vs the ideal
+  // straight line, plus actual remaining points by each task's completion date.
+  // Days in the future are left null so the actual line stops at today.
+  const burndownData = useMemo(() => {
+    if (!activeSprint?.startDate || !activeSprint?.endDate) return [];
+    const start = parseISO(activeSprint.startDate);
+    const end = parseISO(activeSprint.endDate);
+    const totalDays = Math.max(1, differenceInDays(end, start));
+    const totalPoints = allTasks.reduce((s, t) => s + (t.storyPoints ?? 0), 0);
+    if (totalPoints === 0) return [];
+    const doneTasks = boardData['DONE'] ?? [];
+    const today = new Date();
+    const rows: { date: string; ideal: number; remaining: number | null }[] = [];
+    for (let i = 0; i <= totalDays; i++) {
+      const day = addDays(start, i);
+      const ideal = Math.max(0, +(totalPoints - (totalPoints / totalDays) * i).toFixed(1));
+      let remaining: number | null = null;
+      if (day <= today) {
+        const completedByDay = doneTasks.reduce((sum, t) => {
+          const c = t.completedAt ? parseISO(t.completedAt) : null;
+          return c && c <= day ? sum + (t.storyPoints ?? 0) : sum;
+        }, 0);
+        remaining = Math.max(0, +(totalPoints - completedByDay).toFixed(1));
+      }
+      rows.push({ date: format(day, 'MMM d'), ideal, remaining });
+    }
+    return rows;
+  }, [activeSprint, allTasks, boardData]);
+
+  // Complete the active sprint, first applying the chosen disposition to every
+  // unfinished task (move to another sprint, cancel, or — by default — let the
+  // backend drop them back to the backlog).
+  const handleCompleteSprint = async () => {
+    if (!activeSprint || !activeSprintId) return;
+    setCompletingSprint(true);
+    try {
+      if (completeDestination === 'cancel') {
+        await Promise.all(incompleteTasks.map((tk) => tasksApi.updateStatus(tk.id, { status: 'CANCELLED' })));
+      } else if (completeDestination.startsWith('sprint:')) {
+        const targetId = completeDestination.slice('sprint:'.length);
+        await Promise.all(incompleteTasks.map((tk) => tasksApi.moveSprint(tk.id, { sprint_id: targetId })));
+      }
+      // 'backlog' → handled by the backend's complete() (moves remaining
+      // incomplete tasks to sprint_id = 0).
+      await completeSprint.mutateAsync(activeSprintId);
+      qc.invalidateQueries({ queryKey: ['tasks'] });
+      setShowCompleteSprint(false);
+    } catch {
+      /* errors surface via the mutation's onError toast */
+    } finally {
+      setCompletingSprint(false);
+    }
+  };
+
   // DnD sensors
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
@@ -712,24 +840,56 @@ export default function SprintBoardPage() {
   // Task form
   const taskForm = useForm<TaskForm>({ defaultValues: { type: 'TASK', priority: 'MEDIUM' } });
   const onCreateTask = taskForm.handleSubmit((data) => {
+    // A task on the sprint board must belong to a sprint. Without one there is
+    // nowhere to put it, so block creation (the buttons are also hidden when no
+    // sprint is selected — this is the defensive backstop).
+    if (!activeSprint || !activeSprintId) return;
+    // A SUBTASK must point at a parent task.
+    const isSubtask = data.type === 'SUBTASK';
+    if (isSubtask && !createParentTaskId) {
+      setParentError('Select the parent task this subtask belongs to');
+      return;
+    }
+    setParentError('');
+    const alloc = createWorkAllocation && assigneeIds.length
+      ? reconcileEntries(createWorkAllocation, assigneeIds, getBusinessHoursDefaults, deriveWorkingDates(createWorkAllocation))
+      : null;
+    const hasAllocation = !!alloc && alloc.entries.length > 0 && alloc.durationDays > 0;
     createTask.mutate({
       title: data.title,
       description: data.description,
       type: data.type,
       priority: data.priority,
       story_points: data.story_points || null,
-      estimated_hours: data.estimated_hours || null,
+      estimated_hours: hasAllocation ? alloc!.totalHours : (data.estimated_hours || null),
       due_date: data.due_date || null,
       labels: data.labels ? JSON.stringify(data.labels.split(',').map((l) => l.trim()).filter(Boolean)) : '[]',
       project_id: projectId,
       sprint_id: activeSprint?.id ?? null,
+      parent_task_id: isSubtask ? createParentTaskId : 0,
       status: createTaskStatus,
       assignee_ids: JSON.stringify(assigneeIds),
       require_approval: createTaskRequireApproval ? 'true' : 'false',
+      ...(hasAllocation ? { work_allocations: serializeAllocation(alloc!, deriveWorkingDates(alloc!)) } : {}),
     }, {
-      onSuccess: () => { setShowCreateTask(false); taskForm.reset(); setAssigneeIds([]); setCreateTaskRequireApproval(false); },
+      onSuccess: () => { setShowCreateTask(false); taskForm.reset(); setAssigneeIds([]); setCreateWorkAllocation(null); setCreateTaskRequireApproval(false); setCreateParentTaskId(''); setParentError(''); },
     });
   });
+
+  // Open the Create Task modal preset as a SUBTASK of the given parent — used by
+  // the "Add subtask" action in the task detail panel. Reuses the full form so a
+  // subtask gets the same fields (description, assignees, due date, …) as any task.
+  const openSubtaskCreate = (parent: Task) => {
+    taskForm.reset({ type: 'SUBTASK', priority: 'MEDIUM', title: '', description: '', labels: '' });
+    setCreateParentTaskId(parent.id);
+    setParentError('');
+    setAssigneeIds([]);
+    setCreateWorkAllocation(null);
+    setCreateTaskRequireApproval(false);
+    setCreateTaskStatus('TODO');
+    setTaskDetailId(null);
+    setShowCreateTask(true);
+  };
 
   const resetLogTimeForm = () => {
     setLogTimeHours(''); setLogTimeDesc('');
@@ -873,6 +1033,16 @@ export default function SprintBoardPage() {
     return null;
   }, [taskDetailId, boardData, fullTask]);
 
+  // Logged hours per user for the open task, summed from its time entries.
+  const detailLoggedByUser = useMemo(() => {
+    const m: Record<string, number> = {};
+    (taskTimeEntries ?? []).forEach((e: any) => {
+      const uid = String(e.user_id ?? e.userId ?? '');
+      if (uid) m[uid] = (m[uid] ?? 0) + (parseFloat(e.hours) || 0);
+    });
+    return m;
+  }, [taskTimeEntries]);
+
   // Load AI insights when AI tab opens (once per task)
   React.useEffect(() => {
     if (detailTab !== 'ai' || !taskDetailId || !detailTask || aiInsight !== null) return;
@@ -895,6 +1065,10 @@ export default function SprintBoardPage() {
   const editForm = useForm<Partial<TaskForm>>();
   const onSaveEdit = editForm.handleSubmit((data) => {
     if (!editTask) return;
+    const alloc = editWorkAllocation && editAssigneeIds.length
+      ? reconcileEntries(editWorkAllocation, editAssigneeIds, getBusinessHoursDefaults, deriveWorkingDates(editWorkAllocation))
+      : null;
+    const hasAllocation = !!alloc && alloc.entries.length > 0 && alloc.durationDays > 0;
     updateTask.mutate({
       id: editTask.id,
       data: {
@@ -903,11 +1077,12 @@ export default function SprintBoardPage() {
         type: data.type,
         priority: data.priority,
         story_points: data.story_points || null,
-        estimated_hours: data.estimated_hours || null,
+        estimated_hours: hasAllocation ? alloc!.totalHours : (data.estimated_hours || null),
         due_date: data.due_date || null,
         labels: data.labels ? JSON.stringify((data.labels as string).split(',').map(l => l.trim()).filter(Boolean)) : '[]',
         assignee_ids: JSON.stringify(editAssigneeIds),
         require_approval: editTaskRequireApproval ? 'true' : 'false',
+        ...(hasAllocation ? { work_allocations: serializeAllocation(alloc!, deriveWorkingDates(alloc!)) } : {}),
       },
     }, { onSuccess: () => setEditTask(null) });
   });
@@ -915,6 +1090,7 @@ export default function SprintBoardPage() {
   const openEdit = (task: Task) => {
     setEditTask(task);
     setEditAssigneeIds(task.assigneeIds ?? (task.assigneeId ? [task.assigneeId] : []));
+    setEditWorkAllocation((task as any).workAllocation ?? null);
     setEditTaskRequireApproval((task as any).requireApproval === true);
     editForm.reset({
       title: task.title,
@@ -939,13 +1115,18 @@ export default function SprintBoardPage() {
         actions={
           <div className="flex items-center gap-2">
             {activeSprint && activeSprintId && (
-              <Button size="sm" variant="secondary" icon={<BarChart2 size={15} />} onClick={() => {
-                sprintAnalysis.reset();
-                sprintAnalysis.mutate({ sprintId: activeSprintId });
-                setShowAIAnalysis(true);
-              }}>
-                Analyze
-              </Button>
+              <>
+                <Button size="sm" variant="secondary" icon={<TrendingDown size={15} />} onClick={() => setShowBurndown(true)}>
+                  Burndown
+                </Button>
+                <Button size="sm" variant="secondary" icon={<BarChart2 size={15} />} onClick={() => {
+                  sprintAnalysis.reset();
+                  sprintAnalysis.mutate({ sprintId: activeSprintId });
+                  setShowAIAnalysis(true);
+                }}>
+                  Analyze
+                </Button>
+              </>
             )}
             {isAdmin && (
               <Button size="sm" variant="secondary" icon={<Plus size={15} />} onClick={() => setShowCreateSprint(true)}>
@@ -962,7 +1143,7 @@ export default function SprintBoardPage() {
             )}
             {activeSprint?.status === 'ACTIVE' && isAdmin && (
               <Button size="sm" variant="secondary" icon={<CheckCircle2 size={15} />}
-                onClick={() => completeSprint.mutate(String(activeSprint.ROWID ?? activeSprint.id ?? ''))}
+                onClick={() => { setCompleteDestination('backlog'); setShowCompleteSprint(true); }}
                 loading={completeSprint.isPending}
               >
                 Complete
@@ -1108,14 +1289,31 @@ export default function SprintBoardPage() {
               {/* Add Task is gated by TASK_WRITE (not SPRINT_WRITE) so anyone
                   who can create tasks in the project can add them to a sprint
                   even if they don't have permission to manage the sprint
-                  itself. The backend route only requires TASK_WRITE. */}
-              {canCreateTask && (
-                <Button size="sm" icon={<Plus size={14} />} onClick={() => { setCreateTaskStatus('TODO'); setShowCreateTask(true); }}>
-                  Add Task
-                </Button>
+                  itself. The backend route only requires TASK_WRITE.
+                  It additionally requires a selected sprint — a sprint-board
+                  task has nowhere to live without one. */}
+              {canCreateTask && activeSprint && (
+                <>
+                  <Button size="sm" variant="secondary" icon={<Layers size={14} />} onClick={() => { setBacklogSearch(''); setShowBacklog(true); }}>
+                    Add from Backlog
+                  </Button>
+                  <Button size="sm" icon={<Plus size={14} />} onClick={() => { setCreateTaskStatus('TODO'); setShowCreateTask(true); }}>
+                    Add Task
+                  </Button>
+                </>
               )}
             </div>
           </div>
+
+          {/* Sprint goal banner */}
+          {activeSprint?.goal && (
+            <div className="flex items-start gap-2 px-5 py-2.5 bg-indigo-50/60 border-b border-indigo-100 flex-shrink-0">
+              <Zap size={14} className="text-indigo-500 mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-indigo-900">
+                <span className="font-semibold">Sprint goal:</span> {activeSprint.goal}
+              </p>
+            </div>
+          )}
 
           {/* Kanban */}
           {!activeSprint ? (
@@ -1279,21 +1477,21 @@ export default function SprintBoardPage() {
       {/* ── Create Task Modal ────────────────────────────────────────────────── */}
       <Modal
         open={showCreateTask}
-        onClose={() => { setShowCreateTask(false); taskForm.reset(); setAssigneeIds([]); }}
-        title={t('tasks.modal.createTitle')}
-        size="lg"
+        // Close (X) keeps the entered values so an accidental close doesn't lose
+        // work — the draft is only cleared after a task is successfully created.
+        onClose={() => setShowCreateTask(false)}
+        // Clicking the backdrop must NOT dismiss the form (prevents data loss).
+        closeOnBackdropClick={false}
+        closeButtonVariant="danger"
+        title={taskForm.watch('type') === 'SUBTASK' ? 'Create Subtask' : t('tasks.modal.createTitle')}
+        size="2xl"
       >
         <form onSubmit={onCreateTask} className="space-y-4">
-          <div>
-            <label className="form-label">{t('tasks.modal.titleLabel')} *</label>
-            <input className="form-input" placeholder="Task title" {...taskForm.register('title', { required: true })} />
-          </div>
-          <div>
-            <label className="form-label">{t('tasks.modal.descLabel')}</label>
-            <textarea className="form-textarea" rows={3} placeholder="Describe the task…" {...taskForm.register('description')} />
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div>
+          {/* Two-column layout so the wide modal uses its width instead of
+              stacking every field into one tall column. */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-4">
+            {/* Type first — picking "Subtask" reveals the required Parent task. */}
+            <div className="md:col-span-2">
               <label className="form-label">Type</label>
               <select className="form-select" {...taskForm.register('type')}>
                 <option value="TASK">Task</option>
@@ -1302,6 +1500,33 @@ export default function SprintBoardPage() {
                 <option value="EPIC">Epic</option>
                 <option value="SUBTASK">Subtask</option>
               </select>
+            </div>
+            {taskForm.watch('type') === 'SUBTASK' && (
+              <div className="md:col-span-2">
+                <label className="form-label">Parent Task *</label>
+                <select
+                  className="form-select"
+                  value={createParentTaskId}
+                  onChange={(e) => { setCreateParentTaskId(e.target.value); setParentError(''); }}
+                >
+                  <option value="">Select parent task…</option>
+                  {allTasks.map((pt) => (
+                    <option key={pt.id} value={pt.id}>{pt.title}</option>
+                  ))}
+                </select>
+                {parentError && <p className="form-error">{parentError}</p>}
+                {allTasks.length === 0 && (
+                  <p className="text-xs text-ds-text-muted mt-1">No parent tasks in this sprint yet — create a Task/Story/Bug first, then add subtasks to it.</p>
+                )}
+              </div>
+            )}
+            <div className="md:col-span-2">
+              <label className="form-label">{t('tasks.modal.titleLabel')} *</label>
+              <input className="form-input" placeholder="Task title" {...taskForm.register('title', { required: true })} />
+            </div>
+            <div className="md:col-span-2">
+              <label className="form-label">{t('tasks.modal.descLabel')}</label>
+              <textarea className="form-textarea" rows={3} placeholder="Describe the task…" {...taskForm.register('description')} />
             </div>
             <div>
               <label className="form-label">{t('common.priority')}</label>
@@ -1316,8 +1541,16 @@ export default function SprintBoardPage() {
               <label className="form-label">Story Points</label>
               <input type="number" className="form-input" placeholder="0" step="0.5" {...taskForm.register('story_points', { valueAsNumber: true })} />
             </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="form-label">Status</label>
+              <select
+                className="form-select"
+                value={createTaskStatus}
+                onChange={(e) => setCreateTaskStatus(e.target.value as TaskStatus)}
+              >
+                {COLUMNS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+              </select>
+            </div>
             <div>
               <label className="form-label">{t('tasks.modal.dueDate')} *</label>
               <input
@@ -1334,36 +1567,38 @@ export default function SprintBoardPage() {
               <label className="form-label">Est. Hours</label>
               <input type="number" className="form-input" placeholder="0" step="0.25" {...taskForm.register('estimated_hours', { valueAsNumber: true })} />
             </div>
-          </div>
-          {canAssignToOthers ? (
-            <MultiUserSelect
-              label="Assignees"
-              value={assigneeIds}
-              onChange={setAssigneeIds}
-              users={users}
-            />
-          ) : (
-            <div>
-              <label className="form-label">Assignees</label>
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-ds-border bg-ds-surface-hover text-sm text-ds-text-muted">
-                <User size={13} className="text-ds-text-muted" />
-                <span>Assigned to you — contact your lead to reassign</span>
-              </div>
+            <div className="md:col-span-2">
+              <label className="form-label">Labels <span className="text-ds-text-muted font-normal">(comma separated)</span></label>
+              <input className="form-input" placeholder="frontend, urgent, blocked" {...taskForm.register('labels')} />
             </div>
-          )}
-          <div>
-            <label className="form-label">Labels <span className="text-ds-text-muted font-normal">(comma separated)</span></label>
-            <input className="form-input" placeholder="frontend, urgent, blocked" {...taskForm.register('labels')} />
-          </div>
-          <div>
-            <label className="form-label">Status</label>
-            <select
-              className="form-select"
-              value={createTaskStatus}
-              onChange={(e) => setCreateTaskStatus(e.target.value as TaskStatus)}
-            >
-              {COLUMNS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-            </select>
+            <div className="md:col-span-2">
+              {canAssignToOthers ? (
+                <MultiUserSelect
+                  label="Assignees"
+                  value={assigneeIds}
+                  onChange={setAssigneeIds}
+                  users={users}
+                />
+              ) : (
+                <>
+                  <label className="form-label">Assignees</label>
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-ds-border bg-ds-surface-hover text-sm text-ds-text-muted">
+                    <User size={13} className="text-ds-text-muted" />
+                    <span>Assigned to you — contact your lead to reassign</span>
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="md:col-span-2">
+              <WorkAllocationField
+                assigneeIds={assigneeIds}
+                users={users}
+                value={createWorkAllocation}
+                onChange={setCreateWorkAllocation}
+                getDefaults={getBusinessHoursDefaults}
+                defaultEndDate={taskForm.watch('due_date') || undefined}
+              />
+            </div>
           </div>
           {canConfigureApproval && (
             <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
@@ -1383,10 +1618,183 @@ export default function SprintBoardPage() {
             </div>
           )}
           <ModalActions>
-            <Button variant="secondary" onClick={() => { setShowCreateTask(false); taskForm.reset(); setAssigneeIds([]); setCreateTaskRequireApproval(false); }}>{t('common.cancel')}</Button>
+            <Button variant="secondary" type="button" onClick={() => setShowCreateTask(false)}>{t('common.cancel')}</Button>
             <Button type="submit" variant="primary" loading={createTask.isPending}>{t('tasks.modal.create')}</Button>
           </ModalActions>
         </form>
+      </Modal>
+
+      {/* ── Add from Backlog Modal ───────────────────────────────────────────── */}
+      <Modal
+        open={showBacklog}
+        onClose={() => setShowBacklog(false)}
+        title={activeSprint ? `Add backlog items to ${activeSprint.name}` : 'Add from Backlog'}
+        size="lg"
+      >
+        <div className="space-y-3">
+          <p className="text-xs text-ds-text-muted">
+            Unfinished tasks return to this project's backlog when a sprint completes.
+            Pick items below to pull them into the current sprint.
+          </p>
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              className="form-input pl-9"
+              placeholder="Search backlog…"
+              value={backlogSearch}
+              onChange={(e) => setBacklogSearch(e.target.value)}
+            />
+          </div>
+
+          <div className="max-h-96 overflow-y-auto space-y-1.5">
+            {backlogLoading ? (
+              <p className="text-sm text-ds-text-muted text-center py-8">{t('common.loading')}</p>
+            ) : (() => {
+              const items = (backlogTasks as Task[]).filter((bt) =>
+                !backlogSearch || bt.title.toLowerCase().includes(backlogSearch.toLowerCase())
+              );
+              if (items.length === 0) {
+                return (
+                  <div className="text-center py-10">
+                    <Layers size={28} className="text-ds-border mx-auto mb-2" />
+                    <p className="text-sm text-ds-text-muted">
+                      {backlogSearch ? 'No matching backlog items' : 'Backlog is empty for this project'}
+                    </p>
+                  </div>
+                );
+              }
+              return items.map((bt) => {
+                const priorityColor: Record<string, string> = {
+                  CRITICAL: 'bg-red-100 text-red-700', HIGH: 'bg-orange-100 text-orange-700',
+                  MEDIUM: 'bg-amber-100 text-amber-700', LOW: 'bg-slate-100 text-slate-600',
+                };
+                const isMoving = moveTaskToSprint.isPending && moveTaskToSprint.variables?.taskId === bt.id;
+                return (
+                  <div key={bt.id} className="flex items-center gap-2 p-2.5 rounded-lg border border-ds-border hover:border-indigo-200 hover:bg-indigo-50/30 transition-colors">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-ds-surface-hover text-ds-text-muted">{bt.type}</span>
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${priorityColor[bt.priority] ?? priorityColor.MEDIUM}`}>{bt.priority}</span>
+                        {(bt.storyPoints ?? 0) > 0 && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">{bt.storyPoints} pts</span>
+                        )}
+                      </div>
+                      <p className="text-sm font-medium text-ds-text truncate">{bt.title}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      icon={<ArrowRight size={13} />}
+                      loading={isMoving}
+                      disabled={moveTaskToSprint.isPending}
+                      onClick={() => {
+                        if (!activeSprintId) return;
+                        moveTaskToSprint.mutate({ taskId: bt.id, sprintId: activeSprintId });
+                      }}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+
+          <ModalActions>
+            <Button variant="secondary" onClick={() => setShowBacklog(false)}>{t('common.close')}</Button>
+          </ModalActions>
+        </div>
+      </Modal>
+
+      {/* ── Burndown Modal ───────────────────────────────────────────────────── */}
+      <Modal
+        open={showBurndown}
+        onClose={() => setShowBurndown(false)}
+        title={activeSprint ? `Burndown · ${activeSprint.name}` : 'Burndown'}
+        size="xl"
+      >
+        {burndownData.length === 0 ? (
+          <div className="text-center py-12">
+            <TrendingDown size={28} className="text-ds-border mx-auto mb-2" />
+            <p className="text-sm text-ds-text-muted">
+              A burndown needs a sprint with start/end dates and at least one task carrying story points.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-ds-text-muted">
+              Ideal pace (dashed) vs. story points still remaining (solid). The remaining line stops at today.
+            </p>
+            <div style={{ width: '100%', height: 360 }}>
+              <ResponsiveContainer>
+                <LineChart data={burndownData} margin={{ top: 10, right: 20, bottom: 0, left: -10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                  <RechartsTooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="ideal" name="Ideal" stroke="#9ca3af" strokeDasharray="5 5" dot={false} />
+                  <Line type="monotone" dataKey="remaining" name="Remaining" stroke="#6366f1" strokeWidth={2} dot={{ r: 2 }} connectNulls />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Complete Sprint Modal (bulk move / close unfinished work) ─────────── */}
+      <Modal
+        open={showCompleteSprint}
+        onClose={() => { if (!completingSprint) setShowCompleteSprint(false); }}
+        title={activeSprint ? `Complete ${activeSprint.name}` : 'Complete Sprint'}
+        size="lg"
+      >
+        <div className="space-y-4">
+          <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800">
+            <strong>{doneCount}</strong> of <strong>{totalCount}</strong> task{totalCount !== 1 ? 's' : ''} done.
+            The sprint will be marked completed and its velocity recorded.
+          </div>
+
+          {incompleteTasks.length > 0 ? (
+            <div className="space-y-3">
+              <p className="text-sm text-ds-text">
+                <strong>{incompleteTasks.length}</strong> unfinished task{incompleteTasks.length !== 1 ? 's' : ''} — where should they go?
+              </p>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 p-2.5 rounded-lg border border-ds-border cursor-pointer hover:bg-ds-surface-hover">
+                  <input type="radio" name="completeDest" checked={completeDestination === 'backlog'} onChange={() => setCompleteDestination('backlog')} />
+                  <span className="text-sm">Move to <strong>Backlog</strong> <span className="text-ds-text-muted">(default — pull into a future sprint later)</span></span>
+                </label>
+                {otherSprints.map((s) => (
+                  <label key={s.id} className="flex items-center gap-2 p-2.5 rounded-lg border border-ds-border cursor-pointer hover:bg-ds-surface-hover">
+                    <input type="radio" name="completeDest" checked={completeDestination === `sprint:${s.id}`} onChange={() => setCompleteDestination(`sprint:${s.id}`)} />
+                    <span className="text-sm">Move to <strong>{s.name}</strong> <span className="text-ds-text-muted">· {s.status}</span></span>
+                  </label>
+                ))}
+                <label className="flex items-center gap-2 p-2.5 rounded-lg border border-ds-border cursor-pointer hover:bg-ds-surface-hover">
+                  <input type="radio" name="completeDest" checked={completeDestination === 'cancel'} onChange={() => setCompleteDestination('cancel')} />
+                  <span className="text-sm">Close them <span className="text-ds-text-muted">(mark as cancelled)</span></span>
+                </label>
+              </div>
+
+              <div className="max-h-40 overflow-y-auto rounded-lg border border-ds-border divide-y divide-ds-border">
+                {incompleteTasks.map((tk) => (
+                  <div key={tk.id} className="flex items-center gap-2 px-3 py-1.5 text-xs">
+                    <span className="text-ds-text-muted shrink-0 w-20">{tk.status.replace(/_/g, ' ')}</span>
+                    <span className="text-ds-text truncate">{tk.title}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-ds-text-muted">All tasks are done — nothing to carry over. 🎉</p>
+          )}
+
+          <ModalActions>
+            <Button variant="secondary" disabled={completingSprint} onClick={() => setShowCompleteSprint(false)}>{t('common.cancel')}</Button>
+            <Button variant="primary" loading={completingSprint} onClick={handleCompleteSprint}>Complete Sprint</Button>
+          </ModalActions>
+        </div>
       </Modal>
 
       {/* ── Task Detail Slide-over ─────────────────────────────────────────── */}
@@ -1484,6 +1892,103 @@ export default function SprintBoardPage() {
                     <span className="text-xs text-ds-text-muted italic">No one assigned</span>
                   )}
                 </div>
+
+                {/* ── Work Allocation (read-only) ── */}
+                {((fullTask as any)?.workAllocation ?? (detailTask as any)?.workAllocation) && (
+                  <WorkAllocationDisplay
+                    value={(fullTask as any)?.workAllocation ?? (detailTask as any)?.workAllocation}
+                    assigneeIds={(fullTask as any)?.assigneeIds ?? detailTask.assigneeIds ?? []}
+                    users={users}
+                    loggedByUser={detailLoggedByUser}
+                  />
+                )}
+
+                {/* ── Subtasks ── */}
+                {(() => {
+                  const subs: any[] = Array.isArray((fullTask as any)?.subtasks) ? (fullTask as any).subtasks : [];
+                  const subsDone = subs.filter((s) => String(s?.status) === 'DONE').length;
+                  return (
+                    <div className="bg-ds-surface-hover rounded-xl p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-[11px] font-bold text-ds-text-muted uppercase tracking-wider flex items-center gap-1">
+                          <CheckCircle2 size={11} /> Subtasks {subs.length > 0 && <span className="text-indigo-600">({subsDone}/{subs.length})</span>}
+                        </div>
+                      </div>
+                      {subs.length > 0 && (
+                        <div className="space-y-1 mb-3">
+                          {subs.map((s) => {
+                            const done = String(s?.status) === 'DONE';
+                            let subAssignees: string[] = [];
+                            try { subAssignees = JSON.parse(s.assignee_ids || '[]').map(String); }
+                            catch { subAssignees = s.assignee_id ? [String(s.assignee_id)] : []; }
+                            const subPrio = PRIORITY_CONFIG[(s.task_priority ?? s.priority) as TaskPriority] ?? null;
+                            return (
+                              <div key={s.ROWID} className="flex items-center gap-2 group/sub rounded-lg px-1.5 py-1 hover:bg-ds-surface">
+                                <button
+                                  type="button"
+                                  title={done ? 'Mark as not done' : 'Mark as done'}
+                                  onClick={() => updateStatus.mutate({ id: String(s.ROWID), data: { status: done ? 'TODO' : 'DONE' } })}
+                                  className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${done ? 'bg-green-500 border-green-500' : 'border-ds-border hover:border-indigo-400'}`}
+                                >
+                                  {done && <CheckCircle2 size={10} className="text-white" />}
+                                </button>
+                                {/* Click the title to open the subtask as a full task —
+                                    assign people, set priority/due date, log time, etc. */}
+                                <button
+                                  type="button"
+                                  onClick={() => { setTaskDetailId(String(s.ROWID)); setDetailTab('comments'); }}
+                                  className={`text-sm flex-1 text-left truncate hover:text-indigo-600 hover:underline ${done ? 'line-through text-ds-text-muted' : 'text-ds-text'}`}
+                                  title="Open subtask"
+                                >
+                                  {s.title}
+                                </button>
+                                {subPrio && (
+                                  <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border shrink-0 ${subPrio.color}`}>{subPrio.icon}</span>
+                                )}
+                                {subAssignees.length > 0 ? (
+                                  <button type="button" onClick={() => { setTaskDetailId(String(s.ROWID)); setDetailTab('comments'); }} title="Open to reassign">
+                                    <AvatarStack userIds={subAssignees} users={users} max={2} />
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => { setTaskDetailId(String(s.ROWID)); setDetailTab('comments'); }}
+                                    className="text-[10px] text-ds-text-muted hover:text-indigo-600 flex items-center gap-0.5 shrink-0"
+                                    title="Open to assign"
+                                  >
+                                    <User size={11} /> Assign
+                                  </button>
+                                )}
+                                {canCreateTask && (
+                                  <button
+                                    type="button"
+                                    title="Delete subtask"
+                                    onClick={() => deleteTask.mutate(String(s.ROWID))}
+                                    className="opacity-0 group-hover/sub:opacity-100 text-ds-text-muted hover:text-red-600 transition-all shrink-0"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {canCreateTask && (
+                        <button
+                          type="button"
+                          onClick={() => detailTask && openSubtaskCreate(detailTask)}
+                          className="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-700 font-medium mt-1"
+                        >
+                          <Plus size={14} /> Add subtask
+                        </button>
+                      )}
+                      {subs.length === 0 && !canCreateTask && (
+                        <p className="text-xs text-ds-text-muted italic">No subtasks.</p>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* ── Tabs: Comments | Time Logs | Files | AI Insights | Audit Logs ── */}
                 <div>
@@ -2062,6 +2567,14 @@ export default function SprintBoardPage() {
                     </div>
                   </div>
                 )}
+                <WorkAllocationField
+                  assigneeIds={editAssigneeIds}
+                  users={users}
+                  value={editWorkAllocation}
+                  onChange={setEditWorkAllocation}
+                  getDefaults={getBusinessHoursDefaults}
+                  defaultEndDate={editForm.watch('due_date') || undefined}
+                />
                 <div>
                   <label className="form-label">Labels <span className="text-ds-text-muted font-normal">(comma separated)</span></label>
                   <input className="form-input" placeholder="frontend, urgent" {...editForm.register('labels')} />
