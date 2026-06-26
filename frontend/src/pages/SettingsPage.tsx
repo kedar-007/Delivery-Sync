@@ -258,7 +258,7 @@ export const SettingsContent = () => {
     autoTheme, setAutoTheme, accentId, setAccentId, resetToDefault,
   } = useTheme();
   const { locale, setLocale, t } = useI18n();
-  const { collapsed, setCollapsed, items, toggleItem, reorderItems, resetItems } = useSidebar();
+  const { collapsed, setCollapsed, items, toggleItem, reorderItems, resetItems, navStyle, setNavStyle } = useSidebar();
   const { user } = useAuth();
   const { data: officeLocations = [] } = useOfficeLocations();
 
@@ -285,6 +285,33 @@ export const SettingsContent = () => {
               {THEME_PRESETS.map((p) => (
                 <ThemeCard key={p.id} id={p.id} name={p.name} emoji={p.emoji} isDark={p.isDark}
                   active={themeId === p.id} onSelect={() => { setThemeId(p.id); flash(); }} />
+              ))}
+            </div>
+          </div>
+
+          {/* Navigation style — new horizontal tabs vs classic submenus */}
+          <div>
+            <Label>Navigation style</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
+              {([
+                { id: 'tabs', title: 'Tabs (new)', desc: 'Projects, Daily Work & People open as pages with a horizontal tab bar.' },
+                { id: 'classic', title: 'Classic', desc: 'Expandable sidebar submenus, like before.' },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => { setNavStyle(opt.id); flash(); }}
+                  className={`text-left rounded-xl border p-3 transition-all ${
+                    navStyle === opt.id ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-gray-200 hover:border-indigo-300'
+                  }`}
+                  style={{ backgroundColor: `rgb(var(--ds-surface))` }}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold" style={{ color: `rgb(var(--ds-text))` }}>{opt.title}</span>
+                    {navStyle === opt.id && <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full">Active</span>}
+                  </div>
+                  <p className="text-xs mt-1" style={{ color: `rgb(var(--ds-text-muted))` }}>{opt.desc}</p>
+                </button>
               ))}
             </div>
           </div>

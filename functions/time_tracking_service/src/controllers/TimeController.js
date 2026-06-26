@@ -314,6 +314,16 @@ class TimeController {
     };
     const row = await this.db.insert(TABLES.TIME_ENTRIES, insertPayload);
 
+    // notes is optional and lives in a column that may not exist on every
+    // tenant's table — write it best-effort AFTER the insert so a missing column
+    // can never block entry creation. Saves the note if the column exists.
+    if (req.body.notes) {
+      try {
+        await this.db.update(TABLES.TIME_ENTRIES, { ROWID: row.ROWID, notes: String(req.body.notes) });
+        row.notes = String(req.body.notes);
+      } catch (e) { console.warn('[TimeController.create] notes column not writable:', e.message); }
+    }
+
     await this.audit.log({ tenantId, entityType: 'TIME_ENTRY', entityId: row.ROWID, action: AUDIT_ACTION.CREATE, newValue: row, performedBy: userId });
 
     // Auto-submit if the task requires approval (flag passed from frontend — tasks table is in task_sprint_service, not accessible here)
@@ -409,7 +419,9 @@ class TimeController {
       }
     }
 
-    const { hours, description, is_billable, task_id, start_time, end_time } = req.body;
+    const { hours, description, is_billable, task_id, start_time, end_time, notes } = req.body;
+    // Accept both `entry_date` (preferred) and the form's legacy `date` field.
+    const entryDate = req.body.entry_date || req.body.date;
     const updates = {};
     if (hours !== undefined) { if (parseFloat(hours) < 0.25 || parseFloat(hours) > 24) return ResponseHelper.validationError(res, 'hours must be 0.25–24'); updates.hours = parseFloat(hours); }
     if (description !== undefined) updates.description = description;
@@ -417,8 +429,27 @@ class TimeController {
     if (task_id !== undefined)     updates.task_id     = task_id;
     if (start_time !== undefined)  updates.start_time  = start_time || '';
     if (end_time !== undefined)    updates.end_time    = end_time   || '';
+    // Allow correcting a mis-entered date, but never into the future (IST today).
+    if (entryDate !== undefined && entryDate !== '') {
+      const todayIST = new Date(Date.now() + 5.5 * 3600000).toISOString().slice(0, 10);
+      if (String(entryDate).slice(0, 10) > todayIST) {
+        return ResponseHelper.validationError(res, 'Date cannot be in the future');
+      }
+      updates.entry_date = entryDate;
+    }
 
     const updated = await this.db.update(TABLES.TIME_ENTRIES, { ROWID: req.params.entryId, ...updates, status: TIME_STATUS.DRAFT });
+
+    // notes is optional and may live in a column that isn't present on every
+    // tenant's time_entries table — persist it best-effort so a missing column
+    // never fails the edit. Saves the note if the column exists; no-op if not.
+    if (notes !== undefined) {
+      try {
+        await this.db.update(TABLES.TIME_ENTRIES, { ROWID: req.params.entryId, notes: String(notes) });
+        updated.notes = String(notes);
+      } catch (e) { console.warn('[TimeController.update] notes column not writable:', e.message); }
+    }
+
     await this.audit.log({ tenantId: req.tenantId, entityType: 'TIME_ENTRY', entityId: req.params.entryId, action: AUDIT_ACTION.UPDATE, oldValue: entry, newValue: updated, performedBy: req.currentUser.id });
     return ResponseHelper.success(res, updated);
   }

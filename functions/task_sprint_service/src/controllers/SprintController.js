@@ -30,10 +30,12 @@ class SprintController {
           permissions.includes(PERMISSIONS.PROJECT_DATA_VIEW_ALL)
         ));
 
-      let where = project_id ? `project_id = '${DataStoreService.escape(project_id)}'` : null;
+      // Exclude soft-deleted sprints from the active workspace.
+      const notDeleted = 'deleted_at IS NULL';
+      let where = project_id ? `project_id = '${DataStoreService.escape(project_id)}' AND ${notDeleted}` : notDeleted;
       if (status) {
         const sc = `status = '${DataStoreService.escape(status)}'`;
-        where = where ? `${where} AND ${sc}` : sc;
+        where = `${where} AND ${sc}`;
       }
 
       let sprints;
@@ -87,17 +89,22 @@ class SprintController {
   // POST /api/ts/sprints
   async create(req, res) {
     try {
-      const { project_id, name, goal, start_date, end_date, capacity_points, member_ids } = req.body;
+      const { project_id, name, goal, start_date, end_date, capacity_points, member_ids, statuses } = req.body;
       const tenantId = req.tenantId;
       const userId   = req.currentUser.id;
 
       if (!project_id || !name || !start_date || !end_date)
         return ResponseHelper.validationError(res, 'project_id, name, start_date, end_date are required');
 
+      // Optional per-board custom statuses (kanban columns) stored as JSON.
+      const statusesStr = Array.isArray(statuses) ? JSON.stringify(statuses)
+        : (typeof statuses === 'string' && statuses ? statuses : '[]');
+
       const row = await this.db.insert(TABLES.SPRINTS, {
         tenant_id: String(tenantId), project_id: String(project_id), name, goal: goal || '',
         start_date, end_date, status: SPRINT_STATUS.PLANNING,
         capacity_points: capacity_points || 0,
+        statuses: statusesStr,
       });
 
       // Insert members in the same request — no extra round-trips needed
@@ -124,7 +131,7 @@ class SprintController {
   async getById(req, res) {
     const { id: userId, role, dataScope } = req.currentUser;
     const sprint = await this.db.findById(TABLES.SPRINTS, req.params.sprintId, req.tenantId);
-    if (!sprint) return ResponseHelper.notFound(res, 'Sprint not found');
+    if (!sprint || sprint.deleted_at) return ResponseHelper.notFound(res, 'Sprint not found');
 
     // Membership gate — same rule as list()
     const isOrgWide = role === 'SUPER_ADMIN' || role === 'TENANT_ADMIN'
@@ -157,6 +164,10 @@ class SprintController {
     const allowed = ['name', 'goal', 'start_date', 'end_date', 'capacity_points'];
     const updates = {};
     allowed.forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
+    // Per-board custom statuses (kanban columns) — accept an array or JSON string.
+    if (req.body.statuses !== undefined) {
+      updates.statuses = Array.isArray(req.body.statuses) ? JSON.stringify(req.body.statuses) : String(req.body.statuses || '[]');
+    }
 
     const updated = await this.db.update(TABLES.SPRINTS, { ROWID: sprintId, ...updates });
     await this.audit.log({ tenantId, entityType: 'SPRINT', entityId: sprintId, action: AUDIT_ACTION.UPDATE, oldValue: sprint, newValue: updated, performedBy: req.currentUser.id });
@@ -172,11 +183,10 @@ class SprintController {
     if (sprint.status !== SPRINT_STATUS.PLANNING)
       return ResponseHelper.validationError(res, 'Only PLANNING sprints can be started');
 
-    // Ensure no other sprint is ACTIVE for this project
-    const active = await this.db.findWhere(TABLES.SPRINTS, tenantId,
-      `project_id = '${DataStoreService.escape(sprint.project_id)}' AND status = 'ACTIVE'`, { limit: 1 });
-    if (active.length > 0)
-      return ResponseHelper.conflict(res, 'Another sprint is already active for this project');
+    // A project may run multiple sprints concurrently (e.g. parallel
+    // workstreams / squads on the same project), so we intentionally do NOT
+    // block starting a sprint when another sprint is already active for the
+    // same project.
 
     await this.db.update(TABLES.SPRINTS, { ROWID: sprintId, status: SPRINT_STATUS.ACTIVE });
     await this.audit.log({ tenantId, entityType: 'SPRINT', entityId: sprintId, action: AUDIT_ACTION.STATUS_CHANGE, oldValue: { status: sprint.status }, newValue: { status: SPRINT_STATUS.ACTIVE }, performedBy: req.currentUser.id });
@@ -215,9 +225,25 @@ class SprintController {
     const completedPoints = doneTasks.reduce((sum, t) => sum + (parseFloat(t.story_points) || 0), 0);
 
     await this.db.update(TABLES.SPRINTS, { ROWID: sprintId, status: SPRINT_STATUS.COMPLETED, velocity: completedPoints });
-    await this.audit.log({ tenantId, entityType: 'SPRINT', entityId: sprintId, action: AUDIT_ACTION.STATUS_CHANGE, oldValue: { status: SPRINT_STATUS.ACTIVE }, newValue: { status: SPRINT_STATUS.COMPLETED, completed_points: completedPoints }, performedBy: req.currentUser.id });
 
-    return ResponseHelper.success(res, { message: 'Sprint completed', completed_points: completedPoints });
+    // Carry incomplete work forward: every task in this sprint that isn't DONE
+    // (and hasn't been CANCELLED) is moved back to the project backlog
+    // (sprint_id = 0) so it can be pulled into a future sprint of the same
+    // project. This mirrors standard Scrum behaviour where unfinished items
+    // return to the backlog when the sprint closes.
+    const incompleteTasks = await this.db.findWhere(
+      TABLES.TASKS, tenantId,
+      `sprint_id = '${sprintId}' AND status != 'DONE' AND status != 'CANCELLED'`,
+      { limit: 300 }
+    );
+    for (const t of incompleteTasks) {
+      await this.db.update(TABLES.TASKS, { ROWID: t.ROWID, sprint_id: 0 });
+    }
+    const movedToBacklog = incompleteTasks.length;
+
+    await this.audit.log({ tenantId, entityType: 'SPRINT', entityId: sprintId, action: AUDIT_ACTION.STATUS_CHANGE, oldValue: { status: SPRINT_STATUS.ACTIVE }, newValue: { status: SPRINT_STATUS.COMPLETED, completed_points: completedPoints, moved_to_backlog: movedToBacklog }, performedBy: req.currentUser.id });
+
+    return ResponseHelper.success(res, { message: 'Sprint completed', completed_points: completedPoints, moved_to_backlog: movedToBacklog });
   }
 
   // GET /api/ts/sprints/:sprintId/board
@@ -276,6 +302,56 @@ class SprintController {
     if (rows.length === 0) return ResponseHelper.notFound(res, 'Sprint member not found');
     await this.db.delete(TABLES.SPRINT_MEMBERS, rows[0].ROWID);
     return ResponseHelper.success(res, { message: 'Member removed' });
+  }
+
+  // DELETE /api/ts/sprints/:sprintId — soft delete (moves to Recycle Bin).
+  async remove(req, res) {
+    const { sprintId } = req.params;
+    const tenantId = req.tenantId;
+    const sprint = await this.db.findById(TABLES.SPRINTS, sprintId, tenantId);
+    if (!sprint || sprint.deleted_at) return ResponseHelper.notFound(res, 'Sprint not found');
+    await this.db.update(TABLES.SPRINTS, {
+      ROWID: sprintId,
+      deleted_at: DataStoreService.fmtDT(new Date()),
+      deleted_by: String(req.currentUser.id),
+    });
+    await this.audit.log({ tenantId, entityType: 'SPRINT', entityId: sprintId, action: AUDIT_ACTION.DELETE, oldValue: { name: sprint.name }, newValue: { soft: true }, performedBy: req.currentUser.id });
+    return ResponseHelper.success(res, { message: 'Sprint moved to Recycle Bin' });
+  }
+
+  // GET /api/ts/sprints/recycle-bin — list soft-deleted sprints (admin only).
+  async listDeleted(req, res) {
+    const { role } = req.currentUser;
+    if (role !== 'TENANT_ADMIN' && role !== 'SUPER_ADMIN') return ResponseHelper.forbidden(res, 'Admin only');
+    const rows = await this.db.findWhere(TABLES.SPRINTS, req.tenantId, 'deleted_at IS NOT NULL', { orderBy: 'MODIFIEDTIME DESC', limit: 200 });
+    return ResponseHelper.success(res, rows.map((s) => ({
+      id: String(s.ROWID), name: s.name, project_id: String(s.project_id),
+      status: s.status, deletedAt: s.deleted_at, deletedBy: s.deleted_by,
+    })));
+  }
+
+  // POST /api/ts/sprints/:sprintId/restore — restore a soft-deleted sprint (admin only).
+  async restore(req, res) {
+    const { role } = req.currentUser;
+    if (role !== 'TENANT_ADMIN' && role !== 'SUPER_ADMIN') return ResponseHelper.forbidden(res, 'Admin only');
+    const { sprintId } = req.params;
+    const sprint = await this.db.findById(TABLES.SPRINTS, sprintId, req.tenantId);
+    if (!sprint) return ResponseHelper.notFound(res, 'Sprint not found');
+    await this.db.update(TABLES.SPRINTS, { ROWID: sprintId, deleted_at: null, deleted_by: null });
+    await this.audit.log({ tenantId: req.tenantId, entityType: 'SPRINT', entityId: sprintId, action: AUDIT_ACTION.UPDATE, newValue: { restored: true }, performedBy: req.currentUser.id });
+    return ResponseHelper.success(res, { message: 'Sprint restored' });
+  }
+
+  // DELETE /api/ts/sprints/:sprintId/purge — permanent delete (admin only).
+  async purge(req, res) {
+    const { role } = req.currentUser;
+    if (role !== 'TENANT_ADMIN' && role !== 'SUPER_ADMIN') return ResponseHelper.forbidden(res, 'Admin only');
+    const { sprintId } = req.params;
+    const sprint = await this.db.findById(TABLES.SPRINTS, sprintId, req.tenantId);
+    if (!sprint) return ResponseHelper.notFound(res, 'Sprint not found');
+    await this.db.delete(TABLES.SPRINTS, sprintId);
+    await this.audit.log({ tenantId: req.tenantId, entityType: 'SPRINT', entityId: sprintId, action: AUDIT_ACTION.DELETE, oldValue: { name: sprint.name }, newValue: { permanent: true }, performedBy: req.currentUser.id });
+    return ResponseHelper.success(res, { message: 'Sprint permanently deleted' });
   }
 }
 

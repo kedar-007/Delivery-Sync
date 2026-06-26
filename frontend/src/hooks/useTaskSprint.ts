@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { sprintsApi, tasksApi } from '../lib/api';
 import { useToast } from '../components/ui/Toast';
+import { parseAllocation } from '../lib/workAllocation';
 
 // ── Field Normalisers ─────────────────────────────────────────────────────────
 // Catalyst DataStore: ROWID = PK, CREATEDTIME = created, MODIFIEDTIME = updated, CREATORID = creator
@@ -38,6 +39,7 @@ const normaliseTask = (r: any) => {
     projectId:      r.project_id      ?? r.projectId,
     sprintId:       r.sprint_id       ?? r.sprintId       ?? null,
     parentTaskId:   r.parent_task_id  ?? r.parentTaskId   ?? null,
+    parentTitle:    r.parent_title    ?? r.parentTitle    ?? null,
     type:           r.type            ?? 'TASK',
     status:         r.status          ?? 'TODO',
     priority:       r.task_priority   ?? r.priority       ?? 'MEDIUM',
@@ -51,6 +53,7 @@ const normaliseTask = (r: any) => {
     completedAt:    r.completed_at    ?? r.completedAt    ?? null,
     labels:         (() => { try { return JSON.parse(r.labels ?? '[]'); } catch { return []; } })(),
     customFields:    (() => { try { return JSON.parse(r.custom_fields ?? r.customFields ?? '{}'); } catch { return {}; } })(),
+    workAllocation: parseAllocation(r.work_allocations ?? r.workAllocation),
     requireApproval: r.require_approval === true || r.require_approval === 'true' || r.requireApproval === true,
     createdBy:      r.created_by      ?? r.createdBy,
     createdAt:      r.CREATEDTIME     ?? r.created_at     ?? r.createdAt,
@@ -202,6 +205,57 @@ export const useBacklog = (projectId: string) =>
     enabled: !!projectId,
   });
 
+// ── Task statuses (custom kanban columns) ─────────────────────────────────────
+export interface TaskStatusCol { key: string; label: string; color: string }
+
+// Built-in fallback when no TASK workflow is configured for the tenant.
+export const DEFAULT_TASK_STATUSES: TaskStatusCol[] = [
+  { key: 'TODO',        label: 'To Do',       color: '#6b7280' },
+  { key: 'IN_PROGRESS', label: 'In Progress', color: '#3b82f6' },
+  { key: 'IN_REVIEW',   label: 'In Review',   color: '#f59e0b' },
+  { key: 'DONE',        label: 'Done',        color: '#22c55e' },
+];
+
+// Normalise a human status name to the value stored on a task, e.g.
+// "In Progress" → "IN_PROGRESS", "Done" → "DONE" (keeps it backward-compatible
+// with existing tasks and the DONE-based completion logic).
+export const statusKey = (name: string) =>
+  String(name || '').trim().toUpperCase().replace(/\s+/g, '_');
+
+export const useTaskStatuses = () =>
+  useQuery({
+    queryKey: ['tasks', 'statuses'],
+    queryFn: async (): Promise<TaskStatusCol[]> => {
+      const raw = await tasksApi.statuses();
+      const arr = Array.isArray(raw) ? raw : [];
+      const cols = arr
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .filter((s: any) => s && String(s.name ?? '').trim())
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((s: any) => ({ key: statusKey(s.name), label: String(s.name).trim(), color: s.color || '#6b7280' }));
+      return cols.length ? cols : DEFAULT_TASK_STATUSES;
+    },
+    staleTime: 60_000,
+  });
+
+// Pull a backlog task into a sprint (or send a task back to the backlog with
+// sprint_id = 0). Invalidates both the backlog list and the sprint board so the
+// task moves between the two views immediately.
+export const useMoveTaskToSprint = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: ({ taskId, sprintId }: { taskId: string; sprintId: string | number }) =>
+      tasksApi.moveSprint(taskId, { sprint_id: sprintId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tasks'] });
+      qc.invalidateQueries({ queryKey: ['sprints'] });
+      toast.success('Task moved to sprint');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to move task'),
+  });
+};
+
 export const useTask = (id: string) =>
   useQuery({
     queryKey: ['tasks', id],
@@ -227,6 +281,24 @@ export const useCreateTask = () => {
       toast.success('Task created');
     },
     onError: (e: Error) => toast.error(e.message || 'Failed to create task'),
+  });
+};
+
+export const useBulkCreateTasks = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (data: unknown) => tasksApi.bulkCreate(data),
+    onSuccess: (res: unknown) => {
+      qc.invalidateQueries({ queryKey: ['tasks'] });
+      qc.invalidateQueries({ queryKey: ['sprints', 'board'] });
+      const r = res as { created?: unknown[]; failed?: unknown[] };
+      const created = r?.created?.length ?? 0;
+      const failed = r?.failed?.length ?? 0;
+      if (failed > 0) toast.success(`${created} task${created === 1 ? '' : 's'} imported · ${failed} skipped`);
+      else toast.success(`${created} task${created === 1 ? '' : 's'} imported`);
+    },
+    onError: (e: Error) => toast.error(e.message || 'Bulk import failed'),
   });
 };
 

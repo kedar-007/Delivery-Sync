@@ -8,6 +8,10 @@ export interface SidebarItemPref {
   order: number;
 }
 
+// 'tabs' = new horizontal section tabs + direct links (default).
+// 'classic' = old collapsible sidebar submenus.
+export type NavStyle = 'tabs' | 'classic';
+
 interface SidebarContextValue {
   collapsed: boolean;
   setCollapsed: (v: boolean) => void;
@@ -17,6 +21,8 @@ interface SidebarContextValue {
   moveItem: (key: string, dir: 'up' | 'down') => void;
   reorderItems: (activeKey: string, overKey: string) => void;
   resetItems: () => void;
+  navStyle: NavStyle;
+  setNavStyle: (v: NavStyle) => void;
 }
 
 // ─── Defaults (matches NAV_ITEMS order in Sidebar.tsx) ───────────────────────
@@ -37,6 +43,7 @@ const DEFAULT_ITEMS: SidebarItemPref[] = [
 interface StoredSidebar {
   collapsed?: boolean;
   items?: SidebarItemPref[];
+  navStyle?: NavStyle;
 }
 
 const STORAGE_KEY = 'ds_sidebar_prefs';
@@ -64,10 +71,12 @@ export const useSidebar = (): SidebarContextValue => {
 export const SidebarProvider = ({ children }: { children: ReactNode }) => {
   const [collapsed, setCollapsedState] = useState(false);
   const [items, setItemsState] = useState<SidebarItemPref[]>(DEFAULT_ITEMS);
+  const [navStyle, setNavStyleState] = useState<NavStyle>('tabs');
 
   useEffect(() => {
     const stored = readStored();
     if (stored.collapsed !== undefined) setCollapsedState(stored.collapsed);
+    if (stored.navStyle === 'tabs' || stored.navStyle === 'classic') setNavStyleState(stored.navStyle);
     if (stored.items?.length) {
       // Merge stored prefs with defaults (handles new items added to the app)
       const merged = DEFAULT_ITEMS.map((def) => {
@@ -136,10 +145,16 @@ export const SidebarProvider = ({ children }: { children: ReactNode }) => {
     writeStored({ items: DEFAULT_ITEMS });
   }, []);
 
+  const setNavStyle = useCallback((v: NavStyle) => {
+    setNavStyleState(v);
+    writeStored({ navStyle: v });
+  }, []);
+
   return (
     <SidebarContext.Provider value={{
       collapsed, setCollapsed, toggleCollapsed,
       items, toggleItem, moveItem, reorderItems, resetItems,
+      navStyle, setNavStyle,
     }}>
       {children}
     </SidebarContext.Provider>

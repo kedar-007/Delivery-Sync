@@ -16,6 +16,9 @@ import { useProjectsPaginated, useSearchProjects, useCreateProject, useUpdatePro
 import Pagination from '../components/ui/Pagination';
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
+import { useUsers } from '../hooks/useUsers';
+import UserAvatar from '../components/ui/UserAvatar';
+import { GitBranch, ArrowUpRight } from 'lucide-react';
 
 interface ProjectForm {
   name: string;
@@ -66,6 +69,13 @@ const ProjectsPage = () => {
     : (pagedData?.projects ?? []);
   const total: number = isSearchMode ? (searchData?.total ?? 0) : (pagedData?.total ?? 0);
   const totalPages: number = isSearchMode ? 1 : (pagedData?.totalPages ?? 1);
+
+  const { data: allUsers = [] } = useUsers();
+  const userById = React.useMemo(() => {
+    const m = new Map<string, { name: string; avatarUrl?: string }>();
+    (allUsers as Array<{ id: string; name: string; avatarUrl?: string }>).forEach((u) => m.set(String(u.id), u));
+    return m;
+  }, [allUsers]);
 
   const createProject = useCreateProject();
 
@@ -188,14 +198,15 @@ const ProjectsPage = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {filtered.map((project: {
               id: string; name: string; description?: string;
-              ragStatus: string; status: string; startDate: string; endDate: string;
-            }) => (
-              <Link key={project.id} to={`/${tenantSlug}/projects/${project.id}`}>
-                <Card className="hover:border-blue-300 hover:shadow-md transition-all cursor-pointer h-full">
-
-                  {/* ✅ Fixed: RAGBadge and Pencil wrapped in flex div */}
-                  <div className="flex items-start justify-between mb-3">
-                    <h3 className="font-semibold text-gray-900 text-sm leading-tight pr-2">{project.name}</h3>
+              ragStatus: string; status: string; startDate: string; endDate: string; ownerUserId?: string;
+            }) => {
+              const pm = project.ownerUserId ? userById.get(String(project.ownerUserId)) : undefined;
+              return (
+                <Card key={project.id} className="hover:border-blue-300 hover:shadow-md transition-all h-full flex flex-col">
+                  <div className="flex items-start justify-between mb-2">
+                    <Link to={`/${tenantSlug}/projects/${project.id}/sprints`} className="font-semibold text-gray-900 text-sm leading-tight pr-2 hover:text-indigo-600">
+                      {project.name}
+                    </Link>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <RAGBadge status={project.ragStatus} />
                       {canCreateProject && (
@@ -214,6 +225,18 @@ const ProjectsPage = () => {
                   {project.description && (
                     <p className="text-xs text-gray-500 mb-3 line-clamp-2">{project.description}</p>
                   )}
+
+                  {/* Project Manager */}
+                  <div className="flex items-center gap-2 mb-3 text-xs">
+                    <span className="text-gray-400">PM:</span>
+                    {pm ? (
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <UserAvatar name={pm.name} avatarUrl={pm.avatarUrl} size="xs" />
+                        <span className="text-gray-700 font-medium truncate">{pm.name}</span>
+                      </span>
+                    ) : <span className="text-gray-300">Unassigned</span>}
+                  </div>
+
                   <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-50">
                     <StatusBadge status={project.status} />
                     <div className="flex items-center gap-1 text-xs text-gray-400">
@@ -221,9 +244,19 @@ const ProjectsPage = () => {
                       <span>{project.endDate}</span>
                     </div>
                   </div>
+
+                  {/* Quick actions */}
+                  <div className="flex items-center gap-2 mt-3">
+                    <Link to={`/${tenantSlug}/projects/${project.id}/sprints`} className="flex-1">
+                      <Button size="sm" variant="primary" className="w-full" icon={<GitBranch size={13} />}>Board</Button>
+                    </Link>
+                    <Link to={`/${tenantSlug}/projects/${project.id}`} className="flex-1">
+                      <Button size="sm" variant="outline" className="w-full" icon={<ArrowUpRight size={13} />}>Details</Button>
+                    </Link>
+                  </div>
                 </Card>
-              </Link>
-            ))}
+              );
+            })}
           </div>
         )}
 

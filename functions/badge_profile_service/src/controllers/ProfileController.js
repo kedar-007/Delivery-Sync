@@ -79,7 +79,7 @@ class ProfileController {
         : '')
     );
 
-    const fields = ['bio', 'date_of_joining', 'department', 'designation', 'employee_id', 'phone', 'timezone', 'is_profile_public', 'birth_date', 'resume_url', 'photo_url'];
+    const fields = ['bio', 'date_of_joining', 'department', 'designation', 'employee_id', 'phone', 'timezone', 'is_profile_public', 'birth_date', 'resume_url', 'photo_url', 'work_hours_per_day', 'business_hours_label', 'working_days'];
     const arrayFields = ['skills', 'experience', 'certifications'];
     const jsonFields  = ['social_links'];
 

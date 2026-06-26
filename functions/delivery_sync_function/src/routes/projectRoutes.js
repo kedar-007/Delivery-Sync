@@ -19,9 +19,15 @@ const memCtrl = (req) => new MemberController(req.catalystApp);
 router.post('/', auth, can(PERMISSIONS.PROJECT_WRITE), asyncHandler((req, res) => projCtrl(req).createProject(req, res)));
 router.get('/', auth, can(PERMISSIONS.PROJECT_READ), asyncHandler((req, res) => projCtrl(req).getProjects(req, res)));
 router.get('/search', auth, can(PERMISSIONS.PROJECT_READ), asyncHandler((req, res) => projCtrl(req).searchProjects(req, res)));
+// Recycle Bin (admin-gated in the controller) — must precede '/:projectId'.
+router.get('/recycle-bin', auth, can(PERMISSIONS.PROJECT_READ), asyncHandler((req, res) => projCtrl(req).listDeletedProjects(req, res)));
 router.get('/:projectId', auth, can(PERMISSIONS.PROJECT_READ), member(), asyncHandler((req, res) => projCtrl(req).getProjectDetails(req, res)));
 router.put('/:projectId', auth, can(PERMISSIONS.PROJECT_WRITE), member(), asyncHandler((req, res) => projCtrl(req).updateProject(req, res)));
 router.patch('/:projectId/rag', auth, can(PERMISSIONS.PROJECT_WRITE), member(), asyncHandler((req, res) => projCtrl(req).updateProjectRAG(req, res)));
+// Soft delete → Recycle Bin; restore + permanent purge (admin-gated in controller).
+router.delete('/:projectId', auth, can(PERMISSIONS.PROJECT_WRITE), member(), asyncHandler((req, res) => projCtrl(req).deleteProject(req, res)));
+router.post('/:projectId/restore', auth, can(PERMISSIONS.PROJECT_WRITE), asyncHandler((req, res) => projCtrl(req).restoreProject(req, res)));
+router.delete('/:projectId/purge', auth, can(PERMISSIONS.PROJECT_WRITE), asyncHandler((req, res) => projCtrl(req).purgeProject(req, res)));
 
 // Milestones (nested under project)
 router.get('/:projectId/milestones', auth, can(PERMISSIONS.MILESTONE_READ), member(), asyncHandler((req, res) => projCtrl(req).getMilestones(req, res)));

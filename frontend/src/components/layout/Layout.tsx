@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Sidebar from './Sidebar';
+import SectionTabs from './SectionTabs';
 import Footer from './Footer';
 import { Menu } from 'lucide-react';
 import { useSidebar } from '../../contexts/SidebarContext';
@@ -91,6 +92,10 @@ const Layout = ({ children }: LayoutProps) => {
 
           {/* Profile completion nudge — only shown when profile fields are missing */}
           <ProfileCompletionBanner />
+
+          {/* Section tab bar (Projects / Daily Work / People) — replaces the old
+              collapsible sidebar submenus. Renders only on section routes. */}
+          <SectionTabs />
 
           <div className="flex-1 overflow-y-auto">
             {children}

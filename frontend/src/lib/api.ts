@@ -61,6 +61,10 @@ export const projectsApi = {
   get: (id: string) => api.get(`/projects/${id}`).then((r) => r.data.data),
   create: (data: unknown) => api.post('/projects', data).then((r) => r.data.data),
   update: (id: string, data: unknown) => api.put(`/projects/${id}`, data).then((r) => r.data.data),
+  remove: (id: string) => api.delete(`/projects/${id}`).then((r) => r.data.data),
+  recycleBin: () => api.get('/projects/recycle-bin').then((r) => r.data.data),
+  restore: (id: string) => api.post(`/projects/${id}/restore`).then((r) => r.data.data),
+  purge: (id: string) => api.delete(`/projects/${id}/purge`).then((r) => r.data.data),
   updateRAG: (id: string, data: { rag_status: string; reason?: string }) =>
     api.patch(`/projects/${id}/rag`, data).then((r) => r.data.data),
   getMilestones: (projectId: string) =>
@@ -593,16 +597,22 @@ export const sprintsApi = {
   velocity:     (projectId: string) => taskClient.get(`/sprints/velocity?project_id=${projectId}`).then((r) => r.data.data),
   addMember:    (id: string, data: unknown) => taskClient.post(`/sprints/${id}/members`, data).then((r) => r.data.data),
   removeMember: (id: string, userId: string) => taskClient.delete(`/sprints/${id}/members/${userId}`).then((r) => r.data.data),
+  remove:       (id: string) => taskClient.delete(`/sprints/${id}`).then((r) => r.data.data),
+  recycleBin:   () => taskClient.get('/sprints/recycle-bin').then((r) => r.data.data),
+  restore:      (id: string) => taskClient.post(`/sprints/${id}/restore`).then((r) => r.data.data),
+  purge:        (id: string) => taskClient.delete(`/sprints/${id}/purge`).then((r) => r.data.data),
 };
 
 export const tasksApi = {
   list:         (params?: Record<string, string>) => taskClient.get('/tasks', { params }).then((r) => r.data.data),
   myTasks:      () => taskClient.get('/tasks/my-tasks').then((r) => r.data.data),
+  statuses:     () => taskClient.get('/tasks/statuses').then((r) => r.data.data),
   search:       (q: string) => taskClient.get('/tasks/search', { params: { q } }).then((r) => r.data.data),
   overdue:      () => taskClient.get('/tasks/overdue').then((r) => r.data.data),
   backlog:      (projectId: string) => taskClient.get(`/backlog?project_id=${projectId}`).then((r) => r.data.data),
   get:          (id: string) => taskClient.get(`/tasks/${id}`).then((r) => r.data.data),
   create:       (data: unknown) => taskClient.post('/tasks', data).then((r) => r.data.data),
+  bulkCreate:   (data: unknown) => taskClient.post('/tasks/bulk', data).then((r) => r.data.data),
   update:       (id: string, data: unknown) => taskClient.put(`/tasks/${id}`, data).then((r) => r.data.data),
   remove:       (id: string) => taskClient.delete(`/tasks/${id}`).then((r) => r.data.data),
   updateStatus: (id: string, data: unknown) => taskClient.patch(`/tasks/${id}/status`, data).then((r) => r.data.data),

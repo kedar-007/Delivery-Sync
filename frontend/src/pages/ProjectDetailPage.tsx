@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Edit2, Users, CheckSquare, AlertTriangle, Milestone, BarChart2, UserPlus, Trash2, ListChecks, Clock, FolderOpen } from 'lucide-react';
 import UserHoverCard from '../components/ui/UserHoverCard';
+import UserAvatar from '../components/ui/UserAvatar';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
 import Button from '../components/ui/Button';
@@ -11,7 +12,8 @@ import Modal, { ModalActions } from '../components/ui/Modal';
 import { PageLoader } from '../components/ui/Spinner';
 import Alert from '../components/ui/Alert';
 import { useProjectDashboard } from '../hooks/useDashboard';
-import { useUpdateRAG, useProjectMembers, useAddMember, useRemoveMember, useAddTeamToProject } from '../hooks/useProjects';
+import { useUpdateRAG, useProjectMembers, useAddMember, useRemoveMember, useAddTeamToProject, useUpdateProject } from '../hooks/useProjects';
+import { projectsApi } from '../lib/api';
 import { useUsers } from '../hooks/useUsers';
 import { useTeams } from '../hooks/useTeams';
 import { useForm, Controller } from 'react-hook-form';
@@ -32,6 +34,9 @@ const ProjectDetailPage = () => {
   const [showAddMember, setShowAddMember] = useState(false);
   const [memberError, setMemberError] = useState('');
   const [addMode, setAddMode] = useState<'individual' | 'team'>('individual');
+  const [showEditPM, setShowEditPM] = useState(false);
+  const [pmUserId, setPmUserId] = useState('');
+  const [pmError, setPmError] = useState('');
 
 
   const { data, isLoading, error } = useProjectDashboard(projectId!);
@@ -42,6 +47,18 @@ const ProjectDetailPage = () => {
   const addMember = useAddMember(projectId!);
   const addTeam = useAddTeamToProject(projectId!);
   const removeMember = useRemoveMember(projectId!);
+  const updateProject = useUpdateProject(projectId!);
+
+  const onSavePM = async () => {
+    if (!pmUserId) { setPmError('Select a project manager'); return; }
+    try {
+      setPmError('');
+      await updateProject.mutateAsync({ owner_user_id: pmUserId });
+      setShowEditPM(false);
+    } catch (err) {
+      setPmError((err as Error).message);
+    }
+  };
 
   const canManageProject = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.PROJECT_WRITE);
 
@@ -108,6 +125,16 @@ const ProjectDetailPage = () => {
                 {t('projects.detail.editProject')}
               </Button>
             )}
+            {canManageProject && (
+              <Button variant="danger" size="sm" icon={<Trash2 size={14} />}
+                onClick={async () => {
+                  const ok = await confirm({ title: 'Delete project', message: `"${project.name}" will be moved to the Recycle Bin. An admin can restore it.`, confirmText: 'Delete', variant: 'danger' });
+                  if (!ok) return;
+                  try { await projectsApi.remove(projectId!); navigate('/projects'); } catch { /* surfaced by query layer */ }
+                }}>
+                {t('common.delete')}
+              </Button>
+            )}
             <Link
               to={`/${tenantSlug}/projects/${projectId}/docs`}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors shadow-sm shrink-0">
@@ -129,6 +156,30 @@ const ProjectDetailPage = () => {
               </div>
               {project.description && <p className="text-sm text-gray-600">{project.description}</p>}
             </div>
+          </div>
+        </Card>
+
+        {/* Project Manager */}
+        <Card>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="text-sm font-semibold text-gray-900 flex items-center gap-2 shrink-0"><Users size={16} /> Project Manager:</span>
+              {(() => {
+                const pm = allUsers.find((u) => String(u.id) === String((project as { ownerUserId?: string }).ownerUserId ?? ''));
+                return pm ? (
+                  <span className="flex items-center gap-2 min-w-0">
+                    <UserAvatar name={pm.name} avatarUrl={pm.avatarUrl} size="sm" />
+                    <span className="text-sm text-gray-800 font-medium truncate">{pm.name}</span>
+                  </span>
+                ) : <span className="text-sm text-gray-400">Unassigned</span>;
+              })()}
+            </div>
+            {canManageProject && (
+              <Button size="sm" variant="outline" icon={<Edit2 size={14} />}
+                onClick={() => { setPmUserId(String((project as { ownerUserId?: string }).ownerUserId ?? '')); setPmError(''); setShowEditPM(true); }}>
+                {t('common.edit')}
+              </Button>
+            )}
           </div>
         </Card>
 
@@ -394,6 +445,31 @@ const ProjectDetailPage = () => {
             <Button type="submit" loading={isSubmitting}>{t('common.update')}</Button>
           </ModalActions>
         </form>
+      </Modal>
+
+      {/* Edit Project Manager */}
+      <Modal open={showEditPM} onClose={() => setShowEditPM(false)} title="Update Project Manager">
+        <div className="space-y-4">
+          {pmError && <Alert type="error" message={pmError} />}
+          <div>
+            <label className="form-label">Project Manager</label>
+            <UserPicker
+              users={members.map((m: { userId: string; name?: string; email?: string; avatarUrl?: string }) => ({
+                id: String(m.userId),
+                name: m.name || m.email || String(m.userId),
+                avatarUrl: m.avatarUrl,
+              }))}
+              value={pmUserId}
+              onChange={setPmUserId}
+              placeholder="Select a project manager…"
+            />
+            <p className="text-[11px] text-gray-500 mt-1">Choose from the project's team members.</p>
+          </div>
+          <ModalActions>
+            <Button variant="outline" type="button" onClick={() => setShowEditPM(false)}>{t('common.cancel')}</Button>
+            <Button variant="primary" loading={updateProject.isPending} onClick={onSavePM}>{t('common.save')}</Button>
+          </ModalActions>
+        </div>
       </Modal>
     </Layout>
   );

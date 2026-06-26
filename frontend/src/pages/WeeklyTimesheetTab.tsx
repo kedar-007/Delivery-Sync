@@ -36,7 +36,7 @@ export interface TimesheetRow {
   taskName: string;
   hours: Record<string, string>;            // 'yyyy-MM-dd' → raw input string
   serverEntryIds: Record<string, string>;   // 'yyyy-MM-dd' → saved entry ROWID
-  notes: string;
+  notes: Record<string, string>;            // 'yyyy-MM-dd' → that day's description
   isBillable: boolean;
   isDirty: boolean;
 }
@@ -86,11 +86,25 @@ export const colHours    = (rows: TimesheetRow[], date: string) =>
 export const weekTotal   = (rows: TimesheetRow[], dates: string[]) =>
   dates.reduce((s, d) => s + colHours(rows, d), 0);
 
+// A single day needs an explanatory note when it's a weekend day with hours, or
+// any day logging more than 8h (overtime). Evaluated per-day so each day owns
+// its own description.
+export function dayNoteRequired(hours: number, isWeekend: boolean): boolean {
+  return hours > 0 && (isWeekend || hours > 8);
+}
+
+// Does any day in the row require a note? (weekday index 5 = Sat, 6 = Sun)
 export function notesRequired(row: TimesheetRow, dates: string[]): boolean {
-  const weekendDates = dates.slice(5); // index 5 = Sat, 6 = Sun
-  const hasWeekend   = weekendDates.some(d => (parseFloat(row.hours[d] ?? '') || 0) > 0);
-  const hasDayOver8  = dates.some(d => (parseFloat(row.hours[d] ?? '') || 0) > 8);
-  return hasWeekend || hasDayOver8;
+  return dates.some((d, i) => dayNoteRequired(parseFloat(row.hours[d] ?? '') || 0, i >= 5));
+}
+
+// A per-day note must be non-empty when required, and 10–1000 chars when present.
+export function dayNoteError(note: string, required: boolean): string {
+  const n = (note ?? '').trim();
+  if (required && !n) return 'Note required for weekend/overtime hours.';
+  if (n.length > 0 && n.length < 10) return 'Minimum 10 characters.';
+  if ((note ?? '').length > 1000) return 'Maximum 1000 characters.';
+  return '';
 }
 
 export function duplicateRowIds(rows: TimesheetRow[]): Set<string> {
@@ -114,7 +128,7 @@ const mkRow = (): TimesheetRow => ({
   projectId:     '', projectName: '',
   taskId:        '', taskName:    '',
   hours:         {}, serverEntryIds: {},
-  notes:         '',
+  notes:         {},
   isBillable:    true,
   isDirty:       false,
 });
@@ -124,17 +138,23 @@ const mkRow = (): TimesheetRow => ({
 interface HourCellProps {
   rowId: string; date: string; value: string; error?: string;
   isToday: boolean; cellKey: string;
+  note: string; noteRequired: boolean;
   onChange: (rowId: string, date: string, val: string) => void;
   onBlur:   (rowId: string, date: string, val: string) => void;
+  onOpenNote: (date: string) => void;
 }
 
 const HourCell = memo(({
-  rowId, date, value, error, isToday, cellKey, onChange, onBlur,
+  rowId, date, value, error, isToday, cellKey, note, noteRequired, onChange, onBlur, onOpenNote,
 }: HourCellProps) => {
   const [local, setLocal] = useState(value);
   useEffect(() => { setLocal(value); }, [value]);
 
   const hasVal = (parseFloat(local) || 0) > 0;
+  const hasNote = (note ?? '').trim().length > 0;
+  // The note affordance appears once a day has hours (or already has a note, or
+  // is required) — a small icon to add that single day's description.
+  const showNoteIcon = hasVal || hasNote || noteRequired;
 
   const handleBlur = () => {
     const { value: n, error: err } = parseHour(local);
@@ -174,6 +194,20 @@ const HourCell = memo(({
             error  ? 'text-red-600 font-medium'    :
             hasVal ? 'text-gray-900 font-semibold'  : 'text-gray-300 placeholder-gray-200'}`}
       />
+      {showNoteIcon && (
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={() => onOpenNote(date)}
+          title={hasNote ? 'Edit this day’s note' : noteRequired ? 'Note required for this day' : 'Add a note for this day'}
+          className={`absolute top-0 right-0 p-0.5 leading-none rounded-bl transition-colors ${
+            noteRequired && !hasNote ? 'text-amber-500 hover:text-amber-600'
+            : hasNote ? 'text-indigo-500 hover:text-indigo-600'
+            : 'text-gray-300 hover:text-gray-500'}`}
+        >
+          <FileText size={9} />
+        </button>
+      )}
       {error && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-red-400 rounded-b" />}
     </td>
   );
@@ -263,6 +297,7 @@ interface RowProps {
   onUpdate:     (id: string, patch: Partial<TimesheetRow>) => void;
   onCellChange: (rowId: string, date: string, val: string) => void;
   onCellBlur:   (rowId: string, date: string, val: string) => void;
+  onNoteChange: (rowId: string, date: string, val: string) => void;
   onDelete:     (id: string) => void;
   onDuplicate:  (id: string) => void;
 }
@@ -270,19 +305,31 @@ interface RowProps {
 const TimesheetRowComp = memo(({
   row, rowIndex, weekDates, todayStr, projects,
   isDuplicate, cellErrors, total, notesReq,
-  onUpdate, onCellChange, onCellBlur, onDelete, onDuplicate,
+  onUpdate, onCellChange, onCellBlur, onNoteChange, onDelete, onDuplicate,
 }: RowProps) => {
-  const [showNotes, setShowNotes] = useState(!!row.notes);
+  // Days that carry, or need, a per-day description — what the editor lists.
+  const noteDays = weekDates.map((date, di) => {
+    const hrs = parseFloat(row.hours[date] ?? '') || 0;
+    return { date, required: dayNoteRequired(hrs, di >= 5), note: row.notes[date] ?? '' };
+  }).filter(d => d.required || d.note.trim() || (parseFloat(row.hours[d.date] ?? '') || 0) > 0);
+
+  const [showNotes, setShowNotes] = useState(
+    noteDays.some(d => d.note.trim()) || notesReq,
+  );
+  const [focusDate, setFocusDate] = useState<string | null>(null);
+  const noteRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   useEffect(() => { if (notesReq) setShowNotes(true); }, [notesReq]);
+  // Focus the requested day's note field once the editor is open.
+  useEffect(() => {
+    if (showNotes && focusDate && noteRefs.current[focusDate]) {
+      noteRefs.current[focusDate]!.focus();
+      setFocusDate(null);
+    }
+  }, [showNotes, focusDate, noteDays.length]);
 
-  const notesErr = notesReq && !row.notes.trim()
-    ? 'Notes required for weekend or overtime entries.'
-    : row.notes.trim().length > 0 && row.notes.trim().length < 10
-      ? 'Minimum 10 characters.'
-      : row.notes.length > 1000
-        ? 'Maximum 1000 characters.'
-        : '';
+  const openNote = useCallback((date: string) => { setShowNotes(true); setFocusDate(date); }, []);
+  const rowNoteErr = noteDays.some(d => dayNoteError(d.note, d.required));
 
   const rowBg = isDuplicate
     ? 'bg-amber-50/30'
@@ -322,8 +369,11 @@ const TimesheetRowComp = memo(({
             error={cellErrors[date]}
             isToday={date === todayStr}
             cellKey={`${rowIndex}-${di}`}
+            note={row.notes[date] ?? ''}
+            noteRequired={dayNoteRequired(parseFloat(row.hours[date] ?? '') || 0, di >= 5)}
             onChange={onCellChange}
             onBlur={onCellBlur}
+            onOpenNote={openNote}
           />
         ))}
 
@@ -350,9 +400,9 @@ const TimesheetRowComp = memo(({
           <div className="flex items-center gap-0.5 justify-end">
             <button
               onClick={() => setShowNotes(v => !v)}
-              title={notesReq ? 'Notes required' : (showNotes ? 'Hide notes' : 'Add notes')}
+              title={notesReq ? 'Daily notes required' : (showNotes ? 'Hide daily notes' : 'Add daily notes')}
               className={`p-1.5 rounded-md transition-colors ${
-                notesErr
+                rowNoteErr
                   ? 'text-red-500 hover:text-red-700'
                   : notesReq
                     ? 'text-amber-500 hover:text-amber-700'
@@ -387,44 +437,45 @@ const TimesheetRowComp = memo(({
         </td>
       </tr>
 
-      {/* Notes expansion row */}
+      {/* Per-day notes editor — one description per day that has hours */}
       {showNotes && (
         <tr className={`border-b border-gray-100 ${rowBg}`}>
           <td className="border-r border-gray-100" />
-          <td colSpan={2} className="px-2 pb-2.5 pt-1 border-r border-gray-100 align-top">
-            <span className={`text-[10px] font-semibold uppercase tracking-wide ${
-              notesReq ? 'text-amber-600' : 'text-gray-400'
-            }`}>
-              {notesReq ? '⚠ Notes required' : 'Notes'}
-            </span>
-          </td>
-          <td colSpan={10} className="px-2 pb-2.5 pt-1">
-            <textarea
-              rows={2}
-              placeholder={
-                notesReq
-                  ? 'Explain weekend or overtime hours (min. 10 characters)…'
-                  : 'Optional — add context for this time entry…'
-              }
-              maxLength={1000}
-              value={row.notes}
-              onChange={e => onUpdate(row.id, { notes: e.target.value, isDirty: true })}
-              className={`w-full text-sm border rounded-lg px-3 py-2 resize-none focus:outline-none
-                focus:ring-1 transition-colors ${
-                  notesErr
-                    ? 'border-red-300 bg-red-50/50 focus:ring-red-400 focus:border-red-400'
-                    : 'border-gray-200 bg-white focus:ring-indigo-300 focus:border-indigo-400'
-                }`}
-            />
-            <div className="flex items-center justify-between mt-0.5 px-0.5">
-              {notesErr
-                ? <span className="text-[10px] text-red-500">{notesErr}</span>
-                : <span />
-              }
-              <span className={`text-[10px] ${row.notes.length > 900 ? 'text-amber-500' : 'text-gray-400'}`}>
-                {row.notes.length}/1000
-              </span>
+          <td colSpan={12} className="px-3 pb-3 pt-1">
+            <div className="text-[10px] font-semibold uppercase tracking-wide mb-1.5 text-gray-400">
+              Daily descriptions
+              {notesReq && <span className="text-amber-600"> · required for weekend / overtime days</span>}
             </div>
+            {noteDays.length === 0 ? (
+              <p className="text-[11px] text-gray-400">Enter hours on a day to add a description for it.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2.5">
+                {noteDays.map(({ date, required, note }) => {
+                  const err = dayNoteError(note, required);
+                  return (
+                    <div key={date} className="w-[180px]">
+                      <label className={`block text-[10px] font-medium mb-0.5 ${required ? 'text-amber-600' : 'text-gray-500'}`}>
+                        {format(parseISO(date), 'EEE d')}{required ? ' *' : ''}
+                      </label>
+                      <textarea
+                        ref={el => { noteRefs.current[date] = el; }}
+                        rows={2}
+                        maxLength={1000}
+                        placeholder={required ? 'Explain (min. 10 chars)…' : 'Optional note…'}
+                        value={note}
+                        onChange={e => onNoteChange(row.id, date, e.target.value)}
+                        className={`w-full text-xs border rounded-md px-2 py-1.5 resize-none focus:outline-none focus:ring-1 transition-colors ${
+                          err
+                            ? 'border-red-300 bg-red-50/40 focus:ring-red-400 focus:border-red-400'
+                            : 'border-gray-200 bg-white focus:ring-indigo-300 focus:border-indigo-400'
+                        }`}
+                      />
+                      {err && <span className="text-[9px] text-red-500">{err}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </td>
         </tr>
       )}
@@ -590,7 +641,7 @@ export const WeeklyTimesheetTab = (_: WeeklyTimesheetTabProps) => {
           taskId,
           taskName:      e.taskName    ?? e.task_name    ?? '',
           isBillable:    (e.isBillable ?? e.is_billable) === true || (e.isBillable ?? e.is_billable) === 'true',
-          notes:         e.description ?? e.notes ?? '',
+          notes:         {},
           hours:         {},
           serverEntryIds: {},
           isDirty:       false,
@@ -602,6 +653,9 @@ export const WeeklyTimesheetTab = (_: WeeklyTimesheetTabProps) => {
       if (h > 0 && d) {
         row.hours[d]           = h % 1 === 0 ? String(h) : String(h);
         row.serverEntryIds[d]  = String(e.id ?? e.ROWID ?? '');
+        // Each day owns its description (falls back to the legacy notes field).
+        const desc = (e.description ?? e.notes ?? '') as string;
+        if (desc) row.notes[d] = desc;
       }
     }
 
@@ -677,6 +731,12 @@ export const WeeklyTimesheetTab = (_: WeeklyTimesheetTabProps) => {
     ));
   }, []);
 
+  const onNoteChange = useCallback((rowId: string, date: string, val: string) => {
+    setRows(prev => prev.map(r =>
+      r.id === rowId ? { ...r, notes: { ...r.notes, [date]: val }, isDirty: true } : r
+    ));
+  }, []);
+
   const addRow = useCallback(() => {
     setRows(prev => [...prev, mkRow()]);
   }, []);
@@ -715,6 +775,8 @@ export const WeeklyTimesheetTab = (_: WeeklyTimesheetTabProps) => {
       const copy: TimesheetRow = {
         ...row,
         id:            `row-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        hours:         { ...row.hours },   // deep-copy the per-day maps so edits
+        notes:         { ...row.notes },   // to the copy don't mutate the source
         serverEntryIds: {},
         isDirty:       true,
       };
@@ -749,7 +811,7 @@ export const WeeklyTimesheetTab = (_: WeeklyTimesheetTabProps) => {
               entry_date:  date,
               hours,
               is_billable: row.isBillable,
-              description: row.notes   || '',
+              description: row.notes[date] || '',
             }) as any;
             const newId = String(created?.ROWID ?? created?.id ?? '');
             if (newId) newIds[date] = newId;
@@ -758,7 +820,7 @@ export const WeeklyTimesheetTab = (_: WeeklyTimesheetTabProps) => {
             await timeEntriesApi.update(existId, {
               hours,
               is_billable: row.isBillable,
-              description: row.notes || '',
+              description: row.notes[date] || '',
             });
 
           } else if (hours === 0 && existId) {
@@ -804,18 +866,17 @@ export const WeeklyTimesheetTab = (_: WeeklyTimesheetTabProps) => {
       const label = `Row ${i + 1}${row.projectName ? ` (${row.projectName})` : ''}`;
       if (!row.projectId) { errs.push(`${label}: Project is required.`); return; }
 
-      for (const date of weekDates) {
+      weekDates.forEach((date, di) => {
         const val = row.hours[date];
-        if (!val) continue;
+        if (!val) return;
         const { error } = parseHour(val);
         if (error) errs.push(`${label} — ${format(parseISO(date), 'EEE d')}: ${error}`);
-      }
 
-      const nr = notesRequired(row, weekDates);
-      if (nr && !row.notes.trim())        errs.push(`${label}: Notes required for weekend/overtime entries.`);
-      if (row.notes.trim().length > 0 && row.notes.trim().length < 10)
-                                          errs.push(`${label}: Notes must be at least 10 characters.`);
-      if (row.notes.length > 1000)        errs.push(`${label}: Notes cannot exceed 1000 characters.`);
+        // Per-day description rules (required on weekend/overtime, 10–1000 chars).
+        const hrs = parseFloat(val) || 0;
+        const dayErr = dayNoteError(row.notes[date] ?? '', dayNoteRequired(hrs, di >= 5));
+        if (dayErr) errs.push(`${label} — ${format(parseISO(date), 'EEE d')}: ${dayErr}`);
+      });
     });
 
     weekDates.forEach(d => {
@@ -1163,6 +1224,7 @@ export const WeeklyTimesheetTab = (_: WeeklyTimesheetTabProps) => {
                     onUpdate={updateRow}
                     onCellChange={onCellChange}
                     onCellBlur={onCellBlur}
+                    onNoteChange={onNoteChange}
                     onDelete={deleteRow}
                     onDuplicate={duplicateRow}
                   />

@@ -5,6 +5,7 @@ const AuditService = require('../services/AuditService');
 const NotificationService = require('../services/NotificationService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const { TABLES, TASK_STATUS, TASK_TYPE, AUDIT_ACTION, NOTIFICATION_TYPE } = require('../utils/Constants');
+const WorkAllocation = require('../utils/workAllocation');
 
 class TaskController {
   constructor(catalystApp) {
@@ -102,6 +103,33 @@ class TaskController {
     }
   }
 
+  // GET /api/ts/tasks/statuses
+  // Returns the tenant's configured TASK workflow statuses (custom kanban
+  // columns) so the board/forms can render them. Readable by any task user.
+  // Falls back to an empty array (the frontend then uses the built-in default
+  // statuses) so a missing/empty workflow never blocks the board.
+  async listStatuses(req, res) {
+    try {
+      // The admin Workflows screen stores entity_type as 'task' (lowercase),
+      // so match case-insensitively rather than hard-coding 'TASK'.
+      const allRows = await this.db.findWhere(TABLES.WORKFLOW_CONFIGS, req.tenantId,
+        '', { orderBy: 'CREATEDTIME DESC', limit: 50 });
+      const rows = (allRows || []).filter((r) => String(r.entity_type || '').toLowerCase() === 'task');
+      if (rows.length === 0) return ResponseHelper.success(res, []);
+      // Catalyst booleans read back as boolean OR the string 'true'.
+      const isTrue = (v) => String(v).toLowerCase() === 'true';
+      const pick = rows.find((r) => isTrue(r.is_default) && isTrue(r.is_active))
+        || rows.find((r) => isTrue(r.is_active))
+        || rows[0];
+      let statuses = [];
+      try { statuses = JSON.parse(pick.statuses || '[]'); } catch { statuses = []; }
+      return ResponseHelper.success(res, Array.isArray(statuses) ? statuses : []);
+    } catch (err) {
+      // Never block the board on a workflow read failure.
+      return ResponseHelper.success(res, []);
+    }
+  }
+
   // GET /api/ts/tasks/my-tasks
   async myTasks(req, res) {
     try {
@@ -111,8 +139,10 @@ class TaskController {
       // Fetch recent non-cancelled tasks and restrict to tasks the user created
       // or is assigned to. Checks both the JSON assignee_ids array and the
       // scalar assignee_id column so legacy single-assignee tasks are not missed.
+      // Subtasks (parent_task_id != 0) are INCLUDED so a user who is assigned a
+      // subtask still sees it in My Tasks.
       const allTasks = await this.db.findWhere(TABLES.TASKS, tenantId,
-        `status != 'CANCELLED' AND parent_task_id = 0`,
+        `status != 'CANCELLED'`,
         { orderBy: 'CREATEDTIME DESC', limit: 300 });
 
       const tasks = allTasks.filter((t) => {
@@ -122,6 +152,24 @@ class TaskController {
         } catch {}
         return String(t.assignee_id || '') === userId;
       });
+
+      // Attach the parent task's title to any subtasks so the UI can show
+      // "subtask of <X>" context without an extra round-trip per row.
+      const parentIds = [...new Set(
+        tasks
+          .filter((t) => t.parent_task_id && String(t.parent_task_id) !== '0')
+          .map((t) => String(t.parent_task_id))
+      )];
+      if (parentIds.length > 0) {
+        const inList = parentIds.map((id) => `'${DataStoreService.escape(id)}'`).join(',');
+        const parents = await this.db.query(`SELECT ROWID, title FROM ${TABLES.TASKS} WHERE ROWID IN (${inList})`);
+        const titleById = new Map(parents.map((p) => [String(p.ROWID), p.title]));
+        tasks.forEach((t) => {
+          if (t.parent_task_id && String(t.parent_task_id) !== '0') {
+            t.parent_title = titleById.get(String(t.parent_task_id)) || null;
+          }
+        });
+      }
 
       return ResponseHelper.success(res, tasks);
     } catch (err) {
@@ -156,7 +204,7 @@ class TaskController {
     this.notif.tenantSlug = req.currentUser?.tenantSlug || '';
     const { project_id, sprint_id, parent_task_id, title, description, type, priority,
       assignee_id, assignee_ids, story_points, estimated_hours, due_date,
-      labels, custom_fields, status } = req.body;
+      labels, custom_fields, status, work_allocations } = req.body;
     const tenantId = req.tenantId;
     const userId = req.currentUser.id;
     const role = req.currentUser.role;
@@ -209,6 +257,10 @@ class TaskController {
     const assigneeIdsStr = JSON.stringify(assigneeIdsArr);
     const primaryAssigneeId = assigneeIdsArr[0] || null;
 
+    // Validate + normalise work allocation (re-checks the client-side rules).
+    const allocResult = WorkAllocation.normaliseForStorage(work_allocations);
+    if (allocResult.error) return ResponseHelper.validationError(res, allocResult.error);
+
     const insertData = {
       tenant_id: String(tenantId),
       project_id: String(project_id || 0),
@@ -230,6 +282,12 @@ class TaskController {
     // Store the normalised YYYY-MM-DD (already validated above) so a stray
     // time component from the client doesn't leak into the DATE column.
     insertData.due_date = _dueDateOnly;
+
+    // Persist the allocation and mirror its grand total into estimated_hours.
+    if (allocResult.value) {
+      insertData.work_allocations = allocResult.value;
+      insertData.estimated_hours = allocResult.totalHours;
+    }
 
     const row = await this.db.insert(TABLES.TASKS, insertData);
 
@@ -278,6 +336,110 @@ class TaskController {
     return ResponseHelper.created(res, row);
   }
 
+  // POST /api/ts/tasks/bulk — create many tasks at once (e.g. CSV import into a
+  // sprint). Validates per row, checks project membership ONCE, and skips the
+  // per-task assignment emails (a 50-task import shouldn't send 50 emails).
+  async bulkCreate(req, res) {
+    const tenantId = req.tenantId;
+    const { id: userId, role } = req.currentUser;
+    const { project_id, sprint_id, tasks } = req.body;
+
+    if (!project_id || String(project_id) === '0') {
+      return ResponseHelper.validationError(res, 'project_id is required');
+    }
+    if (!Array.isArray(tasks) || tasks.length === 0) {
+      return ResponseHelper.validationError(res, 'tasks must be a non-empty array');
+    }
+    if (tasks.length > 200) {
+      return ResponseHelper.validationError(res, 'A maximum of 200 tasks can be imported at once');
+    }
+
+    // Project membership — checked once for the shared project.
+    const isOrgAdmin = role === 'TENANT_ADMIN' || role === 'SUPER_ADMIN';
+    const hasOrgWide = req.currentUser.dataScope === 'ORG_WIDE' || req.currentUser.dataScope === 'SUBORDINATES';
+    if (!isOrgAdmin && !hasOrgWide) {
+      const membership = await this.db.query(
+        `SELECT ROWID FROM ${TABLES.PROJECT_MEMBERS} ` +
+        `WHERE tenant_id = '${tenantId}' ` +
+        `AND project_id = '${DataStoreService.escape(String(project_id))}' ` +
+        `AND user_id = '${userId}' LIMIT 1`
+      );
+      if (membership.length === 0) {
+        return ResponseHelper.forbidden(res, 'You are not a member of this project');
+      }
+    }
+
+    const buildRow = (t, index) => {
+      const title = t && t.title ? String(t.title).trim() : '';
+      if (!title) return { error: `Row ${index + 1}: title is required` };
+      const dueOnly = String(t.due_date || '').split('T')[0].split(' ')[0].trim();
+      if (!dueOnly || !/^\d{4}-\d{2}-\d{2}$/.test(dueOnly)) {
+        return { error: `Row ${index + 1}: due_date must be in YYYY-MM-DD format` };
+      }
+      let assigneeIdsArr = [];
+      try {
+        const raw = typeof t.assignee_ids === 'string' ? JSON.parse(t.assignee_ids) : t.assignee_ids;
+        if (Array.isArray(raw)) assigneeIdsArr = raw.map(String);
+      } catch (_) { assigneeIdsArr = []; }
+      let labelsStr = '[]';
+      if (t.labels) labelsStr = typeof t.labels === 'string' ? t.labels : JSON.stringify(t.labels);
+
+      return {
+        data: {
+          tenant_id: String(tenantId),
+          project_id: String(project_id),
+          sprint_id: String(sprint_id || 0),
+          parent_task_id: '0',
+          title,
+          description: t.description || '',
+          type: t.type || TASK_TYPE.TASK,
+          status: t.status || TASK_STATUS.TODO,
+          task_priority: t.priority || 'MEDIUM',
+          assignee_ids: JSON.stringify(assigneeIdsArr),
+          story_points: parseInt(t.story_points) || 0,
+          estimated_hours: parseFloat(t.estimated_hours) || 0,
+          logged_hours: 0,
+          labels: labelsStr,
+          due_date: dueOnly,
+          created_by: String(userId),
+          require_approval: 'false',
+        },
+      };
+    };
+
+    const created = [];
+    const failed = [];
+    // Bounded parallelism — Catalyst writes bypass the ZCQL read gate, but keep
+    // chunks modest to avoid hammering the data store.
+    const CHUNK = 10;
+    for (let i = 0; i < tasks.length; i += CHUNK) {
+      const slice = tasks.slice(i, i + CHUNK);
+      // eslint-disable-next-line no-await-in-loop
+      await Promise.all(slice.map(async (t, j) => {
+        const built = buildRow(t, i + j);
+        if (built.error) { failed.push({ index: i + j, title: t && t.title, error: built.error }); return; }
+        try {
+          const row = await this.db.insert(TABLES.TASKS, built.data);
+          created.push({ ROWID: row.ROWID, title: row.title });
+        } catch (err) {
+          failed.push({ index: i + j, title: t && t.title, error: err.message || 'Insert failed' });
+        }
+      }));
+    }
+
+    // One summary audit entry for the whole import (not one per task).
+    if (created.length > 0) {
+      await this.audit.log({
+        tenantId, entityType: 'TASK', entityId: String(sprint_id || project_id),
+        action: AUDIT_ACTION.BULK_IMPORT,
+        newValue: { project_id, sprint_id, created: created.length, failed: failed.length },
+        performedBy: userId,
+      });
+    }
+
+    return ResponseHelper.success(res, { created, failed }, `${created.length} created, ${failed.length} failed`);
+  }
+
   // PUT /api/ts/tasks/:taskId
   async update(req, res) {
     const { taskId } = req.params;
@@ -319,6 +481,14 @@ class TaskController {
     if (updates.labels && typeof updates.labels !== 'string') updates.labels = JSON.stringify(updates.labels);
     if (updates.sprint_id === '' || updates.sprint_id === null) updates.sprint_id = 0;
     if (updates.due_date === '') delete updates.due_date;
+
+    // Validate + persist work allocation; mirror its grand total to estimated_hours.
+    if (req.body.work_allocations !== undefined) {
+      const allocResult = WorkAllocation.normaliseForStorage(req.body.work_allocations);
+      if (allocResult.error) return ResponseHelper.validationError(res, allocResult.error);
+      updates.work_allocations = allocResult.value || '';
+      if (allocResult.value) updates.estimated_hours = allocResult.totalHours;
+    }
 
     const updated = await this.db.update(TABLES.TASKS, { ROWID: taskId, ...updates });
     await this.audit.log({ tenantId: req.tenantId, entityType: 'TASK', entityId: taskId, action: AUDIT_ACTION.UPDATE, oldValue: task, newValue: updated, performedBy: req.currentUser.id });
@@ -374,6 +544,46 @@ class TaskController {
     });
 
     await this.audit.log({ tenantId: req.tenantId, entityType: 'TASK', entityId: taskId, action: AUDIT_ACTION.STATUS_CHANGE, oldValue: { status: task.status }, newValue: { status }, performedBy: req.currentUser.id });
+
+    // ── Roll the change up to the parent task ─────────────────────────────────
+    // Keep a parent in sync with its subtasks (standard agile behaviour):
+    //   • every (non-cancelled) subtask DONE  → parent auto-completes (DONE)
+    //   • a subtask leaves DONE                → a DONE parent reopens to IN_PROGRESS
+    if (task.parent_task_id && String(task.parent_task_id) !== '0') {
+      try {
+        const parentId = String(task.parent_task_id);
+        const parent = await this.db.findById(TABLES.TASKS, parentId, req.tenantId);
+        if (parent) {
+          const siblings = await this.db.findWhere(TABLES.TASKS, req.tenantId,
+            `parent_task_id = '${DataStoreService.escape(parentId)}'`, { limit: 200 });
+          const active = siblings.filter((s) => s.status !== TASK_STATUS.CANCELLED);
+          const allDone = active.length > 0 && active.every((s) => s.status === TASK_STATUS.DONE);
+
+          const rollParentTo = (newStatus) => this.db.update(TABLES.TASKS, {
+            ROWID: parentId, status: newStatus,
+            completed_at: newStatus === TASK_STATUS.DONE ? DataStoreService.fmtDT(new Date()) : null,
+          });
+
+          if (allDone && parent.status !== TASK_STATUS.DONE) {
+            await rollParentTo(TASK_STATUS.DONE);
+            await this.db.insert(TABLES.TASK_STATUS_HISTORY, {
+              tenant_id: String(req.tenantId), task_id: parentId,
+              from_status: parent.status, to_status: TASK_STATUS.DONE, changed_by: String(req.currentUser.id),
+            });
+            await this.audit.log({ tenantId: req.tenantId, entityType: 'TASK', entityId: parentId, action: AUDIT_ACTION.STATUS_CHANGE, oldValue: { status: parent.status }, newValue: { status: TASK_STATUS.DONE, reason: 'all subtasks completed' }, performedBy: req.currentUser.id });
+          } else if (!allDone && parent.status === TASK_STATUS.DONE) {
+            await rollParentTo(TASK_STATUS.IN_PROGRESS);
+            await this.db.insert(TABLES.TASK_STATUS_HISTORY, {
+              tenant_id: String(req.tenantId), task_id: parentId,
+              from_status: parent.status, to_status: TASK_STATUS.IN_PROGRESS, changed_by: String(req.currentUser.id),
+            });
+            await this.audit.log({ tenantId: req.tenantId, entityType: 'TASK', entityId: parentId, action: AUDIT_ACTION.STATUS_CHANGE, oldValue: { status: parent.status }, newValue: { status: TASK_STATUS.IN_PROGRESS, reason: 'a subtask reopened' }, performedBy: req.currentUser.id });
+          }
+        }
+      } catch (rollupErr) {
+        console.warn('[TaskController.updateStatus] parent roll-up failed (non-fatal):', rollupErr.message);
+      }
+    }
 
     // ── Notify task creator (in-app + email) ─────────────────────────────────
     // Skip if the creator IS the one making the change (no self-notification).
