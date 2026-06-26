@@ -13,8 +13,9 @@ import {
   reconcileEntries,
   recalc,
   validateAllocation,
-  isPartialNumericInput,
-  round2,
+  isPartialHMInput,
+  parseHoursMinutes,
+  formatHoursMinutes,
 } from '../../lib/workAllocation';
 
 export interface AssigneeInfo {
@@ -43,6 +44,10 @@ const TaskWorkAllocationModal = ({
   open, onClose, assignees, value, getDefaults, defaultStartDate, defaultEndDate, onSave,
 }: Props) => {
   const [draft, setDraft] = useState<WorkAllocation>(() => emptyAllocation());
+  // Raw text the user is mid-typing per input (keyed), so "1:30" types smoothly
+  // without the field reformatting on each keystroke. Cleared on blur.
+  const [rawEdits, setRawEdits] = useState<Record<string, string>>({});
+  const clearRaw = (key: string) => setRawEdits((r) => { const n = { ...r }; delete n[key]; return n; });
 
   const { getWorkingDates } = useWorkingDays(draft.startDate, draft.endDate);
   const workingDates = useMemo(
@@ -88,20 +93,22 @@ const TaskWorkAllocationModal = ({
   };
 
   const setHoursPerDay = (idx: number, raw: string) => {
-    if (!isPartialNumericInput(raw)) return;
+    if (!isPartialHMInput(raw)) return;
+    setRawEdits((r) => ({ ...r, [`s${idx}`]: raw }));
     setDraft((d) => recalc(
-      { ...d, entries: d.entries.map((e, i) => (i === idx ? { ...e, hoursPerDay: raw === '' ? 0 : parseFloat(raw) } : e)) },
+      { ...d, entries: d.entries.map((e, i) => (i === idx ? { ...e, hoursPerDay: parseHoursMinutes(raw) } : e)) },
       workingDates,
     ));
   };
 
   const setDayHour = (idx: number, date: string, raw: string) => {
-    if (!isPartialNumericInput(raw)) return;
+    if (!isPartialHMInput(raw)) return;
+    setRawEdits((r) => ({ ...r, [`f${idx}:${date}`]: raw }));
     setDraft((d) => recalc(
       {
         ...d,
         entries: d.entries.map((e, i) =>
-          i === idx ? { ...e, dayHours: { ...e.dayHours, [date]: raw === '' ? 0 : parseFloat(raw) } } : e),
+          i === idx ? { ...e, dayHours: { ...e.dayHours, [date]: parseHoursMinutes(raw) } } : e),
       },
       workingDates,
     ));
@@ -113,7 +120,7 @@ const TaskWorkAllocationModal = ({
     onClose();
   };
 
-  const cell = (n: number) => (n || n === 0 ? String(round2(n)) : '');
+  // Value shown in an hours input: the raw text being typed, else the canonical H:MM.
 
   return (
     <Modal open={open} onClose={onClose} title="Work Allocation" size="3xl" closeOnBackdropClick={false}>
@@ -189,14 +196,16 @@ const TaskWorkAllocationModal = ({
                     {workingDates.map((d) => (
                       <td key={d} className="px-1 py-1 text-center">
                         <input
-                          className="form-input w-14 text-center px-1"
-                          inputMode="decimal"
-                          value={cell(e.dayHours?.[d])}
+                          className="form-input w-16 text-center px-1"
+                          inputMode="text"
+                          placeholder="h:mm"
+                          value={rawEdits[`f${idx}:${d}`] ?? formatHoursMinutes(e.dayHours?.[d] ?? 0)}
                           onChange={(ev) => setDayHour(idx, d, ev.target.value)}
+                          onBlur={() => clearRaw(`f${idx}:${d}`)}
                         />
                       </td>
                     ))}
-                    <td className="px-3 py-2 text-right font-medium text-ds-text whitespace-nowrap sticky right-0 bg-ds-surface">{round2(e.totalHours)} hrs</td>
+                    <td className="px-3 py-2 text-right font-medium text-ds-text whitespace-nowrap sticky right-0 bg-ds-surface">{formatHoursMinutes(e.totalHours)}</td>
                   </tr>
                 );
               })}
@@ -204,7 +213,7 @@ const TaskWorkAllocationModal = ({
             <tfoot>
               <tr className="bg-ds-surface-hover">
                 <td className="px-3 py-2 font-semibold text-ds-text sticky left-0 bg-ds-surface-hover" colSpan={workingDates.length + 1}>Grand Total</td>
-                <td className="px-3 py-2 text-right font-bold text-ds-text whitespace-nowrap sticky right-0 bg-ds-surface-hover">{round2(draft.totalHours)} hrs</td>
+                <td className="px-3 py-2 text-right font-bold text-ds-text whitespace-nowrap sticky right-0 bg-ds-surface-hover">{formatHoursMinutes(draft.totalHours)}</td>
               </tr>
             </tfoot>
           </table>
@@ -216,7 +225,7 @@ const TaskWorkAllocationModal = ({
               <tr>
                 <th className="px-3 py-2 text-left font-semibold">Assignee</th>
                 <th className="px-3 py-2 text-left font-semibold">Business Hours</th>
-                <th className="px-3 py-2 text-left font-semibold">Work Hours / Day</th>
+                <th className="px-3 py-2 text-left font-semibold">Work Hours / Day (h:mm)</th>
                 <th className="px-3 py-2 text-right font-semibold">Working Days</th>
                 <th className="px-3 py-2 text-right font-semibold">Total Hours</th>
               </tr>
@@ -236,13 +245,15 @@ const TaskWorkAllocationModal = ({
                     <td className="px-3 py-2">
                       <input
                         className="form-input w-24"
-                        inputMode="decimal"
-                        value={cell(e.hoursPerDay)}
+                        inputMode="text"
+                        placeholder="h:mm"
+                        value={rawEdits[`s${idx}`] ?? formatHoursMinutes(e.hoursPerDay)}
                         onChange={(ev) => setHoursPerDay(idx, ev.target.value)}
+                        onBlur={() => clearRaw(`s${idx}`)}
                       />
                     </td>
                     <td className="px-3 py-2 text-right text-ds-text-muted">{workingDates.length} d</td>
-                    <td className="px-3 py-2 text-right font-medium text-ds-text">{round2(e.totalHours)} hrs</td>
+                    <td className="px-3 py-2 text-right font-medium text-ds-text">{formatHoursMinutes(e.totalHours)}</td>
                   </tr>
                 );
               })}
@@ -250,7 +261,7 @@ const TaskWorkAllocationModal = ({
             <tfoot>
               <tr className="bg-ds-surface-hover">
                 <td className="px-3 py-2 font-semibold text-ds-text" colSpan={4}>Grand Total</td>
-                <td className="px-3 py-2 text-right font-bold text-ds-text">{round2(draft.totalHours)} hrs</td>
+                <td className="px-3 py-2 text-right font-bold text-ds-text">{formatHoursMinutes(draft.totalHours)}</td>
               </tr>
             </tfoot>
           </table>

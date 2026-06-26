@@ -48,6 +48,12 @@ export const MAX_HOURS_PER_DAY = 24;
 // ── Numeric helpers ─────────────────────────────────────────────────────────────
 export const round2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100;
 
+/** Round to the nearest whole minute (1/60 h) so hour+minute math stays exact. */
+export const roundToMinute = (n: number): number => Math.round((Number(n) || 0) * 60) / 60;
+
+/** True when the value lands on a whole minute (e.g. 1.5 = 1:30, 1.3333 = 1:20). */
+const isWholeMinutes = (n: number): boolean => Math.abs(Math.round(n * 60) - n * 60) < 1e-6;
+
 /** Non-negative, ≤2 decimal places. Empty string is a valid transient state. */
 export const isValidNumericInput = (raw: string): boolean => {
   if (raw === '' || raw == null) return true;
@@ -58,6 +64,39 @@ export const isValidNumericInput = (raw: string): boolean => {
 export const isPartialNumericInput = (raw: string): boolean => {
   if (raw === '' || raw == null) return true;
   return /^\d*(\.\d{0,2})?$/.test(String(raw).trim());
+};
+
+// ── Hours:Minutes helpers ──────────────────────────────────────────────────────
+// Allocations are stored as decimal hours, but users can enter time as "H:MM"
+// (e.g. "1:30") or as decimal ("1.5"). These convert between the two.
+
+/** Parse "H:MM" or decimal hours → decimal hours. */
+export const parseHoursMinutes = (raw: string): number => {
+  const v = String(raw ?? '').trim();
+  if (v === '') return 0;
+  if (v.includes(':')) {
+    const [h, m] = v.split(':');
+    const hh = parseInt(h, 10) || 0;
+    const mm = Math.min(59, Math.max(0, parseInt(m, 10) || 0));
+    return roundToMinute(hh + mm / 60);
+  }
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? roundToMinute(n) : 0;
+};
+
+/** Format decimal hours → "H:MM". */
+export const formatHoursMinutes = (hours: number): string => {
+  const total = Math.round((Number(hours) || 0) * 60);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${h}:${String(m).padStart(2, '0')}`;
+};
+
+/** Mid-edit gate allowing decimal ("1", "1.", "1.25") OR time ("1", "1:", "1:3", "1:30"). */
+export const isPartialHMInput = (raw: string): boolean => {
+  if (raw === '' || raw == null) return true;
+  const v = String(raw).trim();
+  return /^\d*(\.\d{0,2})?$/.test(v) || /^\d{0,3}:\d{0,2}$/.test(v);
 };
 
 const num = (v: unknown): number => {
@@ -108,16 +147,16 @@ export const recalc = (alloc: WorkAllocation, workingDates: string[] = []): Work
         const h = num(e.dayHours?.[d]);
         if (h > 0) { total += h; days++; }
       }
-      return { ...e, totalHours: round2(total), durationDays: days };
+      return { ...e, totalHours: roundToMinute(total), durationDays: days };
     });
-    return { ...alloc, durationDays, entries, totalHours: round2(entries.reduce((s, e) => s + e.totalHours, 0)) };
+    return { ...alloc, durationDays, entries, totalHours: roundToMinute(entries.reduce((s, e) => s + e.totalHours, 0)) };
   }
   const entries = alloc.entries.map((e) => ({
     ...e,
     durationDays,
-    totalHours: round2(durationDays * num(e.hoursPerDay)),
+    totalHours: roundToMinute(durationDays * num(e.hoursPerDay)),
   }));
-  return { ...alloc, durationDays, entries, totalHours: round2(entries.reduce((s, e) => s + e.totalHours, 0)) };
+  return { ...alloc, durationDays, entries, totalHours: roundToMinute(entries.reduce((s, e) => s + e.totalHours, 0)) };
 };
 
 /**
@@ -182,14 +221,13 @@ export const ERRORS = {
   noAssignee: 'Please assign at least one user.',
   duplicate: 'User already added.',
   hoursRange: 'Work hours per day must be between 0 and 24.',
-  precision: 'Use a number with at most 2 decimal places.',
+  precision: 'Use whole hours and minutes (e.g. 1:30).',
   dates: 'Select a valid start and end date.',
   noWorkingDays: 'The selected date range has no working days.',
   durationRange: `Duration must not exceed ${MAX_DURATION_DAYS} days.`,
   totalHours: 'Total task hours must be greater than 0.',
 } as const;
 
-const has2OrFewerDecimals = (n: number) => isValidNumericInput(String(n));
 
 /** Validate an allocation against its working-day list. Empty array = valid. */
 export const validateAllocation = (alloc: WorkAllocation, workingDates: string[] = []): string[] => {
@@ -217,7 +255,7 @@ export const validateAllocation = (alloc: WorkAllocation, workingDates: string[]
     for (const e of entries) {
       const hpd = num(e.hoursPerDay);
       if (hpd < MIN_HOURS_PER_DAY || hpd > MAX_HOURS_PER_DAY) { errors.push(ERRORS.hoursRange); break; }
-      if (!has2OrFewerDecimals(hpd)) { errors.push(ERRORS.precision); break; }
+      if (!isWholeMinutes(hpd) && !isValidNumericInput(String(hpd))) { errors.push(ERRORS.precision); break; }
     }
   } else {
     let bad = false;
@@ -225,7 +263,7 @@ export const validateAllocation = (alloc: WorkAllocation, workingDates: string[]
       for (const d of workingDates) {
         const h = num(e.dayHours?.[d]);
         if (h < MIN_HOURS_PER_DAY || h > MAX_HOURS_PER_DAY) { errors.push(ERRORS.hoursRange); bad = true; break; }
-        if (!has2OrFewerDecimals(h)) { errors.push(ERRORS.precision); bad = true; break; }
+        if (!isWholeMinutes(h) && !isValidNumericInput(String(h))) { errors.push(ERRORS.precision); bad = true; break; }
       }
       if (bad) break;
     }

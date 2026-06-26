@@ -559,7 +559,8 @@ function StatusGroup({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const { t } = useI18n();
-  const cfg = STATUS_CONFIG[status];
+  // Fall back gracefully for custom statuses not in the built-in config.
+  const cfg = STATUS_CONFIG[status] ?? { label: String(status).replace(/_/g, ' '), icon: null, color: 'text-gray-600 bg-gray-50 border-gray-200' };
 
   return (
     <div>

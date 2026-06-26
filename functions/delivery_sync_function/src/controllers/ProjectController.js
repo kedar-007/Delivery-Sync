@@ -152,7 +152,11 @@ class ProjectController {
       const { page, pageSize, status, member_only } = req.query;
 
       let paged;
-      const statusClause = status ? `status = '${DataStoreService.escape(status)}'` : null;
+      // Always exclude soft-deleted projects from the active workspace.
+      const notDeleted = 'deleted_at IS NULL';
+      const statusClause = status
+        ? `status = '${DataStoreService.escape(status)}' AND ${notDeleted}`
+        : notDeleted;
 
       // Only grant org-wide project visibility to TENANT_ADMIN unconditionally.
       // All other roles rely on their dataScope from org sharing rules — if no rule is set,
@@ -221,7 +225,7 @@ class ProjectController {
       const { projectId } = req.params;
 
       const project = await this.db.findById(TABLES.PROJECTS, projectId, tenantId);
-      if (!project) return ResponseHelper.notFound(res, 'Project not found');
+      if (!project || project.deleted_at) return ResponseHelper.notFound(res, 'Project not found');
 
       // Fetch member count
       const members = await this.db.findAll(TABLES.PROJECT_MEMBERS,
@@ -429,6 +433,80 @@ class ProjectController {
       return ResponseHelper.success(res, { milestoneId, updated: data });
     } catch (err) {
       if (err.isValidation) return ResponseHelper.validationError(res, err.message, err.details);
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
+   * DELETE /api/projects/:projectId — soft delete (moves to Recycle Bin).
+   */
+  async deleteProject(req, res) {
+    try {
+      const { tenantId, id: userId } = req.currentUser;
+      const { projectId } = req.params;
+      const existing = await this.db.findById(TABLES.PROJECTS, projectId, tenantId);
+      if (!existing || existing.deleted_at) return ResponseHelper.notFound(res, 'Project not found');
+      await this.db.update(TABLES.PROJECTS, {
+        ROWID: projectId,
+        deleted_at: DataStoreService.fmtDT(new Date()),
+        deleted_by: String(userId),
+      });
+      await this.audit.log({ tenantId, entityType: 'project', entityId: projectId, action: AUDIT_ACTION.DELETE, oldValue: { name: existing.name }, newValue: { soft: true }, performedBy: userId });
+      return ResponseHelper.success(res, { message: 'Project moved to Recycle Bin' });
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
+   * GET /api/projects/recycle-bin — list soft-deleted projects (admin only).
+   */
+  async listDeletedProjects(req, res) {
+    try {
+      const { tenantId, role } = req.currentUser;
+      if (role !== 'TENANT_ADMIN' && role !== 'SUPER_ADMIN') return ResponseHelper.forbidden(res, 'Admin only');
+      const rows = await this.db.findWhere(TABLES.PROJECTS, tenantId, 'deleted_at IS NOT NULL', { orderBy: 'MODIFIEDTIME DESC', limit: 200 });
+      return ResponseHelper.success(res, rows.map((p) => ({
+        id: String(p.ROWID), name: p.name, status: p.status,
+        deletedAt: p.deleted_at, deletedBy: p.deleted_by,
+      })));
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
+   * POST /api/projects/:projectId/restore — restore a soft-deleted project (admin only).
+   */
+  async restoreProject(req, res) {
+    try {
+      const { tenantId, id: userId, role } = req.currentUser;
+      if (role !== 'TENANT_ADMIN' && role !== 'SUPER_ADMIN') return ResponseHelper.forbidden(res, 'Admin only');
+      const { projectId } = req.params;
+      const existing = await this.db.findById(TABLES.PROJECTS, projectId, tenantId);
+      if (!existing) return ResponseHelper.notFound(res, 'Project not found');
+      await this.db.update(TABLES.PROJECTS, { ROWID: projectId, deleted_at: null, deleted_by: null });
+      await this.audit.log({ tenantId, entityType: 'project', entityId: projectId, action: AUDIT_ACTION.UPDATE, newValue: { restored: true }, performedBy: userId });
+      return ResponseHelper.success(res, { message: 'Project restored' });
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
+   * DELETE /api/projects/:projectId/purge — permanent delete (admin only).
+   */
+  async purgeProject(req, res) {
+    try {
+      const { tenantId, id: userId, role } = req.currentUser;
+      if (role !== 'TENANT_ADMIN' && role !== 'SUPER_ADMIN') return ResponseHelper.forbidden(res, 'Admin only');
+      const { projectId } = req.params;
+      const existing = await this.db.findById(TABLES.PROJECTS, projectId, tenantId);
+      if (!existing) return ResponseHelper.notFound(res, 'Project not found');
+      await this.db.delete(TABLES.PROJECTS, projectId);
+      await this.audit.log({ tenantId, entityType: 'project', entityId: projectId, action: AUDIT_ACTION.DELETE, oldValue: { name: existing.name }, newValue: { permanent: true }, performedBy: userId });
+      return ResponseHelper.success(res, { message: 'Project permanently deleted' });
+    } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }
   }

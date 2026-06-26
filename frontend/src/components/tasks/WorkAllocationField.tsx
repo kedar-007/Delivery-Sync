@@ -5,6 +5,7 @@ import {
   WorkAllocation,
   AssigneeDefaults,
   summarize,
+  formatHoursMinutes,
 } from '../../lib/workAllocation';
 
 interface Props {
@@ -55,7 +56,7 @@ const WorkAllocationField = ({ assigneeIds, users, value, onChange, getDefaults,
         </button>
         {assigneeCount > 0 ? (
           <span className="text-xs text-ds-text-muted">
-            {assigneeCount} {assigneeCount === 1 ? 'assignee' : 'assignees'} · {totalHours} hrs
+            {assigneeCount} {assigneeCount === 1 ? 'assignee' : 'assignees'} · {formatHoursMinutes(totalHours)}
           </span>
         ) : (
           <span className="text-xs text-ds-text-muted">

@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import { NavLink, useLocation, useParams, Link } from 'react-router-dom';
 import { clsx } from 'clsx';
 import {
-  LayoutDashboard, FolderKanban, CheckSquare, AlertTriangle,
+  LayoutDashboard, FolderKanban, AlertTriangle, CheckSquare,
   Shield, FileText, Settings, LogOut, ChevronDown, ChevronRight,
-  Milestone, ClipboardList, Clock, BookOpen, Briefcase, X,
-  PanelLeftClose, PanelLeftOpen, Users, Sparkles, CalendarDays,
-  Timer, Package, BarChart3, Megaphone, GitBranch, FlaskConical, ScrollText,
+  Clock, BookOpen, Briefcase, X, Milestone, ClipboardList, CalendarDays, Megaphone,
+  PanelLeftClose, PanelLeftOpen, Users, Sparkles,
+  Timer, Package, BarChart3, GitBranch, FlaskConical, ScrollText, Trash2,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useMyProfile } from '../../hooks/useUsers';
@@ -39,43 +39,15 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', to: '/dashboard', icon: <LayoutDashboard size={18} />, tourId: 'nav-dashboard' },
 
   // ── Projects ──────────────────────────────────────────────────────────────────
-  {
-    label: 'Projects', icon: <FolderKanban size={18} />, permission: PERMISSIONS.PROJECT_READ, moduleKey: 'projects', tourId: 'nav-projects',
-    children: [
-      { label: 'All Projects',  to: '/projects',    icon: <FolderKanban size={16} />, permission: PERMISSIONS.PROJECT_READ },
-      { label: 'My Tasks',      to: '/my-tasks',    icon: <CheckSquare size={16} />,  permission: PERMISSIONS.TASK_READ },
-      { label: 'Sprint Boards', to: '/sprints',     icon: <GitBranch size={16} />,    permission: PERMISSIONS.SPRINT_READ },
-      { label: 'Milestones',    to: '/milestones',  icon: <Milestone size={16} />,    permission: PERMISSIONS.MILESTONE_READ },
-      { label: 'Backlog',       to: '/backlog',     icon: <ClipboardList size={16} />,permission: PERMISSIONS.TASK_READ },
-      { label: 'Actions',       to: '/actions',     icon: <CheckSquare size={16} />,  permission: PERMISSIONS.ACTION_READ },
-      { label: 'Blockers',      to: '/blockers',    icon: <AlertTriangle size={16} />,permission: PERMISSIONS.BLOCKER_READ },
-      { label: 'RAID Register', to: '/raid',        icon: <Shield size={16} />,       permission: PERMISSIONS.RAID_READ },
-      { label: 'Decisions',     to: '/decisions',   icon: <BookOpen size={16} />,     permission: PERMISSIONS.DECISION_READ },
-    ],
-  },
+  // Direct link to the card grid; in-section navigation is the horizontal
+  // SectionTabs (see SectionTabs.tsx) rather than a collapsible submenu.
+  { label: 'Projects', to: '/projects', icon: <FolderKanban size={18} />, permission: PERMISSIONS.PROJECT_READ, moduleKey: 'projects', tourId: 'nav-projects' },
 
   // ── Daily Work ────────────────────────────────────────────────────────────────
-  {
-    label: 'Daily Work', icon: <Clock size={18} />, permission: PERMISSIONS.STANDUP_SUBMIT, moduleKey: 'daily-work', tourId: 'nav-daily-work',
-    children: [
-      { label: 'Standup',       to: '/standup',       icon: <ClipboardList size={16} />, permission: PERMISSIONS.STANDUP_SUBMIT },
-      { label: 'EOD',           to: '/eod',           icon: <BookOpen size={16} />,      permission: PERMISSIONS.EOD_SUBMIT },
-      { label: 'Time Tracking', to: '/time-tracking', icon: <Timer size={16} />,         permission: PERMISSIONS.TIME_WRITE, moduleKey: 'time' },
-    ],
-  },
+  { label: 'Daily Work', to: '/standup', icon: <Clock size={18} />, permission: PERMISSIONS.STANDUP_SUBMIT, moduleKey: 'daily-work', tourId: 'nav-daily-work' },
 
   // ── People ────────────────────────────────────────────────────────────────────
-  {
-    label: 'People', icon: <Users size={18} />, permission: PERMISSIONS.TEAM_READ, moduleKey: 'people', tourId: 'nav-people',
-    children: [
-      { label: 'Attendance',    to: '/attendance',    icon: <CalendarDays size={16} />, permission: PERMISSIONS.ATTENDANCE_READ },
-      { label: 'Leave',         to: '/leave',         icon: <CalendarDays size={16} />, permission: PERMISSIONS.LEAVE_READ },
-      { label: 'Teams',         to: '/teams',         icon: <Users size={16} />,        permission: PERMISSIONS.TEAM_READ },
-      { label: 'Directory',     to: '/directory',     icon: <Users size={16} />,        permission: PERMISSIONS.TEAM_READ },
-      { label: 'Org Chart',     to: '/org-chart',     icon: <GitBranch size={16} />,    permission: PERMISSIONS.ORG_READ },
-      { label: 'Announcements',   to: '/announcements', icon: <Megaphone size={16} />, permission: PERMISSIONS.ANNOUNCEMENT_READ },
-    ],
-  },
+  { label: 'People', to: '/directory', icon: <Users size={18} />, permission: PERMISSIONS.TEAM_READ, moduleKey: 'people', tourId: 'nav-people' },
 
   // ── Assets ────────────────────────────────────────────────────────────────────
   { label: 'Assets', to: '/assets', icon: <Package size={18} />, permission: PERMISSIONS.ASSET_READ, moduleKey: 'assets' },
@@ -114,6 +86,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'People Settings',    to: '/people-settings', icon: <Shield size={16} />,       permissions: [PERMISSIONS.LEAVE_ADMIN, PERMISSIONS.LOCATION_ADMIN, PERMISSIONS.IP_CONFIG_WRITE] },
       { label: 'Audit Logs',          to: '/audit-logs',      icon: <ScrollText size={16} />,   permission: PERMISSIONS.ADMIN_USERS },
       { label: 'Config & Workflows', to: '/admin-config',    icon: <GitBranch size={16} />,    permission: PERMISSIONS.ADMIN_USERS },
+      { label: 'Recycle Bin',        to: '/recycle-bin',     icon: <Trash2 size={16} />,       permission: PERMISSIONS.ADMIN_USERS },
       { label: 'Data Seeder',        to: '/data-seed',       icon: <FlaskConical size={16} />, permission: PERMISSIONS.DATA_SEED },
     ],
   },
@@ -123,6 +96,45 @@ const NAV_ITEMS: NavItem[] = [
   // ── Help ──────────────────────────────────────────────────────────────────────
   { label: 'Help & Docs', to: '/help', icon: <BookOpen size={18} /> },
 ];
+
+// Classic (collapsible submenu) versions of the three refactored sections.
+// Used when the user picks the "Classic" navigation style in Settings; in the
+// default "Tabs" style these sections are direct links + horizontal SectionTabs.
+const CLASSIC_SECTIONS: Record<string, NavItem> = {
+  'Projects': {
+    label: 'Projects', icon: <FolderKanban size={18} />, permission: PERMISSIONS.PROJECT_READ, moduleKey: 'projects', tourId: 'nav-projects',
+    children: [
+      { label: 'All Projects',  to: '/projects',    icon: <FolderKanban size={16} />, permission: PERMISSIONS.PROJECT_READ },
+      { label: 'My Tasks',      to: '/my-tasks',    icon: <CheckSquare size={16} />,  permission: PERMISSIONS.TASK_READ },
+      { label: 'Sprint Boards', to: '/sprints',     icon: <GitBranch size={16} />,    permission: PERMISSIONS.SPRINT_READ },
+      { label: 'Milestones',    to: '/milestones',  icon: <Milestone size={16} />,    permission: PERMISSIONS.MILESTONE_READ },
+      { label: 'Backlog',       to: '/backlog',     icon: <ClipboardList size={16} />,permission: PERMISSIONS.TASK_READ },
+      { label: 'Actions',       to: '/actions',     icon: <CheckSquare size={16} />,  permission: PERMISSIONS.ACTION_READ },
+      { label: 'Blockers',      to: '/blockers',    icon: <AlertTriangle size={16} />,permission: PERMISSIONS.BLOCKER_READ },
+      { label: 'RAID Register', to: '/raid',        icon: <Shield size={16} />,       permission: PERMISSIONS.RAID_READ },
+      { label: 'Decisions',     to: '/decisions',   icon: <BookOpen size={16} />,     permission: PERMISSIONS.DECISION_READ },
+    ],
+  },
+  'Daily Work': {
+    label: 'Daily Work', icon: <Clock size={18} />, permission: PERMISSIONS.STANDUP_SUBMIT, moduleKey: 'daily-work', tourId: 'nav-daily-work',
+    children: [
+      { label: 'Standup',       to: '/standup',       icon: <ClipboardList size={16} />, permission: PERMISSIONS.STANDUP_SUBMIT },
+      { label: 'EOD',           to: '/eod',           icon: <BookOpen size={16} />,      permission: PERMISSIONS.EOD_SUBMIT },
+      { label: 'Time Tracking', to: '/time-tracking', icon: <Timer size={16} />,         permission: PERMISSIONS.TIME_WRITE, moduleKey: 'time' },
+    ],
+  },
+  'People': {
+    label: 'People', icon: <Users size={18} />, permission: PERMISSIONS.TEAM_READ, moduleKey: 'people', tourId: 'nav-people',
+    children: [
+      { label: 'Attendance',    to: '/attendance',    icon: <CalendarDays size={16} />, permission: PERMISSIONS.ATTENDANCE_READ },
+      { label: 'Leave',         to: '/leave',         icon: <CalendarDays size={16} />, permission: PERMISSIONS.LEAVE_READ },
+      { label: 'Teams',         to: '/teams',         icon: <Users size={16} />,        permission: PERMISSIONS.TEAM_READ },
+      { label: 'Directory',     to: '/directory',     icon: <Users size={16} />,        permission: PERMISSIONS.TEAM_READ },
+      { label: 'Org Chart',     to: '/org-chart',     icon: <GitBranch size={16} />,    permission: PERMISSIONS.ORG_READ },
+      { label: 'Announcements', to: '/announcements', icon: <Megaphone size={16} />,    permission: PERMISSIONS.ANNOUNCEMENT_READ },
+    ],
+  },
+};
 
 // ─── Single nav item ──────────────────────────────────────────────────────────
 
@@ -222,7 +234,7 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
   const { user, logout } = useAuth();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
   const { data: profile } = useMyProfile();
-  const { collapsed, toggleCollapsed, setCollapsed, items } = useSidebar();
+  const { collapsed, toggleCollapsed, setCollapsed, items, navStyle } = useSidebar();
   const { festival } = useFestival();
   const modules = useModulePermissions();
   const { t } = useI18n();
@@ -272,9 +284,15 @@ const Sidebar = ({ onClose }: { onClose?: () => void }) => {
     return map[label] ?? label;
   };
 
+  // In 'classic' nav style, swap the three refactored sections for their
+  // collapsible-submenu versions; otherwise use the direct links from NAV_ITEMS.
+  const baseItems = navStyle === 'classic'
+    ? NAV_ITEMS.map((it) => CLASSIC_SECTIONS[it.label] ?? it)
+    : NAV_ITEMS;
+
   // Filter nav items by permission and module toggle.
   // No hardcoded role arrays — access is entirely driven by org role permissions.
-  const visibleItems = NAV_ITEMS.filter((item) => {
+  const visibleItems = baseItems.filter((item) => {
     if (item.permission && !hasPermission(user, item.permission as any)) return false;
     if (item.permissions && !item.permissions.some((p) => hasPermission(user, p as any))) return false;
     if (item.moduleKey && !(modules as Record<string, boolean>)[item.moduleKey]) return false;

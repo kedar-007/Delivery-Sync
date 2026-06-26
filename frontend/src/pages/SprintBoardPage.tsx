@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import {
   DndContext,
   DragOverlay,
@@ -13,11 +13,11 @@ import {
   useDraggable,
 } from '@dnd-kit/core';
 import {
-  Plus, Calendar, MessageSquare, ChevronRight, ChevronDown,
+  Plus, Calendar, MessageSquare, ChevronRight, ChevronDown, ChevronUp,
   AlertCircle, CheckCircle2, PlayCircle, Clock,
   Filter, Search, User, Zap, BarChart2,
   ArrowRight, Trash2, Edit2, GitBranch, Users, X, Timer, Paperclip,
-  Send, DollarSign, Ban, Layers, TrendingDown,
+  Send, DollarSign, Ban, Layers, TrendingDown, Upload,
 } from 'lucide-react';
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid,
@@ -52,6 +52,10 @@ import {
   useAddTaskComment,
   useBacklog,
   useMoveTaskToSprint,
+  useTaskStatuses,
+  DEFAULT_TASK_STATUSES,
+  TaskStatusCol,
+  statusKey,
 } from '../hooks/useTaskSprint';
 import { useProject } from '../hooks/useProjects';
 import { useUsers } from '../hooks/useUsers';
@@ -61,14 +65,18 @@ import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import SprintAnalysisModal from '../components/ui/SprintAnalysisModal';
 import { useAiSprintAnalysis } from '../hooks/useAiInsights';
 import RichCommentEditor, { renderRichContent } from '../components/ui/RichCommentEditor';
+import MarkdownEditor, { MarkdownView } from '../components/ui/MarkdownEditor';
 import WorkAllocationField from '../components/tasks/WorkAllocationField';
 import WorkAllocationDisplay from '../components/tasks/WorkAllocationDisplay';
 import { useBusinessHours } from '../hooks/useBusinessHours';
 import { WorkAllocation, serializeAllocation, reconcileEntries, deriveWorkingDates } from '../lib/workAllocation';
+import BulkUploadTasksModal from '../components/tasks/BulkUploadTasksModal';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE';
+// Status values are free-form strings so the board can render whatever statuses
+// the tenant's TASK workflow defines (custom kanban columns).
+type TaskStatus = string;
 type TaskPriority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 type TaskType = 'TASK' | 'STORY' | 'BUG' | 'SUBTASK' | 'EPIC';
 
@@ -130,12 +138,9 @@ const fmtH = (h: number | string): string => {
   return `${mins}m`;
 };
 
-const COLUMNS: { key: TaskStatus; label: string; color: string; bg: string }[] = [
-  { key: 'TODO', label: 'To Do', color: 'text-slate-500', bg: 'bg-slate-50' },
-  { key: 'IN_PROGRESS', label: 'In Progress', color: 'text-blue-600', bg: 'bg-blue-50' },
-  { key: 'IN_REVIEW', label: 'In Review', color: 'text-amber-600', bg: 'bg-amber-50' },
-  { key: 'DONE', label: 'Done', color: 'text-emerald-600', bg: 'bg-emerald-50' },
-];
+// Board columns are driven by the tenant's TASK workflow (useTaskStatuses);
+// DEFAULT_TASK_STATUSES is the fallback when none is configured.
+// `color` is a hex value so custom statuses can carry their own colour.
 
 const PRIORITY_CONFIG: Record<TaskPriority, { label: string; color: string; icon: string }> = {
   CRITICAL: { label: 'Critical', color: 'text-red-600 bg-red-50 border-red-200', icon: '🔴' },
@@ -180,12 +185,14 @@ function AvatarStack({ userIds, users, max = 3 }: { userIds: string[]; users: un
 
 // ── Draggable Task Card ───────────────────────────────────────────────────────
 
-function TaskCard({ task, users, onOpen, isDragOverlay = false }: {
+function TaskCard({ task, users, onOpen, onOpenSubtask, isDragOverlay = false }: {
   task: Task;
   users: unknown[];
   onOpen: (t: Task) => void;
+  onOpenSubtask?: (id: string) => void;
   isDragOverlay?: boolean;
 }) {
+  const [subOpen, setSubOpen] = useState(true);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id });
   const p = PRIORITY_CONFIG[task.priority] ?? PRIORITY_CONFIG.MEDIUM;
   const typeCfg = TYPE_CONFIG[task.type] ?? TYPE_CONFIG.TASK;
@@ -228,19 +235,58 @@ function TaskCard({ task, users, onOpen, isDragOverlay = false }: {
         </div>
       )}
 
-      {/* Sub-task roll-up */}
+      {/* Sub-task roll-up + wired child tree */}
       {subtaskTotal > 0 && (
         <div className="mb-2">
-          <div className="flex items-center justify-between text-[10px] text-ds-text-muted mb-0.5">
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setSubOpen((v) => !v); }}
+            className="w-full flex items-center justify-between text-[10px] text-ds-text-muted mb-1 hover:text-ds-text"
+          >
             <span className="flex items-center gap-1">
+              {subOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
               <CheckCircle2 size={10} className={subtaskDone === subtaskTotal ? 'text-green-500' : 'text-ds-text-muted'} />
               {subtaskDone}/{subtaskTotal} subtasks
             </span>
             <span>{subtaskPct}%</span>
-          </div>
+          </button>
           <div className="h-1 bg-ds-border rounded-full overflow-hidden">
             <div className={`h-full rounded-full ${subtaskDone === subtaskTotal ? 'bg-green-500' : 'bg-indigo-400'}`} style={{ width: `${subtaskPct}%` }} />
           </div>
+
+          {/* Child rows — clean, modern subtask list (Linear/Jira style) */}
+          {subOpen && (
+            <div className="mt-2 space-y-1">
+              {subtasks.map((s: any) => {
+                const sDone = String(s?.status) === 'DONE';
+                const ringColor = sDone ? 'border-green-500'
+                  : s?.status === 'IN_PROGRESS' ? 'border-blue-400'
+                  : s?.status === 'IN_REVIEW' ? 'border-purple-400'
+                  : 'border-gray-300';
+                let sAssignees: string[] = [];
+                try { sAssignees = JSON.parse(s.assignee_ids || '[]').map(String); } catch { /* ignore */ }
+                const sPts = parseFloat(s.story_points) || 0;
+                return (
+                  <div
+                    key={s.ROWID}
+                    onClick={(e) => { e.stopPropagation(); onOpenSubtask?.(String(s.ROWID)); }}
+                    className="flex items-center gap-2 rounded-lg pl-2 pr-2 py-1.5 bg-ds-surface-hover/40 hover:bg-ds-surface-hover border border-transparent hover:border-ds-border transition-colors cursor-pointer"
+                    title={`Open subtask: ${s.title}`}
+                  >
+                    {sDone
+                      ? <CheckCircle2 size={14} className="text-green-500 shrink-0" />
+                      : <span className={`w-3.5 h-3.5 rounded-full border-2 shrink-0 ${ringColor}`} />}
+                    <span className="text-[9px] font-bold tracking-wide text-violet-700 bg-violet-100 rounded px-1 py-0.5 shrink-0">SUB</span>
+                    <span className={`text-xs flex-1 truncate ${sDone ? 'line-through text-ds-text-muted' : 'text-ds-text'}`}>{s.title}</span>
+                    {sPts > 0 && <span className="text-[10px] text-indigo-600 font-semibold shrink-0">{sPts}pt</span>}
+                    {sAssignees.length > 0
+                      ? <AvatarStack userIds={sAssignees} users={users} max={2} />
+                      : <span className="w-5 h-5 rounded-full bg-ds-border/70 flex items-center justify-center shrink-0" title="Unassigned"><User size={9} className="text-ds-text-muted" /></span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -277,28 +323,31 @@ function TaskCard({ task, users, onOpen, isDragOverlay = false }: {
 
 // ── Droppable Column ──────────────────────────────────────────────────────────
 
-function KanbanColumn({ col, tasks, users, onAddTask, onOpenTask, canAddTask = true }: {
-  col: typeof COLUMNS[number];
+function KanbanColumn({ col, tasks, users, onAddTask, onOpenTask, onOpenSubtask, canAddTask = true }: {
+  col: TaskStatusCol;
   tasks: Task[];
   users: unknown[];
   onAddTask: (status: TaskStatus) => void;
   onOpenTask: (t: Task) => void;
+  onOpenSubtask?: (id: string) => void;
   canAddTask?: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: col.key });
 
   return (
     <div className="flex flex-col min-w-[270px] max-w-[270px]">
-      {/* Column header */}
-      <div className={`rounded-xl px-3 py-2.5 mb-3 flex items-center justify-between ${col.bg}`}>
+      {/* Column header — tinted with the status's own colour */}
+      <div className="rounded-xl px-3 py-2.5 mb-3 flex items-center justify-between" style={{ backgroundColor: `${col.color}1a` }}>
         <div className="flex items-center gap-2">
-          <span className={`text-sm font-semibold ${col.color}`}>{col.label}</span>
-          <span className={`text-xs font-bold px-2 py-0.5 rounded-full bg-white ${col.color}`}>{tasks.length}</span>
+          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: col.color }} />
+          <span className="text-sm font-semibold" style={{ color: col.color }}>{col.label}</span>
+          <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-white" style={{ color: col.color }}>{tasks.length}</span>
         </div>
         {canAddTask && (
           <button
             onClick={() => onAddTask(col.key)}
-            className={`p-1 rounded hover:bg-white/70 transition-colors ${col.color}`}
+            className="p-1 rounded hover:bg-white/70 transition-colors"
+            style={{ color: col.color }}
             title={`Add task to ${col.label}`}
           >
             <Plus size={14} />
@@ -315,7 +364,7 @@ function KanbanColumn({ col, tasks, users, onAddTask, onOpenTask, canAddTask = t
         ].join(' ')}
       >
         {tasks.map((task) => (
-          <TaskCard key={task.id} task={task} users={users} onOpen={onOpenTask} />
+          <TaskCard key={task.id} task={task} users={users} onOpen={onOpenTask} onOpenSubtask={onOpenSubtask} />
         ))}
         {tasks.length === 0 && (
           <div className="flex items-center justify-center h-24 rounded-lg border-2 border-dashed border-ds-border text-ds-text-muted text-xs">
@@ -347,12 +396,12 @@ function MultiUserSelect({ value, onChange, users, label, isLoading = false }: {
   const toggle = (id: string) => {
     onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
   };
-  // Try both the id field and ROWID, and also handle numeric vs string mismatch
+  // Match on the exact string id. NOTE: do NOT compare via Number(id) — Catalyst
+  // ROWIDs are 17-digit numbers beyond Number.MAX_SAFE_INTEGER, so Number()
+  // rounds them and can collide with a *different* user's id (the "select
+  // Dhiraj, get Anushka" bug). String comparison only.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const getUser = (id: string) => allUsers.find((u: any) => {
-    const uid = String(u.id ?? u.ROWID ?? '');
-    return uid === id || uid === String(Number(id));
-  });
+  const getUser = (id: string) => allUsers.find((u: any) => String(u.id ?? u.ROWID ?? '') === String(id));
 
   // Close on outside click
   React.useEffect(() => {
@@ -491,9 +540,13 @@ export default function SprintBoardPage() {
   const [editSprintMemberIds, setEditSprintMemberIds] = useState<string[]>([]);
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [showBacklog, setShowBacklog] = useState(false);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [backlogSearch, setBacklogSearch] = useState('');
   const [showBurndown, setShowBurndown] = useState(false);
   const [showCompleteSprint, setShowCompleteSprint] = useState(false);
+  const [showManageStatuses, setShowManageStatuses] = useState(false);
+  const [statusDraft, setStatusDraft] = useState<Array<{ name: string; color: string }>>([]);
+  const [savingStatuses, setSavingStatuses] = useState(false);
   // How to handle tasks that aren't DONE when the sprint is completed:
   // 'backlog' (default), 'sprint:<id>' to bulk-move into another sprint, or
   // 'cancel' to bulk-close them.
@@ -579,6 +632,38 @@ export default function SprintBoardPage() {
   const { data: editSprintDetail } = useSprint(editSprintId ?? '');
   const { data: backlogTasks = [], isLoading: backlogLoading } = useBacklog(projectId ?? '');
   const moveTaskToSprint = useMoveTaskToSprint();
+  // Board columns come from the tenant's TASK workflow (custom statuses);
+  // falls back to the built-in default set while loading / when unconfigured.
+  // Column source priority: this sprint's own statuses → tenant TASK workflow → defaults.
+  const { data: tenantStatuses = DEFAULT_TASK_STATUSES } = useTaskStatuses();
+  const columns: TaskStatusCol[] = useMemo(() => {
+    const raw = (activeSprint as unknown as { statuses?: unknown })?.statuses;
+    let per: Array<{ name?: string; color?: string }> = [];
+    try { per = typeof raw === 'string' ? JSON.parse(raw) : (Array.isArray(raw) ? raw : []); } catch { per = []; }
+    const cols = (per || [])
+      .filter((s) => s && String(s.name ?? '').trim())
+      .map((s) => ({ key: statusKey(String(s.name)), label: String(s.name).trim(), color: s.color || '#6b7280' }));
+    return cols.length ? cols : tenantStatuses;
+  }, [activeSprint, tenantStatuses]);
+
+  // ── Per-board status management ──────────────────────────────────────────────
+  const openManageStatuses = () => {
+    setStatusDraft(columns.map((c) => ({ name: c.label, color: c.color })));
+    setShowManageStatuses(true);
+  };
+  const saveStatuses = async () => {
+    if (!activeSprintId) return;
+    const cleaned = statusDraft.map((s) => ({ name: s.name.trim(), color: s.color })).filter((s) => s.name);
+    if (cleaned.length === 0) return;
+    setSavingStatuses(true);
+    try {
+      await sprintsApi.update(activeSprintId, { statuses: cleaned });
+      qc.invalidateQueries({ queryKey: ['sprints'] });
+      setShowManageStatuses(false);
+    } catch { /* surfaced by query layer */ }
+    finally { setSavingStatuses(false); }
+  };
+  const STATUS_PALETTE = ['#6b7280', '#3b82f6', '#f59e0b', '#22c55e', '#a855f7', '#ef4444', '#14b8a6', '#ec4899'];
 
   const sprintList: Sprint[] = useMemo(() => Array.isArray(sprints) ? sprints : (sprints as any)?.data ?? [], [sprints]);
   const users: unknown[] = Array.isArray(usersData) ? usersData : (usersData as any)?.data ?? [];
@@ -590,6 +675,18 @@ export default function SprintBoardPage() {
       setActiveSprint(active);
     }
   }, [sprintList, activeSprint]);
+
+  // Keep the selected sprint in sync with refetched list data so edits made to
+  // it (e.g. custom statuses) are reflected immediately instead of using the
+  // stale snapshot captured at selection time.
+  React.useEffect(() => {
+    if (!activeSprint) return;
+    const fresh = sprintList.find(
+      (s) => String(s.ROWID ?? s.id) === String(activeSprint.ROWID ?? activeSprint.id),
+    );
+    if (fresh && fresh !== activeSprint) setActiveSprint(fresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sprintList]);
 
   // Populate edit sprint form when detail loads
   React.useEffect(() => {
@@ -639,6 +736,12 @@ export default function SprintBoardPage() {
     if (Array.isArray(atts)) setTaskAttachments(atts);
   }, [fullTask]);
 
+  // Default to the Comments tab every time a task is opened or switched —
+  // applies to direct navigation and to switching between tasks.
+  React.useEffect(() => {
+    if (taskDetailId) setDetailTab('comments');
+  }, [taskDetailId]);
+
   // Load time entries when time tab opens
   React.useEffect(() => {
     if (detailTab !== 'time' || !taskDetailId) return;
@@ -659,7 +762,7 @@ export default function SprintBoardPage() {
   // Filter tasks
   const filteredBoard = useMemo(() => {
     const filtered: Record<string, Task[]> = {};
-    for (const col of COLUMNS) {
+    for (const col of columns) {
       const tasks: Task[] = boardData[col.key] ?? [];
       filtered[col.key] = tasks.filter((t) => {
         if (filterPriority && t.priority !== filterPriority) return false;
@@ -669,20 +772,20 @@ export default function SprintBoardPage() {
       });
     }
     return filtered;
-  }, [boardData, filterPriority, filterType, searchQ]);
+  }, [boardData, filterPriority, filterType, searchQ, columns]);
 
   // Stats — DSV-027: only count tasks in the columns we actually render.
   // `boardData` can include statuses we don't show (CANCELLED, BACKLOG, etc.)
   // and flattening all keys was inflating the Total Tasks count past what
   // was visible on the board.
-  const allTasks = COLUMNS.flatMap((col) => boardData[col.key] ?? []);
+  const allTasks = columns.flatMap((col) => boardData[col.key] ?? []);
   const doneCount = (boardData['DONE'] ?? []).length;
   const totalCount = allTasks.length;
 
   const qc = useQueryClient();
 
   // Tasks not yet DONE — drives the Complete-Sprint carry-over flow.
-  const incompleteTasks = COLUMNS
+  const incompleteTasks = columns
     .filter((c) => c.key !== 'DONE')
     .flatMap((col) => boardData[col.key] ?? []);
 
@@ -760,7 +863,7 @@ export default function SprintBoardPage() {
     const { active, over } = e;
     if (!over || !activeSprint) return;
 
-    const validCols = COLUMNS.map((c) => c.key) as string[];
+    const validCols = columns.map((c) => c.key) as string[];
     let toStatus: TaskStatus;
 
     // over.id is either a column key (droppable) or a task id (dragged over another card)
@@ -769,7 +872,7 @@ export default function SprintBoardPage() {
     } else {
       // Find which column the hovered task belongs to
       let found: TaskStatus | undefined;
-      for (const col of COLUMNS) {
+      for (const col of columns) {
         if ((boardData[col.key] ?? []).find((t) => t.id === String(over.id))) {
           found = col.key;
           break;
@@ -782,15 +885,15 @@ export default function SprintBoardPage() {
     // Find current task status + the moved task itself (for the confirm copy)
     let fromStatus: TaskStatus | undefined;
     let movedTask: Task | undefined;
-    for (const col of COLUMNS) {
+    for (const col of columns) {
       const hit = (boardData[col.key] ?? []).find((t) => t.id === String(active.id));
       if (hit) { fromStatus = col.key; movedTask = hit; break; }
     }
     if (!fromStatus || fromStatus === toStatus) return;
 
     // Confirm before mutating — moves are not undoable on the board side.
-    const fromLabel = COLUMNS.find((c) => c.key === fromStatus)?.label ?? fromStatus;
-    const toLabel = COLUMNS.find((c) => c.key === toStatus)?.label ?? toStatus;
+    const fromLabel = columns.find((c) => c.key === fromStatus)?.label ?? fromStatus;
+    const toLabel = columns.find((c) => c.key === toStatus)?.label ?? toStatus;
     const ok = await confirm({
       title: 'Move task?',
       message: `Move "${movedTask?.title ?? 'this task'}" from ${fromLabel} → ${toLabel}? This can't be undone from the board — you'd have to drag it back manually.`,
@@ -886,7 +989,7 @@ export default function SprintBoardPage() {
     setAssigneeIds([]);
     setCreateWorkAllocation(null);
     setCreateTaskRequireApproval(false);
-    setCreateTaskStatus('TODO');
+    setCreateTaskStatus(columns[0]?.key ?? 'TODO');
     setTaskDetailId(null);
     setShowCreateTask(true);
   };
@@ -1133,6 +1236,11 @@ export default function SprintBoardPage() {
                 New Sprint
               </Button>
             )}
+            {canManageSprint && activeSprint && (
+              <Button size="sm" variant="secondary" icon={<Layers size={15} />} onClick={openManageStatuses}>
+                Manage Statuses
+              </Button>
+            )}
             {activeSprint?.status === 'PLANNING' && isAdmin && (
               <Button size="sm" variant="primary" icon={<PlayCircle size={15} />}
                 onClick={() => startSprint.mutate(String(activeSprint.ROWID ?? activeSprint.id ?? ''))}
@@ -1203,6 +1311,25 @@ export default function SprintBoardPage() {
                                 className="w-6 h-6 rounded-lg flex items-center justify-center bg-white border border-gray-200 text-gray-400 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50 shadow-sm opacity-0 group-hover:opacity-100 transition-all"
                               >
                                 <Edit2 size={11} />
+                              </button>
+                            )}
+                            {canManageSprint && (
+                              <button
+                                type="button"
+                                title="Delete sprint"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  const ok = await confirm({ title: 'Delete sprint', message: `"${sprint.name}" will be moved to the Recycle Bin. An admin can restore it.`, confirmText: 'Delete', variant: 'danger' });
+                                  if (!ok) return;
+                                  try {
+                                    await sprintsApi.remove(String(sprint.ROWID ?? sprint.id));
+                                    if (activeSprint?.id === sprint.id) setActiveSprint(null);
+                                    qc.invalidateQueries({ queryKey: ['sprints'] });
+                                  } catch { /* surfaced by query layer */ }
+                                }}
+                                className="w-6 h-6 rounded-lg flex items-center justify-center bg-white border border-gray-200 text-gray-400 hover:text-red-600 hover:border-red-300 hover:bg-red-50 shadow-sm opacity-0 group-hover:opacity-100 transition-all"
+                              >
+                                <Trash2 size={11} />
                               </button>
                             )}
                           </div>
@@ -1297,7 +1424,10 @@ export default function SprintBoardPage() {
                   <Button size="sm" variant="secondary" icon={<Layers size={14} />} onClick={() => { setBacklogSearch(''); setShowBacklog(true); }}>
                     Add from Backlog
                   </Button>
-                  <Button size="sm" icon={<Plus size={14} />} onClick={() => { setCreateTaskStatus('TODO'); setShowCreateTask(true); }}>
+                  <Button size="sm" variant="secondary" icon={<Upload size={14} />} onClick={() => setShowBulkUpload(true)}>
+                    Bulk Upload
+                  </Button>
+                  <Button size="sm" icon={<Plus size={14} />} onClick={() => { setCreateTaskStatus(columns[0]?.key ?? 'TODO'); setShowCreateTask(true); }}>
                     Add Task
                   </Button>
                 </>
@@ -1324,7 +1454,7 @@ export default function SprintBoardPage() {
             <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
               <div className="flex-1 overflow-x-auto">
                 <div className="flex gap-4 p-5 min-w-max h-full">
-                  {COLUMNS.map((col) => (
+                  {columns.map((col) => (
                     <KanbanColumn
                       key={col.key}
                       col={col}
@@ -1332,6 +1462,7 @@ export default function SprintBoardPage() {
                       users={users}
                       onAddTask={(status) => { setCreateTaskStatus(status); setShowCreateTask(true); }}
                       onOpenTask={(t) => setTaskDetailId(t.id)}
+                      onOpenSubtask={(id) => setTaskDetailId(id)}
                       canAddTask={canCreateTask}
                     />
                   ))}
@@ -1525,8 +1656,14 @@ export default function SprintBoardPage() {
               <input className="form-input" placeholder="Task title" {...taskForm.register('title', { required: true })} />
             </div>
             <div className="md:col-span-2">
-              <label className="form-label">{t('tasks.modal.descLabel')}</label>
-              <textarea className="form-textarea" rows={3} placeholder="Describe the task…" {...taskForm.register('description')} />
+              <label className="form-label">{t('tasks.modal.descLabel')} <span className="text-gray-400 font-normal">(Markdown)</span></label>
+              <Controller
+                name="description"
+                control={taskForm.control}
+                render={({ field }) => (
+                  <MarkdownEditor value={field.value ?? ''} onChange={field.onChange} placeholder="Describe the task… (Markdown supported)" />
+                )}
+              />
             </div>
             <div>
               <label className="form-label">{t('common.priority')}</label>
@@ -1548,7 +1685,7 @@ export default function SprintBoardPage() {
                 value={createTaskStatus}
                 onChange={(e) => setCreateTaskStatus(e.target.value as TaskStatus)}
               >
-                {COLUMNS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+                {columns.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
               </select>
             </div>
             <div>
@@ -1623,6 +1760,17 @@ export default function SprintBoardPage() {
           </ModalActions>
         </form>
       </Modal>
+
+      {/* ── Bulk Upload Tasks Modal ──────────────────────────────────────────── */}
+      <BulkUploadTasksModal
+        open={showBulkUpload}
+        onClose={() => setShowBulkUpload(false)}
+        projectId={projectId ?? ''}
+        sprintId={activeSprintId || null}
+        fallbackDueDate={(activeSprint as any)?.endDate || (activeSprint as any)?.end_date || ''}
+        defaultStatus={columns[0]?.key ?? 'TODO'}
+        users={users}
+      />
 
       {/* ── Add from Backlog Modal ───────────────────────────────────────────── */}
       <Modal
@@ -1797,6 +1945,63 @@ export default function SprintBoardPage() {
         </div>
       </Modal>
 
+      {/* ── Manage Statuses Modal (per-board custom kanban columns) ───────────── */}
+      <Modal
+        open={showManageStatuses}
+        onClose={() => { if (!savingStatuses) setShowManageStatuses(false); }}
+        title={activeSprint ? `Statuses · ${activeSprint.name}` : 'Manage Statuses'}
+        size="lg"
+      >
+        <div className="space-y-4">
+          <p className="text-xs text-ds-text-muted">
+            These become the board's columns (in order). Keep one named <strong>Done</strong> so completion, velocity and burndown work.
+          </p>
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {statusDraft.map((s, i) => (
+              <div key={i} className="flex items-center gap-2 p-2 rounded-lg border border-ds-border">
+                <div className="flex flex-col">
+                  <button type="button" disabled={i === 0} title="Move up"
+                    onClick={() => setStatusDraft((d) => { const n = [...d]; [n[i - 1], n[i]] = [n[i], n[i - 1]]; return n; })}
+                    className="text-ds-text-muted hover:text-ds-text disabled:opacity-30 leading-none"><ChevronUp size={13} /></button>
+                  <button type="button" disabled={i === statusDraft.length - 1} title="Move down"
+                    onClick={() => setStatusDraft((d) => { const n = [...d]; [n[i + 1], n[i]] = [n[i], n[i + 1]]; return n; })}
+                    className="text-ds-text-muted hover:text-ds-text disabled:opacity-30 leading-none"><ChevronDown size={13} /></button>
+                </div>
+                <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
+                <input
+                  className="form-input flex-1 text-sm py-1.5"
+                  placeholder="Status name"
+                  value={s.name}
+                  onChange={(e) => setStatusDraft((d) => d.map((x, j) => j === i ? { ...x, name: e.target.value } : x))}
+                />
+                <div className="flex items-center gap-1">
+                  {STATUS_PALETTE.map((c) => (
+                    <button key={c} type="button" title={c}
+                      onClick={() => setStatusDraft((d) => d.map((x, j) => j === i ? { ...x, color: c } : x))}
+                      className="w-4 h-4 rounded-full border-2 transition-transform hover:scale-110"
+                      style={{ backgroundColor: c, borderColor: s.color === c ? '#1e1b4b' : 'transparent' }} />
+                  ))}
+                </div>
+                <button type="button" title="Remove"
+                  onClick={() => setStatusDraft((d) => d.filter((_, j) => j !== i))}
+                  className="text-ds-text-muted hover:text-red-600 shrink-0"><Trash2 size={13} /></button>
+              </div>
+            ))}
+            {statusDraft.length === 0 && (
+              <p className="text-sm text-ds-text-muted text-center py-4">No statuses — add at least one.</p>
+            )}
+          </div>
+          <Button type="button" size="sm" variant="secondary" icon={<Plus size={13} />}
+            onClick={() => setStatusDraft((d) => [...d, { name: '', color: STATUS_PALETTE[d.length % STATUS_PALETTE.length] }])}>
+            Add status
+          </Button>
+          <ModalActions>
+            <Button variant="secondary" type="button" disabled={savingStatuses} onClick={() => setShowManageStatuses(false)}>{t('common.cancel')}</Button>
+            <Button variant="primary" loading={savingStatuses} onClick={saveStatuses}>{t('common.save')}</Button>
+          </ModalActions>
+        </div>
+      </Modal>
+
       {/* ── Task Detail Slide-over ─────────────────────────────────────────── */}
       {!!taskDetailId && detailTask && (
         <>
@@ -1804,6 +2009,31 @@ export default function SprintBoardPage() {
           <div className="fixed inset-0 bg-black/20 z-40"
             onClick={() => { setTaskDetailId(null); setCommentText(''); setDetailTab('audit_logs'); setAiInsight(null); }}
           />
+
+          {/* Same-column quick switcher — lists other tasks in the same status
+              column so you can jump between them without closing the panel.
+              Sits just left of the 56rem (max-w-4xl) slide-over on wide screens. */}
+          <div className="hidden xl:flex fixed top-0 h-full w-60 bg-ds-surface-hover border-r border-ds-border z-50 flex-col overflow-hidden" style={{ right: '56rem' }}>
+            <div className="px-3 py-3 border-b border-ds-border text-[11px] font-semibold text-ds-text-muted uppercase tracking-wider shrink-0">
+              {columns.find((c) => c.key === detailTask.status)?.label ?? detailTask.status}
+              <span className="ml-1 normal-case font-normal text-ds-text-muted/70">· same column</span>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {(boardData[detailTask.status] ?? []).map((tk) => (
+                <button
+                  key={tk.id}
+                  type="button"
+                  onClick={() => setTaskDetailId(tk.id)}
+                  className={`w-full text-left px-2.5 py-2 rounded-lg text-xs transition-colors ${tk.id === detailTask.id ? 'bg-indigo-100 text-indigo-800 font-semibold' : 'hover:bg-ds-surface text-ds-text'}`}
+                >
+                  <span className="line-clamp-2">{tk.title}</span>
+                </button>
+              ))}
+              {(boardData[detailTask.status] ?? []).length === 0 && (
+                <p className="text-xs text-ds-text-muted text-center py-4">No other tasks</p>
+              )}
+            </div>
+          </div>
 
           {/* Slide-over panel */}
           <div className="fixed top-0 right-0 h-full w-full max-w-4xl bg-ds-surface shadow-2xl z-50 flex flex-col overflow-hidden">
@@ -1827,6 +2057,22 @@ export default function SprintBoardPage() {
                   {(detailTask.storyPoints ?? 0) > 0 && (
                     <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">{detailTask.storyPoints} pts</span>
                   )}
+                  {/* Attachment badge — only when the task has attachments;
+                      clicking jumps to the Files tab. */}
+                  {(() => {
+                    const attCount = taskAttachments.length
+                      || (Array.isArray((fullTask as any)?.attachments) ? (fullTask as any).attachments.length : 0);
+                    return attCount > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setDetailTab('attachments')}
+                        className="text-xs flex items-center gap-1 font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-full transition-colors"
+                        title="View attachments"
+                      >
+                        <Paperclip size={11} /> {attCount}
+                      </button>
+                    ) : null;
+                  })()}
                   {timerRunning && (
                     <span className="text-xs flex items-center gap-1.5 text-emerald-700 font-mono font-semibold bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full animate-pulse">
                       <Clock size={11} /> {timerDisplay}
@@ -1863,7 +2109,7 @@ export default function SprintBoardPage() {
                 <div className="bg-ds-surface-hover rounded-xl p-4">
                   <div className="text-[11px] font-bold text-ds-text-muted uppercase tracking-wider mb-2">Description</div>
                   {(detailTask as any).description
-                    ? <p className="text-sm text-ds-text whitespace-pre-wrap leading-relaxed">{(detailTask as any).description}</p>
+                    ? <MarkdownView source={(detailTask as any).description} />
                     : <p className="text-sm text-ds-text-muted italic">No description provided.</p>}
                 </div>
 
@@ -2448,8 +2694,8 @@ export default function SprintBoardPage() {
                     onChange={async (e) => {
                       const next = e.target.value as TaskStatus;
                       if (next === detailTask.status) return;
-                      const fromLabel = COLUMNS.find((c) => c.key === detailTask.status)?.label ?? detailTask.status;
-                      const toLabel = COLUMNS.find((c) => c.key === next)?.label ?? next;
+                      const fromLabel = columns.find((c) => c.key === detailTask.status)?.label ?? detailTask.status;
+                      const toLabel = columns.find((c) => c.key === next)?.label ?? next;
                       const ok = await confirm({
                         title: 'Change status?',
                         message: `Move "${detailTask.title}" from ${fromLabel} → ${toLabel}? This can't be undone.`,
@@ -2462,7 +2708,7 @@ export default function SprintBoardPage() {
                       if (!ok) { e.target.value = detailTask.status; return; }
                       updateStatus.mutate({ id: detailTask.id, data: { status: next } });
                     }}>
-                    {COLUMNS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+                    {columns.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
                   </select>
                 </div>
 
@@ -2553,8 +2799,14 @@ export default function SprintBoardPage() {
                   <input className="form-input" {...editForm.register('title', { required: true })} />
                 </div>
                 <div>
-                  <label className="form-label">{t('tasks.modal.descLabel')}</label>
-                  <textarea className="form-textarea" rows={4} {...editForm.register('description')} />
+                  <label className="form-label">{t('tasks.modal.descLabel')} <span className="text-gray-400 font-normal">(Markdown)</span></label>
+                  <Controller
+                    name="description"
+                    control={editForm.control}
+                    render={({ field }) => (
+                      <MarkdownEditor value={field.value ?? ''} onChange={field.onChange} placeholder="Describe the task… (Markdown supported)" />
+                    )}
+                  />
                 </div>
                 {canAssignToOthers ? (
                   <MultiUserSelect label="Assignees" value={editAssigneeIds} onChange={setEditAssigneeIds} users={users} />

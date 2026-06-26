@@ -11,6 +11,8 @@ const ctrl = (req) => new SprintController(req.catalystApp);
 
 router.get('/',                             RBACMiddleware.require(PERMISSIONS.SPRINT_READ),  asyncHandler((req, res) => ctrl(req).list(req, res)));
 router.post('/',                            RBACMiddleware.require(PERMISSIONS.SPRINT_WRITE), asyncHandler((req, res) => ctrl(req).create(req, res)));
+// Recycle Bin (admin-gated in controller) — must precede '/:sprintId'.
+router.get('/recycle-bin',                  RBACMiddleware.require(PERMISSIONS.SPRINT_READ),  asyncHandler((req, res) => ctrl(req).listDeleted(req, res)));
 router.get('/:sprintId',                    RBACMiddleware.require(PERMISSIONS.SPRINT_READ),  asyncHandler((req, res) => ctrl(req).getById(req, res)));
 router.put('/:sprintId',                    RBACMiddleware.require(PERMISSIONS.SPRINT_WRITE), asyncHandler((req, res) => ctrl(req).update(req, res)));
 router.patch('/:sprintId/start',            RBACMiddleware.require(PERMISSIONS.SPRINT_WRITE), asyncHandler((req, res) => ctrl(req).start(req, res)));
@@ -19,5 +21,9 @@ router.get('/:sprintId/board',              RBACMiddleware.require(PERMISSIONS.S
 router.get('/:sprintId/velocity',           RBACMiddleware.require(PERMISSIONS.SPRINT_READ),  asyncHandler((req, res) => ctrl(req).getVelocity(req, res)));
 router.post('/:sprintId/members',           RBACMiddleware.require(PERMISSIONS.SPRINT_WRITE), asyncHandler((req, res) => ctrl(req).addMember(req, res)));
 router.delete('/:sprintId/members/:uid',    RBACMiddleware.require(PERMISSIONS.SPRINT_WRITE), asyncHandler((req, res) => ctrl(req).removeMember(req, res)));
+// Soft delete → Recycle Bin; restore + permanent purge (admin-gated in controller).
+router.delete('/:sprintId',                 RBACMiddleware.require(PERMISSIONS.SPRINT_WRITE), asyncHandler((req, res) => ctrl(req).remove(req, res)));
+router.post('/:sprintId/restore',           RBACMiddleware.require(PERMISSIONS.SPRINT_WRITE), asyncHandler((req, res) => ctrl(req).restore(req, res)));
+router.delete('/:sprintId/purge',           RBACMiddleware.require(PERMISSIONS.SPRINT_WRITE), asyncHandler((req, res) => ctrl(req).purge(req, res)));
 
 module.exports = router;

@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import {
   Clock, Plus, Edit2, Trash2, Send, RotateCcw, CheckCircle2,
   XCircle, DollarSign, CalendarDays, TrendingUp, Users, AlertCircle, Loader2, X, Hash,
-  ChevronLeft, ChevronRight, Globe, User as UserIcon, Award,
+  ChevronLeft, ChevronRight, ChevronDown, Globe, User as UserIcon, Award, List, Check,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -234,7 +234,6 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
       start_time: entry?.startTime ?? '',
       end_time: entry?.endTime ?? '',
       is_billable: entry?.isBillable ?? true,
-      notes: entry?.notes ?? '',
     },
   });
 
@@ -278,7 +277,6 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
           start_time:  entry.startTime ?? '',
           end_time:    entry.endTime ?? '',
           is_billable: entry.isBillable ?? true,
-          notes:       entry.notes ?? '',
         });
         draftRef.current = null;
       } else if (draftRef.current) {
@@ -289,7 +287,7 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
           project_id: '', task_id: '', description: '',
           date: todayStr(), hours: '1:00',
           start_time: '', end_time: '',
-          is_billable: true, notes: '',
+          is_billable: true,
         });
       }
       setError('');
@@ -324,6 +322,9 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
       const requireApproval = selectedTask?.require_approval === 'true' || selectedTask?.require_approval === true;
       const payload = {
         ...data,
+        // Send the canonical `entry_date` too (the column the backend stores),
+        // not just the form's legacy `date` field.
+        entry_date: data.date,
         hours: parseHoursInput(data.hours),
         task_id: data.task_id || undefined,
         require_approval: requireApproval ? 'true' : 'false',
@@ -430,10 +431,10 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
 
         {/* ── Section 2: Description ── */}
         <div className="mb-5">
-          <label className="form-label">{t('timeTracking.form.description')} *</label>
+          <label className="form-label">{t('timeTracking.form.description')} <span className="text-gray-400 font-normal">/ Notes</span> *</label>
           <input
             className="form-input"
-            placeholder="What did you work on?"
+            placeholder="What did you work on? (also used as the note)"
             {...register('description', { required: 'Description is required' })}
           />
           {errors.description && <p className="text-xs text-red-600 mt-1">{errors.description.message}</p>}
@@ -496,33 +497,22 @@ const LogTimeModal = ({ open, onClose, entry, projects }: LogTimeModalProps) => 
           {durationBanner}
         </div>
 
-        {/* ── Section 4: Billable + Notes ── */}
-        <div className="grid grid-cols-2 gap-4 mb-2">
-          <div>
-            <label className="form-label">{t('common.notes')} <span className="text-gray-400 font-normal">(optional)</span></label>
-            <textarea
-              className="form-textarea"
-              rows={3}
-              placeholder="Additional context…"
-              {...register('notes')}
+        {/* ── Section 4: Billable ── */}
+        <div className="mb-2">
+          <label className="flex items-start gap-3 cursor-pointer group">
+            <input
+              id="is_billable"
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              {...register('is_billable')}
             />
-          </div>
-          <div className="flex flex-col justify-start pt-6">
-            <label className="flex items-start gap-3 cursor-pointer group">
-              <input
-                id="is_billable"
-                type="checkbox"
-                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                {...register('is_billable')}
-              />
-              <div>
-                <span className="text-sm font-medium text-gray-700 group-hover:text-gray-900">
-                  {t('timeTracking.billable')} hours
-                </span>
-                <p className="text-xs text-gray-400 mt-0.5">Mark this entry as billable to the client</p>
-              </div>
-            </label>
-          </div>
+            <div>
+              <span className="text-sm font-medium text-gray-700 group-hover:text-gray-900">
+                {t('timeTracking.billable')} hours
+              </span>
+              <p className="text-xs text-gray-400 mt-0.5">Mark this entry as billable to the client</p>
+            </div>
+          </label>
         </div>
 
         <ModalActions>
@@ -588,6 +578,79 @@ const RejectModal = ({ open, onClose, onConfirm, title = 'Reject Entry' }: Rejec
         </Button>
       </ModalActions>
     </Modal>
+  );
+};
+
+// ── Log Time split button ─────────────────────────────────────────────────────
+// Primary action logs a single entry; the dropdown switches the add view
+// (single-entry List vs Weekly timesheet) — replacing the old top toggle.
+
+interface LogTimeSplitButtonProps {
+  label: string;
+  viewMode: 'list' | 'weekly';
+  setViewMode: (m: 'list' | 'weekly') => void;
+  onLog: () => void;
+}
+
+const LogTimeSplitButton = ({ label, viewMode, setViewMode, onLog }: LogTimeSplitButtonProps) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const pick = (m: 'list' | 'weekly') => { setViewMode(m); setOpen(false); };
+
+  return (
+    <div ref={ref} className="relative inline-flex">
+      <button
+        type="button"
+        onClick={onLog}
+        className="inline-flex items-center gap-1.5 h-8 pl-3 pr-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-l-lg transition-colors"
+      >
+        <Plus size={14} /> {label}
+      </button>
+      <button
+        type="button"
+        aria-label="Choose how to add time"
+        aria-expanded={open}
+        onClick={() => setOpen(o => !o)}
+        className="inline-flex items-center px-1.5 h-8 text-white bg-indigo-600 hover:bg-indigo-700 rounded-r-lg border-l border-indigo-500/60 transition-colors"
+      >
+        <ChevronDown size={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1.5 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-30 py-1">
+          <p className="px-3 pt-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Add time as</p>
+          <button
+            type="button"
+            onClick={() => pick('list')}
+            className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 transition-colors ${
+              viewMode === 'list' ? 'text-indigo-600 font-medium' : 'text-gray-700'}`}
+          >
+            <List size={14} className={viewMode === 'list' ? 'text-indigo-600' : 'text-gray-400'} />
+            Single entry (list)
+            {viewMode === 'list' && <Check size={13} className="ml-auto text-indigo-600" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => pick('weekly')}
+            className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 transition-colors ${
+              viewMode === 'weekly' ? 'text-indigo-600 font-medium' : 'text-gray-700'}`}
+          >
+            <CalendarDays size={14} className={viewMode === 'weekly' ? 'text-indigo-600' : 'text-gray-400'} />
+            Weekly timesheet
+            {viewMode === 'weekly' && <Check size={13} className="ml-auto text-indigo-600" />}
+          </button>
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -665,9 +728,9 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
     setPage(1);
   }, [filterDateFrom, filterDateTo, filterProject, filterStatus, filterTimeFrom, filterTimeTo, viewProject, viewTask, pageSize]);
 
-  // Build query params for the backend. We now push viewProject / viewTask
-  // down to the server too (was previously client-side filtered after fetch).
-  // That makes the server-side pagination counts accurate.
+  // Build query params for the backend (no page/pageSize — we fetch the whole
+  // filtered set and paginate by day client-side). viewProject / viewTask are
+  // pushed to the server so the filtered set is scoped correctly.
   const filterParams = useMemo(() => {
     const p: Record<string, string> = {};
     // Always scope to the current user's own entries in this tab
@@ -680,23 +743,16 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
     if (effectiveProject) p.project_id = effectiveProject;
     if (viewTask)        p.task_id    = viewTask;
     if (filterStatus)    p.status     = filterStatus;
-    p.page     = String(page);
-    p.pageSize = String(pageSize);
     return p;
-  }, [user?.id, filterDateFrom, filterDateTo, filterProject, filterStatus, viewProject, viewTask, page, pageSize]);
+  }, [user?.id, filterDateFrom, filterDateTo, filterProject, filterStatus, viewProject, viewTask]);
 
-  const { data: result, isLoading, error } = useTimeEntries(filterParams);
-  const allEntries  = (result?.data ?? []) as TimeEntry[];
-  const pagination  = result?.pagination ?? null;
-  // When the backend is paginated (`pagination` returned), `allEntries` is
-  // already the current page — display it as-is. When the backend isn't yet
-  // rebuilt (legacy array shape, no `pagination`), we slice client-side so
-  // pagination still works visually. Either way the UI is consistent.
-  const entries     = pagination
-    ? allEntries
-    : allEntries.slice((page - 1) * pageSize, page * pageSize);
-  const totalCount  = pagination?.total ?? allEntries.length;
-  const totalPages  = Math.max(1, pagination?.totalPages ?? Math.ceil(allEntries.length / pageSize));
+  // Fetch EVERY entry matching the filters (scoped to this user). Pagination is
+  // BY DAY below — a day is never split across pages. Previously the list was
+  // server-paginated by entry, so a day with more entries than one page would
+  // appear on two pages and show a partial daily total on each. Day-paging makes
+  // each "Daily Activity Summary" the true total for the whole day.
+  const { data: result, isLoading, error } = useAllTimeEntries(filterParams);
+  const entries = (result?.data ?? []) as TimeEntry[];
 
   // Apply the time-of-day window (client-side, on the current page). An entry is
   // kept when its [start, end] overlaps the window. Untimed entries are dropped
@@ -719,7 +775,7 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
   // work log: each day shows its entries, a Daily Activity Summary (billable /
   // non-billable / total) and the GAPS — time windows with no log — so the user
   // can see when they forgot to track. Newest day first.
-  const dayGroups = useMemo(() => {
+  const allDayGroups = useMemo(() => {
     const winStart = timeToMin(filterTimeFrom);
     const winEnd   = timeToMin(filterTimeTo);
 
@@ -792,6 +848,20 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
         return { date, items, billable, nonBillable, total: billable + nonBillable, gaps, untrackedMin };
       });
   }, [filteredEntries, filterTimeFrom, filterTimeTo, sortBy]);
+
+  // Pagination is BY DAY (pageSize = days per page) so a day's entries and its
+  // Daily Activity Summary always stay together on one page with correct totals.
+  const totalDays    = allDayGroups.length;
+  const totalEntries = useMemo(() => allDayGroups.reduce((s, g) => s + g.items.length, 0), [allDayGroups]);
+  const totalPages   = Math.max(1, Math.ceil(totalDays / pageSize));
+  const dayGroups    = useMemo(
+    () => allDayGroups.slice((page - 1) * pageSize, page * pageSize),
+    [allDayGroups, page, pageSize],
+  );
+
+  // Clamp the page if the day count shrank (e.g. after a filter change) so we
+  // never strand the user on an empty page past the end.
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
 
   const deleteEntry = useDeleteTimeEntry();
   const submitEntry = useSubmitTimeEntry();
@@ -897,24 +967,16 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
   if (viewMode === 'weekly') {
     return (
       <div className="space-y-4">
-        {/* View toggle */}
         <div className="flex items-center justify-between">
-          <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-            <button
-              onClick={() => setViewMode('list')}
-              className="px-4 py-1.5 text-sm font-medium rounded-md transition-colors text-gray-500 hover:text-gray-700"
-            >
-              List View
-            </button>
-            <button
-              className="px-4 py-1.5 text-sm font-medium rounded-md transition-colors bg-white shadow text-gray-900"
-            >
-              Weekly View
-            </button>
-          </div>
-          <Button size="sm" icon={<Plus size={14} />} onClick={() => { setEditEntry(null); setModalOpen(true); }}>
-            {t('timeTracking.logTime')}
-          </Button>
+          <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+            <CalendarDays size={15} className="text-indigo-500" /> Weekly Timesheet
+          </h3>
+          <LogTimeSplitButton
+            label={t('timeTracking.logTime')}
+            viewMode={viewMode}
+            setViewMode={setViewMode}
+            onLog={() => { setEditEntry(null); setModalOpen(true); }}
+          />
         </div>
 
         <WeeklyTimesheetTab />
@@ -931,23 +993,6 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
 
   return (
     <div className="space-y-4">
-      {/* View toggle */}
-      <div className="flex items-center justify-between">
-        <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-          <button
-            className="px-4 py-1.5 text-sm font-medium rounded-md transition-colors bg-white shadow text-gray-900"
-          >
-            List View
-          </button>
-          <button
-            onClick={() => setViewMode('weekly')}
-            className="px-4 py-1.5 text-sm font-medium rounded-md transition-colors text-gray-500 hover:text-gray-700"
-          >
-            Weekly View
-          </button>
-        </div>
-      </div>
-
       {/* Date / Status Filters */}
       <Card>
         {/* Quick date presets + Clear filters. Active preset is highlighted;
@@ -1152,13 +1197,12 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
                 <option value="hours_asc">Hours (low → high)</option>
               </select>
             </label>
-            <Button
-              size="sm"
-              icon={<Plus size={14} />}
-              onClick={() => { setEditEntry(null); setModalOpen(true); }}
-            >
-              {t('timeTracking.logTime')}
-            </Button>
+            <LogTimeSplitButton
+              label={t('timeTracking.logTime')}
+              viewMode={viewMode}
+              setViewMode={setViewMode}
+              onLog={() => { setEditEntry(null); setModalOpen(true); }}
+            />
           </div>
         </div>
 
@@ -1245,7 +1289,7 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
                 <table className="min-w-full divide-y divide-gray-100">
                   <thead className="bg-white">
                     <tr>
-                      {[t('timeTracking.form.project'), t('timeTracking.form.task'), 'Start Time', 'End Time', t('timeTracking.form.hours'), t('timeTracking.billable'), t('common.status'), 'Created', t('common.actions')].map((h) => (
+                      {[t('timeTracking.form.project'), t('timeTracking.form.task'), t('common.description'), 'Start Time', 'End Time', t('timeTracking.form.hours'), t('timeTracking.billable'), t('common.status'), 'Created', t('common.actions')].map((h) => (
                         <th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
                           {h}
                         </th>
@@ -1258,23 +1302,15 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
                         <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
                           {entry.projectName || projectMap[entry.projectId] || entry.projectId}
                         </td>
-                        <td className="px-4 py-3 text-sm max-w-xs">
-                          {entry.taskName ? (
-                            <div className="flex flex-col gap-0.5">
-                              <span className="font-medium text-gray-900 truncate" title={entry.taskName}>
-                                {entry.taskName}
-                              </span>
-                              {entry.description && (
-                                <span className="text-xs text-gray-500 truncate" title={entry.description}>
-                                  {entry.description}
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-gray-600 truncate block" title={entry.description}>
-                              {entry.description || <span className="text-gray-300">—</span>}
-                            </span>
-                          )}
+                        <td className="px-4 py-3 text-sm max-w-[200px]">
+                          {entry.taskName
+                            ? <span className="font-medium text-gray-900 truncate block" title={entry.taskName}>{entry.taskName}</span>
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 max-w-xs">
+                          <span className="truncate block" title={entry.description}>
+                            {entry.description || <span className="text-gray-300">—</span>}
+                          </span>
                         </td>
                         <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
                           {entry.startTime ? entry.startTime.slice(0, 5) : <span className="text-gray-300">—</span>}
@@ -1363,10 +1399,10 @@ const MyTimeLogTab = ({ projects }: MyTimeLogTabProps) => {
           <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-t border-gray-100 bg-gray-50">
             <div className="flex items-center gap-4 text-xs text-gray-600">
               <span>
-                Showing <strong>{((page - 1) * pageSize) + 1}–{Math.min(page * pageSize, totalCount)}</strong> of <strong>{totalCount}</strong> entries
+                Showing <strong>{((page - 1) * pageSize) + 1}–{Math.min(page * pageSize, totalDays)}</strong> of <strong>{totalDays}</strong> {totalDays === 1 ? 'day' : 'days'} · {totalEntries} {totalEntries === 1 ? 'entry' : 'entries'}
               </span>
               <span className="flex items-center gap-1.5">
-                <label htmlFor="time-page-size" className="text-gray-500">Rows per page:</label>
+                <label htmlFor="time-page-size" className="text-gray-500">Days per page:</label>
                 <select
                   id="time-page-size"
                   value={pageSize}
