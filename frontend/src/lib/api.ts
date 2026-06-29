@@ -510,6 +510,16 @@ export const attendanceApi = {
   cancelWfhRequest:  (id: string) => peopleClient.delete(`/attendance/wfh-requests/${id}`).then((r) => r.data.data),
 };
 
+export const regularizationApi = {
+  // Employee — submit a correction request and check status of their own requests
+  apply:   (data: unknown) => peopleClient.post('/regularization/apply', data).then((r) => r.data.data),
+  status:  (params?: Record<string, string>) => peopleClient.get('/regularization/status', { params }).then((r) => r.data.data),
+  // Manager — list pending requests from direct reports and approve/reject them
+  pending: (params?: Record<string, string>) => peopleClient.get('/regularization/pending', { params }).then((r) => r.data.data),
+  decide:  (data: { requestId: string; action: 'approve' | 'reject'; comments?: string }) =>
+    peopleClient.put('/regularization/approve', data).then((r) => r.data.data),
+};
+
 export const leaveApi = {
   listTypes:      () => peopleClient.get('/leave/types').then((r) => r.data.data),
   createType:     (data: unknown) => peopleClient.post('/leave/types', data).then((r) => r.data.data),

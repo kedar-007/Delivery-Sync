@@ -321,6 +321,7 @@ function TaskFormModal({
   const [attachments, setAttachments]         = useState<File[]>([]);
   const [formError, setFormError]             = useState('');
   const [requireApproval, setRequireApproval] = useState(false);
+  const [hasDueDate, setHasDueDate]           = useState(false);
   const [uploadProgress, setUploadProgress]   = useState<{ current: number; total: number } | null>(null);
   const { user } = useAuth();
   const canManageApproval = user?.role === 'TENANT_ADMIN' || hasPermission(user, PERMISSIONS.TIME_APPROVE);
@@ -363,6 +364,7 @@ function TaskFormModal({
         setAssignees(editing.assigneeIds ?? (editing.assigneeId ? [editing.assigneeId] : []));
         setWorkAllocation((editing as any).workAllocation ?? null);
         setRequireApproval((editing as any).requireApproval === true);
+        setHasDueDate(!!editing.dueDate);
         setAttachments([]);
         draftRef.current = null;
       } else if (draftRef.current) {
@@ -370,12 +372,14 @@ function TaskFormModal({
         setAssignees(draftRef.current.assignees);
         setWorkAllocation(draftRef.current.workAllocation);
         setRequireApproval(draftRef.current.requireApproval);
+        setHasDueDate(!!draftRef.current.formValues?.due_date);
         setAttachments(draftRef.current.attachments);
       } else {
         reset({ type: 'TASK', priority: 'MEDIUM', status: 'TODO', project_id: '' });
         setAssignees(user?.id ? [String(user.id)] : []);
         setWorkAllocation(null);
         setRequireApproval(false);
+        setHasDueDate(false);
         setAttachments([]);
       }
       setFormError('');
@@ -405,7 +409,7 @@ function TaskFormModal({
         type:             data.type,
         priority:         data.priority,
         status:           data.status,
-        due_date:         data.due_date || undefined,
+        due_date:         hasDueDate ? (data.due_date || null) : null,
         labels:           JSON.stringify(data.labels?.split(',').map((s) => s.trim()).filter(Boolean) ?? []),
         assignee_ids:     JSON.stringify(assignees),
         require_approval: requireApproval ? 'true' : 'false',
@@ -553,22 +557,32 @@ function TaskFormModal({
                 </div>
 
                 <div>
-                  <label className="form-label text-[11px]">{t('tasks.modal.project')}</label>
-                  <select className="form-select text-sm" {...register('project_id')}>
-                    <option value="">No project</option>
+                  <label className="form-label text-[11px]">{t('tasks.modal.project')} *</label>
+                  <select className="form-select text-sm" {...register('project_id', { required: 'Project is not selected' })}>
+                    <option value="">Select a project…</option>
                     {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
+                  {errors.project_id && <p className="text-xs text-red-600 mt-1">{errors.project_id.message as string}</p>}
                 </div>
 
                 <div>
-                  <label className="form-label text-[11px]">{t('tasks.modal.dueDate')} *</label>
-                  <input
-                    type="date"
-                    className="form-input text-sm"
-                    min={new Date().toISOString().split('T')[0]}
-                    {...register('due_date', { required: t('validation.required') })}
-                  />
-                  {errors.due_date && <p className="text-xs text-red-600 mt-1">{errors.due_date.message as string}</p>}
+                  <label className="form-label text-[11px] flex items-center gap-2">
+                    <input type="checkbox" className="h-3.5 w-3.5 rounded border-gray-300" checked={hasDueDate} onChange={(e) => setHasDueDate(e.target.checked)} />
+                    {t('tasks.modal.dueDate')}
+                  </label>
+                  {hasDueDate ? (
+                    <>
+                      <input
+                        type="date"
+                        className="form-input text-sm"
+                        min={new Date().toISOString().split('T')[0]}
+                        {...register('due_date', { required: hasDueDate ? t('validation.required') : false })}
+                      />
+                      {errors.due_date && <p className="text-xs text-red-600 mt-1">{errors.due_date.message as string}</p>}
+                    </>
+                  ) : (
+                    <p className="text-[11px] text-gray-400 py-1.5">No due date — tick to set one.</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -735,9 +749,13 @@ function TaskDetailPanel({
               {project && (
                 <span className="text-xs text-indigo-600 font-medium">{project.name}</span>
               )}
-              {task.dueDate && (
+              {task.dueDate ? (
                 <span className={`text-xs flex items-center gap-1 ${isPast(new Date(task.dueDate)) && task.status !== 'DONE' ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
                   <Clock size={11} /> Due {safeFmt(task.dueDate, 'MMM d, yyyy')}
+                </span>
+              ) : (
+                <span className="text-xs flex items-center gap-1 text-gray-400">
+                  <Clock size={11} /> No due date
                 </span>
               )}
               {/* Edit sits with metadata — far from the close button to prevent accidental clicks */}
@@ -2203,7 +2221,7 @@ function OrgTasksView({
                   {assigneeIds.length === 0 && <span className="text-xs text-gray-300">—</span>}
                 </div>
                 <div className="text-xs text-gray-500">
-                  {task.dueDate ? safeFmt(task.dueDate, 'MMM d, yyyy') : '—'}
+                  {task.dueDate ? safeFmt(task.dueDate, 'MMM d, yyyy') : <span className="text-[10px] text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5">No due date</span>}
                 </div>
               </div>
             );
@@ -2359,7 +2377,7 @@ function TaskRow({
           ? <span className={`text-xs flex items-center gap-1 ${isDue ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
               <Clock size={11} />{safeFmt(task.dueDate, 'MMM d')}
             </span>
-          : <span className="text-xs text-gray-300">—</span>}
+          : <span className="text-[10px] inline-flex items-center gap-1 text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5 whitespace-nowrap">No due date</span>}
       </td>
 
       <td className="px-3 py-3 hidden xl:table-cell text-xs text-indigo-600 font-semibold">

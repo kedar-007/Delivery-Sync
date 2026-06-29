@@ -25,6 +25,7 @@ import { useConfirm }         from '../components/ui/ConfirmDialog';
 import Card                   from '../components/ui/Card';
 import Button                 from '../components/ui/Button';
 import Modal, { ModalActions } from '../components/ui/Modal';
+import { dayNoteRequired, notesRequired, daysNeedingNote, dayNoteError } from '../lib/timesheetNotes';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,18 +61,11 @@ export function parseHour(raw: string): { value: number; error?: string } {
   if (n < 0)     return { value: 0, error: 'Hours cannot be negative.' };
   if (n > 24)    return { value: 0, error: 'Cannot exceed 24 hours per day.' };
 
-  // Max 2 decimal places
+  // Max 2 decimal places — any decimal hours are allowed (e.g. 8.2, 8.45),
+  // not just 15-minute (0.25) increments.
   const dotIdx = s.indexOf('.');
   if (dotIdx !== -1 && s.length - dotIdx - 1 > 2) {
     return { value: 0, error: 'Maximum 2 decimal places allowed.' };
-  }
-
-  // Must be a 0.25 (15-minute) increment: n × 4 must be a whole number
-  if (Math.round(n * 4) !== Math.round(n * 4 * 1) || Math.abs(n * 4 - Math.round(n * 4)) > 1e-9) {
-    // More robust check:
-    if (Math.abs((n * 4) - Math.round(n * 4)) > 0.0001) {
-      return { value: 0, error: 'Time must be in 15-minute increments (0.25, 0.5, 0.75…).' };
-    }
   }
 
   return { value: n };
@@ -85,27 +79,6 @@ export const colHours    = (rows: TimesheetRow[], date: string) =>
 
 export const weekTotal   = (rows: TimesheetRow[], dates: string[]) =>
   dates.reduce((s, d) => s + colHours(rows, d), 0);
-
-// A single day needs an explanatory note when it's a weekend day with hours, or
-// any day logging more than 8h (overtime). Evaluated per-day so each day owns
-// its own description.
-export function dayNoteRequired(hours: number, isWeekend: boolean): boolean {
-  return hours > 0 && (isWeekend || hours > 8);
-}
-
-// Does any day in the row require a note? (weekday index 5 = Sat, 6 = Sun)
-export function notesRequired(row: TimesheetRow, dates: string[]): boolean {
-  return dates.some((d, i) => dayNoteRequired(parseFloat(row.hours[d] ?? '') || 0, i >= 5));
-}
-
-// A per-day note must be non-empty when required, and 10–1000 chars when present.
-export function dayNoteError(note: string, required: boolean): string {
-  const n = (note ?? '').trim();
-  if (required && !n) return 'Note required for weekend/overtime hours.';
-  if (n.length > 0 && n.length < 10) return 'Minimum 10 characters.';
-  if ((note ?? '').length > 1000) return 'Maximum 1000 characters.';
-  return '';
-}
 
 export function duplicateRowIds(rows: TimesheetRow[]): Set<string> {
   const seen  = new Map<string, string>();
@@ -137,7 +110,7 @@ const mkRow = (): TimesheetRow => ({
 
 interface HourCellProps {
   rowId: string; date: string; value: string; error?: string;
-  isToday: boolean; cellKey: string;
+  isToday: boolean; isFuture: boolean; cellKey: string;
   note: string; noteRequired: boolean;
   onChange: (rowId: string, date: string, val: string) => void;
   onBlur:   (rowId: string, date: string, val: string) => void;
@@ -145,7 +118,7 @@ interface HourCellProps {
 }
 
 const HourCell = memo(({
-  rowId, date, value, error, isToday, cellKey, note, noteRequired, onChange, onBlur, onOpenNote,
+  rowId, date, value, error, isToday, isFuture, cellKey, note, noteRequired, onChange, onBlur, onOpenNote,
 }: HourCellProps) => {
   const [local, setLocal] = useState(value);
   useEffect(() => { setLocal(value); }, [value]);
@@ -176,25 +149,28 @@ const HourCell = memo(({
 
   return (
     <td
-      title={error}
+      title={isFuture ? 'You can’t log time on a future date' : error}
       className={`relative border-r border-gray-100 p-0 w-[72px] min-w-[60px] ${
-        isToday ? 'bg-blue-50/40' : ''} ${error ? 'bg-red-50' : ''}`}
+        isFuture ? 'bg-gray-50' : isToday ? 'bg-blue-50/40' : ''} ${error ? 'bg-red-50' : ''}`}
     >
       <input
         type="text"
         inputMode="decimal"
-        placeholder="—"
-        data-cell={cellKey}
+        placeholder={isFuture ? '' : '—'}
+        disabled={isFuture}
+        data-cell={isFuture ? undefined : cellKey}
         value={local}
         onChange={e => { setLocal(e.target.value); onChange(rowId, date, e.target.value); }}
         onBlur={handleBlur}
         onKeyDown={handleKeyDown}
-        className={`w-full h-10 text-center text-[13px] border-0 bg-transparent
-          focus:outline-none focus:bg-blue-100/50 transition-colors caret-indigo-600 ${
-            error  ? 'text-red-600 font-medium'    :
-            hasVal ? 'text-gray-900 font-semibold'  : 'text-gray-300 placeholder-gray-200'}`}
+        className={`w-full h-10 text-center text-[13px] border-0 bg-transparent transition-colors ${
+          isFuture
+            ? 'text-gray-300 cursor-not-allowed'
+            : `focus:outline-none focus:bg-blue-100/50 caret-indigo-600 ${
+                error  ? 'text-red-600 font-medium'    :
+                hasVal ? 'text-gray-900 font-semibold'  : 'text-gray-300 placeholder-gray-200'}`}`}
       />
-      {showNoteIcon && (
+      {!isFuture && showNoteIcon && (
         <button
           type="button"
           tabIndex={-1}
@@ -308,18 +284,20 @@ const TimesheetRowComp = memo(({
   onUpdate, onCellChange, onCellBlur, onNoteChange, onDelete, onDuplicate,
 }: RowProps) => {
   // Days that carry, or need, a per-day description — what the editor lists.
-  const noteDays = weekDates.map((date, di) => {
-    const hrs = parseFloat(row.hours[date] ?? '') || 0;
-    return { date, required: dayNoteRequired(hrs, di >= 5), note: row.notes[date] ?? '' };
-  }).filter(d => d.required || d.note.trim() || (parseFloat(row.hours[d.date] ?? '') || 0) > 0);
+  // A box appears for EVERY day with hours (see daysNeedingNote), so logging
+  // time on any day — not just Saturday/overtime — surfaces its description.
+  const noteDays = daysNeedingNote(row, weekDates);
 
-  const [showNotes, setShowNotes] = useState(
-    noteDays.some(d => d.note.trim()) || notesReq,
-  );
+  // Show the description editor as soon as the row has hours on ANY day (not
+  // just weekend/overtime). noteDays already holds every day that has hours, a
+  // note, or is required — so a non-empty list means there's something to describe.
+  const [showNotes, setShowNotes] = useState(noteDays.length > 0);
   const [focusDate, setFocusDate] = useState<string | null>(null);
   const noteRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
-  useEffect(() => { if (notesReq) setShowNotes(true); }, [notesReq]);
+  // Auto-open whenever a day gains hours (the list grows). Fires only on the
+  // transition, so manually hiding it while hours stay put isn't overridden.
+  useEffect(() => { if (noteDays.length > 0) setShowNotes(true); }, [noteDays.length]);
   // Focus the requested day's note field once the editor is open.
   useEffect(() => {
     if (showNotes && focusDate && noteRefs.current[focusDate]) {
@@ -368,6 +346,7 @@ const TimesheetRowComp = memo(({
             value={row.hours[date] ?? ''}
             error={cellErrors[date]}
             isToday={date === todayStr}
+            isFuture={date > todayStr}
             cellKey={`${rowIndex}-${di}`}
             note={row.notes[date] ?? ''}
             noteRequired={dayNoteRequired(parseFloat(row.hours[date] ?? '') || 0, di >= 5)}
@@ -1286,7 +1265,7 @@ export const WeeklyTimesheetTab = (_: WeeklyTimesheetTabProps) => {
 
       {/* ── Info footer ── */}
       <div className="flex items-center gap-4 px-1 text-xs text-gray-400">
-        <span className="flex items-center gap-1"><Info size={11} /> Tab to move between cells · Hours in 0.25 increments · Max 24h/day</span>
+        <span className="flex items-center gap-1"><Info size={11} /> Tab to move between cells · Decimal hours allowed (e.g. 8.2, 8.45) · Max 24h/day</span>
         <span className="ml-auto">Auto-saves every 30 seconds</span>
       </div>
 

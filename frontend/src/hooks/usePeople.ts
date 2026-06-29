@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { attendanceApi, leaveApi, announcementsApi, orgApi } from '../lib/api';
+import { attendanceApi, regularizationApi, leaveApi, announcementsApi, orgApi } from '../lib/api';
 import { useToast } from '../components/ui/Toast';
 
 // ── Field normaliser: Catalyst DataStore returns snake_case; map to camelCase ─
@@ -343,6 +343,66 @@ export const useCancelWfhRequest = () => {
     mutationFn: (id: string) => attendanceApi.cancelWfhRequest(id),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['wfh-requests'] }); toast.success('WFH request cancelled'); },
     onError: (e: Error) => toast.error(e.message || 'Failed to cancel'),
+  });
+};
+
+// ── Attendance Regularization ──────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const normaliseRegularization = (r: any) => ({
+  ...r,
+  id:                 String(r.ROWID ?? r.id ?? ''),
+  userId:             r.user_id              ?? r.userId,
+  attendanceDate:     r.attendance_date      ?? r.attendanceDate,
+  requestedCheckIn:   r.requested_check_in   ?? r.requestedCheckIn   ?? '',
+  requestedCheckOut:  r.requested_check_out  ?? r.requestedCheckOut  ?? '',
+  reviewedBy:         r.reviewed_by          ?? r.reviewedBy         ?? '',
+  reviewerNotes:      r.reviewer_notes       ?? r.reviewerNotes      ?? '',
+  reviewedAt:         r.reviewed_at          ?? r.reviewedAt         ?? null,
+  userName:           r.user_name            ?? r.userName           ?? '',
+  userEmail:          r.user_email           ?? r.userEmail          ?? '',
+});
+
+export const useRegularizationStatus = (params?: Record<string, string>) =>
+  useQuery({
+    queryKey: ['regularization', 'status', params],
+    queryFn: async () => {
+      const rows = await regularizationApi.status(params);
+      return Array.isArray(rows) ? rows.map(normaliseRegularization) : [];
+    },
+  });
+
+export const useRegularizationPending = (params?: Record<string, string>) =>
+  useQuery({
+    queryKey: ['regularization', 'pending', params],
+    queryFn: async () => {
+      const rows = await regularizationApi.pending(params);
+      return Array.isArray(rows) ? rows.map(normaliseRegularization) : [];
+    },
+  });
+
+export const useApplyRegularization = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (data: unknown) => regularizationApi.apply(data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['regularization'] }); toast.success('Regularization request submitted'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to submit request'),
+  });
+};
+
+export const useDecideRegularization = () => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (data: { requestId: string; action: 'approve' | 'reject'; comments?: string }) =>
+      regularizationApi.decide(data),
+    onSuccess: (_res, vars) => {
+      qc.invalidateQueries({ queryKey: ['regularization'] });
+      qc.invalidateQueries({ queryKey: ['attendance'] });
+      toast.success(vars.action === 'approve' ? 'Regularization approved' : 'Regularization rejected');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update request'),
   });
 };
 

@@ -555,6 +555,9 @@ export default function SprintBoardPage() {
   const [showAIAnalysis, setShowAIAnalysis] = useState(false);
   const sprintAnalysis = useAiSprintAnalysis();
   const [createTaskStatus, setCreateTaskStatus] = useState<TaskStatus>('TODO');
+  // Due date is opt-in via a checkbox (tasks can be created without a deadline).
+  const [createHasDueDate, setCreateHasDueDate] = useState(false);
+  const [editHasDueDate, setEditHasDueDate] = useState(false);
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [createWorkAllocation, setCreateWorkAllocation] = useState<WorkAllocation | null>(null);
   const [editTask, setEditTask] = useState<Task | null>(null);
@@ -965,7 +968,7 @@ export default function SprintBoardPage() {
       priority: data.priority,
       story_points: data.story_points || null,
       estimated_hours: hasAllocation ? alloc!.totalHours : (data.estimated_hours || null),
-      due_date: data.due_date || null,
+      due_date: createHasDueDate ? (data.due_date || null) : null,
       labels: data.labels ? JSON.stringify(data.labels.split(',').map((l) => l.trim()).filter(Boolean)) : '[]',
       project_id: projectId,
       sprint_id: activeSprint?.id ?? null,
@@ -975,7 +978,7 @@ export default function SprintBoardPage() {
       require_approval: createTaskRequireApproval ? 'true' : 'false',
       ...(hasAllocation ? { work_allocations: serializeAllocation(alloc!, deriveWorkingDates(alloc!)) } : {}),
     }, {
-      onSuccess: () => { setShowCreateTask(false); taskForm.reset(); setAssigneeIds([]); setCreateWorkAllocation(null); setCreateTaskRequireApproval(false); setCreateParentTaskId(''); setParentError(''); },
+      onSuccess: () => { setShowCreateTask(false); taskForm.reset(); setAssigneeIds([]); setCreateWorkAllocation(null); setCreateTaskRequireApproval(false); setCreateParentTaskId(''); setParentError(''); setCreateHasDueDate(false); },
     });
   });
 
@@ -989,6 +992,7 @@ export default function SprintBoardPage() {
     setAssigneeIds([]);
     setCreateWorkAllocation(null);
     setCreateTaskRequireApproval(false);
+    setCreateHasDueDate(false);
     setCreateTaskStatus(columns[0]?.key ?? 'TODO');
     setTaskDetailId(null);
     setShowCreateTask(true);
@@ -1181,7 +1185,7 @@ export default function SprintBoardPage() {
         priority: data.priority,
         story_points: data.story_points || null,
         estimated_hours: hasAllocation ? alloc!.totalHours : (data.estimated_hours || null),
-        due_date: data.due_date || null,
+        due_date: editHasDueDate ? (data.due_date || null) : null,
         labels: data.labels ? JSON.stringify((data.labels as string).split(',').map(l => l.trim()).filter(Boolean)) : '[]',
         assignee_ids: JSON.stringify(editAssigneeIds),
         require_approval: editTaskRequireApproval ? 'true' : 'false',
@@ -1195,6 +1199,7 @@ export default function SprintBoardPage() {
     setEditAssigneeIds(task.assigneeIds ?? (task.assigneeId ? [task.assigneeId] : []));
     setEditWorkAllocation((task as any).workAllocation ?? null);
     setEditTaskRequireApproval((task as any).requireApproval === true);
+    setEditHasDueDate(!!task.dueDate);
     editForm.reset({
       title: task.title,
       description: task.description,
@@ -1689,15 +1694,24 @@ export default function SprintBoardPage() {
               </select>
             </div>
             <div>
-              <label className="form-label">{t('tasks.modal.dueDate')} *</label>
-              <input
-                type="date"
-                className="form-input"
-                min={new Date().toISOString().split('T')[0]}
-                {...taskForm.register('due_date', { required: 'Due date is required' })}
-              />
-              {taskForm.formState.errors.due_date && (
-                <p className="form-error">{taskForm.formState.errors.due_date.message as string}</p>
+              <label className="form-label flex items-center gap-2">
+                <input type="checkbox" className="h-3.5 w-3.5 rounded border-gray-300" checked={createHasDueDate} onChange={(e) => setCreateHasDueDate(e.target.checked)} />
+                {t('tasks.modal.dueDate')}
+              </label>
+              {createHasDueDate ? (
+                <>
+                  <input
+                    type="date"
+                    className="form-input"
+                    min={new Date().toISOString().split('T')[0]}
+                    {...taskForm.register('due_date', { required: createHasDueDate ? 'Due date is required' : false })}
+                  />
+                  {taskForm.formState.errors.due_date && (
+                    <p className="form-error">{taskForm.formState.errors.due_date.message as string}</p>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-ds-text-muted py-2">No due date — tick the box to set one.</p>
               )}
             </div>
             <div>
@@ -2858,14 +2872,23 @@ export default function SprintBoardPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="form-label">📅 {t('tasks.modal.dueDate')}</label>
-                    <input
-                      type="date"
-                      className="form-input"
-                      {...editForm.register('due_date', { required: 'Due date is required' })}
-                    />
-                    {editForm.formState.errors.due_date && (
-                      <p className="form-error">{editForm.formState.errors.due_date.message as string}</p>
+                    <label className="form-label flex items-center gap-2">
+                      <input type="checkbox" className="h-3.5 w-3.5 rounded border-gray-300" checked={editHasDueDate} onChange={(e) => setEditHasDueDate(e.target.checked)} />
+                      📅 {t('tasks.modal.dueDate')}
+                    </label>
+                    {editHasDueDate ? (
+                      <>
+                        <input
+                          type="date"
+                          className="form-input"
+                          {...editForm.register('due_date', { required: editHasDueDate ? 'Due date is required' : false })}
+                        />
+                        {editForm.formState.errors.due_date && (
+                          <p className="form-error">{editForm.formState.errors.due_date.message as string}</p>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-xs text-ds-text-muted py-2">No due date — tick the box to set one.</p>
                     )}
                   </div>
                 </div>
