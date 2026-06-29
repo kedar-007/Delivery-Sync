@@ -230,14 +230,15 @@ class TaskController {
     }
 
     if (!title) return ResponseHelper.validationError(res, 'title is required');
-    // Defence in depth — the frontend already marks Due Date as mandatory, but
-    // a hand-crafted POST without it would otherwise leak through. We also
-    // accept full ISO strings here (e.g. "2026-05-14T00:00:00Z") by trimming
-    // anything after the date portion before validating the YYYY-MM-DD shape.
-    if (!due_date) return ResponseHelper.validationError(res, 'due_date is required');
-    const _dueDateOnly = String(due_date).split('T')[0].split(' ')[0].trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(_dueDateOnly)) {
-      return ResponseHelper.validationError(res, 'due_date must be in YYYY-MM-DD format');
+    // Due date is OPTIONAL (a task can be created without one — e.g. future work).
+    // Only when a due date IS supplied do we validate its shape. Accept full ISO
+    // strings (e.g. "2026-05-14T00:00:00Z") by trimming to the date portion.
+    let _dueDateOnly = '';
+    if (due_date) {
+      _dueDateOnly = String(due_date).split('T')[0].split(' ')[0].trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(_dueDateOnly)) {
+        return ResponseHelper.validationError(res, 'due_date must be in YYYY-MM-DD format');
+      }
     }
 
     // Normalise labels — frontend may send JSON string or array
@@ -279,9 +280,10 @@ class TaskController {
       created_by: String(userId),
       require_approval: req.body.require_approval === true || req.body.require_approval === 'true' ? 'true' : 'false',
     };
-    // Store the normalised YYYY-MM-DD (already validated above) so a stray
-    // time component from the client doesn't leak into the DATE column.
-    insertData.due_date = _dueDateOnly;
+    // Store the normalised YYYY-MM-DD only when present. A Catalyst DATE column
+    // rejects an empty string ("date value expected"), so OMIT the field
+    // entirely when there's no due date (leaves it null / unset).
+    if (_dueDateOnly) insertData.due_date = _dueDateOnly;
 
     // Persist the allocation and mirror its grand total into estimated_hours.
     if (allocResult.value) {

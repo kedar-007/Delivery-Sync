@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Clock, LogIn, LogOut, Home, Users, BarChart2, AlertTriangle, UtensilsCrossed, Coffee, Bot, FileText } from 'lucide-react';
+import { Clock, LogIn, LogOut, Home, Users, BarChart2, AlertTriangle, UtensilsCrossed, Coffee, Bot, FileText, CalendarClock } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { format, parseISO, startOfWeek, endOfWeek, addDays } from 'date-fns';
 import Layout from '../components/layout/Layout';
@@ -32,6 +32,10 @@ import {
   useApproveWfhRequest,
   useRejectWfhRequest,
   useCancelWfhRequest,
+  useRegularizationStatus,
+  useRegularizationPending,
+  useApplyRegularization,
+  useDecideRegularization,
 } from '../hooks/usePeople';
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
@@ -116,7 +120,7 @@ const ATTENDANCE_MANAGER_PERMS = ['ATTENDANCE_ADMIN', 'ATTENDANCE_TEAM_VIEW'];
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 
-type Tab = 'my' | 'wfh' | 'live' | 'records' | 'summary' | 'report';
+type Tab = 'my' | 'wfh' | 'regularize' | 'live' | 'records' | 'summary' | 'report';
 
 // ── IP Config Tab ─────────────────────────────────────────────────────────────
 
@@ -1698,6 +1702,346 @@ const WfhRequestsTab = ({ highlightId = '' }: { highlightId?: string }) => {
   );
 };
 
+// ── Regularization Tab ────────────────────────────────────────────────────────
+
+interface RegularizationForm {
+  date: string;
+  checkIn: string;
+  checkOut: string;
+  reason: string;
+}
+
+interface RegDecisionForm {
+  comments: string;
+}
+
+const REG_PAGE_SIZE = 10;
+const REG_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'] as const;
+
+// Stored requested times are wall-clock 'YYYY-MM-DD HH:MM:SS' — echo back as HH:MM.
+const fmtReqTime = (v?: string) => (v && v.length >= 16 ? v.slice(11, 16) : '—');
+
+const RegularizationTab = () => {
+  const { t } = useI18n();
+  const [subTab, setSubTab] = useState<'my' | 'team'>('my');
+  const [showApplyModal, setShowApplyModal] = useState(false);
+  const [rejectTarget, setRejectTarget] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+  const [myPage, setMyPage] = useState(1);
+  const [teamPage, setTeamPage] = useState(1);
+  const [myStatusFilter, setMyStatusFilter] = useState('');
+  // Reviewer queue defaults to actionable PENDING items, but the full history
+  // (approved/rejected) is available via the filter.
+  const [teamStatusFilter, setTeamStatusFilter] = useState<string>('PENDING');
+
+  const { data: myRequests = [], isLoading: myLoading } = useRegularizationStatus();
+  // Backend returns all statuses the reviewer can see; we filter client-side.
+  const { data: teamRequests = [], isLoading: teamLoading } = useRegularizationPending();
+
+  const hasTeam = !teamLoading && (teamRequests as any[]).length > 0;
+  const pendingTeam = (teamRequests as any[]).filter((r: any) => r.status === 'PENDING').length;
+
+  const filteredMyRequests = myStatusFilter
+    ? (myRequests as any[]).filter((r: any) => r.status === myStatusFilter)
+    : (myRequests as any[]);
+  const filteredTeamRequests = teamStatusFilter
+    ? (teamRequests as any[]).filter((r: any) => r.status === teamStatusFilter)
+    : (teamRequests as any[]);
+
+  const pagedMyRequests = filteredMyRequests.slice((myPage - 1) * REG_PAGE_SIZE, myPage * REG_PAGE_SIZE);
+  const pagedTeamRequests = filteredTeamRequests.slice((teamPage - 1) * REG_PAGE_SIZE, teamPage * REG_PAGE_SIZE);
+
+  const applyReg  = useApplyRegularization();
+  const decideReg = useDecideRegularization();
+
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+
+  const {
+    register: registerApply, handleSubmit: handleApplyForm, reset: resetApply,
+    formState: { errors: applyErrors, isSubmitting: applyPending },
+  } = useForm<RegularizationForm>({ defaultValues: { date: todayStr } });
+
+  const {
+    register: registerReject, handleSubmit: handleRejectForm, reset: resetReject,
+    formState: { errors: rejectErrors, isSubmitting: rejectPending },
+  } = useForm<RegDecisionForm>();
+
+  const handleApply = async (data: RegularizationForm) => {
+    if (!data.checkIn && !data.checkOut) {
+      setActionError('Enter at least a check-in or a check-out time');
+      return;
+    }
+    try {
+      setActionError('');
+      await applyReg.mutateAsync(data);
+      resetApply();
+      setShowApplyModal(false);
+    } catch (e: any) { setActionError(e?.message ?? t('errors.saveFailed')); }
+  };
+
+  const handleApprove = async (id: string) => {
+    try {
+      setActionError('');
+      await decideReg.mutateAsync({ requestId: id, action: 'approve' });
+    } catch (e: any) { setActionError(e?.message ?? t('errors.saveFailed')); }
+  };
+
+  const handleReject = async (data: RegDecisionForm) => {
+    if (!rejectTarget) return;
+    try {
+      setActionError('');
+      await decideReg.mutateAsync({ requestId: rejectTarget, action: 'reject', comments: data.comments });
+      setRejectTarget(null);
+      resetReject();
+    } catch (e: any) { setActionError(e?.message ?? t('errors.saveFailed')); }
+  };
+
+  const StatusFilterBar = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <button
+        onClick={() => onChange('')}
+        className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+          value === '' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+        }`}
+      >{t('common.all')}</button>
+      {REG_STATUSES.map((s) => (
+        <button
+          key={s}
+          onClick={() => onChange(s)}
+          className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+            value === s
+              ? s === 'PENDING'  ? 'bg-amber-500 text-white border-amber-500'
+              : s === 'APPROVED' ? 'bg-green-600 text-white border-green-600'
+              :                    'bg-red-600 text-white border-red-600'
+              : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+          }`}
+        >{s.charAt(0) + s.slice(1).toLowerCase()}</button>
+      ))}
+    </div>
+  );
+
+  const TimeRange = ({ req }: { req: any }) => (
+    <span className="text-sm text-gray-600">
+      {fmtReqTime(req.requestedCheckIn)} – {fmtReqTime(req.requestedCheckOut)}
+    </span>
+  );
+
+  return (
+    <div className="space-y-4">
+      {actionError && <Alert type="error" message={actionError} />}
+
+      {/* Sub-tab bar + New Request button */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
+          <button
+            onClick={() => setSubTab('my')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              subTab === 'my' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {t('leave.tabs.myRequests')}
+            {(myRequests as any[]).length > 0 && (
+              <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                subTab === 'my' ? 'bg-gray-100 text-gray-600' : 'bg-gray-200 text-gray-500'
+              }`}>{(myRequests as any[]).length}</span>
+            )}
+          </button>
+          {(teamLoading || hasTeam) && (
+            <button
+              onClick={() => setSubTab('team')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                subTab === 'team' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Users size={13} />
+              {t('leave.tabs.team')}
+              {pendingTeam > 0 && (
+                <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-700">{pendingTeam}</span>
+              )}
+            </button>
+          )}
+        </div>
+        <Button size="sm" icon={<Send size={13} />} onClick={() => setShowApplyModal(true)}>New Request</Button>
+      </div>
+
+      {/* My Requests panel */}
+      {subTab === 'my' && (
+        <Card>
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <p className="text-xs text-gray-500">Your attendance correction requests</p>
+            <StatusFilterBar value={myStatusFilter} onChange={(v) => { setMyStatusFilter(v); setMyPage(1); }} />
+          </div>
+          {myLoading ? <PageSkeleton /> : filteredMyRequests.length === 0 ? (
+            <EmptyState
+              title={myStatusFilter ? `No ${myStatusFilter.toLowerCase()} requests` : 'No regularization requests'}
+              description={myStatusFilter ? t('common.noResults') : t('common.noData')}
+            />
+          ) : (
+            <>
+              <div className="space-y-2">
+                {pagedMyRequests.map((req: any) => (
+                  <div key={req.id} className="flex items-center justify-between px-3 py-3 rounded-xl border bg-gray-50 border-gray-100">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <p className="text-sm font-medium text-gray-800">{formatDate(req.attendanceDate)}</p>
+                        <span className="text-gray-300 text-xs">·</span>
+                        <TimeRange req={req} />
+                        <Badge variant={wfhStatusVariant(req.status)}>{req.status}</Badge>
+                      </div>
+                      <p className="text-xs text-gray-500 truncate">{req.reason}</p>
+                      {req.reviewerNotes && (
+                        <p className="text-xs text-red-500 mt-0.5">Note: {req.reviewerNotes}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <Pagination
+                page={myPage}
+                totalPages={Math.ceil(filteredMyRequests.length / REG_PAGE_SIZE)}
+                total={filteredMyRequests.length}
+                pageSize={REG_PAGE_SIZE}
+                onPageChange={setMyPage}
+                className="mt-4"
+              />
+            </>
+          )}
+        </Card>
+      )}
+
+      {/* Team panel — reviewer view (pending queue + approval history) */}
+      {subTab === 'team' && (
+        <Card>
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <p className="text-xs text-gray-500">Requests from your team</p>
+            <StatusFilterBar value={teamStatusFilter} onChange={(v) => { setTeamStatusFilter(v); setTeamPage(1); }} />
+          </div>
+          {teamLoading ? <PageSkeleton /> : filteredTeamRequests.length === 0 ? (
+            <EmptyState
+              title={teamStatusFilter ? `No ${teamStatusFilter.toLowerCase()} requests` : 'No requests'}
+              description={t('common.noResults')}
+            />
+          ) : (
+            <>
+              <div className="space-y-2">
+                {pagedTeamRequests.map((req: any) => (
+                  <div key={req.id} className="flex items-center justify-between px-3 py-3 rounded-xl border bg-gray-50 border-gray-100">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <p className="text-sm font-medium text-gray-800">{req.userName || '—'}</p>
+                        <span className="text-gray-300 text-xs">·</span>
+                        <p className="text-sm text-gray-600">{formatDate(req.attendanceDate)}</p>
+                        <span className="text-gray-300 text-xs">·</span>
+                        <TimeRange req={req} />
+                        <Badge variant={wfhStatusVariant(req.status)}>{req.status}</Badge>
+                      </div>
+                      <p className="text-xs text-gray-500 truncate">{req.reason}</p>
+                      {req.reviewerNotes && (
+                        <p className="text-xs text-gray-400 mt-0.5">Note: {req.reviewerNotes}</p>
+                      )}
+                    </div>
+                    {req.status === 'PENDING' && (
+                      <div className="flex items-center gap-1 ml-3">
+                        <button
+                          onClick={() => handleApprove(String(req.id))}
+                          disabled={decideReg.isPending}
+                          className="p-1.5 rounded-lg text-green-500 hover:text-green-700 hover:bg-green-50 transition-colors disabled:opacity-50"
+                          title={t('leave.approve')}
+                        >
+                          <CheckCircle size={16} />
+                        </button>
+                        <button
+                          onClick={() => setRejectTarget(String(req.id))}
+                          className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          title={t('leave.reject')}
+                        >
+                          <XCircle size={16} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <Pagination
+                page={teamPage}
+                totalPages={Math.ceil(filteredTeamRequests.length / REG_PAGE_SIZE)}
+                total={filteredTeamRequests.length}
+                pageSize={REG_PAGE_SIZE}
+                onPageChange={setTeamPage}
+                className="mt-4"
+              />
+            </>
+          )}
+        </Card>
+      )}
+
+      {/* Apply Modal */}
+      <Modal open={showApplyModal} onClose={() => { setShowApplyModal(false); resetApply(); }} title="Attendance Regularization" size="sm">
+        <form onSubmit={handleApplyForm(handleApply)} className="space-y-4">
+          <div>
+            <label className="form-label">Date</label>
+            <input
+              type="date"
+              className="form-input"
+              max={todayStr}
+              {...registerApply('date', {
+                required: t('validation.required'),
+                validate: (v) => (v && v <= todayStr) || 'Cannot regularize a future date',
+              })}
+            />
+            {applyErrors.date && <p className="form-error">{applyErrors.date.message}</p>}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="form-label">Check-in</label>
+              <input type="time" className="form-input" {...registerApply('checkIn')} />
+            </div>
+            <div>
+              <label className="form-label">Check-out</label>
+              <input type="time" className="form-input" {...registerApply('checkOut')} />
+            </div>
+          </div>
+          <p className="text-xs text-gray-400 -mt-1">Enter at least one of check-in or check-out.</p>
+          <div>
+            <label className="form-label">Reason</label>
+            <textarea
+              className="form-textarea"
+              rows={3}
+              placeholder="Explain why this attendance entry needs correcting…"
+              {...registerApply('reason', { required: t('validation.required') })}
+            />
+            {applyErrors.reason && <p className="form-error">{applyErrors.reason.message}</p>}
+          </div>
+          <ModalActions>
+            <Button variant="outline" type="button" onClick={() => { setShowApplyModal(false); resetApply(); }}>{t('common.cancel')}</Button>
+            <Button type="submit" icon={<Send size={13} />} loading={applyPending}>Submit Request</Button>
+          </ModalActions>
+        </form>
+      </Modal>
+
+      {/* Reject Modal */}
+      <Modal open={!!rejectTarget} onClose={() => { setRejectTarget(null); resetReject(); }} title={t('leave.reject')} size="sm">
+        <form onSubmit={handleRejectForm(handleReject)} className="space-y-4">
+          <div>
+            <label className="form-label">Comments</label>
+            <textarea
+              className="form-textarea"
+              rows={3}
+              placeholder="Provide a reason so the employee can resubmit if needed…"
+              {...registerReject('comments', { required: t('validation.required') })}
+            />
+            {rejectErrors.comments && <p className="form-error">{rejectErrors.comments.message}</p>}
+          </div>
+          <ModalActions>
+            <Button variant="outline" type="button" onClick={() => { setRejectTarget(null); resetReject(); }}>{t('common.cancel')}</Button>
+            <Button variant="danger" type="submit" icon={<XCircle size={13} />} loading={rejectPending}>{t('leave.reject')}</Button>
+          </ModalActions>
+        </form>
+      </Modal>
+    </div>
+  );
+};
+
 // ── Report Tab ────────────────────────────────────────────────────────────────
 
 interface ReportRow {
@@ -2132,6 +2476,7 @@ const AttendancePage = () => {
   const tabs: { id: Tab; label: string; icon: React.ReactNode; managerOnly?: boolean; ipOnly?: boolean; reportOnly?: boolean }[] = [
     { id: 'my',        label: t('attendance.tabs.today'),    icon: <Clock size={15} /> },
     { id: 'wfh',       label: t('attendance.tabs.wfh'),      icon: <Home size={15} /> },
+    { id: 'regularize', label: 'Regularization',             icon: <CalendarClock size={15} /> },
     { id: 'live',      label: t('attendance.liveNow'),       icon: <Users size={15} />,       managerOnly: true },
     { id: 'records',   label: t('attendance.tabs.team'),     icon: <BarChart2 size={15} /> },
     { id: 'summary',   label: t('attendance.tabs.summary'),  icon: <BarChart2 size={15} /> },
@@ -2173,6 +2518,7 @@ const AttendancePage = () => {
         {/* Tab Content */}
         {tab === 'my' && <MyAttendanceTab onRequestWfh={() => setTab('wfh')} />}
         {tab === 'wfh' && <WfhRequestsTab highlightId={highlightWfhId} />}
+        {tab === 'regularize' && <RegularizationTab />}
         {tab === 'live' && isManager && <TeamLiveTab />}
         {tab === 'records' && <RecordsTab isManager={isManager} />}
         {tab === 'summary' && <SummaryTab />}

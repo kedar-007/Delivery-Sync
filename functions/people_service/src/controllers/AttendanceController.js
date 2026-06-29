@@ -40,6 +40,18 @@ function extractClientIp(req) {
   return sock || '127.0.0.1';
 }
 
+// True for loopback / localhost addresses (catalyst serve, same-host requests).
+function isLoopbackIp(ip) {
+  const n = String(ip || '').replace(/^::ffff:/, '').trim();
+  return n === '127.0.0.1' || n === '::1' || n.startsWith('127.');
+}
+
+// True unless ENVIRONMENT/NODE_ENV marks this as production (mirrors NotificationService).
+function isNonProdEnv() {
+  const env = String(process.env.ENVIRONMENT || process.env.NODE_ENV || 'development').trim().toLowerCase();
+  return env !== 'production' && env !== 'prod';
+}
+
 function getNowInTZ(tz) {
   const safeZone = tz && tz.trim() ? tz.trim() : 'Asia/Kolkata';
   try {
@@ -170,7 +182,14 @@ class AttendanceController {
       }
     }
 
-    if (!is_remote) {
+    // Local-dev escape hatch: requests from loopback (catalyst serve / localhost)
+    // can never present a real public office IP or sit inside a geo-zone, so the
+    // location guard would always block. Skip it for loopback in non-production
+    // only — production stays fully enforced even from loopback.
+    const devLoopbackBypass = isLoopbackIp(ip) && isNonProdEnv();
+    if (devLoopbackBypass) console.log(`[checkIn] dev loopback bypass (ip="${ip}", non-prod) — skipping IP/geo location guard`);
+
+    if (!is_remote && !devLoopbackBypass) {
       console.log(`[checkIn] location-guard: ip="${ip}" ipAllowed=${ipCheck.allowed} ipRestricted=${ipCheck.restricted} | countryAllowed=${countryCheck.allowed} | zoneAllowed=${zoneCheck.allowed} zoneRestricted=${zoneCheck.restricted}`);
 
       // Country is always an independent blocker
@@ -566,7 +585,7 @@ class AttendanceController {
 
     // IP + Geo check for office workers only — WFH workers are already remote.
     const isWfhRecord = existing[0].is_wfh === 'true' || existing[0].is_wfh === true;
-    if (!isWfhRecord) {
+    if (!isWfhRecord && !(isNonProdEnv() && isLoopbackIp(extractClientIp(req)))) {
       const ip = extractClientIp(req);
       const { latitude: bsLat, longitude: bsLon, gps_error_code: bsGpsErr } = req.body;
       const bsClientCoords = (bsLat != null && bsLon != null)
@@ -690,7 +709,7 @@ class AttendanceController {
     const todayRecord = await this.db.findWhere(TABLES.ATTENDANCE_RECORDS, tenantId,
       `user_id = '${userRowId}' AND attendance_date = '${today}'`, { limit: 1 });
     const isWfhRecord = todayRecord[0]?.is_wfh === 'true' || todayRecord[0]?.is_wfh === true;
-    if (!isWfhRecord) {
+    if (!isWfhRecord && !(isNonProdEnv() && isLoopbackIp(extractClientIp(req)))) {
       const ip = extractClientIp(req);
       const { latitude: beLat, longitude: beLon, gps_error_code: beGpsErr } = req.body;
       const beClientCoords = (beLat != null && beLon != null)

@@ -56,6 +56,7 @@ export const PERMISSIONS = {
   ATTENDANCE_TEAM_VIEW: 'ATTENDANCE_TEAM_VIEW',
   ATTENDANCE_ADMIN:     'ATTENDANCE_ADMIN',
   ATTENDANCE_REPORT:    'ATTENDANCE_REPORT',   // generate/download comprehensive attendance reports
+  REGULARIZATION_APPROVE: 'REGULARIZATION_APPROVE', // approve/reject attendance regularization for team peers
   LEAVE_READ:      'LEAVE_READ',
   LEAVE_WRITE:     'LEAVE_WRITE',
   LEAVE_APPROVE:   'LEAVE_APPROVE',

@@ -120,6 +120,7 @@ const PERM_GROUPS: PermGroup[] = [
       { key: 'ATTENDANCE_TEAM_VIEW', label: 'Team Attendance View',  desc: "See peers' live attendance, records, and export CSV" },
       { key: 'ATTENDANCE_ADMIN',     label: 'Manage All Attendance', desc: 'View all users, export CSV, override records' },
       { key: 'ATTENDANCE_REPORT',    label: 'Attendance Reports',    desc: 'Generate and download comprehensive attendance reports (present/absent/late/leave/breaks)' },
+      { key: 'REGULARIZATION_APPROVE', label: 'Approve Regularization', desc: 'Approve/reject attendance regularization requests of team peers (not just direct reports)' },
       { key: 'IP_CONFIG_WRITE',      label: 'IP Restriction Config', desc: 'Add / remove office IP ranges and toggle IP enforcement' },
     ],
   },
@@ -795,6 +796,7 @@ const CRUD_MODULES: CrudSection[] = [
     rows: [
       { name: 'Time Tracking', view: 'TIME_READ',       write: 'TIME_WRITE',       approve: 'TIME_APPROVE',          admin: 'TIME_ANALYTICS',          team: 'TIME_TEAM_VIEW' },
       { name: 'Attendance',    view: 'ATTENDANCE_READ',  write: 'ATTENDANCE_WRITE', approve: 'ATTENDANCE_TEAM_VIEW',  admin: 'ATTENDANCE_ADMIN', team: 'ATTENDANCE_REPORT' },
+      { name: 'Regularization', approve: 'REGULARIZATION_APPROVE' },
       { name: 'Leave',         view: 'LEAVE_READ',       write: 'LEAVE_WRITE',      approve: 'LEAVE_APPROVE',         admin: 'LEAVE_ADMIN',             team: 'LEAVE_TEAM_VIEW' },
       { name: 'Leave (Org)',   view: 'LEAVE_ORG_VIEW' },
       { name: 'Org-Wide View', view: 'PROJECT_DATA_VIEW_ALL' },
@@ -900,6 +902,7 @@ const PERM_INFO: Record<string, { label: string; desc: string }> = {
   ATTENDANCE_WRITE:     { label: 'Check In/Out',    desc: 'Log daily attendance, WFH, breaks' },
   ATTENDANCE_TEAM_VIEW: { label: 'Team View',       desc: "See peers' attendance — live view, records, export" },
   ATTENDANCE_ADMIN:     { label: 'Admin',           desc: 'Override records, export CSV, full access' },
+  REGULARIZATION_APPROVE: { label: 'Approve',       desc: 'Approve/reject attendance regularization for team peers' },
   IP_CONFIG_WRITE:    { label: 'Configure',          desc: 'Manage IP/Geo/Zone restrictions & work shifts in People Settings' },
   LEAVE_READ:         { label: 'View',              desc: 'See own leave requests and balance' },
   LEAVE_WRITE:        { label: 'Request',           desc: 'Submit leave applications' },
