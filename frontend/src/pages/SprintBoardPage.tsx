@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useForm, Controller } from 'react-hook-form';
 import {
   DndContext,
@@ -18,6 +18,7 @@ import {
   Filter, Search, User, Zap, BarChart2,
   ArrowRight, Trash2, Edit2, GitBranch, Users, X, Timer, Paperclip,
   Send, DollarSign, Ban, Layers, TrendingDown, Upload,
+  Loader2, Eye, Download, FileText,
 } from 'lucide-react';
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid,
@@ -66,11 +67,13 @@ import SprintAnalysisModal from '../components/ui/SprintAnalysisModal';
 import { useAiSprintAnalysis } from '../hooks/useAiInsights';
 import RichCommentEditor, { renderRichContent } from '../components/ui/RichCommentEditor';
 import MarkdownEditor, { MarkdownView } from '../components/ui/MarkdownEditor';
+import AttachmentViewer, { AttachmentPreview } from '../components/ui/AttachmentViewer';
 import WorkAllocationField from '../components/tasks/WorkAllocationField';
 import WorkAllocationDisplay from '../components/tasks/WorkAllocationDisplay';
 import { useBusinessHours } from '../hooks/useBusinessHours';
 import { WorkAllocation, serializeAllocation, reconcileEntries, deriveWorkingDates } from '../lib/workAllocation';
 import BulkUploadTasksModal from '../components/tasks/BulkUploadTasksModal';
+import { TASK_DESCRIPTION_MAX_LENGTH } from '../lib/taskLimits';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -211,7 +214,7 @@ function TaskCard({ task, users, onOpen, onOpenSubtask, isDragOverlay = false }:
       {...(isDragOverlay ? {} : { ...listeners, ...attributes })}
       onClick={() => onOpen(task)}
       className={[
-        'bg-ds-surface rounded-xl border border-ds-border p-3 cursor-pointer group select-none',
+        'bg-ds-surface rounded-xl border border-ds-border p-3 cursor-pointer group select-none shrink-0',
         'hover:shadow-md hover:border-indigo-200 transition-all duration-150',
         isDragging ? 'opacity-30' : '',
         isDragOverlay ? 'shadow-2xl rotate-2 border-indigo-300 scale-105' : 'shadow-sm',
@@ -335,9 +338,9 @@ function KanbanColumn({ col, tasks, users, onAddTask, onOpenTask, onOpenSubtask,
   const { setNodeRef, isOver } = useDroppable({ id: col.key });
 
   return (
-    <div className="flex flex-col min-w-[270px] max-w-[270px]">
+    <div className="flex flex-col min-w-[270px] max-w-[270px] h-full min-h-0">
       {/* Column header — tinted with the status's own colour */}
-      <div className="rounded-xl px-3 py-2.5 mb-3 flex items-center justify-between" style={{ backgroundColor: `${col.color}1a` }}>
+      <div className="rounded-xl px-3 py-2.5 mb-3 flex items-center justify-between shrink-0" style={{ backgroundColor: `${col.color}1a` }}>
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: col.color }} />
           <span className="text-sm font-semibold" style={{ color: col.color }}>{col.label}</span>
@@ -359,7 +362,9 @@ function KanbanColumn({ col, tasks, users, onAddTask, onOpenTask, onOpenSubtask,
       <div
         ref={setNodeRef}
         className={[
-          'flex flex-col gap-2.5 min-h-[200px] p-2 rounded-xl transition-colors',
+          // flex-1 + min-h-0 lets the list fill the column and scroll internally
+          // (instead of growing the whole page) once there are many tasks.
+          'flex flex-col gap-2.5 flex-1 min-h-0 overflow-y-auto p-2 rounded-xl transition-colors',
           isOver ? 'bg-indigo-50/60 ring-2 ring-indigo-200 ring-dashed' : '',
         ].join(' ')}
       >
@@ -367,7 +372,7 @@ function KanbanColumn({ col, tasks, users, onAddTask, onOpenTask, onOpenSubtask,
           <TaskCard key={task.id} task={task} users={users} onOpen={onOpenTask} onOpenSubtask={onOpenSubtask} />
         ))}
         {tasks.length === 0 && (
-          <div className="flex items-center justify-center h-24 rounded-lg border-2 border-dashed border-ds-border text-ds-text-muted text-xs">
+          <div className="flex items-center justify-center h-24 shrink-0 rounded-lg border-2 border-dashed border-ds-border text-ds-text-muted text-xs">
             Drop tasks here
           </div>
         )}
@@ -508,6 +513,8 @@ interface TaskForm {
 
 export default function SprintBoardPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const [searchParams] = useSearchParams();
+  const requestedSprintId = searchParams.get('sprint');
   const { user } = useAuth();
   const { confirm } = useConfirm();
   // Split per-capability flags so the right permission gates the right control.
@@ -596,6 +603,10 @@ export default function SprintBoardPage() {
   const [aiInsight, setAiInsight] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [taskAttachments, setTaskAttachments] = useState<any[]>([]);
+  const [attUploading, setAttUploading] = useState(false);
+  const [attUploadErr, setAttUploadErr] = useState('');
+  const [attPreview, setAttPreview] = useState<AttachmentPreview | null>(null);
+  const [attDeletingId, setAttDeletingId] = useState('');
 
   // Auto-calculate hours when start/end time changes — output in HH:MM format
   React.useEffect(() => {
@@ -616,7 +627,7 @@ export default function SprintBoardPage() {
   const activeSprintId = activeSprint
     ? String(activeSprint.ROWID ?? activeSprint.id ?? '')
     : '';
-  const { data: board, isLoading: boardLoading } = useSprintBoard(activeSprintId);
+  const { data: board, isLoading: boardLoading, isFetching: boardFetching } = useSprintBoard(activeSprintId);
   const { data: usersData, isLoading: usersLoading } = useUsers();
   const { getDefaults: getBusinessHoursDefaults } = useBusinessHours();
   const { data: fullTask } = useTask(taskDetailId ?? '');
@@ -643,11 +654,28 @@ export default function SprintBoardPage() {
     const raw = (activeSprint as unknown as { statuses?: unknown })?.statuses;
     let per: Array<{ name?: string; color?: string }> = [];
     try { per = typeof raw === 'string' ? JSON.parse(raw) : (Array.isArray(raw) ? raw : []); } catch { per = []; }
-    const cols = (per || [])
+    const configured = (per || [])
       .filter((s) => s && String(s.name ?? '').trim())
       .map((s) => ({ key: statusKey(String(s.name)), label: String(s.name).trim(), color: s.color || '#6b7280' }));
-    return cols.length ? cols : tenantStatuses;
-  }, [activeSprint, tenantStatuses]);
+    const cols = configured.length ? [...configured] : [...tenantStatuses];
+
+    // Safety net: surface any status that actually has tasks on this board but
+    // isn't in the configured columns, so those tasks can never disappear.
+    // (Cancelled is intentionally excluded.)
+    const known = new Set(cols.map((c) => c.key));
+    const seen = new Set<string>();
+    if (board && typeof board === 'object' && !Array.isArray(board)) {
+      for (const list of Object.values(board as Record<string, Task[]>)) {
+        for (const t of (list ?? [])) {
+          const k = statusKey(String((t as Task).status ?? ''));
+          if (!k || k === 'CANCELLED' || known.has(k) || seen.has(k)) continue;
+          seen.add(k);
+          cols.push({ key: k, label: k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()), color: '#94a3b8' });
+        }
+      }
+    }
+    return cols;
+  }, [activeSprint, tenantStatuses, board]);
 
   // ── Per-board status management ──────────────────────────────────────────────
   const openManageStatuses = () => {
@@ -671,13 +699,17 @@ export default function SprintBoardPage() {
   const sprintList: Sprint[] = useMemo(() => Array.isArray(sprints) ? sprints : (sprints as any)?.data ?? [], [sprints]);
   const users: unknown[] = Array.isArray(usersData) ? usersData : (usersData as any)?.data ?? [];
 
-  // Auto-select active sprint
+  // Select the sprint: honour the ?sprint=<id> deep-link first (so clicking a
+  // specific sprint on the Sprint Boards page opens THAT sprint, not just the
+  // first/active one), then fall back to the active sprint, then the first.
   React.useEffect(() => {
-    if (sprintList.length > 0 && !activeSprint) {
-      const active = sprintList.find((s) => s.status === 'ACTIVE') ?? sprintList[0];
-      setActiveSprint(active);
-    }
-  }, [sprintList, activeSprint]);
+    if (sprintList.length === 0 || activeSprint) return;
+    const requested = requestedSprintId
+      ? sprintList.find((s) => String(s.ROWID ?? s.id) === String(requestedSprintId))
+      : undefined;
+    const active = requested ?? sprintList.find((s) => s.status === 'ACTIVE') ?? sprintList[0];
+    setActiveSprint(active);
+  }, [sprintList, activeSprint, requestedSprintId]);
 
   // Keep the selected sprint in sync with refetched list data so edits made to
   // it (e.g. custom statuses) are reflected immediately instead of using the
@@ -713,6 +745,7 @@ export default function SprintBoardPage() {
       return;
     }
     setDetailTab('audit_logs'); setAiInsight(null); setTaskTimeEntries([]); setTaskAttachments([]);
+    setAttPreview(null); setAttUploadErr(''); setAttUploading(false); setAttDeletingId('');
     const saved = localStorage.getItem(`ds_timer_${taskDetailId}`);
     if (saved) {
       const start = parseInt(saved, 10);
@@ -756,11 +789,23 @@ export default function SprintBoardPage() {
   }, [detailTab, taskDetailId]);
 
 
-  const boardData = useMemo(() =>
-    (board && typeof board === 'object' && !Array.isArray(board))
+  const boardData = useMemo(() => {
+    const src = (board && typeof board === 'object' && !Array.isArray(board))
       ? board as Record<string, Task[]>
-      : { TODO: [], IN_PROGRESS: [], IN_REVIEW: [], DONE: [] },
-  [board]);
+      : {};
+    // Re-group every task under its NORMALIZED status key (statusKey) so minor
+    // key differences — e.g. a task stored as "TODO" vs a "To Do" column whose
+    // key is also "TODO", or a stray "TO_DO" — all land in the right column
+    // instead of vanishing.
+    const grouped: Record<string, Task[]> = {};
+    for (const list of Object.values(src)) {
+      for (const t of (list ?? [])) {
+        const key = statusKey(String((t as Task).status ?? ''));
+        (grouped[key] ||= []).push(t as Task);
+      }
+    }
+    return grouped;
+  }, [board]);
 
   // Filter tasks
   const filteredBoard = useMemo(() => {
@@ -786,6 +831,9 @@ export default function SprintBoardPage() {
   const totalCount = allTasks.length;
 
   const qc = useQueryClient();
+
+  // Shows a central overlay while the board repopulates after a bulk import.
+  const [boardRefreshing, setBoardRefreshing] = useState(false);
 
   // Tasks not yet DONE — drives the Complete-Sprint carry-over flow.
   const incompleteTasks = columns
@@ -1379,7 +1427,7 @@ export default function SprintBoardPage() {
         </div>
 
         {/* ── Board Area ────────────────────────────────────────────────────── */}
-        <div className="flex-1 flex flex-col overflow-hidden bg-ds-surface-hover">
+        <div className="flex-1 flex flex-col overflow-hidden bg-ds-surface-hover relative">
           {/* Toolbar */}
           <div className="flex items-center gap-3 px-5 py-3 bg-ds-surface border-b border-ds-border flex-shrink-0">
             <div className="relative flex-1 max-w-xs">
@@ -1454,7 +1502,40 @@ export default function SprintBoardPage() {
           {!activeSprint ? (
             <EmptyState title="No sprint selected" description="Select or create a sprint from the sidebar" icon={<GitBranch size={32} className="text-ds-border" />} />
           ) : boardLoading ? (
-            <div className="flex-1 flex items-center justify-center text-ds-text-muted">{t('common.loading')}</div>
+            <div className="flex-1 overflow-x-auto">
+              <div className="flex gap-4 p-5 min-w-max h-full">
+                {columns.map((col, ci) => (
+                  <div key={col.key} className="flex flex-col min-w-[270px] max-w-[270px]">
+                    {/* Real column header — the board frame renders instantly */}
+                    <div className="rounded-xl px-3 py-2.5 mb-3 flex items-center justify-between" style={{ backgroundColor: `${col.color}1a` }}>
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full shrink-0 animate-pulse" style={{ backgroundColor: col.color }} />
+                        <span className="text-sm font-semibold" style={{ color: col.color }}>{col.label}</span>
+                      </div>
+                      <span className="ds-shimmer h-5 w-6 rounded-full bg-ds-border" />
+                    </div>
+
+                    {/* Shimmering task-card placeholders, staggered in per column */}
+                    <div className="flex flex-col gap-2.5 p-2">
+                      {Array.from({ length: 2 + ((ci + 1) % 3) }).map((_, i) => (
+                        <div
+                          key={i}
+                          className="ds-card-enter bg-ds-surface rounded-xl border border-ds-border p-3 space-y-2.5"
+                          style={{ animationDelay: `${ci * 110 + i * 90}ms` }}
+                        >
+                          <div className="ds-shimmer h-3.5 w-3/4 rounded bg-ds-border" />
+                          <div className="ds-shimmer h-2.5 w-1/2 rounded bg-ds-border" />
+                          <div className="flex items-center justify-between pt-1">
+                            <div className="ds-shimmer h-5 w-14 rounded-full bg-ds-border" />
+                            <div className="ds-shimmer h-6 w-6 rounded-full bg-ds-border" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           ) : (
             <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
               <div className="flex-1 overflow-x-auto">
@@ -1479,6 +1560,38 @@ export default function SprintBoardPage() {
                 )}
               </DragOverlay>
             </DndContext>
+          )}
+
+          {/* Centered overlay whenever the board is (re)loading in the background —
+              after a bulk import, or any other refetch — so it never looks blank
+              and the feedback is clear and consistent. */}
+          {activeSprint && !boardLoading && (boardRefreshing || boardFetching) && (
+            <div className="absolute inset-0 z-30 flex items-center justify-center bg-ds-bg/70 backdrop-blur-[3px]">
+              <div className="ds-card-enter relative flex flex-col items-center gap-5 rounded-3xl bg-ds-surface shadow-2xl border border-ds-border px-12 py-9 overflow-hidden">
+                {/* soft gradient glow behind the card content */}
+                <div className="pointer-events-none absolute -top-16 -right-16 h-40 w-40 rounded-full bg-gradient-to-br from-indigo-500/20 to-fuchsia-500/20 blur-3xl" />
+                <div className="pointer-events-none absolute -bottom-16 -left-16 h-40 w-40 rounded-full bg-gradient-to-br from-purple-500/20 to-blue-500/20 blur-3xl" />
+
+                {/* animated emblem: pulsing gradient tile + orbiting spinner ring */}
+                <div className="relative flex items-center justify-center">
+                  <span className="absolute h-20 w-20 rounded-full border-2 border-indigo-500/30 border-t-indigo-500 animate-spin" style={{ animationDuration: '1.4s' }} />
+                  <div className="ds-loading-pulse relative w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-fuchsia-500 flex items-center justify-center shadow-lg">
+                    <Layers size={24} className="text-white" />
+                  </div>
+                </div>
+
+                <div className="text-center relative">
+                  <p className="text-sm font-semibold text-ds-text">
+                    {boardRefreshing ? 'Adding your tasks to the board…' : 'Refreshing board…'}
+                  </p>
+                  <p className="text-xs text-ds-text-muted mt-1">Hang tight, this only takes a moment</p>
+                </div>
+
+                <div className="h-1.5 w-44 rounded-full bg-ds-border overflow-hidden relative">
+                  <div className="h-full w-1/2 rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-fuchsia-500 ds-progress-bar" />
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -1666,7 +1779,7 @@ export default function SprintBoardPage() {
                 name="description"
                 control={taskForm.control}
                 render={({ field }) => (
-                  <MarkdownEditor value={field.value ?? ''} onChange={field.onChange} placeholder="Describe the task… (Markdown supported)" />
+                  <MarkdownEditor value={field.value ?? ''} onChange={field.onChange} placeholder="Describe the task… (Markdown supported)" maxLength={TASK_DESCRIPTION_MAX_LENGTH} />
                 )}
               />
             </div>
@@ -1779,10 +1892,22 @@ export default function SprintBoardPage() {
       <BulkUploadTasksModal
         open={showBulkUpload}
         onClose={() => setShowBulkUpload(false)}
+        onImported={() => {
+          setBoardRefreshing(true);
+          // Catalyst's datastore is eventually consistent — a second refetch a
+          // couple of seconds later picks up rows that hadn't propagated yet,
+          // so a freshly-imported task doesn't appear "lost".
+          window.setTimeout(() => {
+            qc.invalidateQueries({ queryKey: ['sprints', 'board'] });
+            qc.invalidateQueries({ queryKey: ['tasks'] });
+          }, 2500);
+          window.setTimeout(() => setBoardRefreshing(false), 4200);
+        }}
         projectId={projectId ?? ''}
         sprintId={activeSprintId || null}
-        fallbackDueDate={(activeSprint as any)?.endDate || (activeSprint as any)?.end_date || ''}
+        sprintName={(activeSprint as any)?.name ?? ''}
         defaultStatus={columns[0]?.key ?? 'TODO'}
+        statuses={columns.map((c) => ({ key: c.key, label: c.label }))}
         users={users}
       />
 
@@ -2123,7 +2248,7 @@ export default function SprintBoardPage() {
                 <div className="bg-ds-surface-hover rounded-xl p-4">
                   <div className="text-[11px] font-bold text-ds-text-muted uppercase tracking-wider mb-2">Description</div>
                   {(detailTask as any).description
-                    ? <MarkdownView source={(detailTask as any).description} />
+                    ? <MarkdownView source={(detailTask as any).description} maxHeight={320} />
                     : <p className="text-sm text-ds-text-muted italic">No description provided.</p>}
                 </div>
 
@@ -2369,26 +2494,51 @@ export default function SprintBoardPage() {
                   {/* Files / Attachments Tab */}
                   {detailTab === 'attachments' && (
                     <div className="space-y-4">
-                      {/* Upload button */}
-                      <label className="flex items-center gap-2 cursor-pointer w-fit px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg transition-colors">
-                        <Paperclip size={13} />
-                        Attach File
-                        <input
-                          type="file"
-                          className="hidden"
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (!file || !taskDetailId) return;
-                            e.target.value = '';
-                            try {
-                              await tasksApi.uploadAttachment(taskDetailId, file);
-                              const updated = await tasksApi.get(taskDetailId);
-                              const atts = (updated as any)?.attachments;
-                              if (Array.isArray(atts)) setTaskAttachments(atts);
-                            } catch { /* silent */ }
-                          }}
-                        />
-                      </label>
+                      {/* Universal attachment viewer (images, PDF, video, audio, text, …) */}
+                      <AttachmentViewer attachment={attPreview} onClose={() => setAttPreview(null)} />
+
+                      {/* Upload button — with in-progress loader */}
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-ds-text-muted">{taskAttachments.length} file{taskAttachments.length !== 1 ? 's' : ''}</p>
+                        <label className={`flex items-center gap-2 w-fit px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
+                          attUploading
+                            ? 'bg-indigo-100 text-indigo-400 cursor-wait'
+                            : 'bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer'
+                        }`}>
+                          {attUploading
+                            ? <><Loader2 size={13} className="animate-spin" /> Uploading…</>
+                            : <><Upload size={13} /> Attach File</>
+                          }
+                          <input
+                            type="file"
+                            className="hidden"
+                            disabled={attUploading}
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file || !taskDetailId) return;
+                              e.target.value = '';
+                              setAttUploading(true);
+                              setAttUploadErr('');
+                              try {
+                                await tasksApi.uploadAttachment(taskDetailId, file);
+                                const updated = await tasksApi.get(taskDetailId);
+                                const atts = (updated as any)?.attachments;
+                                if (Array.isArray(atts)) setTaskAttachments(atts);
+                              } catch (err: any) {
+                                setAttUploadErr(err?.message || 'Upload failed');
+                              } finally {
+                                setAttUploading(false);
+                              }
+                            }}
+                          />
+                        </label>
+                      </div>
+
+                      {attUploadErr && (
+                        <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+                          <AlertCircle size={13} className="shrink-0" /> {attUploadErr}
+                        </div>
+                      )}
 
                       {/* File list */}
                       {taskAttachments.length === 0 ? (
@@ -2404,21 +2554,89 @@ export default function SprintBoardPage() {
                             const size = a.file_size ?? a.fileSize ?? null;
                             const ext  = name.split('.').pop()?.toLowerCase() ?? '';
                             const isImage = ['png','jpg','jpeg','gif','webp','svg'].includes(ext);
+                            const isDoc   = ['pdf','doc','docx','xls','xlsx','csv','txt'].includes(ext);
+                            const attachId = String(a.ROWID ?? a.id ?? '');
+                            const uploadedBy = String(a.uploaded_by ?? a.uploadedBy ?? '');
+                            const canDelete = !!uploadedBy && uploadedBy === String((user as any)?.id ?? '');
+                            const openPreview = () => url && taskDetailId && setAttPreview({
+                              url, name,
+                              fetchBlob: attachId ? () => tasksApi.downloadAttachment(taskDetailId, attachId) : undefined,
+                            });
+                            const onDeleteAtt = async () => {
+                              if (!taskDetailId || !attachId) return;
+                              const ok = await confirm({
+                                title: 'Delete attachment?',
+                                message: `“${name}” will be permanently removed. This cannot be undone.`,
+                                confirmText: 'Delete',
+                                variant: 'danger',
+                              });
+                              if (!ok) return;
+                              setAttDeletingId(attachId);
+                              setAttUploadErr('');
+                              try {
+                                await tasksApi.deleteAttachment(taskDetailId, attachId);
+                                const updated = await tasksApi.get(taskDetailId);
+                                const atts = (updated as any)?.attachments;
+                                setTaskAttachments(Array.isArray(atts) ? atts : []);
+                              } catch (err: any) {
+                                setAttUploadErr(err?.message || 'Delete failed');
+                              } finally {
+                                setAttDeletingId('');
+                              }
+                            };
                             return (
-                              <div key={a.ROWID ?? i} className="flex items-center gap-3 border border-ds-border rounded-xl px-3 py-2.5 bg-ds-surface hover:bg-ds-surface-hover transition-colors">
-                                <span className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-500 flex items-center justify-center shrink-0 text-[10px] font-bold uppercase">
-                                  {isImage ? '🖼' : ext || '📎'}
-                                </span>
+                              <div key={a.ROWID ?? i} className="group flex items-center gap-3 border border-ds-border rounded-xl px-3 py-2.5 bg-ds-surface hover:bg-ds-surface-hover transition-colors">
+                                {/* Thumbnail / icon — click to preview */}
+                                <div
+                                  className={`w-10 h-10 rounded-lg overflow-hidden shrink-0 flex items-center justify-center ${url ? 'cursor-pointer' : ''} ${isImage ? '' : isDoc ? 'bg-blue-50' : 'bg-ds-surface-hover'}`}
+                                  onClick={openPreview}
+                                >
+                                  {isImage && url ? (
+                                    <img src={url} alt={name} className="w-full h-full object-cover" />
+                                  ) : isDoc ? (
+                                    <FileText size={18} className="text-blue-400" />
+                                  ) : (
+                                    <Paperclip size={18} className="text-ds-text-muted" />
+                                  )}
+                                </div>
                                 <div className="flex-1 min-w-0">
                                   <p className="text-xs font-medium text-ds-text truncate">{name}</p>
-                                  {size && <p className="text-[10px] text-ds-text-muted">{(size / 1024).toFixed(1)} KB</p>}
+                                  <div className="flex items-center gap-2 mt-0.5">
+                                    {size && <span className="text-[10px] text-ds-text-muted">{(size / 1024).toFixed(1)} KB</span>}
+                                    <span className="text-[10px] text-ds-text-muted font-mono uppercase">{ext}</span>
+                                  </div>
                                 </div>
-                                {url && (
-                                  <a href={url} target="_blank" rel="noopener noreferrer"
-                                    className="text-indigo-600 hover:text-indigo-800 text-xs font-medium shrink-0">
-                                    Download
-                                  </a>
-                                )}
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                                  {url && (
+                                    <button
+                                      onClick={openPreview}
+                                      className="p-1.5 rounded-lg text-ds-text-muted hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                                      title="Preview"
+                                    >
+                                      <Eye size={14} />
+                                    </button>
+                                  )}
+                                  {url && (
+                                    <a href={url} download={name} target="_blank" rel="noopener noreferrer"
+                                      className="p-1.5 rounded-lg text-ds-text-muted hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                                      title="Download">
+                                      <Download size={14} />
+                                    </a>
+                                  )}
+                                  {/* Delete — only the uploader can remove their file */}
+                                  {canDelete && (
+                                    <button
+                                      onClick={onDeleteAtt}
+                                      disabled={attDeletingId === attachId}
+                                      className="p-1.5 rounded-lg text-ds-text-muted hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-wait"
+                                      title="Delete"
+                                    >
+                                      {attDeletingId === attachId
+                                        ? <Loader2 size={14} className="animate-spin" />
+                                        : <Trash2 size={14} />}
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             );
                           })}
@@ -2818,7 +3036,7 @@ export default function SprintBoardPage() {
                     name="description"
                     control={editForm.control}
                     render={({ field }) => (
-                      <MarkdownEditor value={field.value ?? ''} onChange={field.onChange} placeholder="Describe the task… (Markdown supported)" />
+                      <MarkdownEditor value={field.value ?? ''} onChange={field.onChange} placeholder="Describe the task… (Markdown supported)" maxLength={TASK_DESCRIPTION_MAX_LENGTH} />
                     )}
                   />
                 </div>

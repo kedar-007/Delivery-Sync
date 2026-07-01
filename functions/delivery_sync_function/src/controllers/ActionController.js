@@ -166,7 +166,7 @@ class ActionController {
       const { tenantId, id: userId, role } = req.currentUser;
       const { projectId, status, ownerId, page, pageSize } = req.query;
 
-      let conditions = [];
+      let conditions = ['deleted_at IS NULL'];
       if (projectId) conditions.push(`project_id = '${DataStoreService.escape(projectId)}'`);
       if (status) conditions.push(`status = '${DataStoreService.escape(status)}'`);
       if (ownerId) conditions.push(`assigned_to = '${DataStoreService.escape(ownerId)}'`);
@@ -390,7 +390,7 @@ class ActionController {
       const { actionId } = req.params;
 
       const existing = await this.db.findById(TABLES.ACTIONS, actionId, tenantId);
-      if (!existing) return ResponseHelper.notFound(res, 'Action not found');
+      if (!existing || existing.deleted_at) return ResponseHelper.notFound(res, 'Action not found');
 
       // Delete is creator-or-admin only — even the assignee shouldn't be
       // able to make an action disappear out from under the person who
@@ -401,8 +401,9 @@ class ActionController {
         return ResponseHelper.forbidden(res, 'Only the creator or an admin can delete this action');
       }
 
-      await this.db.delete(TABLES.ACTIONS, actionId);
-      return ResponseHelper.success(res, null, 'Action deleted');
+      await this.db.softDelete(TABLES.ACTIONS, actionId, req.currentUser.id);
+      await this.audit.log({ tenantId, entityType: 'ACTION', entityId: actionId, action: AUDIT_ACTION.DELETE, oldValue: { title: existing.title }, newValue: { soft: true }, performedBy: req.currentUser.id });
+      return ResponseHelper.success(res, null, 'Action moved to Recycle Bin');
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }

@@ -16,7 +16,7 @@ const { TABLES, USER_STATUS } = require('../utils/Constants');
 // window per user), which is roughly 6× cheaper while keeping the same
 // DB-reduction benefit. The single get replaces 6 DataStore queries.
 const AUTH_CTX_TTL_HOURS = 1 / 12; // 5 minutes
-const AUTH_CTX_KEY_VERSION = 'v2'; // bumped: permissions now always set from base before overrides query
+const AUTH_CTX_KEY_VERSION = 'v4'; // bumped: added ADMIN_TRASH_VIEW/RESTORE/PURGE permissions
 
 /**
  * AuthMiddleware – resolves the Catalyst Auth session to a Delivery Sync user

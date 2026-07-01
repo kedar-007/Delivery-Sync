@@ -58,8 +58,8 @@ class SprintController {
         // Batch fetch task counts in 2 queries instead of N*2 sequential queries
         const sprintIds = sprints.map((s) => `'${DataStoreService.escape(String(s.ROWID))}'`).join(',');
         const [allTasks, doneTasks] = await Promise.all([
-          this.db.fetchColumn(TABLES.TASKS, 'sprint_id', tenantId, `sprint_id IN (${sprintIds})`),
-          this.db.fetchColumn(TABLES.TASKS, 'sprint_id', tenantId, `sprint_id IN (${sprintIds}) AND status = 'DONE'`),
+          this.db.fetchColumn(TABLES.TASKS, 'sprint_id', tenantId, `sprint_id IN (${sprintIds}) AND deleted_at IS NULL`),
+          this.db.fetchColumn(TABLES.TASKS, 'sprint_id', tenantId, `sprint_id IN (${sprintIds}) AND status = 'DONE' AND deleted_at IS NULL`),
         ]);
 
         const totalBySprint = {};
@@ -145,7 +145,7 @@ class SprintController {
     }
 
     const tasks = await this.db.findWhere(TABLES.TASKS, req.tenantId,
-      `sprint_id = '${sprint.ROWID}' AND parent_task_id = 0`, { orderBy: 'CREATEDTIME ASC', limit: 200 });
+      `sprint_id = '${sprint.ROWID}' AND parent_task_id = 0 AND deleted_at IS NULL`, { orderBy: 'CREATEDTIME ASC', limit: 200 });
 
     const memberRows = await this.db.findWhere(TABLES.SPRINT_MEMBERS, req.tenantId,
       `sprint_id = '${sprint.ROWID}'`, { limit: 200 });
@@ -221,7 +221,7 @@ class SprintController {
       return ResponseHelper.validationError(res, 'Only ACTIVE sprints can be completed');
 
     // Calculate completed points
-    const doneTasks = await this.db.findWhere(TABLES.TASKS, tenantId, `sprint_id = '${sprintId}' AND status = 'DONE'`, { limit: 200 });
+    const doneTasks = await this.db.findWhere(TABLES.TASKS, tenantId, `sprint_id = '${sprintId}' AND status = 'DONE' AND deleted_at IS NULL`, { limit: 200 });
     const completedPoints = doneTasks.reduce((sum, t) => sum + (parseFloat(t.story_points) || 0), 0);
 
     await this.db.update(TABLES.SPRINTS, { ROWID: sprintId, status: SPRINT_STATUS.COMPLETED, velocity: completedPoints });
@@ -233,7 +233,7 @@ class SprintController {
     // return to the backlog when the sprint closes.
     const incompleteTasks = await this.db.findWhere(
       TABLES.TASKS, tenantId,
-      `sprint_id = '${sprintId}' AND status != 'DONE' AND status != 'CANCELLED'`,
+      `sprint_id = '${sprintId}' AND status != 'DONE' AND status != 'CANCELLED' AND deleted_at IS NULL`,
       { limit: 300 }
     );
     for (const t of incompleteTasks) {
@@ -253,7 +253,7 @@ class SprintController {
     const sprint = await this.db.findById(TABLES.SPRINTS, sprintId, tenantId);
     if (!sprint) return ResponseHelper.notFound(res, 'Sprint not found');
 
-    const tasks = await this.db.findWhere(TABLES.TASKS, tenantId, `sprint_id = '${sprintId}' AND parent_task_id = 0`, { orderBy: 'CREATEDTIME ASC', limit: 200 });
+    const tasks = await this.db.findWhere(TABLES.TASKS, tenantId, `sprint_id = '${sprintId}' AND parent_task_id = 0 AND deleted_at IS NULL`, { orderBy: 'CREATEDTIME ASC', limit: 200 });
 
     // Group by status
     const board = {};
@@ -261,7 +261,7 @@ class SprintController {
       const s = task.status || 'TODO';
       if (!board[s]) board[s] = [];
       // Attach subtasks
-      const subtasks = await this.db.findWhere(TABLES.TASKS, tenantId, `parent_task_id = '${task.ROWID}'`, { limit: 20 });
+      const subtasks = await this.db.findWhere(TABLES.TASKS, tenantId, `parent_task_id = '${task.ROWID}' AND deleted_at IS NULL`, { limit: 20 });
       board[s].push({ ...task, subtasks });
     }
 
@@ -275,7 +275,7 @@ class SprintController {
     const sprint = await this.db.findById(TABLES.SPRINTS, sprintId, tenantId);
     if (!sprint) return ResponseHelper.notFound(res, 'Sprint not found');
 
-    const tasks = await this.db.findWhere(TABLES.TASKS, tenantId, `sprint_id = '${sprintId}'`, { limit: 200 });
+    const tasks = await this.db.findWhere(TABLES.TASKS, tenantId, `sprint_id = '${sprintId}' AND deleted_at IS NULL`, { limit: 200 });
     const total = tasks.reduce((s, t) => s + (parseFloat(t.story_points) || 0), 0);
     const done  = tasks.filter(t => t.status === 'DONE').reduce((s, t) => s + (parseFloat(t.story_points) || 0), 0);
     const rate  = total > 0 ? Math.round((done / total) * 100) : 0;

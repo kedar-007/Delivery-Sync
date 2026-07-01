@@ -10,7 +10,7 @@ const { TABLES, USER_STATUS } = require('../utils/Constants');
 // staleness window for role / permission changes — same convention as
 // delivery_sync_function. Bump the version to bust the cache on a shape change.
 const AUTH_CTX_TTL_HOURS    = 1 / 12; // 5 minutes
-const AUTH_CTX_KEY_VERSION  = 'v1';
+const AUTH_CTX_KEY_VERSION  = 'v2'; // bumped: added FEATURE_RELEASE_READ/WRITE permissions
 const AUTH_CTX_SERVICE_NAME = 'people';
 
 /**

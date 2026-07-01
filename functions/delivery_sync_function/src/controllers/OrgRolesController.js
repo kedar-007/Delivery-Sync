@@ -518,7 +518,7 @@ class OrgRolesController {
       { group: 'Badges', keys: ['BADGE_READ', 'BADGE_WRITE', 'BADGE_AWARD'] },
       { group: 'Reports & Dashboard', keys: ['REPORT_READ', 'REPORT_WRITE', 'DASHBOARD_READ', 'CEO_DASHBOARD', 'CTO_DASHBOARD'] },
       { group: 'Notifications', keys: ['NOTIFICATION_READ'] },
-      { group: 'Admin', keys: ['ADMIN_USERS', 'ADMIN_SETTINGS', 'INVITE_USER', 'CONFIG_READ', 'CONFIG_WRITE'] },
+      { group: 'Admin', keys: ['ADMIN_USERS', 'ADMIN_SETTINGS', 'INVITE_USER', 'CONFIG_READ', 'CONFIG_WRITE', 'ADMIN_TRASH_VIEW', 'ADMIN_TRASH_RESTORE', 'ADMIN_TRASH_PURGE'] },
       { group: 'AI & Insights', keys: ['AI_INSIGHTS', 'AI_PERFORMANCE_SELF', 'AI_PERFORMANCE', 'AI_TEAM_ANALYSIS'] },
     ];
 

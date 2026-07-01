@@ -31,6 +31,7 @@ router.delete('/:taskId/comments/:cid',         RBACMiddleware.requireAny(PERMIS
 // Attachments
 const att = (req) => new AttachmentController(req.catalystApp);
 router.post('/:taskId/attachments',   RBACMiddleware.require(PERMISSIONS.TASK_WRITE), asyncHandler((req, res) => att(req).upload(req, res)));
+router.get('/:taskId/attachments/:attachId/raw', RBACMiddleware.require(PERMISSIONS.TASK_READ), asyncHandler((req, res) => att(req).raw(req, res)));
 router.delete('/:taskId/attachments/:attachId', RBACMiddleware.require(PERMISSIONS.TASK_WRITE), asyncHandler((req, res) => att(req).remove(req, res)));
 
 module.exports = router;

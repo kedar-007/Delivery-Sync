@@ -1,9 +1,10 @@
 'use strict';
 
 const DataStoreService = require('../services/DataStoreService');
+const AuditService = require('../services/AuditService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const Validator = require('../utils/Validator');
-const { TABLES } = require('../utils/Constants');
+const { TABLES, AUDIT_ACTION } = require('../utils/Constants');
 
 /**
  * DecisionController – decision log management.
@@ -11,6 +12,7 @@ const { TABLES } = require('../utils/Constants');
 class DecisionController {
   constructor(catalystApp) {
     this.db = new DataStoreService(catalystApp);
+    this.audit = new AuditService(this.db);
   }
 
   /**
@@ -80,7 +82,7 @@ class DecisionController {
         req.currentUser.permissions.includes('PROJECT_DATA_VIEW_ALL');
       const canViewAllProjects = hasOrgWide || hasViewAll;
 
-      const conditions = [];
+      const conditions = ['deleted_at IS NULL'];
 
       if (projectId) {
         // Specific project — middleware already verified membership for restricted users
@@ -185,7 +187,7 @@ class DecisionController {
       const { decisionId } = req.params;
 
       const existing = await this.db.findById(TABLES.DECISIONS, decisionId, tenantId);
-      if (!existing) return ResponseHelper.notFound(res, 'Decision not found');
+      if (!existing || existing.deleted_at) return ResponseHelper.notFound(res, 'Decision not found');
 
       // Same creator-or-admin guard as updateDecision.
       const isAdmin   = role === 'TENANT_ADMIN' || role === 'SUPER_ADMIN';
@@ -194,8 +196,9 @@ class DecisionController {
         return ResponseHelper.forbidden(res, 'Only the decision owner or an admin can delete this decision');
       }
 
-      await this.db.delete(TABLES.DECISIONS, decisionId);
-      return ResponseHelper.success(res, null, 'Decision deleted');
+      await this.db.softDelete(TABLES.DECISIONS, decisionId, userId);
+      await this.audit.log({ tenantId, entityType: 'DECISION', entityId: decisionId, action: AUDIT_ACTION.DELETE, oldValue: { title: existing.title }, newValue: { soft: true }, performedBy: userId });
+      return ResponseHelper.success(res, null, 'Decision moved to Recycle Bin');
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }

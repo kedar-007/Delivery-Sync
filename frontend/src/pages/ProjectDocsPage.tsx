@@ -1695,7 +1695,7 @@ const FilesTab = ({ projectId, canWrite, canAdmin, canDelete, canShare, currentU
 const ProjectDocsPage = () => {
   const { projectId, tenantSlug } = useParams<{ projectId: string; tenantSlug: string }>();
   const { user } = useAuth();
-  const { isDark, setThemeId } = useTheme();
+  const { isDark, toggleDark } = useTheme();
   const navigate = useNavigate();
   const { data: project } = useProject(projectId ?? '');
   const [activeTab, setActiveTab] = useState<Tab>('files');
@@ -1709,7 +1709,6 @@ const ProjectDocsPage = () => {
   const canShare  = hasPermission(user, PERMISSIONS.DOC_SHARE)  || isAdmin;
 
   const projectName = (project as { name?: string } | undefined)?.name ?? 'Project';
-  const toggleDark = () => setThemeId(isDark ? 'default' : 'dark');
   const backUrl = tenantSlug ? `/${tenantSlug}/projects/${projectId}` : `/projects/${projectId}`;
 
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [

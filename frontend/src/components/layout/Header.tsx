@@ -6,6 +6,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useI18n, LOCALES, LocaleCode } from '../../contexts/I18nContext';
 import UserAvatar from '../ui/UserAvatar';
 import NotificationBell from '../ui/NotificationBell';
+import WhatsNewButton from '../whatsnew/WhatsNewButton';
 import AttendanceWidget from '../ui/AttendanceWidget';
 import ReportBugWidget from '../bugs/ReportBugWidget';
 import { useMyProfile } from '../../hooks/useUsers';
@@ -105,7 +106,7 @@ const InternalBanner = () => {
 const Header = ({ title, subtitle, actions }: HeaderProps) => {
   const { user } = useAuth();
   const { tenantSlug } = useParams<{ tenantSlug: string }>();
-  const { isDark, setThemeId } = useTheme();
+  const { isDark, toggleDark } = useTheme();
   const { locale, setLocale, t } = useI18n();
   const { data: profile } = useMyProfile();
   const { festival } = useFestival();
@@ -113,7 +114,6 @@ const Header = ({ title, subtitle, actions }: HeaderProps) => {
   const bugEnabled = bugConfig?.enabled !== false;
   const [bugOpen, setBugOpen] = useState(false);
 
-  const toggleDark = () => setThemeId(isDark ? 'default' : 'dark');
 
   return (
     <div>
@@ -175,6 +175,7 @@ const Header = ({ title, subtitle, actions }: HeaderProps) => {
                 ))}
               </select>
             </div>
+            <WhatsNewButton />
             <NotificationBellBoundary><NotificationBell /></NotificationBellBoundary>
             {bugEnabled && (
               <button

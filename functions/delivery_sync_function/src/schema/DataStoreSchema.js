@@ -11,6 +11,14 @@
  *  4. ROWID and CREATEDTIME/MODIFIEDTIME are auto-created by Catalyst – do NOT add them
  *
  * NAMING CONVENTION: lowercase_snake_case for all table and column names
+ *
+ * SOFT DELETE: modules that support the org-wide Trash / Recycle Bin carry two
+ * extra columns (see docs/SOFT_DELETE_AND_TRASH.md and SoftDeleteRegistry.js):
+ *     deleted_at  DateTime  – set when soft-deleted; NULL = active
+ *     deleted_by  Text      – ROWID of the user who deleted it
+ *   Already migrated: projects, sprints, tasks, task_comments, actions, decisions.
+ *   Add these columns to a table BEFORE deploying its soft-delete conversion, or its
+ *   `deleted_at IS NULL` list queries will fail.
  */
 
 const SCHEMA = {

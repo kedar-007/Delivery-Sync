@@ -109,6 +109,22 @@ html.dark .placeholder\:text-gray-300::placeholder,
 html.dark .placeholder\:text-gray-400::placeholder,
 html.dark .placeholder\:text-gray-500::placeholder { color: rgb(var(--ds-text-muted)) !important; }
 
+/* @uiw/react-md-editor (task description editor) stacks a transparent <textarea>
+   over a syntax-highlighted <pre>: the textarea's own text is invisible
+   (-webkit-text-fill-color: transparent) and the <pre> beneath renders the
+   visible, coloured text. The blanket dark textarea rule above forces an opaque
+   background on that textarea, hiding the <pre> so typed text vanishes and only
+   the caret shows. Exempt the editor's textarea so its own theming (driven by
+   data-color-mode) works. */
+html.dark .w-md-editor-text-input {
+  background-color: transparent !important;
+  color: inherit !important;
+  -webkit-text-fill-color: transparent !important;
+}
+html.dark .w-md-editor-text-input:empty {
+  -webkit-text-fill-color: inherit !important;
+}
+
 /* hover: variants */
 html.dark .hover\:bg-gray-50:hover     { background-color: rgb(var(--ds-surface-hover)) !important; }
 html.dark .hover\:bg-gray-100:hover    { background-color: rgb(var(--ds-surface-hover)) !important; }
@@ -118,6 +134,19 @@ html.dark .hover\:text-gray-600:hover  { color: rgb(var(--ds-text)) !important; 
 html.dark .hover\:text-gray-700:hover  { color: rgb(var(--ds-text)) !important; }
 html.dark .hover\:text-gray-900:hover  { color: rgb(var(--ds-text)) !important; }
 html.dark .hover\:border-gray-300:hover{ border-color: rgb(var(--ds-border)) !important; }
+
+/* Opacity-suffixed light hover backgrounds (e.g. hover:bg-gray-50/60,
+   hover:bg-indigo-50/30) generate distinct class names that the plain-class
+   rules above don't cover, so in dark mode they paint a near-white wash over
+   table rows and hide the text. Match every opacity variant by substring
+   (the class attribute contains the literal "hover:bg-gray-50/…") and remap it
+   to the theme's hover surface / tint. */
+html.dark [class*="hover:bg-gray-50/"]:hover,
+html.dark [class*="hover:bg-gray-100/"]:hover,
+html.dark [class*="hover:bg-slate-50/"]:hover,
+html.dark [class*="hover:bg-slate-100/"]:hover  { background-color: rgb(var(--ds-surface-hover)) !important; }
+html.dark [class*="hover:bg-indigo-50/"]:hover { background-color: rgba(99,102,241,0.15) !important; }
+html.dark [class*="hover:bg-blue-50/"]:hover   { background-color: rgba(59,130,246,0.15) !important; }
 
 /* group-hover: variants (e.g. table rows that highlight on row hover) */
 html.dark .group:hover .group-hover\:text-gray-600 { color: rgb(var(--ds-text)) !important; }
@@ -579,6 +608,26 @@ html.dark .ds-right-bg,
   0%   { transform: translateX(-100%) scaleX(0.4); }
   50%  { transform: translateX(0%)    scaleX(0.6); }
   100% { transform: translateX(100%)  scaleX(0.4); }
+}
+
+/* ── Skeleton shimmer sweep (loading placeholders) ─────────────────────────── */
+.ds-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.ds-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent 0%, rgba(148,163,184,0.28) 50%, transparent 100%);
+  animation: ds-shimmer 1.5s ease-in-out infinite;
+}
+html.dark .ds-shimmer::after {
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.09) 50%, transparent 100%);
+}
+@keyframes ds-shimmer {
+  100% { transform: translateX(100%); }
 }
 
 /* ── Input base ────────────────────────────────────────────────────────────── */

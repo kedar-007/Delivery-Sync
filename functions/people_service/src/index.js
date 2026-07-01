@@ -6,6 +6,7 @@ const attendanceRoutes      = require('./routes/attendanceRoutes');
 const regularizationRoutes  = require('./routes/regularizationRoutes');
 const leaveRoutes           = require('./routes/leaveRoutes');
 const announcementRoutes    = require('./routes/announcementRoutes');
+const featureReleaseRoutes  = require('./routes/featureReleaseRoutes');
 const orgRoutes             = require('./routes/orgRoutes');
 const cronRoutes            = require('./routes/cronRoutes');
 
@@ -15,6 +16,7 @@ router.use('/attendance',    attendanceRoutes);
 router.use('/regularization', regularizationRoutes);
 router.use('/leave',         leaveRoutes);
 router.use('/announcements', announcementRoutes);
+router.use('/feature-releases', featureReleaseRoutes);
 router.use('/org',           orgRoutes);
 router.use('/cron',          cronRoutes);
 module.exports = router;

@@ -131,7 +131,7 @@ function ProjectSprintCard({
           return (
             <Link
               key={sprint.id}
-              to={`/${tenantSlug}/projects/${project.id}/sprints`}
+              to={`/${tenantSlug}/projects/${project.id}/sprints?sprint=${sprint.id}`}
               className="block p-2.5 rounded-lg border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/30 transition-colors group"
             >
               <div className="flex items-center justify-between gap-2">

@@ -8,7 +8,7 @@ interface ModalProps {
   onClose: () => void;
   title?: string;
   children: React.ReactNode;
-  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl';
   /**
    * When false, the modal will NOT close from backdrop clicks or Esc — only
    * the X button (or the consumer's own Cancel buttons) can dismiss it. Use
@@ -26,6 +26,7 @@ const sizeMap = {
   xl: 'max-w-2xl',
   '2xl': 'max-w-4xl',
   '3xl': 'max-w-5xl',
+  '4xl': 'max-w-7xl',
 };
 
 const Modal = ({ open, onClose, title, children, size = 'md', closeOnBackdropClick = true, closeButtonVariant = 'default' }: ModalProps) => (

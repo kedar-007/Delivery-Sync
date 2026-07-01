@@ -310,6 +310,26 @@ class DataStoreService {
     }
   }
 
+  // ─── Soft delete ───────────────────────────────────────────────────────────
+
+  /**
+   * Soft-delete a row: stamp deleted_at (now) + deleted_by (user id). The row
+   * stays in the table but must be excluded from active reads with
+   * `deleted_at IS NULL`. Restorable via restore(); permanently removable via delete().
+   */
+  async softDelete(tableName, rowId, userId) {
+    return this.update(tableName, {
+      ROWID: String(rowId),
+      deleted_at: DataStoreService.fmtDT(new Date()),
+      deleted_by: String(userId),
+    });
+  }
+
+  /** Restore a soft-deleted row (clears deleted_at / deleted_by). */
+  async restore(tableName, rowId) {
+    return this.update(tableName, { ROWID: String(rowId), deleted_at: null, deleted_by: null });
+  }
+
   // ─── Utility ─────────────────────────────────────────────────────────────────
 
   /**
