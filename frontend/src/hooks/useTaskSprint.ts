@@ -216,11 +216,26 @@ export const DEFAULT_TASK_STATUSES: TaskStatusCol[] = [
   { key: 'DONE',        label: 'Done',        color: '#22c55e' },
 ];
 
+// Canonical aliases so common workflow names collapse onto the values existing
+// tasks already use. Critically "To Do" → "TODO" (NOT "TO_DO"), otherwise a
+// custom "To Do" column wouldn't match tasks stored with status "TODO" and they
+// would vanish from the board.
+const STATUS_ALIASES: Record<string, string> = {
+  TODO: 'TODO', TO_DO: 'TODO',
+  INPROGRESS: 'IN_PROGRESS', IN_PROGRESS: 'IN_PROGRESS',
+  INREVIEW: 'IN_REVIEW', IN_REVIEW: 'IN_REVIEW',
+  DONE: 'DONE', COMPLETE: 'DONE', COMPLETED: 'DONE',
+  CANCELLED: 'CANCELLED', CANCELED: 'CANCELLED',
+  BACKLOG: 'BACKLOG',
+};
+
 // Normalise a human status name to the value stored on a task, e.g.
-// "In Progress" → "IN_PROGRESS", "Done" → "DONE" (keeps it backward-compatible
-// with existing tasks and the DONE-based completion logic).
-export const statusKey = (name: string) =>
-  String(name || '').trim().toUpperCase().replace(/\s+/g, '_');
+// "In Progress" → "IN_PROGRESS", "To Do" → "TODO", "Done" → "DONE" (keeps it
+// backward-compatible with existing tasks and the DONE-based completion logic).
+export const statusKey = (name: string) => {
+  const raw = String(name || '').trim().toUpperCase().replace(/\s+/g, '_');
+  return STATUS_ALIASES[raw] ?? raw;
+};
 
 export const useTaskStatuses = () =>
   useQuery({

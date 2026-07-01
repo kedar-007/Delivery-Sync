@@ -4,10 +4,13 @@
 // comma (CSV) and tab (spreadsheet paste) delimiters. Framework-agnostic and
 // unit-tested.
 
+import { TASK_DESCRIPTION_MAX_LENGTH } from './taskLimits';
+
 export type TaskType = 'TASK' | 'STORY' | 'BUG' | 'EPIC' | 'SUBTASK';
 export type TaskPriority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 
 export interface BulkUser { id: string; name?: string; email?: string }
+export interface BulkStatus { key: string; label: string }
 
 export interface ParsedTaskRow {
   rowNumber: number;            // 1-based, excludes header
@@ -15,23 +18,26 @@ export interface ParsedTaskRow {
   description: string;
   type: TaskType;
   priority: TaskPriority;
-  dueDate: string;              // '' if not supplied (caller fills default)
+  dueDate: string;              // '' if not supplied (optional — no default injected)
   storyPoints: number | null;
   estimatedHours: number | null;
   labels: string[];
   assigneeIds: string[];
   unmatchedAssignees: string[]; // tokens that matched no user (warning, not fatal)
+  status: string;               // resolved status key (falls back to the board default)
+  statusLabel: string;          // human label for display
+  unmatchedStatus?: string;     // raw value that matched no status (warning, not fatal)
   errors: string[];             // fatal — row excluded from import
 }
 
 export const TEMPLATE_HEADERS = [
-  'Title', 'Description', 'Type', 'Priority', 'Due Date (YYYY-MM-DD)',
-  'Story Points', 'Estimated Hours', 'Assignees (emails, ; separated)', 'Labels (; separated)',
+  'Title', 'Description', 'Type', 'Priority', 'Due Date (YYYY-MM-DD, optional)',
+  'Story Points', 'Estimated Hours', 'Assignees (emails, ; separated)', 'Labels (; separated)', 'Status',
 ];
 
 export const TEMPLATE_SAMPLE_ROW = [
   'Set up CI pipeline', 'GitHub Actions for build + test', 'TASK', 'HIGH',
-  '2026-07-10', '5', '8', 'alice@acme.com; bob@acme.com', 'devops; urgent',
+  '2026-07-10', '5', '8', 'alice@acme.com; bob@acme.com', 'devops; urgent', 'To Do',
 ];
 
 const TYPES: TaskType[] = ['TASK', 'STORY', 'BUG', 'EPIC', 'SUBTASK'];
@@ -80,18 +86,19 @@ export const parseDelimited = (text: string): string[][] => {
 
 // ── Header mapping ──────────────────────────────────────────────────────────────
 // Map a flexible set of header labels onto our canonical fields.
-type Field = 'title' | 'description' | 'type' | 'priority' | 'dueDate' | 'storyPoints' | 'estimatedHours' | 'assignees' | 'labels';
+type Field = 'title' | 'description' | 'type' | 'priority' | 'dueDate' | 'storyPoints' | 'estimatedHours' | 'assignees' | 'labels' | 'status';
 
 const HEADER_SYNONYMS: Record<Field, string[]> = {
   title: ['title', 'task', 'name', 'summary'],
   description: ['description', 'desc', 'details'],
   type: ['type', 'task type', 'issue type'],
   priority: ['priority'],
-  dueDate: ['due date', 'due', 'duedate', 'due date (yyyy-mm-dd)', 'deadline'],
+  dueDate: ['due date', 'due', 'duedate', 'due date (yyyy-mm-dd)', 'due date (yyyy-mm-dd, optional)', 'deadline'],
   storyPoints: ['story points', 'points', 'storypoints', 'sp'],
   estimatedHours: ['estimated hours', 'est hours', 'est. hours', 'estimate', 'hours'],
   assignees: ['assignees', 'assignee', 'assigned to', 'owner', 'owners', 'assignees (emails, ; separated)'],
   labels: ['labels', 'label', 'tags', 'labels (; separated)'],
+  status: ['status', 'state', 'column', 'stage'],
 };
 
 const norm = (s: string) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -130,6 +137,27 @@ const toNum = (v: string): number | null => {
 
 const isISODate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(String(v ?? '').trim());
 
+// Loose status matching: ignore case, spaces, underscores and hyphens so
+// "In Progress", "in_progress" and "IN-PROGRESS" all resolve to the same column.
+const snorm = (s: string) => String(s ?? '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+
+const coerceStatus = (
+  v: string,
+  statuses: BulkStatus[],
+  defaultKey: string,
+): { key: string; label: string; unmatched?: string } => {
+  const fallback = () => {
+    const d = statuses.find((s) => s.key === defaultKey);
+    return { key: defaultKey, label: d?.label ?? defaultKey };
+  };
+  const raw = String(v ?? '').trim();
+  if (!raw) return fallback();
+  const n = snorm(raw);
+  const match = statuses.find((s) => snorm(s.label) === n || snorm(s.key) === n);
+  if (match) return { key: match.key, label: match.label };
+  return { ...fallback(), unmatched: raw };
+};
+
 // ── Row → ParsedTaskRow ─────────────────────────────────────────────────────────
 const resolveAssignees = (tokens: string[], users: BulkUser[]) => {
   const byEmail = new Map<string, string>();
@@ -153,59 +181,135 @@ const resolveAssignees = (tokens: string[], users: BulkUser[]) => {
  * emails/names → ids. Rows with a fatal error are still returned (with `errors`)
  * so the UI can show why they'll be skipped.
  */
-export const parseTaskRows = (text: string, users: BulkUser[]): { rows: ParsedTaskRow[]; headerError?: string } => {
-  const grid = parseDelimited(text);
-  if (grid.length === 0) return { rows: [], headerError: 'Nothing to import.' };
+/** Raw (unvalidated) cell values for one task row — the editable grid's shape. */
+export interface RawTaskCells {
+  title: string;
+  description: string;
+  type: string;
+  priority: string;
+  dueDate: string;
+  storyPoints: string;
+  estimatedHours: string;
+  assignees: string;
+  labels: string;
+  status: string;
+}
 
-  const map = mapHeaders(grid[0]);
-  if (!map) return { rows: [], headerError: 'Could not find a "Title" column in the header row.' };
-
-  const rows: ParsedTaskRow[] = [];
-  for (let r = 1; r < grid.length; r++) {
-    const cells = grid[r];
-    if (cells.every((c) => String(c ?? '').trim() === '')) continue; // skip blank lines
-    const get = (f: Field) => (map[f] !== undefined ? String(cells[map[f]] ?? '').trim() : '');
-
-    const title = get('title');
-    const dueRaw = get('dueDate');
-    const { ids, unmatched } = resolveAssignees(splitMulti(get('assignees')), users);
-    const errors: string[] = [];
-    if (!title) errors.push('Title is required');
-    if (dueRaw && !isISODate(dueRaw)) errors.push('Due date must be YYYY-MM-DD');
-
-    rows.push({
-      rowNumber: r,
-      title,
-      description: get('description'),
-      type: coerceType(get('type')),
-      priority: coercePriority(get('priority')),
-      dueDate: isISODate(dueRaw) ? dueRaw : '',
-      storyPoints: toNum(get('storyPoints')),
-      estimatedHours: toNum(get('estimatedHours')),
-      labels: splitMulti(get('labels')),
-      assigneeIds: ids,
-      unmatchedAssignees: unmatched,
-      errors,
-    });
-  }
-  return { rows };
+export const EMPTY_TASK_CELLS: RawTaskCells = {
+  title: '', description: '', type: 'TASK', priority: 'MEDIUM', dueDate: '',
+  storyPoints: '', estimatedHours: '', assignees: '', labels: '', status: '',
 };
 
-/** Map a valid row → the create payload, filling a default due date when blank. */
-export const rowToPayload = (row: ParsedTaskRow, fallbackDueDate: string) => ({
+/** Validate + normalise one raw row. Used by both the CSV parser and the editable grid. */
+export const validateRow = (
+  c: RawTaskCells,
+  rowNumber: number,
+  users: BulkUser[],
+  statuses: BulkStatus[] = [],
+  defaultStatusKey = '',
+): ParsedTaskRow => {
+  const title = String(c.title ?? '').trim();
+  const dueRaw = String(c.dueDate ?? '').trim();
+  const description = String(c.description ?? '').trim();
+  const { ids, unmatched } = resolveAssignees(splitMulti(c.assignees), users);
+  const st = coerceStatus(c.status, statuses, defaultStatusKey);
+  const errors: string[] = [];
+  if (!title) errors.push('Title is required');
+  if (dueRaw && !isISODate(dueRaw)) errors.push('Due date must be YYYY-MM-DD');
+  if (description.length > TASK_DESCRIPTION_MAX_LENGTH) errors.push(`Description exceeds ${TASK_DESCRIPTION_MAX_LENGTH} characters`);
+
+  return {
+    rowNumber,
+    title,
+    description,
+    type: coerceType(c.type),
+    priority: coercePriority(c.priority),
+    dueDate: isISODate(dueRaw) ? dueRaw : '',
+    storyPoints: toNum(c.storyPoints),
+    estimatedHours: toNum(c.estimatedHours),
+    labels: splitMulti(c.labels),
+    assigneeIds: ids,
+    unmatchedAssignees: unmatched,
+    status: st.key,
+    statusLabel: st.label,
+    unmatchedStatus: st.unmatched,
+    errors,
+  };
+};
+
+/** Parse pasted/CSV text into raw editable cells (no validation, blanks skipped). */
+export const parseTaskCells = (text: string): { cells: RawTaskCells[]; headerError?: string } => {
+  const grid = parseDelimited(text);
+  if (grid.length === 0) return { cells: [], headerError: 'Nothing to import.' };
+  const map = mapHeaders(grid[0]);
+  if (!map) return { cells: [], headerError: 'Could not find a "Title" column in the header row.' };
+
+  const cells: RawTaskCells[] = [];
+  for (let r = 1; r < grid.length; r++) {
+    const row = grid[r];
+    if (row.every((c) => String(c ?? '').trim() === '')) continue; // skip blank lines
+    const get = (f: Field) => (map[f] !== undefined ? String(row[map[f]] ?? '').trim() : '');
+    cells.push({
+      title: get('title'),
+      description: get('description'),
+      type: get('type') || 'TASK',
+      priority: get('priority') || 'MEDIUM',
+      dueDate: get('dueDate'),
+      storyPoints: get('storyPoints'),
+      estimatedHours: get('estimatedHours'),
+      assignees: get('assignees'),
+      labels: get('labels'),
+      status: get('status'),
+    });
+  }
+  return { cells };
+};
+
+export const parseTaskRows = (
+  text: string,
+  users: BulkUser[],
+  statuses: BulkStatus[] = [],
+  defaultStatusKey = '',
+): { rows: ParsedTaskRow[]; headerError?: string } => {
+  const { cells, headerError } = parseTaskCells(text);
+  if (headerError) return { rows: [], headerError };
+  return { rows: cells.map((c, i) => validateRow(c, i + 1, users, statuses, defaultStatusKey)) };
+};
+
+/** Map a valid row → the create payload. Due date is optional — left blank when
+ *  the CSV row doesn't supply one (no default is injected). Status is the row's
+ *  resolved column key (falls back to the board default during parsing). */
+export const rowToPayload = (row: ParsedTaskRow) => ({
   title: row.title,
   description: row.description,
   type: row.type,
   priority: row.priority,
-  due_date: row.dueDate || fallbackDueDate,
+  due_date: row.dueDate || '',
   story_points: row.storyPoints,
   estimated_hours: row.estimatedHours,
   labels: JSON.stringify(row.labels),
   assignee_ids: JSON.stringify(row.assigneeIds),
+  status: row.status || '',
 });
 
-/** Build CSV template text (header + one sample row). */
-export const buildTemplateCsv = (): string => {
+/**
+ * Build CSV template text. When the sprint's statuses are supplied, the template
+ * includes a Status column and one example row per status — so the downloaded
+ * file shows every valid status value the user can choose from.
+ */
+export const buildTemplateCsv = (statuses: BulkStatus[] = []): string => {
   const esc = (c: string) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c);
-  return `${TEMPLATE_HEADERS.map(esc).join(',')}\n${TEMPLATE_SAMPLE_ROW.map(esc).join(',')}\n`;
+  const lines: string[] = [TEMPLATE_HEADERS.map(esc).join(',')];
+
+  if (statuses.length === 0) {
+    lines.push(TEMPLATE_SAMPLE_ROW.map(esc).join(','));
+  } else {
+    statuses.forEach((s, i) => {
+      const row = i === 0
+        ? ['Set up CI pipeline', 'GitHub Actions for build + test', 'TASK', 'HIGH', '2026-07-10', '5', '8', 'alice@acme.com', 'devops; urgent', s.label]
+        : [`Example task ${i + 1}`, '', 'TASK', 'MEDIUM', '', '', '', '', '', s.label];
+      lines.push(row.map(esc).join(','));
+    });
+  }
+  return `${lines.join('\n')}\n`;
 };

@@ -195,7 +195,7 @@ const AppRoutes = () => {
         <Route path="admin-config"    element={<PermRoute permission="ADMIN_USERS"><AdminConfigPage /></PermRoute>} />
         <Route path="people-settings" element={<PermRoute permission={['LEAVE_ADMIN', 'LOCATION_ADMIN', 'IP_CONFIG_WRITE']}><PeopleSettingsPage /></PermRoute>} />
         <Route path="audit-logs"   element={<PermRoute permission="ADMIN_USERS"><AuditLogsPage /></PermRoute>} />
-        <Route path="recycle-bin"  element={<PermRoute permission="ADMIN_USERS"><RecycleBinPage /></PermRoute>} />
+        <Route path="recycle-bin"  element={<PermRoute permission={['ADMIN_TRASH_VIEW', 'ADMIN_USERS']}><RecycleBinPage /></PermRoute>} />
         <Route path="data-seed"    element={<PermRoute permission="DATA_SEED"><DataSeedPage /></PermRoute>} />
         <Route path="ip-config"    element={<PermRoute permission="IP_CONFIG_WRITE"><IpConfigPage /></PermRoute>} />
       </Route>

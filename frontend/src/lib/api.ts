@@ -245,6 +245,13 @@ export const adminApi = {
     api.post(`/admin/org-roles/${roleId}/sharing/rules`, data).then((r) => r.data.data),
   deleteSharingRule: (ruleId: string) =>
     api.delete(`/admin/sharing-rules/${ruleId}`).then((r) => r.data.data),
+  // Org-wide Trash / Recycle Bin (soft-deleted records across all modules)
+  getTrash: (params?: Record<string, string>) =>
+    api.get('/admin/trash', { params }).then((r) => r.data.data),
+  restoreTrash: (module: string, id: string) =>
+    api.post(`/admin/trash/${module}/${id}/restore`).then((r) => r.data.data),
+  purgeTrash: (module: string, id: string) =>
+    api.delete(`/admin/trash/${module}/${id}`).then((r) => r.data.data),
 };
 
 // ─── Super Admin ──────────────────────────────────────────────────────────────
@@ -560,6 +567,18 @@ export const announcementsApi = {
   readStatus: (id: string) => peopleClient.get(`/announcements/${id}/read-status`).then((r) => r.data.data),
 };
 
+export const featureReleasesApi = {
+  list:       () => peopleClient.get('/feature-releases').then((r) => r.data.data),
+  markSeen:   () => peopleClient.patch('/feature-releases/seen').then((r) => r.data.data),
+  // Admin authoring
+  listManage: () => peopleClient.get('/feature-releases/manage').then((r) => r.data.data),
+  seenStatus: (id: string) => peopleClient.get(`/feature-releases/${id}/seen-status`).then((r) => r.data.data),
+  create:     (data: unknown) => peopleClient.post('/feature-releases', data).then((r) => r.data.data),
+  update:     (id: string, data: unknown) => peopleClient.put(`/feature-releases/${id}`, data).then((r) => r.data.data),
+  publish:    (id: string, publish: boolean) => peopleClient.patch(`/feature-releases/${id}/publish`, { publish }).then((r) => r.data.data),
+  remove:     (id: string) => peopleClient.delete(`/feature-releases/${id}`).then((r) => r.data.data),
+};
+
 export const dataSeedApi = {
   stats: () => api.get('/data-seed/stats').then((r) => r.data.data),
   run: (data: {
@@ -648,6 +667,10 @@ export const tasksApi = {
     }),
   deleteAttachment: (taskId: string, attachId: string) =>
     taskClient.delete(`/tasks/${taskId}/attachments/${attachId}`).then((r) => r.data.data),
+  // Streams the attachment through the app origin as a Blob — used for inline
+  // preview (the raw Stratus URL can't be embedded in an iframe).
+  downloadAttachment: (taskId: string, attachId: string): Promise<Blob> =>
+    taskClient.get(`/tasks/${taskId}/attachments/${attachId}/raw`, { responseType: 'blob' }).then((r) => r.data),
 };
 
 // ─── Time Tracking Service clients ────────────────────────────────────────────

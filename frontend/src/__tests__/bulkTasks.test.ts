@@ -4,12 +4,21 @@ import {
   parseTaskRows,
   rowToPayload,
   buildTemplateCsv,
+  validateRow,
+  EMPTY_TASK_CELLS,
   BulkUser,
+  BulkStatus,
 } from '../lib/bulkTasks';
 
 const USERS: BulkUser[] = [
   { id: '1', name: 'Alice Smith', email: 'alice@acme.com' },
   { id: '2', name: 'Bob Jones', email: 'bob@acme.com' },
+];
+
+const STATUSES: BulkStatus[] = [
+  { key: 'TODO', label: 'To Do' },
+  { key: 'IN_PROGRESS', label: 'In Progress' },
+  { key: 'DONE', label: 'Done' },
 ];
 
 const HEADER = 'Title,Description,Type,Priority,Due Date,Story Points,Estimated Hours,Assignees,Labels';
@@ -92,12 +101,62 @@ describe('parseTaskRows', () => {
 });
 
 describe('rowToPayload', () => {
-  it('fills the fallback due date when blank and stringifies arrays', () => {
+  it('leaves the due date blank when not supplied and stringifies arrays', () => {
     const r = parseTaskRows(`${HEADER}\nT,,TASK,MEDIUM,,,,alice@acme.com,x; y`, USERS).rows[0];
-    const p = rowToPayload(r, '2026-08-01');
-    expect(p.due_date).toBe('2026-08-01');
+    const p = rowToPayload(r);
+    expect(p.due_date).toBe('');
     expect(p.assignee_ids).toBe('["1"]');
     expect(p.labels).toBe('["x","y"]');
+  });
+
+  it('keeps a supplied due date', () => {
+    const r = parseTaskRows(`${HEADER}\nT,,TASK,MEDIUM,2026-08-01,,,alice@acme.com,x; y`, USERS).rows[0];
+    const p = rowToPayload(r);
+    expect(p.due_date).toBe('2026-08-01');
+  });
+});
+
+describe('status resolution', () => {
+  const HEADER_S = `${HEADER},Status`;
+
+  it('matches status by label or key, ignoring case/spacing', () => {
+    const rows = parseTaskRows(
+      `${HEADER_S}\nA,,TASK,MEDIUM,,,,,,In Progress\nB,,TASK,MEDIUM,,,,,,in_progress\nC,,TASK,MEDIUM,,,,,,DONE`,
+      USERS, STATUSES, 'TODO',
+    ).rows;
+    expect(rows[0].status).toBe('IN_PROGRESS');
+    expect(rows[1].status).toBe('IN_PROGRESS');
+    expect(rows[2].status).toBe('DONE');
+  });
+
+  it('falls back to the default status when blank, and flags unknown values', () => {
+    const rows = parseTaskRows(
+      `${HEADER_S}\nA,,TASK,MEDIUM,,,,,,\nB,,TASK,MEDIUM,,,,,,Nope`,
+      USERS, STATUSES, 'TODO',
+    ).rows;
+    expect(rows[0].status).toBe('TODO');
+    expect(rows[0].unmatchedStatus).toBeUndefined();
+    expect(rows[1].status).toBe('TODO');
+    expect(rows[1].unmatchedStatus).toBe('Nope');
+    expect(rowToPayload(rows[1]).status).toBe('TODO');
+  });
+});
+
+describe('validateRow (editable grid)', () => {
+  it('flags a blank row as invalid instead of skipping it', () => {
+    const r = validateRow({ ...EMPTY_TASK_CELLS }, 1, USERS, STATUSES, 'TODO');
+    expect(r.errors).toContain('Title is required');
+    expect(r.status).toBe('TODO'); // blank status → default
+  });
+
+  it('validates a filled row and resolves status by label', () => {
+    const r = validateRow(
+      { ...EMPTY_TASK_CELLS, title: 'Do it', status: 'In Progress', assignees: 'alice@acme.com' },
+      1, USERS, STATUSES, 'TODO',
+    );
+    expect(r.errors).toHaveLength(0);
+    expect(r.status).toBe('IN_PROGRESS');
+    expect(r.assigneeIds).toEqual(['1']);
   });
 });
 
@@ -107,5 +166,12 @@ describe('buildTemplateCsv', () => {
     const grid = parseDelimited(csv);
     expect(grid).toHaveLength(2);
     expect(mapHeaders(grid[0])).not.toBeNull();
+  });
+
+  it('emits one example row per status when statuses are supplied', () => {
+    const grid = parseDelimited(buildTemplateCsv(STATUSES));
+    expect(grid).toHaveLength(1 + STATUSES.length); // header + one row per status
+    const statusCol = grid[0].findIndex((h) => h.toLowerCase() === 'status');
+    expect(grid.slice(1).map((r) => r[statusCol])).toEqual(['To Do', 'In Progress', 'Done']);
   });
 });

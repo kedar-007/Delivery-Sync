@@ -18,6 +18,7 @@ interface ThemeContextValue {
   autoTheme: boolean;
   setAutoTheme: (v: boolean) => void;
   isDark: boolean;
+  toggleDark: () => void;
   accentId: string | null;
   setAccentId: (id: string | null) => void;
   resetToDefault: () => void;
@@ -25,6 +26,8 @@ interface ThemeContextValue {
 
 interface StoredPrefs {
   themeId?: string;
+  /** Last non-dark theme the user picked — restored when toggling dark mode off. */
+  lightThemeId?: string;
   density?: DensityLevel;
   fontSize?: FontSizeLevel;
   autoTheme?: boolean;
@@ -96,6 +99,9 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   const [fontSize, setFontSizeState] = useState<FontSizeLevel>('md');
   const [autoTheme, setAutoThemeState] = useState(false);
   const [accentId, setAccentIdState] = useState<string | null>(null);
+  // Remembers the last light theme so the dark toggle can restore it instead of
+  // always falling back to the blue 'default'.
+  const [lightThemeId, setLightThemeId] = useState<string>('default');
 
   // ── Bootstrap from localStorage on first render ───────────────────────────
   useEffect(() => {
@@ -112,11 +118,18 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
       resolvedId = prefs.themeId ?? getSystemThemeId();
     }
 
+    // Derive the light-theme memory: explicit pref, else the saved theme if it's
+    // light, else the default.
+    const savedLight =
+      prefs.lightThemeId ??
+      (prefs.themeId && !getPreset(prefs.themeId).isDark ? prefs.themeId : 'default');
+
     setThemeIdState(resolvedId);
     setDensityState(d);
     setFontSizeState(f);
     setAutoThemeState(auto);
     setAccentIdState(acc);
+    setLightThemeId(savedLight);
     applyTheme(getPreset(resolvedId), d, f, acc);
   }, []);
 
@@ -137,8 +150,18 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   const setThemeId = useCallback((id: string) => {
     setThemeIdState(id);
     applyTheme(getPreset(id), density, fontSize, accentId);
-    writePrefs({ themeId: id });
+    // Remember the last light theme so toggling dark off restores it.
+    if (!getPreset(id).isDark) {
+      setLightThemeId(id);
+      writePrefs({ themeId: id, lightThemeId: id });
+    } else {
+      writePrefs({ themeId: id });
+    }
   }, [density, fontSize, accentId]);
+
+  const toggleDark = useCallback(() => {
+    setThemeId(getPreset(themeId).isDark ? lightThemeId : 'dark');
+  }, [themeId, lightThemeId, setThemeId]);
 
   const setDensity = useCallback((d: DensityLevel) => {
     setDensityState(d);
@@ -175,6 +198,7 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     setFontSizeState('md');
     setAutoThemeState(false);
     setAccentIdState(null);
+    setLightThemeId('default');
     applyTheme(getPreset('default'), 'default', 'md', null);
   }, []);
 
@@ -187,6 +211,7 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
       fontSize, setFontSize,
       autoTheme, setAutoTheme,
       isDark: theme.isDark,
+      toggleDark,
       accentId, setAccentId,
       resetToDefault,
     }}>

@@ -7,6 +7,15 @@ const ResponseHelper = require('../utils/ResponseHelper');
 const { TABLES, TASK_STATUS, TASK_TYPE, AUDIT_ACTION, NOTIFICATION_TYPE } = require('../utils/Constants');
 const WorkAllocation = require('../utils/workAllocation');
 
+// Standard cap on task description length (mirrors TASK_DESCRIPTION_MAX_LENGTH
+// on the frontend). Keeps stored descriptions and the detail UI sane.
+const DESCRIPTION_MAX_LENGTH = 2000;
+
+// Soft-delete filter: every active-workspace read of a soft-delete-enabled table
+// must exclude rows that have been moved to the Recycle Bin. Requires the
+// `deleted_at` / `deleted_by` columns to exist on the table (see DataStoreSchema).
+const NOT_DELETED = 'deleted_at IS NULL';
+
 class TaskController {
   constructor(catalystApp) {
     this.catalystApp = catalystApp;
@@ -29,7 +38,7 @@ class TaskController {
       const hasViewAll = Array.isArray(req.currentUser.permissions) &&
         req.currentUser.permissions.includes('PROJECT_DATA_VIEW_ALL');
 
-      let where = 'parent_task_id = 0';
+      let where = `parent_task_id = 0 AND ${NOT_DELETED}`;
       if (project_id) where += ` AND project_id = '${DataStoreService.escape(project_id)}'`;
       if (sprint_id)  where += ` AND sprint_id = '${DataStoreService.escape(sprint_id)}'`;
       if (status)     where += ` AND status = '${DataStoreService.escape(status)}'`;
@@ -142,7 +151,7 @@ class TaskController {
       // Subtasks (parent_task_id != 0) are INCLUDED so a user who is assigned a
       // subtask still sees it in My Tasks.
       const allTasks = await this.db.findWhere(TABLES.TASKS, tenantId,
-        `status != 'CANCELLED'`,
+        `status != 'CANCELLED' AND ${NOT_DELETED}`,
         { orderBy: 'CREATEDTIME DESC', limit: 300 });
 
       const tasks = allTasks.filter((t) => {
@@ -181,7 +190,7 @@ class TaskController {
   async overdue(req, res) {
     const today = DataStoreService.today();
     const tasks = await this.db.findWhere(TABLES.TASKS, req.tenantId,
-      `due_date < '${today}' AND status != 'DONE' AND status != 'CANCELLED'`,
+      `due_date < '${today}' AND status != 'DONE' AND status != 'CANCELLED' AND ${NOT_DELETED}`,
       { orderBy: 'due_date ASC', limit: 100 });
     return ResponseHelper.success(res, tasks);
   }
@@ -189,10 +198,10 @@ class TaskController {
   // GET /api/ts/tasks/:taskId
   async getById(req, res) {
     const task = await this.db.findById(TABLES.TASKS, req.params.taskId, req.tenantId);
-    if (!task) return ResponseHelper.notFound(res, 'Task not found');
+    if (!task || task.deleted_at) return ResponseHelper.notFound(res, 'Task not found');
 
-    const subtasks = await this.db.findWhere(TABLES.TASKS, req.tenantId, `parent_task_id = '${task.ROWID}'`, { limit: 50 });
-    const comments = await this.db.findWhere(TABLES.TASK_COMMENTS, req.tenantId, `task_id = '${task.ROWID}'`, { orderBy: 'CREATEDTIME ASC', limit: 100 });
+    const subtasks = await this.db.findWhere(TABLES.TASKS, req.tenantId, `parent_task_id = '${task.ROWID}' AND ${NOT_DELETED}`, { limit: 50 });
+    const comments = await this.db.findWhere(TABLES.TASK_COMMENTS, req.tenantId, `task_id = '${task.ROWID}' AND ${NOT_DELETED}`, { orderBy: 'CREATEDTIME ASC', limit: 100 });
     const attachments = await this.db.findWhere(TABLES.TASK_ATTACHMENTS, req.tenantId, `task_id = '${task.ROWID}'`, { limit: 50 });
     const history = await this.db.findWhere(TABLES.TASK_STATUS_HISTORY, req.tenantId, `task_id = '${task.ROWID}'`, { orderBy: 'CREATEDTIME ASC', limit: 50 });
 
@@ -230,6 +239,9 @@ class TaskController {
     }
 
     if (!title) return ResponseHelper.validationError(res, 'title is required');
+    if (description && String(description).length > DESCRIPTION_MAX_LENGTH) {
+      return ResponseHelper.validationError(res, `Description must be ${DESCRIPTION_MAX_LENGTH} characters or fewer`);
+    }
     // Due date is OPTIONAL (a task can be created without one — e.g. future work).
     // Only when a due date IS supplied do we validate its shape. Accept full ISO
     // strings (e.g. "2026-05-14T00:00:00Z") by trimming to the date portion.
@@ -374,9 +386,13 @@ class TaskController {
     const buildRow = (t, index) => {
       const title = t && t.title ? String(t.title).trim() : '';
       if (!title) return { error: `Row ${index + 1}: title is required` };
+      // Due date is optional on bulk import; only validate the format when supplied.
       const dueOnly = String(t.due_date || '').split('T')[0].split(' ')[0].trim();
-      if (!dueOnly || !/^\d{4}-\d{2}-\d{2}$/.test(dueOnly)) {
+      if (dueOnly && !/^\d{4}-\d{2}-\d{2}$/.test(dueOnly)) {
         return { error: `Row ${index + 1}: due_date must be in YYYY-MM-DD format` };
+      }
+      if (t.description && String(t.description).length > DESCRIPTION_MAX_LENGTH) {
+        return { error: `Row ${index + 1}: description exceeds ${DESCRIPTION_MAX_LENGTH} characters` };
       }
       let assigneeIdsArr = [];
       try {
@@ -386,27 +402,27 @@ class TaskController {
       let labelsStr = '[]';
       if (t.labels) labelsStr = typeof t.labels === 'string' ? t.labels : JSON.stringify(t.labels);
 
-      return {
-        data: {
-          tenant_id: String(tenantId),
-          project_id: String(project_id),
-          sprint_id: String(sprint_id || 0),
-          parent_task_id: '0',
-          title,
-          description: t.description || '',
-          type: t.type || TASK_TYPE.TASK,
-          status: t.status || TASK_STATUS.TODO,
-          task_priority: t.priority || 'MEDIUM',
-          assignee_ids: JSON.stringify(assigneeIdsArr),
-          story_points: parseInt(t.story_points) || 0,
-          estimated_hours: parseFloat(t.estimated_hours) || 0,
-          logged_hours: 0,
-          labels: labelsStr,
-          due_date: dueOnly,
-          created_by: String(userId),
-          require_approval: 'false',
-        },
+      const data = {
+        tenant_id: String(tenantId),
+        project_id: String(project_id),
+        sprint_id: String(sprint_id || 0),
+        parent_task_id: '0',
+        title,
+        description: t.description || '',
+        type: t.type || TASK_TYPE.TASK,
+        status: t.status || TASK_STATUS.TODO,
+        task_priority: t.priority || 'MEDIUM',
+        assignee_ids: JSON.stringify(assigneeIdsArr),
+        story_points: parseInt(t.story_points) || 0,
+        estimated_hours: parseFloat(t.estimated_hours) || 0,
+        logged_hours: 0,
+        labels: labelsStr,
+        created_by: String(userId),
+        require_approval: 'false',
       };
+      // Only set a due date when one was supplied — it's not mandatory.
+      if (dueOnly) data.due_date = dueOnly;
+      return { data };
     };
 
     const created = [];
@@ -463,6 +479,9 @@ class TaskController {
       'sprint_id', 'story_points', 'estimated_hours', 'due_date', 'labels', 'task_priority', 'require_approval'];
     const updates = {};
     allowed.forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
+    if (updates.description !== undefined && String(updates.description).length > DESCRIPTION_MAX_LENGTH) {
+      return ResponseHelper.validationError(res, `Description must be ${DESCRIPTION_MAX_LENGTH} characters or fewer`);
+    }
     // Normalise require_approval to match the create handler (handles string or boolean input)
     if (updates.require_approval !== undefined) {
       updates.require_approval = (updates.require_approval === true || updates.require_approval === 'true') ? 'true' : 'false';
@@ -497,10 +516,10 @@ class TaskController {
     return ResponseHelper.success(res, updated);
   }
 
-  // DELETE /api/ts/tasks/:taskId
+  // DELETE /api/ts/tasks/:taskId — soft delete (moves to the Recycle Bin).
   async remove(req, res) {
     const task = await this.db.findById(TABLES.TASKS, req.params.taskId, req.tenantId);
-    if (!task) return ResponseHelper.notFound(res, 'Task not found');
+    if (!task || task.deleted_at) return ResponseHelper.notFound(res, 'Task not found');
 
     // Delete is restricted to the creator or a tenant/super admin — same
     // policy as update(), since the route-level TASK_WRITE perm alone was
@@ -512,9 +531,24 @@ class TaskController {
       return ResponseHelper.forbidden(res, 'Only the task creator or an admin can delete this task');
     }
 
-    await this.db.delete(TABLES.TASKS, req.params.taskId);
-    await this.audit.log({ tenantId: req.tenantId, entityType: 'TASK', entityId: req.params.taskId, action: AUDIT_ACTION.DELETE, oldValue: task, performedBy: req.currentUser.id });
-    return ResponseHelper.success(res, { message: 'Task deleted' });
+    await this.db.softDelete(TABLES.TASKS, req.params.taskId, userId);
+
+    // Cascade to subtasks so they don't dangle in assignees' "My Tasks" once the
+    // parent is trashed. Each is independently restorable from the Recycle Bin.
+    let cascaded = 0;
+    try {
+      const subtasks = await this.db.findWhere(TABLES.TASKS, req.tenantId,
+        `parent_task_id = '${DataStoreService.escape(req.params.taskId)}' AND ${NOT_DELETED}`, { limit: 200 });
+      for (const st of subtasks) {
+        await this.db.softDelete(TABLES.TASKS, st.ROWID, userId);
+        cascaded += 1;
+      }
+    } catch (err) {
+      console.warn('[TaskController.remove] subtask cascade failed (non-fatal):', err.message);
+    }
+
+    await this.audit.log({ tenantId: req.tenantId, entityType: 'TASK', entityId: req.params.taskId, action: AUDIT_ACTION.DELETE, oldValue: { title: task.title }, newValue: { soft: true, subtasks_trashed: cascaded }, performedBy: req.currentUser.id });
+    return ResponseHelper.success(res, { message: 'Task moved to Recycle Bin', subtasks_trashed: cascaded });
   }
 
   // PATCH /api/ts/tasks/:taskId/status
@@ -679,7 +713,7 @@ class TaskController {
   // GET /api/ts/tasks/:taskId/comments
   async getComments(req, res) {
     const tid = DataStoreService.escape(req.params.taskId);
-    const comments = await this.db.findWhere(TABLES.TASK_COMMENTS, req.tenantId, `task_id = '${tid}'`, { orderBy: 'CREATEDTIME ASC', limit: 200 });
+    const comments = await this.db.findWhere(TABLES.TASK_COMMENTS, req.tenantId, `task_id = '${tid}' AND ${NOT_DELETED}`, { orderBy: 'CREATEDTIME ASC', limit: 200 });
     return ResponseHelper.success(res, comments);
   }
 
@@ -749,13 +783,14 @@ class TaskController {
     return ResponseHelper.created(res, row);
   }
 
-  // DELETE /api/ts/tasks/:taskId/comments/:cid
+  // DELETE /api/ts/tasks/:taskId/comments/:cid — soft delete.
   async deleteComment(req, res) {
     const comment = await this.db.findById(TABLES.TASK_COMMENTS, req.params.cid, req.tenantId);
-    if (!comment) return ResponseHelper.notFound(res, 'Comment not found');
+    if (!comment || comment.deleted_at) return ResponseHelper.notFound(res, 'Comment not found');
     if (String(comment.user_id) !== req.currentUser.id && req.currentUser.role !== 'TENANT_ADMIN')
       return ResponseHelper.forbidden(res, 'Cannot delete another user\'s comment');
-    await this.db.delete(TABLES.TASK_COMMENTS, req.params.cid);
+    await this.db.softDelete(TABLES.TASK_COMMENTS, req.params.cid, req.currentUser.id);
+    await this.audit.log({ tenantId: req.tenantId, entityType: 'TASK_COMMENT', entityId: req.params.cid, action: AUDIT_ACTION.DELETE, newValue: { soft: true }, performedBy: req.currentUser.id });
     return ResponseHelper.success(res, { message: 'Comment deleted' });
   }
 
@@ -770,7 +805,7 @@ class TaskController {
       req.currentUser.permissions.includes('PROJECT_DATA_VIEW_ALL');
 
     let tasks = await this.db.findWhere(TABLES.TASKS, req.tenantId,
-      `project_id = '${DataStoreService.escape(project_id)}' AND sprint_id = 0 AND parent_task_id = 0 AND status != 'DONE' AND status != 'CANCELLED'`,
+      `project_id = '${DataStoreService.escape(project_id)}' AND sprint_id = 0 AND parent_task_id = 0 AND status != 'DONE' AND status != 'CANCELLED' AND ${NOT_DELETED}`,
       { orderBy: 'CREATEDTIME DESC', limit: 200 });
 
     // TEAM_MEMBER: restrict to tasks they created or are assigned to.
@@ -800,12 +835,13 @@ class TaskController {
         select_table_columns: {
           [TABLES.TASKS]: ['ROWID', 'title', 'description', 'type', 'status', 'task_priority',
             'assignee_ids', 'created_by', 'due_date', 'project_id', 'sprint_id',
-            'story_points', 'estimated_hours', 'labels', 'tenant_id'],
+            'story_points', 'estimated_hours', 'labels', 'tenant_id', 'deleted_at'],
         },
       });
 
       const hits = (results[TABLES.TASKS] ?? []).filter((t) => {
         if (String(t.tenant_id) !== String(req.tenantId)) return false;
+        if (t.deleted_at) return false; // hide trashed tasks from search
         if (String(t.created_by) === userId) return true;
         try { return JSON.parse(t.assignee_ids || '[]').map(String).includes(userId); } catch { return false; }
       });

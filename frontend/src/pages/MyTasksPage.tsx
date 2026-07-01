@@ -4,7 +4,7 @@ import {
   CheckSquare, Clock, Filter, Search, ArrowUpRight, Circle, AlertCircle,
   CheckCircle2, Layers, Bug, Bookmark, Zap, Tag, Timer, Edit2, Plus,
   Trash2, Check, X, Paperclip, User, PlayCircle, StopCircle, MessageSquare,
-  Users, BarChart2, Brain, ArrowRight, Eye, Loader2, Download, Upload, FileText, Image as ImageIcon,
+  Users, BarChart2, Brain, ArrowRight, Eye, Loader2, Download, Upload, FileText,
   Globe, Building2,
 } from 'lucide-react';
 import { format, parseISO, isPast, addDays, isBefore } from 'date-fns';
@@ -27,11 +27,13 @@ import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { useQuery } from '@tanstack/react-query';
 import UserAvatar from '../components/ui/UserAvatar';
 import MarkdownText from '../components/ui/MarkdownText';
+import AttachmentViewer, { AttachmentPreview } from '../components/ui/AttachmentViewer';
 import RichCommentEditor, { renderRichContent } from '../components/ui/RichCommentEditor';
 import WorkAllocationField from '../components/tasks/WorkAllocationField';
 import WorkAllocationDisplay from '../components/tasks/WorkAllocationDisplay';
 import { useBusinessHours } from '../hooks/useBusinessHours';
 import { WorkAllocation, serializeAllocation, reconcileEntries, deriveWorkingDates } from '../lib/workAllocation';
+import { TASK_DESCRIPTION_MAX_LENGTH } from '../lib/taskLimits';
 
 // ── Time helpers: HH:MM ↔ decimal hours ──────────────────────────────────────
 const parseHoursInput = (val: string): number => {
@@ -473,9 +475,13 @@ function TaskFormModal({
               <textarea
                 className="form-textarea"
                 rows={5}
+                maxLength={TASK_DESCRIPTION_MAX_LENGTH}
                 placeholder="Add more detail — steps, context, acceptance criteria…"
-                {...register('description')}
+                {...register('description', { maxLength: TASK_DESCRIPTION_MAX_LENGTH })}
               />
+              <div className="mt-1 text-right text-[11px] text-gray-400">
+                {(watch('description')?.length ?? 0)} / {TASK_DESCRIPTION_MAX_LENGTH}
+              </div>
             </div>
 
             <div>
@@ -648,6 +654,7 @@ function TaskDetailPanel({
   canEdit,
   taskAttachments,
   onUploadAttachment,
+  onDeleteAttachment,
   fullTaskData,
 }: {
   task: Task;
@@ -658,6 +665,7 @@ function TaskDetailPanel({
   setDetailTab: (t: 'comments' | 'time' | 'attachments' | 'ai' | 'audit_logs') => void;
   taskAttachments: any[];
   onUploadAttachment: (file: File) => void;
+  onDeleteAttachment: (attachId: string) => Promise<void>;
   taskComments: any[];
   detailComment: string;
   setDetailComment: (v: string) => void;
@@ -712,7 +720,9 @@ function TaskDetailPanel({
   // Attachment upload state — local to this panel
   const [attUploading, setAttUploading] = useState(false);
   const [attUploadErr, setAttUploadErr] = useState('');
-  const [previewAtt, setPreviewAtt]     = useState<{ url: string; name: string } | null>(null);
+  const [previewAtt, setPreviewAtt]     = useState<AttachmentPreview | null>(null);
+  const [deletingAttId, setDeletingAttId] = useState('');
+  const { confirm: confirmDelete } = useConfirm();
 
   const handleAttachFile = async (file: File) => {
     setAttUploading(true);
@@ -726,6 +736,25 @@ function TaskDetailPanel({
     }
   };
 
+  const handleDeleteAttachment = async (attachId: string, fileName: string) => {
+    const ok = await confirmDelete({
+      title: 'Delete attachment?',
+      message: `“${fileName}” will be permanently removed. This cannot be undone.`,
+      confirmText: 'Delete',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    setDeletingAttId(attachId);
+    setAttUploadErr('');
+    try {
+      await onDeleteAttachment(attachId);
+    } catch (err: any) {
+      setAttUploadErr(err?.message || 'Delete failed');
+    } finally {
+      setDeletingAttId('');
+    }
+  };
+
   return (
     <>
       {/* Backdrop — no click-to-close; use the red X button to dismiss */}
@@ -735,7 +764,7 @@ function TaskDetailPanel({
       <div className="fixed top-0 right-0 h-full w-full max-w-2xl bg-white shadow-2xl z-50 flex flex-col overflow-hidden">
 
         {/* ── Header ── */}
-        <div className="flex items-start gap-3 px-6 py-4 border-b border-gray-100 bg-gray-50/80">
+        <div className="flex items-start gap-3 px-6 py-4 border-b border-gray-100 bg-gray-50">
           <div className="mt-0.5 shrink-0">{TYPE_ICON[task.type] ?? TYPE_ICON.TASK}</div>
           <div className="flex-1 min-w-0">
             <h2 className="text-base font-semibold text-gray-900 leading-snug">{task.title}</h2>
@@ -828,7 +857,7 @@ function TaskDetailPanel({
         </div>
 
         {/* ── Timer bar ── */}
-        <div className="px-6 py-1.5 border-b border-gray-100 bg-indigo-50/50 flex items-center gap-3">
+        <div className="px-6 py-1.5 border-b border-gray-100 bg-indigo-50 flex items-center gap-3">
           <div className="font-mono text-sm font-semibold text-indigo-700 tracking-widest w-24 tabular-nums">
             {timerDisplay}
           </div>
@@ -849,7 +878,7 @@ function TaskDetailPanel({
         {/* ── Description ── */}
         {task.description && (
           <div className="px-6 py-3 border-b border-gray-100">
-            <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{task.description}</p>
+            <p className="text-sm text-ds-text leading-relaxed whitespace-pre-wrap max-h-80 overflow-y-auto break-words">{task.description}</p>
           </div>
         )}
 
@@ -1138,28 +1167,8 @@ function TaskDetailPanel({
           {/* Attachments tab */}
           {detailTab === 'attachments' && (
             <div className="p-6 space-y-4">
-              {/* Image preview lightbox */}
-              {previewAtt && (
-                <div
-                  className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4"
-                  onClick={() => setPreviewAtt(null)}
-                >
-                  <div className="relative max-w-4xl max-h-[90vh] w-full" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      onClick={() => setPreviewAtt(null)}
-                      className="absolute -top-3 -right-3 z-10 w-8 h-8 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg"
-                    >
-                      <X size={14} />
-                    </button>
-                    <img
-                      src={previewAtt.url}
-                      alt={previewAtt.name}
-                      className="w-full h-full object-contain rounded-xl shadow-2xl max-h-[85vh]"
-                    />
-                    <p className="text-center text-white/70 text-xs mt-2 truncate">{previewAtt.name}</p>
-                  </div>
-                </div>
-              )}
+              {/* Universal attachment viewer (images, PDF, video, audio, text, …) */}
+              <AttachmentViewer attachment={previewAtt} onClose={() => setPreviewAtt(null)} />
 
               {/* Upload button */}
               <div className="flex items-center justify-between">
@@ -1209,13 +1218,20 @@ function TaskDetailPanel({
                     const ext     = name.split('.').pop()?.toLowerCase() ?? '';
                     const isImage = ['png','jpg','jpeg','gif','webp','svg'].includes(ext);
                     const isDoc   = ['pdf','doc','docx','xls','xlsx','csv','txt'].includes(ext);
+                    const attachId = String(a.ROWID ?? a.id ?? '');
+                    const uploadedBy = String(a.uploaded_by ?? a.uploadedBy ?? '');
+                    const canDelete = !!uploadedBy && uploadedBy === currentUserId;
+                    const openPreview = () => url && setPreviewAtt({
+                      url, name,
+                      fetchBlob: attachId ? () => tasksApi.downloadAttachment(task.id, attachId) : undefined,
+                    });
 
                     return (
                       <div key={a.ROWID ?? i} className="group flex items-center gap-3 border border-gray-100 rounded-xl bg-white hover:border-indigo-200 hover:bg-indigo-50/30 transition-all p-3">
-                        {/* Thumbnail / icon */}
+                        {/* Thumbnail / icon — click to preview any file type */}
                         <div
-                          className={`w-12 h-12 rounded-xl overflow-hidden shrink-0 flex items-center justify-center ${isImage ? 'cursor-pointer' : 'bg-gray-100'}`}
-                          onClick={() => isImage && url && setPreviewAtt({ url, name })}
+                          className={`w-12 h-12 rounded-xl overflow-hidden shrink-0 flex items-center justify-center ${url ? 'cursor-pointer' : 'bg-gray-100'}`}
+                          onClick={openPreview}
                         >
                           {isImage && url ? (
                             <img src={url} alt={name} className="w-full h-full object-cover" />
@@ -1238,9 +1254,9 @@ function TaskDetailPanel({
                         </div>
 
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                          {isImage && url && (
+                          {url && (
                             <button
-                              onClick={() => setPreviewAtt({ url, name })}
+                              onClick={openPreview}
                               className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
                               title="Preview"
                             >
@@ -1257,6 +1273,19 @@ function TaskDetailPanel({
                             >
                               <Download size={14} />
                             </a>
+                          )}
+                          {/* Delete — only the uploader can remove their file */}
+                          {canDelete && attachId && (
+                            <button
+                              onClick={() => handleDeleteAttachment(attachId, name)}
+                              disabled={deletingAttId === attachId}
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-wait"
+                              title="Delete"
+                            >
+                              {deletingAttId === attachId
+                                ? <Loader2 size={14} className="animate-spin" />
+                                : <Trash2 size={14} />}
+                            </button>
                           )}
                         </div>
                       </div>
@@ -2033,6 +2062,13 @@ export default function MyTasksPage() {
               const atts = (updated as any)?.attachments;
               if (Array.isArray(atts)) setTaskAttachments(atts);
             } catch { /* silent */ }
+          }}
+          onDeleteAttachment={async (attachId) => {
+            if (!taskDetailId) return;
+            await tasksApi.deleteAttachment(taskDetailId, attachId);
+            const updated = await tasksApi.get(taskDetailId);
+            const atts = (updated as any)?.attachments;
+            setTaskAttachments(Array.isArray(atts) ? atts : []);
           }}
         />
       )}

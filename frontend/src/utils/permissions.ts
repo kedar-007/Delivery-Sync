@@ -29,6 +29,10 @@ export const PERMISSIONS = {
   // ── Admin ─────────────────────────────────────────────────────────────────
   ADMIN_USERS:       'ADMIN_USERS',
   ADMIN_SETTINGS:    'ADMIN_SETTINGS',
+  // Org-wide Recycle Bin / Trash (see AdminTrashController)
+  ADMIN_TRASH_VIEW:    'ADMIN_TRASH_VIEW',
+  ADMIN_TRASH_RESTORE: 'ADMIN_TRASH_RESTORE',
+  ADMIN_TRASH_PURGE:   'ADMIN_TRASH_PURGE',
   INVITE_USER:       'INVITE_USER',
   NOTIFICATION_READ: 'NOTIFICATION_READ',
   TEAM_READ:         'TEAM_READ',
@@ -85,6 +89,8 @@ export const PERMISSIONS = {
   // ── Announcements & Org ───────────────────────────────────────────────────
   ANNOUNCEMENT_READ:  'ANNOUNCEMENT_READ',
   ANNOUNCEMENT_WRITE: 'ANNOUNCEMENT_WRITE',
+  FEATURE_RELEASE_READ:  'FEATURE_RELEASE_READ',
+  FEATURE_RELEASE_WRITE: 'FEATURE_RELEASE_WRITE',
   ORG_READ:  'ORG_READ',
   ORG_WRITE: 'ORG_WRITE',
   // ── Config & Org Roles ────────────────────────────────────────────────────

@@ -17,6 +17,7 @@ import { useI18n } from '../contexts/I18nContext';
 import Button from '../components/ui/Button';
 import UserAvatar from '../components/ui/UserAvatar';
 import { StatusBadge } from '../components/ui/Badge';
+import FeatureReleasesAdmin from '../components/whatsnew/FeatureReleasesAdmin';
 import Modal, { ModalActions } from '../components/ui/Modal';
 import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
@@ -38,7 +39,7 @@ import { User as UserType } from '../types';
 import UserPicker from '../components/ui/UserPicker';
 const PAGE_SIZE = 20;
 
-type Tab = 'users' | 'roles' | 'orgchart';
+type Tab = 'users' | 'roles' | 'orgchart' | 'releases';
 interface InviteForm { email: string; name: string; orgRoleId?: string; }
 
 // ─── Colour swatches for role picker ─────────────────────────────────────────
@@ -2017,6 +2018,9 @@ const AdminPage = () => {
   const canInvite = hasPermission(currentUser, PERMISSIONS.INVITE_USER);
   const canManageRoles = hasPermission(currentUser, PERMISSIONS.ORG_ROLE_WRITE);
   const isFullAdmin = hasPermission(currentUser, PERMISSIONS.ADMIN_USERS);
+  // Authoring is admin-only. Full admins always see it; also honour the explicit
+  // FEATURE_RELEASE_WRITE permission once it propagates from the auth service.
+  const canManageReleases = isFullAdmin || hasPermission(currentUser, PERMISSIONS.FEATURE_RELEASE_WRITE);
   const canViewUsers        = isFullAdmin || hasPermission(currentUser, PERMISSIONS.USER_READ);
   const canEditUsers        = isFullAdmin || hasPermission(currentUser, PERMISSIONS.USER_WRITE);
   const canDeleteUsers      = isFullAdmin || hasPermission(currentUser, PERMISSIONS.USER_DELETE);
@@ -2131,6 +2135,7 @@ const AdminPage = () => {
             { key: 'users',    label: `${t('admin.tabs.users')} (${users.length})` },
             { key: 'roles',    label: `${t('admin.tabs.roles')} (${orgRoles.length})` },
             { key: 'orgchart', label: t('directory.orgChart') },
+            ...(canManageReleases ? [{ key: 'releases' as Tab, label: "What's New" }] : []),
           ] as { key: Tab; label: string }[]).map(({ key, label }) => (
             <button key={key} onClick={() => setTab(key)}
               className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
@@ -2377,6 +2382,8 @@ const AdminPage = () => {
             <OrgChartView />
           </div>
         )}
+
+        {tab === 'releases' && canManageReleases && <FeatureReleasesAdmin />}
 
       </div>
 

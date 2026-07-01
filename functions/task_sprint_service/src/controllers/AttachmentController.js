@@ -64,10 +64,47 @@ class AttachmentController {
     return ResponseHelper.created(res, row);
   }
 
+  // GET /api/ts/tasks/:taskId/attachments/:attachId/raw
+  // Streams the stored Stratus object back through the app origin. Serving it
+  // same-origin lets the browser preview it inline (PDF/image/video/…) — the
+  // raw Stratus URL sets X-Frame-Options, so it can't be embedded in an iframe
+  // directly, and it isn't CORS-enabled for fetch either.
+  async raw(req, res) {
+    const attachment = await this.db.findById(TABLES.TASK_ATTACHMENTS, req.params.attachId, req.tenantId);
+    if (!attachment)           return ResponseHelper.notFound(res, 'Attachment not found');
+    if (!attachment.file_url)  return ResponseHelper.notFound(res, 'Attachment file missing');
+
+    const stratusKey = attachment.file_url.replace(`${BUCKET_BASE_URL}/`, '');
+    const mime       = attachment.mime_type || 'application/octet-stream';
+
+    let stream;
+    try {
+      stream = await this.stratus.bucket(BUCKET_NAME).getObject(stratusKey);
+    } catch (err) {
+      return ResponseHelper.serverError(res, 'Failed to fetch attachment from storage');
+    }
+
+    res.setHeader('Content-Type', mime);
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(attachment.file_name || 'file')}"`);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+
+    if (stream && typeof stream.pipe === 'function') {
+      stream.on('error', () => { if (!res.headersSent) res.status(500).end(); });
+      return stream.pipe(res);
+    }
+    // Fallback: SDK returned a Buffer/string rather than a stream.
+    return res.end(Buffer.isBuffer(stream) ? stream : Buffer.from(stream ?? ''));
+  }
+
   // DELETE /api/ts/tasks/:taskId/attachments/:attachId
   async remove(req, res) {
     const attachment = await this.db.findById(TABLES.TASK_ATTACHMENTS, req.params.attachId, req.tenantId);
     if (!attachment) return ResponseHelper.notFound(res, 'Attachment not found');
+
+    // Only the user who uploaded the file may delete it.
+    if (String(attachment.uploaded_by) !== String(req.currentUser.id)) {
+      return ResponseHelper.forbidden(res, 'Only the person who uploaded this file can delete it');
+    }
 
     // Derive Stratus key from stored file_url
     if (attachment.file_url) {
