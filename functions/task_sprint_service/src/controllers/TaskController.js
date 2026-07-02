@@ -146,20 +146,22 @@ class TaskController {
       const userId = req.currentUser.id;
       const tenantId = req.tenantId;
 
-      // Restrict to tasks the user created or is assigned to — filtered in the
-      // query (not after a capped fetch) so users with more than 300 tasks still
-      // see all of them. assignee_ids is a JSON string like ["12","34"]; the
-      // quoted LIKE matches an id exactly. fetchAll auto-paginates in 300-row
-      // pages, so there is no 300-row ceiling. Subtasks are included.
-      // NOTE: the tasks table has no scalar `assignee_id` column — assignees are
-      // stored only in the `assignee_ids` JSON string (e.g. ["12","34"]). The
-      // quoted LIKE matches an id exactly. fetchAll auto-paginates (300-row
-      // pages) so there is no 300-row ceiling.
-      const uid = DataStoreService.escape(String(userId));
-      const mineWhere =
-        `status != 'CANCELLED' AND ${NOT_DELETED} AND ` +
-        `(created_by = '${uid}' OR assignee_ids LIKE '%"${uid}"%')`;
-      const tasks = await this.db.fetchAll(TABLES.TASKS, tenantId, mineWhere, { orderBy: 'CREATEDTIME DESC' });
+      // Fetch all non-cancelled tasks (fetchAll auto-paginates in 300-row pages,
+      // so there's no 300-row ceiling) and restrict to tasks the user created or
+      // is assigned to. The assignee match is done in JS by parsing the
+      // assignee_ids JSON array — ZCQL LIKE on that JSON column is unreliable,
+      // so we deliberately avoid it. Subtasks (parent_task_id != 0) are included.
+      const allTasks = await this.db.fetchAll(TABLES.TASKS, tenantId,
+        `status != 'CANCELLED' AND ${NOT_DELETED}`,
+        { orderBy: 'CREATEDTIME DESC' });
+
+      const tasks = allTasks.filter((t) => {
+        if (String(t.created_by) === userId) return true;
+        try {
+          if (JSON.parse(t.assignee_ids || '[]').map(String).includes(userId)) return true;
+        } catch { /* malformed assignee_ids — ignore */ }
+        return String(t.assignee_id || '') === userId;
+      });
 
       // Attach the parent task's title to any subtasks so the UI can show
       // "subtask of <X>" context without an extra round-trip per row.
