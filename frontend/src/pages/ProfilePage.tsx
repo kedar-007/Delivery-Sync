@@ -6,7 +6,7 @@ import {
   Phone, Briefcase, BookOpen, Calendar, FileText, AlertTriangle, LogOut,
   BarChart2, ChevronDown, ChevronUp, Lock, Wifi, WifiOff, Info,
   FolderOpen, Clock, Users, Package, Award, Settings, Zap, BarChart,
-  ClipboardList, Eye, MapPin,
+  ClipboardList, Eye, MapPin, Landmark, LifeBuoy,
 } from 'lucide-react';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import Layout from '../components/layout/Layout';
@@ -33,6 +33,15 @@ interface ExtendedForm {
   employee_id: string; birth_date: string; date_of_joining: string;
   timezone: string; resume_url: string;
   work_hours_per_day: string; business_hours_label: string;
+}
+
+// Personal HR details — self-service editable, shown in a dedicated always-visible
+// section (Bank & Emergency Details).
+interface HrDetailsForm {
+  bank_account_name: string; bank_account_number: string; bank_name: string;
+  bank_ifsc_code: string; bank_branch: string;
+  emergency_contact_name: string; emergency_contact_relation: string;
+  emergency_contact_phone: string; emergency_contact_email: string;
 }
 
 // ── Gradient map ──────────────────────────────────────────────────────────────
@@ -241,6 +250,7 @@ const ProfilePage = () => {
   const [uploadError, setUploadError]         = useState('');
   const [saveSuccess, setSaveSuccess]         = useState(false);
   const [extSaveSuccess, setExtSaveSuccess]   = useState(false);
+  const [hrSaveSuccess, setHrSaveSuccess]     = useState(false);
   const [resumeUploading, setResumeUploading] = useState(false);
   const [resumeUrl, setResumeUrl]             = useState<string | null>(null);
   const [showExtended, setShowExtended]       = useState(false);
@@ -269,6 +279,23 @@ const ProfilePage = () => {
       timezone: extProfile?.timezone ?? '', resume_url: extProfile?.resume_url ?? '',
       work_hours_per_day: extProfile?.work_hours_per_day != null ? String(extProfile.work_hours_per_day) : '',
       business_hours_label: extProfile?.business_hours_label ?? '',
+    },
+  });
+
+  const {
+    register: regHr, handleSubmit: handleHrSubmit,
+    formState: { isSubmitting: isHrSubmitting, isDirty: isHrDirty }, setError: setHrError,
+  } = useForm<HrDetailsForm>({
+    values: {
+      bank_account_name: extProfile?.bank_account_name ?? '',
+      bank_account_number: extProfile?.bank_account_number ?? '',
+      bank_name: extProfile?.bank_name ?? '',
+      bank_ifsc_code: extProfile?.bank_ifsc_code ?? '',
+      bank_branch: extProfile?.bank_branch ?? '',
+      emergency_contact_name: extProfile?.emergency_contact_name ?? '',
+      emergency_contact_relation: extProfile?.emergency_contact_relation ?? '',
+      emergency_contact_phone: extProfile?.emergency_contact_phone ?? '',
+      emergency_contact_email: extProfile?.emergency_contact_email ?? '',
     },
   });
 
@@ -324,6 +351,14 @@ const ProfilePage = () => {
       await updateExtended.mutateAsync(payload);
       setExtSaveSuccess(true); setTimeout(() => setExtSaveSuccess(false), 3000);
     } catch (err: unknown) { setExtError('root', { message: (err as Error).message }); }
+  };
+
+  const onHrSave = async (data: HrDetailsForm) => {
+    try {
+      // Send all fields (including blanks) so a cleared value is actually removed.
+      await updateExtended.mutateAsync({ ...data });
+      setHrSaveSuccess(true); setTimeout(() => setHrSaveSuccess(false), 3000);
+    } catch (err: unknown) { setHrError('root', { message: (err as Error).message }); }
   };
 
   const onEmailUpdate = async (data: EmailForm) => {
@@ -553,6 +588,77 @@ const ProfilePage = () => {
             </div>
           )}
         </div>
+
+        {/* ── Bank & Emergency Details ──────────────────────────────────── */}
+        <Section title="Bank & Emergency Details" icon={Landmark}>
+          <form onSubmit={handleHrSubmit(onHrSave)} className="space-y-5">
+            {hrSaveSuccess && (
+              <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
+                <Check size={14} /> {t('common.updateSuccess')}
+              </div>
+            )}
+
+            <div>
+              <div className="flex items-center gap-1.5 mb-3">
+                <Landmark size={13} className="text-emerald-500" />
+                <span className="text-sm font-semibold text-gray-900">Bank Account Details</span>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="form-label">Account Holder Name</label>
+                  <input className="form-input" placeholder="As per bank records" {...regHr('bank_account_name')} />
+                </div>
+                <div>
+                  <label className="form-label">Account Number</label>
+                  <input className="form-input" {...regHr('bank_account_number')} />
+                </div>
+                <div>
+                  <label className="form-label">Bank Name</label>
+                  <input className="form-input" placeholder="e.g. HDFC Bank" {...regHr('bank_name')} />
+                </div>
+                <div>
+                  <label className="form-label">IFSC / SWIFT Code</label>
+                  <input className="form-input" {...regHr('bank_ifsc_code')} />
+                </div>
+                <div>
+                  <label className="form-label">Branch</label>
+                  <input className="form-input" {...regHr('bank_branch')} />
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-1 border-t border-gray-100">
+              <div className="flex items-center gap-1.5 mb-3 mt-3">
+                <LifeBuoy size={13} className="text-rose-500" />
+                <span className="text-sm font-semibold text-gray-900">Emergency Contact</span>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="form-label">Contact Name</label>
+                  <input className="form-input" {...regHr('emergency_contact_name')} />
+                </div>
+                <div>
+                  <label className="form-label">Relationship</label>
+                  <input className="form-input" placeholder="e.g. Spouse, Parent" {...regHr('emergency_contact_relation')} />
+                </div>
+                <div>
+                  <label className="form-label">Phone</label>
+                  <input className="form-input" type="tel" placeholder="+91 …" {...regHr('emergency_contact_phone')} />
+                </div>
+                <div>
+                  <label className="form-label">Email</label>
+                  <input className="form-input" type="email" {...regHr('emergency_contact_email')} />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <Button type="submit" loading={isHrSubmitting} disabled={!isHrDirty} icon={<Save size={14} />} size="sm">
+                {t('common.save')}
+              </Button>
+            </div>
+          </form>
+        </Section>
 
         {/* ── Sitting Location ──────────────────────────────────────────── */}
         <Section title="Sitting Location" icon={MapPin}>

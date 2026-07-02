@@ -496,6 +496,8 @@ const PERM_INFO: Record<string, { label: string; desc: string; risk: 'low' | 'me
   USER_DELETE:        { label: 'Deactivate',         desc: 'Deactivate / reactivate user accounts',         risk: 'high' },
   ROLE_ASSIGN:        { label: 'Assign Role',        desc: "Change a user's system role",                   risk: 'high' },
   PERMISSION_MANAGE:  { label: 'Permissions',        desc: 'Grant or revoke permissions for other users',   risk: 'high' },
+  EMPLOYEE_RECORD_READ:  { label: 'View',  desc: "View employees' joining date, employee ID, bank account and emergency contact details", risk: 'medium' },
+  EMPLOYEE_RECORD_WRITE: { label: 'Edit',  desc: "Edit employees' joining date, employee ID, bank account and emergency contact details", risk: 'high' },
   ADMIN_SETTINGS:     { label: 'System Settings',    desc: 'Tenant settings and audit logs',                risk: 'high' },
   CONFIG_READ:        { label: 'View Config',        desc: 'See feature flags and configurations',          risk: 'low' },
   CONFIG_WRITE:       { label: 'Edit Config',        desc: 'Change features and workflow rules',            risk: 'high' },
@@ -566,6 +568,7 @@ const CRUD_MODULES: CrudSection[] = [
   {
     section: 'People Settings',
     rows: [
+      { name: 'Employee Records', view: 'EMPLOYEE_RECORD_READ', write: 'EMPLOYEE_RECORD_WRITE' },
       { name: 'Office Locations',                           admin: 'LOCATION_ADMIN' },
       { name: 'Leave Types · Leave Balances · Calendar',    admin: 'LEAVE_ADMIN' },
       { name: 'IP · Geo · Zone Restrictions · Work Shifts', admin: 'IP_CONFIG_WRITE' },

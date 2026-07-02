@@ -146,3 +146,14 @@ export const useRemoveMember = (projectId: string) => {
     onError: (e: Error) => toast.error(e.message || 'Failed to remove member'),
   });
 };
+
+export const useUpdateMember = (projectId: string) => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: ({ memberId, role }: { memberId: string; role: string }) =>
+      projectsApi.updateMember(projectId, memberId, { role }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: [PROJECTS_KEY, projectId, 'members'] }); toast.success('Member role updated'); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update role'),
+  });
+};

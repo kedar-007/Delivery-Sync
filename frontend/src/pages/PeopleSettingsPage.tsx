@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   MapPin, CalendarDays, BarChart2, Building2,
-  Wifi, Globe, Target, Clock, Lock, Info, TrendingUp,
+  Wifi, Globe, Target, Clock, Lock, Info, TrendingUp, BadgeCheck,
 } from 'lucide-react';
 import Layout from '../components/layout/Layout';
 import Header from '../components/layout/Header';
@@ -13,10 +13,12 @@ import { OfficeLocationsTab } from './AdminPage';
 import { LeaveTypesTab } from './AdminConfigPage';
 import { CompanyCalendarTab, LeaveBalancesTab, LeaveAccrualPolicyTab } from './LeavePage';
 import { IpRestrictionsTab, GeoRestrictionsTab, ZoneRestrictionsTab, ShiftsTab } from './IpConfigPage';
+import EmployeeRecordsTab from '../components/people/EmployeeRecordsTab';
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 
 type TabKey =
+  | 'employee-records'
   | 'office-locations'
   | 'leave-types'
   | 'leave-balances'
@@ -34,11 +36,26 @@ interface TabDef {
   icon: React.ComponentType<{ size?: number; className?: string }>;
   color: string;
   activeColor: string;
-  section: 'leave' | 'security';
+  section: 'people' | 'leave' | 'security';
   permission: string | string[];
 }
 
 const TABS: TabDef[] = [
+  {
+    key: 'employee-records',
+    label: 'Employee Records',
+    labelKey: 'settings.employeeRecords',
+    icon: BadgeCheck,
+    color: 'text-sky-500',
+    activeColor: 'bg-sky-50 text-sky-700 border-sky-100',
+    section: 'people',
+    // Viewable with EMPLOYEE_RECORD_READ (or legacy USER_READ); editable with
+    // EMPLOYEE_RECORD_WRITE / USER_WRITE / ADMIN_USERS (enforced inside the tab).
+    permission: [
+      PERMISSIONS.EMPLOYEE_RECORD_READ, PERMISSIONS.EMPLOYEE_RECORD_WRITE,
+      PERMISSIONS.USER_READ, PERMISSIONS.USER_WRITE, PERMISSIONS.ADMIN_USERS,
+    ],
+  },
   {
     key: 'office-locations',
     label: 'Office Locations',
@@ -156,9 +173,13 @@ const PeopleSettingsPage = () => {
     setSearchParams({ tab: key }, { replace: true });
   };
 
+  const peopleTabsDefs = visibleTabs.filter((t) => t.section === 'people');
   const leaveTabsDefs = visibleTabs.filter((t) => t.section === 'leave');
   const securityTabsDefs = visibleTabs.filter((t) => t.section === 'security');
   const current = TABS.find((t) => t.key === activeTab);
+
+  // 'people' tabs use literal labels (no i18n key yet); others resolve via t().
+  const tabLabel = (tab: TabDef) => (tab.section === 'people' ? tab.label : t(tab.labelKey));
 
   return (
     <Layout>
@@ -182,6 +203,33 @@ const PeopleSettingsPage = () => {
           {/* ── Left nav ── */}
           <div className="w-56 flex-shrink-0">
             <nav className="space-y-0.5">
+
+              {peopleTabsDefs.length > 0 && (
+                <>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest px-3 pt-2 pb-1">
+                    People Records
+                  </p>
+                  {peopleTabsDefs.map((tab) => {
+                    const Icon = tab.icon;
+                    const active = activeTab === tab.key;
+                    return (
+                      <button
+                        key={tab.key}
+                        onClick={() => switchTab(tab.key)}
+                        className={[
+                          'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left',
+                          active
+                            ? tab.activeColor + ' border'
+                            : 'text-gray-600 hover:bg-gray-100 border border-transparent',
+                        ].join(' ')}
+                      >
+                        <Icon size={15} className={active ? undefined : tab.color} />
+                        {tabLabel(tab)}
+                      </button>
+                    );
+                  })}
+                </>
+              )}
 
               {leaveTabsDefs.length > 0 && (
                 <>
@@ -253,10 +301,11 @@ const PeopleSettingsPage = () => {
           <div className="flex-1 min-w-0">
             {current && (
               <div className="mb-5">
-                <h2 className="text-base font-semibold text-gray-900">{t(current.labelKey)}</h2>
+                <h2 className="text-base font-semibold text-gray-900">{tabLabel(current)}</h2>
               </div>
             )}
 
+            {activeTab === 'employee-records'    && <EmployeeRecordsTab />}
             {activeTab === 'office-locations'    && <OfficeLocationsTab />}
             {activeTab === 'leave-types'         && <LeaveTypesTab />}
             {activeTab === 'leave-balances'      && <LeaveBalancesTab />}

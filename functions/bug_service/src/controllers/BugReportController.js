@@ -14,11 +14,52 @@ function flattenRows(raw) {
   return (raw || []).map((r) => Object.assign({}, ...Object.values(r)));
 }
 
+// Enrich reports with the reporter's current name + avatar from the users table.
+// Batched (one query for all reporter_ids) so it scales with page size, not row
+// count. Non-fatal: on any failure the reports are returned unenriched.
+async function _enrichReporterProfiles(catalystApp, reports) {
+  try {
+    const ids = [...new Set((reports || []).map((r) => r.reporter_id).filter(Boolean).map(String))];
+    if (ids.length === 0) return reports;
+    const inClause = ids.map((id) => `'${esc(id)}'`).join(',');
+    const raw = await catalystApp.zcql().executeZCQLQuery(
+      `SELECT ROWID, name, email, avatar_url FROM ${TABLES.USERS} WHERE ROWID IN (${inClause}) LIMIT 300`
+    );
+    const map = {};
+    flattenRows(raw).forEach((u) => { map[String(u.ROWID)] = u; });
+    return reports.map((r) => {
+      const u = map[String(r.reporter_id)];
+      return u ? {
+        ...r,
+        reporter_avatar_url: u.avatar_url || '',
+        // Prefer the live profile name/email; fall back to what was stored on the report.
+        reporter_name: r.reporter_name || u.name || '',
+        reporter_email: r.reporter_email || u.email || '',
+      } : r;
+    });
+  } catch (err) {
+    console.warn('[BugReportCtrl] reporter profile enrichment failed (non-fatal):', err.message);
+    return reports;
+  }
+}
+
 // Returns true if the user is an admin by role OR by explicit BUG_REPORT_READ_ALL grant.
+// This gates WRITE actions (update status, resolve) on bug reports.
 function _hasBugAdminAccess(currentUser) {
   const { role, permissions = [] } = currentUser;
   return ADMIN_ROLES.includes(role) || role === 'SUPER_ADMIN'
     || permissions.includes('BUG_REPORT_READ_ALL');
+}
+
+// Returns true if the user may READ all bug reports (the "All Reports" tab).
+// Broader than admin access: users with org-wide data visibility
+// (PROJECT_DATA_VIEW_ALL or an ORG_WIDE data scope) can view all reports too,
+// even without the ability to manage/resolve them.
+function _canViewAllReports(currentUser) {
+  const { permissions = [], dataScope } = currentUser;
+  return _hasBugAdminAccess(currentUser)
+    || permissions.includes('PROJECT_DATA_VIEW_ALL')
+    || dataScope === 'ORG_WIDE';
 }
 
 // Returns true if the user can manage bug report config (BUG_REPORT_CONFIG grant).
@@ -378,13 +419,12 @@ class BugReportController {
     const isAdmin = _hasBugAdminAccess(req.currentUser);
     console.log(`[BugReportCtrl] listReports Step 2 — isAdmin=${isAdmin} isSuperAdmin=${isSuperAdmin}`);
 
-    // Build WHERE clause — super admins see all tenants
-    const conditions = [];
+    // Build WHERE clause. This is the "My Reports" endpoint, so it ALWAYS scopes
+    // to the caller's own reports — being an admin / org-viewer must NOT turn
+    // "My Reports" into "All Reports" (that's the separate /reports/all endpoint).
+    const conditions = [`reporter_id = '${esc(userId)}'`];
     if (!isSuperAdmin) {
       conditions.push(`tenant_id = '${esc(tenantId)}'`);
-    }
-    if (!isAdmin) {
-      conditions.push(`reporter_id = '${esc(userId)}'`);
     }
     if (status)      conditions.push(`status = '${esc(status)}'`);
     if (severity)    conditions.push(`severity = '${esc(severity)}'`);
@@ -415,6 +455,8 @@ class BugReportController {
 
     const hasMore = reports.length > limitNum;
     if (hasMore) reports = reports.slice(0, limitNum);
+
+    reports = await _enrichReporterProfiles(req.catalystApp, reports);
 
     console.log('[BugReportCtrl] listReports ✓ — complete');
     return ResponseHelper.success(res, {
@@ -582,9 +624,9 @@ class BugReportController {
 
     console.log(`[BugReportCtrl] listAllReports Step 1 — role=${role} page=${pageNum} limit=${limitNum} all=${fetchAll}`);
 
-    if (!_hasBugAdminAccess(req.currentUser)) {
+    if (!_canViewAllReports(req.currentUser)) {
       console.warn(`[BugReportCtrl] listAllReports ✗ — role ${role} not permitted`);
-      return ResponseHelper.forbidden(res, 'Admin access required');
+      return ResponseHelper.forbidden(res, 'You do not have permission to view all reports');
     }
 
     // Build WHERE clause — TENANT_ADMIN is always scoped to their own tenant;
@@ -646,6 +688,8 @@ class BugReportController {
     } catch (tenantErr) {
       console.warn('[BugReportCtrl] listAllReports Step 3 — tenant enrichment failed (non-fatal):', tenantErr.message);
     }
+
+    reports = await _enrichReporterProfiles(req.catalystApp, reports);
 
     console.log('[BugReportCtrl] listAllReports ✓ — complete');
     return ResponseHelper.success(res, {

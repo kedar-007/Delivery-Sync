@@ -1020,10 +1020,22 @@ class LeaveController {
 
       if (!tenantRow) return ResponseHelper.notFound(res, 'Tenant not found');
 
+      // effectiveFrom anchors accrual reconciliation (CronController.monthlyAccrual):
+      // back-fill never reaches before the month accrual was first enabled.
+      // Stamped once (project timezone) and preserved across policy edits.
+      const prevPolicy = settings.leavePolicy || {};
+      let effectiveFrom = prevPolicy.effectiveFrom;
+      if (accrualEnabled && !effectiveFrom) {
+        effectiveFrom = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit',
+        }).format(new Date());
+      }
+
       settings.leavePolicy = {
         accrualEnabled: !!accrualEnabled,
         probationMonths: Number(probationMonths ?? 3),
         leaveTypes: leaveTypes || {},
+        ...(effectiveFrom ? { effectiveFrom } : {}),
       };
 
       await this.adminDb.update(TABLES.TENANTS, {

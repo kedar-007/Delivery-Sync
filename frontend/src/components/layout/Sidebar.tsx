@@ -6,7 +6,7 @@ import {
   Shield, FileText, Settings, LogOut, ChevronDown, ChevronRight,
   Clock, BookOpen, Briefcase, X, Milestone, ClipboardList, CalendarDays, Megaphone,
   PanelLeftClose, PanelLeftOpen, Users, Sparkles,
-  Timer, Package, BarChart3, GitBranch, FlaskConical, ScrollText, Trash2,
+  Timer, Package, BarChart3, GitBranch, FlaskConical, ScrollText, Trash2, Activity,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useMyProfile } from '../../hooks/useUsers';
@@ -87,6 +87,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Audit Logs',          to: '/audit-logs',      icon: <ScrollText size={16} />,   permission: PERMISSIONS.ADMIN_USERS },
       { label: 'Config & Workflows', to: '/admin-config',    icon: <GitBranch size={16} />,    permission: PERMISSIONS.ADMIN_USERS },
       { label: 'Recycle Bin',        to: '/recycle-bin',     icon: <Trash2 size={16} />,       permission: PERMISSIONS.ADMIN_USERS },
+      { label: 'Background Jobs',    to: '/background-jobs', icon: <Activity size={16} />,     permissions: [PERMISSIONS.ADMIN_JOBS_VIEW, PERMISSIONS.ADMIN_USERS] },
       { label: 'Data Seeder',        to: '/data-seed',       icon: <FlaskConical size={16} />, permission: PERMISSIONS.DATA_SEED },
     ],
   },

@@ -81,6 +81,8 @@ export const projectsApi = {
     api.post(`/projects/${projectId}/members/team`, data).then((r) => r.data.data),
   removeMember: (projectId: string, memberId: string) =>
     api.delete(`/projects/${projectId}/members/${memberId}`).then((r) => r.data.data),
+  updateMember: (projectId: string, memberId: string, data: unknown) =>
+    api.patch(`/projects/${projectId}/members/${memberId}`, data).then((r) => r.data.data),
 };
 
 // ─── Standups ─────────────────────────────────────────────────────────────────
@@ -201,6 +203,10 @@ export const adminApi = {
   inviteUser: (data: unknown) => api.post('/admin/users/invite', data).then((r) => r.data.data),
   updateUser: (id: string, data: unknown) =>
     api.put(`/admin/users/${id}`, data).then((r) => r.data.data),
+  // Employment & personal HR details (employee ID, joining date, bank, emergency
+  // contact) — gated by USER_WRITE, does not touch role/status.
+  updateUserDetails: (id: string, data: unknown) =>
+    api.put(`/admin/users/${id}/details`, data).then((r) => r.data.data),
   deactivateUser: (id: string) =>
     api.delete(`/admin/users/${id}`).then((r) => r.data.data),
   activateUser: (id: string) =>
@@ -252,6 +258,9 @@ export const adminApi = {
     api.post(`/admin/trash/${module}/${id}/restore`).then((r) => r.data.data),
   purgeTrash: (module: string, id: string) =>
     api.delete(`/admin/trash/${module}/${id}`).then((r) => r.data.data),
+  // Background job / cron run monitor
+  getJobRuns: (params?: Record<string, string>) =>
+    api.get('/admin/job-runs', { params }).then((r) => r.data.data),
 };
 
 // ─── Super Admin ──────────────────────────────────────────────────────────────
@@ -1027,6 +1036,7 @@ export interface BugReport {
   reporter_id?:     string;
   reporter_email?:  string;
   reporter_name?:   string;
+  reporter_avatar_url?: string;
   report_type?:     'BUG' | 'FEEDBACK' | 'ISSUE' | 'FEATURE_REQUEST';
   title?:           string;
   description?:     string;

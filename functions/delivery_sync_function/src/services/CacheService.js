@@ -256,13 +256,20 @@ class CacheService {
     try {
       const cache = new CacheService(catalystApp);
       const uid = String(userId);
+      // IMPORTANT: each key's version MUST match that service's AUTH_CTX_KEY_VERSION
+      // constant, or the stale cache is never cleared and permission/role changes
+      // won't take effect until TTL expiry. Keep these in sync when bumping a version.
+      // Prior/current versions are both invalidated to cover mid-deploy transitions.
       await Promise.allSettled([
-        cache.invalidate(`authCtx:v2:${uid}`),           // delivery_sync_function (v2 since bumped)
-        cache.invalidate(`authCtx:people:v1:${uid}`),    // people_service
+        cache.invalidate(`authCtx:v4:${uid}`),           // delivery_sync_function (prev)
+        cache.invalidate(`authCtx:v5:${uid}`),           // delivery_sync_function (current)
+        cache.invalidate(`authCtx:people:v1:${uid}`),    // people_service (prev)
+        cache.invalidate(`authCtx:people:v2:${uid}`),    // people_service (current)
         cache.invalidate(`authCtx:tasks:v1:${uid}`),     // task_sprint_service
         cache.invalidate(`authCtx:assets:v1:${uid}`),    // asset_service
         cache.invalidate(`authCtx:reports:v1:${uid}`),   // reporting_service
-        cache.invalidate(`authCtx:badges:v1:${uid}`),    // badge_profile_service
+        cache.invalidate(`authCtx:badges:v1:${uid}`),    // badge_profile_service (prev)
+        cache.invalidate(`authCtx:badges:v2:${uid}`),    // badge_profile_service (current)
         cache.invalidate(`authCtx:admin:v1:${uid}`),     // admin_config_service
         cache.invalidate(`authCtx:time:v1:${uid}`),      // time_tracking_service
         cache.invalidate(`authCtx:docs:v1:${uid}`),      // doc_service

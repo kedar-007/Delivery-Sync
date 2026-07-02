@@ -268,9 +268,29 @@ class ProjectController {
       if (data.start_date !== undefined) updatePayload.start_date = data.start_date;
       if (data.end_date !== undefined) updatePayload.end_date = data.end_date;
       if (data.status !== undefined) updatePayload.status = data.status;
-
+      // Project owner / manager — was previously validated but never persisted.
+      if (data.owner_user_id !== undefined && data.owner_user_id !== '') {
+        updatePayload.owner_user_id = data.owner_user_id;
+      }
 
       const updated = await this.db.update(TABLES.PROJECTS, updatePayload);
+
+      // Make sure the assigned manager is also a project member (mirrors create).
+      if (data.owner_user_id && data.owner_user_id !== '') {
+        const ownerExists = await this.db.query(
+          `SELECT ROWID FROM ${TABLES.PROJECT_MEMBERS} WHERE tenant_id = '${tenantId}' ` +
+          `AND project_id = '${projectId}' AND user_id = '${DataStoreService.escape(data.owner_user_id)}' LIMIT 1`
+        );
+        if (ownerExists.length === 0) {
+          await this.db.insert(TABLES.PROJECT_MEMBERS, {
+            tenant_id: tenantId,
+            project_id: projectId,
+            user_id: data.owner_user_id,
+            role: 'DELIVERY_LEAD',
+            joined_date: DataStoreService.today(),
+          });
+        }
+      }
 
       await this.audit.log({
         tenantId, entityType: 'project', entityId: projectId,

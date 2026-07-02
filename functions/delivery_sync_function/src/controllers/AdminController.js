@@ -181,14 +181,18 @@ class AdminController {
       // Fetch timezones and shift assignments from user_profiles
       let timezoneMap = {};
       let shiftIdMap = {};
+      let employeeIdMap = {};
+      let joiningDateMap = {};
       try {
         const profiles = await this.db.query(
-          `SELECT user_id, timezone, shift_id FROM ${TABLES.USER_PROFILES} WHERE tenant_id = '${tenantId}' LIMIT 300`
+          `SELECT user_id, timezone, shift_id, employee_id, date_of_joining FROM ${TABLES.USER_PROFILES} WHERE tenant_id = '${tenantId}' LIMIT 300`
         );
         profiles.forEach((p) => {
           const uid = String(p.user_id);
           if (p.timezone) timezoneMap[uid] = p.timezone;
           if (p.shift_id && String(p.shift_id) !== '0') shiftIdMap[uid] = String(p.shift_id);
+          if (p.employee_id) employeeIdMap[uid] = String(p.employee_id);
+          if (p.date_of_joining) joiningDateMap[uid] = String(p.date_of_joining).slice(0, 10);
         });
       } catch (_) {}
 
@@ -215,6 +219,8 @@ class AdminController {
           timezone: timezoneMap[String(u.ROWID)] || '',
           shiftId: shiftIdMap[String(u.ROWID)] || null,
           officeLocationId: locationMap[String(u.ROWID)] || null,
+          employeeId: employeeIdMap[String(u.ROWID)] || '',
+          dateOfJoining: joiningDateMap[String(u.ROWID)] || '',
         })),
       });
     } catch (err) {
@@ -339,6 +345,101 @@ class AdminController {
         userId, role: role || existing.role, status: status || existing.status,
       });
     } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
+   * PUT /api/admin/users/:userId/details
+   * Update a user's employment & personal HR details (People Settings → Employee
+   * Records). Writes ONLY to the user_profiles table — never touches role/status,
+   * so it can be safely delegated to ops staff via the USER_WRITE permission
+   * (role/status changes remain locked behind ADMIN_USERS in updateUser()).
+   *
+   * Body (all optional): employee_id, date_of_joining,
+   *   bank_account_name, bank_account_number, bank_name, bank_ifsc_code, bank_branch,
+   *   emergency_contact_name, emergency_contact_relation, emergency_contact_phone,
+   *   emergency_contact_email
+   *
+   * All of the above are plain TEXT columns on user_profiles (date_of_joining is a
+   * DATE column). employee_id + date_of_joining already existed; the bank_* and
+   * emergency_contact_* columns must be created in the Catalyst DataStore console.
+   */
+  async updateUserDetails(req, res) {
+    try {
+      const { tenantId, id: performedBy } = req.currentUser;
+      const { userId } = req.params;
+
+      const existing = await this.db.findById(TABLES.USERS, userId, tenantId);
+      if (!existing) return ResponseHelper.notFound(res, 'User not found');
+
+      // Whitelist of editable profile columns. Text fields are trimmed/clamped;
+      // date_of_joining is passed through (YYYY-MM-DD) or nulled when cleared.
+      const TEXT_FIELDS = [
+        'employee_id',
+        'bank_account_name', 'bank_account_number', 'bank_name', 'bank_ifsc_code', 'bank_branch',
+        'emergency_contact_name', 'emergency_contact_relation',
+        'emergency_contact_phone', 'emergency_contact_email',
+      ];
+
+      const profileUpdate = {};
+      TEXT_FIELDS.forEach((f) => {
+        if (req.body[f] !== undefined) profileUpdate[f] = String(req.body[f] || '').slice(0, 200);
+      });
+      const { date_of_joining } = req.body;
+      if (date_of_joining !== undefined) profileUpdate.date_of_joining = date_of_joining || null;
+
+      if (Object.keys(profileUpdate).length === 0) {
+        return ResponseHelper.validationError(res, 'No editable fields supplied');
+      }
+
+      console.log(
+        `[updateUserDetails] START userId=${userId} tenantId=${tenantId} by=${performedBy}` +
+        ` fields=${Object.keys(profileUpdate).join(',')}`
+      );
+
+      // Fetch existing profile (with date columns) so we can upsert and reschedule
+      // the work-anniversary cron correctly when date_of_joining changes.
+      const profiles = await this.db.query(
+        `SELECT ROWID, birth_date, date_of_joining, timezone FROM ${TABLES.USER_PROFILES}` +
+        ` WHERE user_id = '${userId}' AND tenant_id = '${tenantId}' LIMIT 1`
+      );
+
+      if (profiles.length > 0) {
+        await this.db.update(TABLES.USER_PROFILES, { ROWID: profiles[0].ROWID, ...profileUpdate });
+        console.log(`[updateUserDetails] user_profiles updated ROWID=${profiles[0].ROWID}`);
+      } else {
+        await this.db.insert(TABLES.USER_PROFILES, {
+          tenant_id: tenantId, user_id: userId,
+          bio: '', photo_url: '',
+          ...profileUpdate,
+        });
+        console.log(`[updateUserDetails] user_profiles inserted (new row) userId=${userId}`);
+      }
+
+      // Reschedule the work-anniversary cron whenever date_of_joining changes.
+      if (date_of_joining !== undefined) {
+        const prev     = profiles.length ? profiles[0] : {};
+        const finalDoj = date_of_joining || null;
+        const finalTz  = prev.timezone || 'UTC';
+        const wishCrons = new WishCronService(this.catalystApp);
+        if (finalDoj) {
+          wishCrons.upsert(userId, tenantId, 'ANNIVERSARY', finalDoj, finalTz)
+            .catch((e) => console.error('[updateUserDetails] anniversary cron upsert failed:', e.message));
+        } else {
+          wishCrons.delete(userId, 'ANNIVERSARY')
+            .catch((e) => console.error('[updateUserDetails] anniversary cron delete failed:', e.message));
+        }
+      }
+
+      await this.audit.log({
+        tenantId, entityType: 'USER_PROFILE', entityId: userId,
+        action: AUDIT_ACTION.UPDATE, newValue: profileUpdate, performedBy,
+      });
+
+      return ResponseHelper.success(res, { userId, updated: Object.keys(profileUpdate) });
+    } catch (err) {
+      console.error('[updateUserDetails] UNHANDLED ERROR:', err.message, err.stack);
       return ResponseHelper.serverError(res, err.message);
     }
   }
@@ -503,6 +604,34 @@ class AdminController {
       });
 
       return ResponseHelper.success(res, result);
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
+   * GET /api/admin/job-runs
+   * Background job / cron run history from the global job_runs table
+   * (written by JobRunService in each function). Filters: job_name, status.
+   * Paged newest-first; ZCQL caps LIMIT at 300, so pageSize is capped at 100.
+   */
+  async listJobRuns(req, res) {
+    try {
+      const { job_name, status, page, pageSize } = req.query;
+      const size   = Math.min(Number(pageSize) || 50, 100);
+      const pageNo = Math.max(Number(page) || 1, 1);
+      const offset = (pageNo - 1) * size;
+
+      const where = [];
+      if (job_name) where.push(`job_name = '${String(job_name).replace(/'/g, "''")}'`);
+      if (status)   where.push(`status = '${String(status).replace(/'/g, "''")}'`);
+      const whereStr = where.length ? ` WHERE ${where.join(' AND ')}` : '';
+
+      const rows = await this.db.query(
+        `SELECT * FROM ${TABLES.JOB_RUNS}${whereStr} ORDER BY CREATEDTIME DESC LIMIT ${size} OFFSET ${offset}`
+      );
+
+      return ResponseHelper.success(res, { runs: rows, page: pageNo, pageSize: size });
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }

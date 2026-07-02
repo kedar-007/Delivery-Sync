@@ -95,6 +95,7 @@ interface Task {
   projectId?: string;
   labels?: string[];
   createdBy?: string;
+  createdAt?: string;
 }
 
 interface Project { id: string; name: string }
@@ -787,6 +788,11 @@ function TaskDetailPanel({
                   <Clock size={11} /> No due date
                 </span>
               )}
+              {task.createdAt && safeFmt(task.createdAt, 'MMM d, yyyy') && (
+                <span className="text-xs flex items-center gap-1 text-gray-400" title="Created">
+                  <Clock size={11} /> Created {safeFmt(task.createdAt, 'MMM d, yyyy')}
+                </span>
+              )}
               {/* Edit sits with metadata — far from the close button to prevent accidental clicks */}
               {canEdit && (
                 <button onClick={() => onEdit(task)}
@@ -1425,8 +1431,19 @@ export default function MyTasksPage() {
   const isSearchMode = debouncedSearch.length >= 2;
   const { data: rawSearchTasks, isLoading: searchLoading } = useSearchMyTasks(debouncedSearch);
 
-  const now            = new Date();
-  const dueSoonCutoff  = addDays(now, 7);
+  const now            = new Date(); // used by other date checks below
+  // "Due soon" = due today through the next 7 days, not overdue, not done.
+  // Compared at day granularity so date-only due dates (midnight) aren't
+  // mistaken for overdue. Shared by the badge count and the tab filter so they
+  // always agree.
+  const startToday = new Date(); startToday.setHours(0, 0, 0, 0);
+  const dueSoonEnd = addDays(startToday, 7); dueSoonEnd.setHours(23, 59, 59, 999);
+  const isDueSoon = (t: Task) => {
+    if (!t.dueDate || t.status === 'DONE') return false;
+    const d = parseISO(t.dueDate);
+    if (isNaN(d.getTime())) return false;
+    return !isBefore(d, startToday) && !isBefore(dueSoonEnd, d);
+  };
 
   // When search mode is active, use Catalyst Search results as the base list
   const baseTaskList: Task[] = useMemo(() => {
@@ -1439,12 +1456,10 @@ export default function MyTasksPage() {
 
   const tabFiltered = useMemo(() => {
     if (activeTab === 'in_progress') return baseTaskList.filter((t) => t.status === 'IN_PROGRESS');
-    if (activeTab === 'due_soon') return baseTaskList.filter((t) => {
-      if (!t.dueDate || t.status === 'DONE') return false;
-      return isBefore(parseISO(t.dueDate), dueSoonCutoff);
-    });
+    if (activeTab === 'due_soon') return baseTaskList.filter(isDueSoon);
     return baseTaskList;
-  }, [baseTaskList, activeTab, dueSoonCutoff]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseTaskList, activeTab]);
 
   const filtered = useMemo(() => tabFiltered.filter((t) => {
     // Text search is now server-side — only apply dropdown filters here
@@ -1469,10 +1484,7 @@ export default function MyTasksPage() {
   }, [paginated]);
 
   const inProgressCount = allMyTasks.filter((t) => t.status === 'IN_PROGRESS').length;
-  const dueSoonCount    = allMyTasks.filter((t) =>
-    t.dueDate && !isBefore(parseISO(t.dueDate), now) &&
-    isBefore(parseISO(t.dueDate), dueSoonCutoff) && t.status !== 'DONE'
-  ).length;
+  const dueSoonCount    = allMyTasks.filter(isDueSoon).length;
   const hasActiveFilters = !!(filterStatus || filterPriority || filterProject || search);
 
   // ── Modals ──
@@ -2179,7 +2191,7 @@ function OrgTasksView({
         <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
           {/* Header row */}
           <div className="grid text-xs font-semibold text-gray-400 uppercase tracking-wide px-4 py-2.5 bg-gray-50 border-b border-gray-100"
-            style={{ gridTemplateColumns: '2fr 100px 90px 80px 160px 80px 110px' }}>
+            style={{ gridTemplateColumns: '2fr 100px 90px 80px 160px 80px 110px 110px' }}>
             <span>Title</span>
             <span>Status</span>
             <span>Priority</span>
@@ -2187,6 +2199,7 @@ function OrgTasksView({
             <span>Project</span>
             <span>Assignees</span>
             <span>Due Date</span>
+            <span>Created</span>
           </div>
           {paginated.map((task, i) => {
             const proj = getProject(task.projectId ?? '');
@@ -2216,7 +2229,7 @@ function OrgTasksView({
               <div key={task.id}
                 onClick={() => onOpen(task)}
                 className={`grid items-center px-4 py-3 cursor-pointer hover:bg-indigo-50/40 transition-colors ${i > 0 ? 'border-t border-gray-100' : ''}`}
-                style={{ gridTemplateColumns: '2fr 100px 90px 80px 160px 80px 110px' }}>
+                style={{ gridTemplateColumns: '2fr 100px 90px 80px 160px 80px 110px 110px' }}>
                 <div className="flex items-center gap-2 min-w-0 pr-3">
                   {TYPE_ICONS[task.type] ?? <CheckSquare size={12} className="text-gray-400" />}
                   {(() => {
@@ -2258,6 +2271,9 @@ function OrgTasksView({
                 </div>
                 <div className="text-xs text-gray-500">
                   {task.dueDate ? safeFmt(task.dueDate, 'MMM d, yyyy') : <span className="text-[10px] text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5">No due date</span>}
+                </div>
+                <div className="text-xs text-gray-500">
+                  {task.createdAt && safeFmt(task.createdAt, 'MMM d, yyyy') ? safeFmt(task.createdAt, 'MMM d, yyyy') : <span className="text-gray-300">—</span>}
                 </div>
               </div>
             );
@@ -2325,6 +2341,7 @@ function StatusGroup({
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 hidden md:table-cell">Priority</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 hidden lg:table-cell">Project</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 hidden xl:table-cell">Due</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 hidden lg:table-cell">Created</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 hidden xl:table-cell">Pts</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 hidden xl:table-cell">Time Logged</th>
                 <th className="px-3 py-2 text-xs font-semibold text-gray-500 w-28">Status</th>
@@ -2414,6 +2431,13 @@ function TaskRow({
               <Clock size={11} />{safeFmt(task.dueDate, 'MMM d')}
             </span>
           : <span className="text-[10px] inline-flex items-center gap-1 text-gray-400 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5 whitespace-nowrap">No due date</span>}
+      </td>
+
+      {/* Created — its own column */}
+      <td className="px-3 py-3 hidden lg:table-cell text-xs text-gray-500 whitespace-nowrap">
+        {task.createdAt && safeFmt(task.createdAt, 'MMM d, yyyy')
+          ? safeFmt(task.createdAt, 'MMM d, yyyy')
+          : <span className="text-gray-300">—</span>}
       </td>
 
       <td className="px-3 py-3 hidden xl:table-cell text-xs text-indigo-600 font-semibold">

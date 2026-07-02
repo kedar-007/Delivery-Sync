@@ -33,6 +33,8 @@ export const PERMISSIONS = {
   ADMIN_TRASH_VIEW:    'ADMIN_TRASH_VIEW',
   ADMIN_TRASH_RESTORE: 'ADMIN_TRASH_RESTORE',
   ADMIN_TRASH_PURGE:   'ADMIN_TRASH_PURGE',
+  // Background job / cron run monitor (Settings → System → Background Jobs)
+  ADMIN_JOBS_VIEW:     'ADMIN_JOBS_VIEW',
   INVITE_USER:       'INVITE_USER',
   NOTIFICATION_READ: 'NOTIFICATION_READ',
   TEAM_READ:         'TEAM_READ',
@@ -132,6 +134,9 @@ export const PERMISSIONS = {
   USER_DELETE:       'USER_DELETE',       // deactivate / reactivate user accounts
   ROLE_ASSIGN:       'ROLE_ASSIGN',       // change a user's system role
   PERMISSION_MANAGE: 'PERMISSION_MANAGE', // grant or revoke individual permissions for other users
+  // ── Employee Records (People Settings → Employee Records) ─────────────────
+  EMPLOYEE_RECORD_READ:  'EMPLOYEE_RECORD_READ',  // view employees' HR records (joining date, employee ID, bank, emergency contact)
+  EMPLOYEE_RECORD_WRITE: 'EMPLOYEE_RECORD_WRITE', // edit employees' HR records
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

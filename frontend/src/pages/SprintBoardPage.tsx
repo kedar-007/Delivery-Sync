@@ -94,6 +94,7 @@ interface Task {
   assigneeIds?: string[];
   storyPoints?: number;
   dueDate?: string;
+  createdAt?: string;
   completedAt?: string | null;
   sprintId?: string;
   projectId?: string;
@@ -185,6 +186,13 @@ function AvatarStack({ userIds, users, max = 3 }: { userIds: string[]; users: un
     </div>
   );
 }
+
+// Safe date formatter for Catalyst CREATEDTIME (not always ISO — use new Date()).
+const fmtCreated = (val?: string, fmt = 'MMM d, yyyy'): string => {
+  if (!val) return '';
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? '' : format(d, fmt);
+};
 
 // ── Draggable Task Card ───────────────────────────────────────────────────────
 
@@ -320,6 +328,13 @@ function TaskCard({ task, users, onOpen, onOpenSubtask, isDragOverlay = false }:
           </div>
         )}
       </div>
+
+      {/* Created time */}
+      {task.createdAt && fmtCreated(task.createdAt) && (
+        <div className="mt-1.5 flex items-center gap-1 text-[10px] text-ds-text-muted">
+          <Clock size={9} /> Created {fmtCreated(task.createdAt)}
+        </div>
+      )}
     </div>
   );
 }
@@ -2191,6 +2206,11 @@ export default function SprintBoardPage() {
                   {detailTask.dueDate && (
                     <span className={`text-xs flex items-center gap-1 font-medium ${isPast(parseISO(detailTask.dueDate)) && detailTask.status !== 'DONE' ? 'text-red-600' : 'text-ds-text-muted'}`}>
                       <Calendar size={11} /> {format(parseISO(detailTask.dueDate), 'MMM d, yyyy')}
+                    </span>
+                  )}
+                  {(detailTask as any).createdAt && fmtCreated((detailTask as any).createdAt) && (
+                    <span className="text-xs flex items-center gap-1 text-ds-text-muted" title="Created">
+                      <Clock size={11} /> Created {fmtCreated((detailTask as any).createdAt)}
                     </span>
                   )}
                   {(detailTask.storyPoints ?? 0) > 0 && (

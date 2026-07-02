@@ -1,6 +1,7 @@
 'use strict';
 
 const DataStoreService    = require('../services/DataStoreService');
+const JobRunService       = require('../services/JobRunService');
 const NotificationService = require('../services/NotificationService');
 const ResponseHelper      = require('../utils/ResponseHelper');
 const { TABLES, NOTIFICATION_TYPE } = require('../utils/Constants');
@@ -13,6 +14,7 @@ class CronController {
     if (!isCron && !isInternal) return ResponseHelper.forbidden(res, 'Cron only');
 
     if (!req.catalystApp) return ResponseHelper.serverError(res, 'catalystApp not initialized');
+    const run = await JobRunService.start(req.catalystApp, 'sprint-check', 'task_sprint_service');
     const db    = new DataStoreService(req.catalystApp);
     const notif = new NotificationService(req.catalystApp, db);
 
@@ -55,6 +57,7 @@ class CronController {
       notified++;
     }
 
+    await run.success({ soon_sprints: soonSprints.length, overdue_tasks: overdueTasks.length, notifications_sent: notified });
     return ResponseHelper.success(res, { processed: { soon_sprints: soonSprints.length, overdue_tasks: overdueTasks.length, notifications_sent: notified } });
   }
 }

@@ -60,7 +60,8 @@ class TaskController {
       }
       // TENANT_ADMIN, PMO, EXEC, CLIENT, and PROJECT_DATA_VIEW_ALL holders: no additional filter
 
-      let tasks = await this.db.findWhere(TABLES.TASKS, tenantId, where, { orderBy: 'CREATEDTIME DESC', limit: 300 });
+      // fetchAll auto-paginates (300-row pages) so results aren't capped at 300.
+      let tasks = await this.db.fetchAll(TABLES.TASKS, tenantId, where, { orderBy: 'CREATEDTIME DESC' });
 
       // Shared helper: keep only tasks the current user created or is assigned to.
       // Checks both the JSON assignee_ids array and the scalar assignee_id column so
@@ -145,22 +146,20 @@ class TaskController {
       const userId = req.currentUser.id;
       const tenantId = req.tenantId;
 
-      // Fetch recent non-cancelled tasks and restrict to tasks the user created
-      // or is assigned to. Checks both the JSON assignee_ids array and the
-      // scalar assignee_id column so legacy single-assignee tasks are not missed.
-      // Subtasks (parent_task_id != 0) are INCLUDED so a user who is assigned a
-      // subtask still sees it in My Tasks.
-      const allTasks = await this.db.findWhere(TABLES.TASKS, tenantId,
-        `status != 'CANCELLED' AND ${NOT_DELETED}`,
-        { orderBy: 'CREATEDTIME DESC', limit: 300 });
-
-      const tasks = allTasks.filter((t) => {
-        if (String(t.created_by) === userId) return true;
-        try {
-          if (JSON.parse(t.assignee_ids || '[]').map(String).includes(userId)) return true;
-        } catch {}
-        return String(t.assignee_id || '') === userId;
-      });
+      // Restrict to tasks the user created or is assigned to — filtered in the
+      // query (not after a capped fetch) so users with more than 300 tasks still
+      // see all of them. assignee_ids is a JSON string like ["12","34"]; the
+      // quoted LIKE matches an id exactly. fetchAll auto-paginates in 300-row
+      // pages, so there is no 300-row ceiling. Subtasks are included.
+      // NOTE: the tasks table has no scalar `assignee_id` column — assignees are
+      // stored only in the `assignee_ids` JSON string (e.g. ["12","34"]). The
+      // quoted LIKE matches an id exactly. fetchAll auto-paginates (300-row
+      // pages) so there is no 300-row ceiling.
+      const uid = DataStoreService.escape(String(userId));
+      const mineWhere =
+        `status != 'CANCELLED' AND ${NOT_DELETED} AND ` +
+        `(created_by = '${uid}' OR assignee_ids LIKE '%"${uid}"%')`;
+      const tasks = await this.db.fetchAll(TABLES.TASKS, tenantId, mineWhere, { orderBy: 'CREATEDTIME DESC' });
 
       // Attach the parent task's title to any subtasks so the UI can show
       // "subtask of <X>" context without an extra round-trip per row.
@@ -804,9 +803,10 @@ class TaskController {
     const hasViewAll = Array.isArray(req.currentUser.permissions) &&
       req.currentUser.permissions.includes('PROJECT_DATA_VIEW_ALL');
 
-    let tasks = await this.db.findWhere(TABLES.TASKS, req.tenantId,
+    // fetchAll auto-paginates (300-row pages) so a large backlog isn't capped.
+    let tasks = await this.db.fetchAll(TABLES.TASKS, req.tenantId,
       `project_id = '${DataStoreService.escape(project_id)}' AND sprint_id = 0 AND parent_task_id = 0 AND status != 'DONE' AND status != 'CANCELLED' AND ${NOT_DELETED}`,
-      { orderBy: 'CREATEDTIME DESC', limit: 200 });
+      { orderBy: 'CREATEDTIME DESC' });
 
     // TEAM_MEMBER: restrict to tasks they created or are assigned to.
     // PROJECT_DATA_VIEW_ALL holders bypass this — they see the full backlog.

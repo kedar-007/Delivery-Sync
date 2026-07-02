@@ -43,6 +43,7 @@ interface Task {
   assigneeId?: string;
   storyPoints?: number;
   dueDate?: string;
+  createdAt?: string;
   sprintId?: string;
 }
 
@@ -462,6 +463,9 @@ const BacklogPage = () => {
                             </span>
                           ) : (
                             <span className="text-xs text-gray-400">—</span>
+                          )}
+                          {task.createdAt && !isNaN(new Date(task.createdAt).getTime()) && (
+                            <span className="block text-[10px] text-gray-400 mt-0.5">Created {format(new Date(task.createdAt), 'MMM d')}</span>
                           )}
                         </td>
 

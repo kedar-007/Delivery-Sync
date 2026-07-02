@@ -144,8 +144,8 @@ class SprintController {
       }
     }
 
-    const tasks = await this.db.findWhere(TABLES.TASKS, req.tenantId,
-      `sprint_id = '${sprint.ROWID}' AND parent_task_id = 0 AND deleted_at IS NULL`, { orderBy: 'CREATEDTIME ASC', limit: 200 });
+    const tasks = await this.db.fetchAll(TABLES.TASKS, req.tenantId,
+      `sprint_id = '${sprint.ROWID}' AND parent_task_id = 0 AND deleted_at IS NULL`, { orderBy: 'CREATEDTIME ASC' });
 
     const memberRows = await this.db.findWhere(TABLES.SPRINT_MEMBERS, req.tenantId,
       `sprint_id = '${sprint.ROWID}'`, { limit: 200 });
@@ -253,7 +253,9 @@ class SprintController {
     const sprint = await this.db.findById(TABLES.SPRINTS, sprintId, tenantId);
     if (!sprint) return ResponseHelper.notFound(res, 'Sprint not found');
 
-    const tasks = await this.db.findWhere(TABLES.TASKS, tenantId, `sprint_id = '${sprintId}' AND parent_task_id = 0 AND deleted_at IS NULL`, { orderBy: 'CREATEDTIME ASC', limit: 200 });
+    // fetchAll auto-paginates (300-row pages) so a sprint with >200 parent tasks
+    // isn't truncated on the board.
+    const tasks = await this.db.fetchAll(TABLES.TASKS, tenantId, `sprint_id = '${sprintId}' AND parent_task_id = 0 AND deleted_at IS NULL`, { orderBy: 'CREATEDTIME ASC' });
 
     // Group by status
     const board = {};

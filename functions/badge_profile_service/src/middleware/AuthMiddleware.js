@@ -4,7 +4,7 @@ const DataStoreService = require('../services/DataStoreService');
 const CacheService = require('../services/CacheService');
 
 const AUTH_CTX_TTL_HOURS    = 1 / 12; // 5 minutes
-const AUTH_CTX_KEY_VERSION  = 'v1';
+const AUTH_CTX_KEY_VERSION  = 'v2'; // bumped: added EMPLOYEE_RECORD_READ/WRITE permissions
 const AUTH_CTX_SERVICE_NAME = 'badges';
 const ResponseHelper = require('../utils/ResponseHelper');
 const { TABLES, USER_STATUS } = require('../utils/Constants');

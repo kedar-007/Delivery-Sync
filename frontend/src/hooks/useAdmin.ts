@@ -28,6 +28,20 @@ export const useUpdateAdminUser = (userId: string) => {
   });
 };
 
+export const useUpdateUserDetails = (userId: string) => {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (data: unknown) => adminApi.updateUserDetails(userId, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-users'] });
+      qc.invalidateQueries({ queryKey: ['profiles', userId] });
+      toast.success('Employee details updated');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to update employee details'),
+  });
+};
+
 export const useDeactivateUser = () => {
   const qc = useQueryClient();
   const toast = useToast();
@@ -256,3 +270,11 @@ export const useUpdateUserLocation = () => {
     onError: (e: Error) => toast.error(e.message || 'Failed to assign location'),
   });
 };
+
+// ── Background job / cron run monitor ─────────────────────────────────────────
+export const useJobRuns = (params?: Record<string, string>) =>
+  useQuery({
+    queryKey: ['admin-job-runs', params],
+    queryFn: () => adminApi.getJobRuns(params),
+    refetchInterval: 30_000, // keep the monitor live while the tab is open
+  });

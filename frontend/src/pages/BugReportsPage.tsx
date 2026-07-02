@@ -5,6 +5,7 @@ import {
   ChevronRight, X, Send, RotateCcw, Settings,
   Paperclip, Tag, User, Calendar, MessageSquare,
   ToggleLeft, ToggleRight, Circle, Layers, Zap, Eye, Reply, Upload, Trash2, Loader2,
+  LayoutGrid, List,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import Layout from '../components/layout/Layout';
@@ -14,6 +15,7 @@ import Modal, { ModalActions } from '../components/ui/Modal';
 import Alert from '../components/ui/Alert';
 import EmptyState from '../components/ui/EmptyState';
 import { PageLoader } from '../components/ui/Spinner';
+import UserAvatar from '../components/ui/UserAvatar';
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import {
@@ -674,8 +676,8 @@ const STATUS_SELECT_CLASS: Record<string, string> = {
   DUPLICATE: 'bg-yellow-100 text-yellow-700 border-yellow-300',
 };
 
-const ReportCard = ({ report, isAdmin, onClick }: {
-  report: BugReport; isAdmin: boolean; onClick: () => void;
+const ReportCard = ({ report, isAdmin, showReporter, onClick }: {
+  report: BugReport; isAdmin: boolean; showReporter?: boolean; onClick: () => void;
 }) => {
   const { t } = useI18n();
   const update = useUpdateBugReport();
@@ -735,9 +737,10 @@ const ReportCard = ({ report, isAdmin, onClick }: {
 
         {/* Bottom meta */}
         <div className="flex flex-wrap items-center gap-3 mt-3 text-xs text-gray-400">
-          {isAdmin && report.reporter_name && (
-            <span className="flex items-center gap-1">
-              <User size={11} />{report.reporter_name}
+          {showReporter && (report.reporter_name || report.reporter_email) && (
+            <span className="flex items-center gap-1.5">
+              <UserAvatar name={report.reporter_name || report.reporter_email || ''} avatarUrl={report.reporter_avatar_url} size="xs" />
+              {report.reporter_name || report.reporter_email}
             </span>
           )}
           {report.CREATEDTIME && (
@@ -765,6 +768,103 @@ const ReportCard = ({ report, isAdmin, onClick }: {
 
       <ChevronRight size={16} className="text-gray-300 group-hover:text-indigo-400 transition-colors shrink-0 self-center" />
     </div>
+  );
+};
+
+// ─── Report table row ─────────────────────────────────────────────────────────
+
+const ReportRow = ({ report, isAdmin, showReporter, onClick }: {
+  report: BugReport; isAdmin: boolean; showReporter?: boolean; onClick: () => void;
+}) => {
+  const { t } = useI18n();
+  const update = useUpdateBugReport();
+
+  const handleStatusChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newStatus = e.target.value;
+    if (newStatus === report.status || !report.ROWID) return;
+    try {
+      await update.mutateAsync({ id: report.ROWID, data: { status: newStatus as BugReport['status'] } });
+    } catch (_) {}
+  };
+
+  return (
+    <tr
+      onClick={onClick}
+      className="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50/70 dark:hover:bg-gray-700/30 cursor-pointer transition-colors"
+    >
+      {/* Title + description */}
+      <td className="px-4 py-3 max-w-xs">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+            report.severity === 'CRITICAL' ? 'bg-red-500' :
+            report.severity === 'HIGH'     ? 'bg-orange-500' :
+            report.severity === 'MEDIUM'   ? 'bg-amber-400' : 'bg-green-400'
+          }`} />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-gray-900 dark:text-ds-text truncate">{report.title}</p>
+            <p className="text-xs text-gray-400 truncate">{report.description}</p>
+          </div>
+        </div>
+      </td>
+      {/* Type */}
+      <td className="px-4 py-3 whitespace-nowrap"><TypeBadge type={report.report_type} /></td>
+      {/* Severity */}
+      <td className="px-4 py-3 whitespace-nowrap"><SevBadge sev={report.severity} /></td>
+      {/* Status */}
+      <td className="px-4 py-3 whitespace-nowrap">
+        {isAdmin ? (
+          <div onClick={(e) => e.stopPropagation()}>
+            <select
+              value={report.status ?? 'OPEN'}
+              onChange={handleStatusChange}
+              disabled={update.isPending}
+              className={`text-xs font-semibold rounded-full border px-2.5 py-0.5 cursor-pointer outline-none transition-colors appearance-none disabled:opacity-60 ${STATUS_SELECT_CLASS[report.status ?? 'OPEN'] ?? STATUS_SELECT_CLASS.OPEN}`}
+            >
+              <option value="OPEN">{t('bugs.status.open')}</option>
+              <option value="IN_REVIEW">In Review</option>
+              <option value="RESOLVED">{t('bugs.status.resolved')}</option>
+              <option value="CLOSED">{t('bugs.status.closed')}</option>
+              <option value="DUPLICATE">Duplicate</option>
+            </select>
+          </div>
+        ) : (
+          <StatusBadge status={report.status} />
+        )}
+      </td>
+      {/* Reporter — avatar + name (shown when viewing all reports) */}
+      {showReporter && (
+        <td className="px-4 py-3 whitespace-nowrap">
+          {(report.reporter_name || report.reporter_email) ? (
+            <div className="flex items-center gap-2">
+              <UserAvatar name={report.reporter_name || report.reporter_email || ''} avatarUrl={report.reporter_avatar_url} size="xs" />
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-gray-700 dark:text-ds-text truncate max-w-[140px]">{report.reporter_name || report.reporter_email}</p>
+                {report.reporter_name && report.reporter_email && (
+                  <p className="text-[10px] text-gray-400 truncate max-w-[140px]">{report.reporter_email}</p>
+                )}
+              </div>
+            </div>
+          ) : <span className="text-xs text-gray-400">—</span>}
+        </td>
+      )}
+      {/* Created */}
+      <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500">{fmtDate(report.CREATEDTIME) || '—'}</td>
+      {/* Indicators */}
+      <td className="px-4 py-3 whitespace-nowrap">
+        <div className="flex items-center gap-3 text-xs text-gray-400">
+          {Number(report.attachment_count) > 0 && (
+            <span className="flex items-center gap-1"><Paperclip size={11} />{report.attachment_count}</span>
+          )}
+          {report.reporter_reply && (
+            <span className="flex items-center gap-1 text-indigo-600 font-semibold"><Reply size={11} /></span>
+          )}
+          {report.resolution_notes && (
+            <span className="flex items-center gap-1 text-green-600"><MessageSquare size={11} /></span>
+          )}
+          <ChevronRight size={15} className="text-gray-300" />
+        </div>
+      </td>
+    </tr>
   );
 };
 
@@ -834,9 +934,13 @@ const ConfigPanel = ({ onClose }: { onClose: () => void }) => {
 export default function BugReportsPage() {
   const { t } = useI18n();
   const { user } = useAuth();
-  const isAdmin  = user?.role === 'TENANT_ADMIN' || user?.role === 'SUPER_ADMIN'
+  // canManage → can change status / resolve reports (write). Bug admins only.
+  const canManage = user?.role === 'TENANT_ADMIN' || user?.role === 'SUPER_ADMIN'
     || hasPermission(user, PERMISSIONS.BUG_REPORT_READ_ALL);
-  const canConfig = isAdmin || hasPermission(user, PERMISSIONS.BUG_REPORT_CONFIG);
+  // canViewAll → can see the "All Reports" tab (read). Bug admins OR users with
+  // org-wide data visibility, even if they can't manage/resolve reports.
+  const canViewAll = canManage || hasPermission(user, PERMISSIONS.PROJECT_DATA_VIEW_ALL);
+  const canConfig = canManage || hasPermission(user, PERMISSIONS.BUG_REPORT_CONFIG);
 
   const [tab, setTab]           = useState<'mine' | 'all'>('mine');
   const [search, setSearch]     = useState('');
@@ -846,17 +950,21 @@ export default function BugReportsPage() {
   const [showSubmit,   setShowSubmit]   = useState(false);
   const [selectedId,   setSelectedId]   = useState<string | null>(null);
   const [showConfig,   setShowConfig]   = useState(false);
+  const [viewMode, setViewMode] = useState<'card' | 'table'>(
+    () => (localStorage.getItem('bugReports.viewMode') as 'card' | 'table') || 'card'
+  );
+  const setView = (m: 'card' | 'table') => { setViewMode(m); localStorage.setItem('bugReports.viewMode', m); };
   const PAGE_SIZE = 25;
   const [page, setPage] = useState(1);
   React.useEffect(() => { setPage(1); }, [tab, search, filterStatus, filterType, filterSev]);
 
   // Queries — pass `all=true` so super admin sees the full result set
   // (paginated internally on the backend past ZCQL's 200-row per-query cap).
-  // Gate /reports/all on isAdmin — non-admins hit a 403 otherwise.
+  // Gate /reports/all on canViewAll — users without it hit a 403 otherwise.
   const { data: rawMine = [], isLoading: loadingMine } = useBugReports();
   const { data: rawAll  = [], isLoading: loadingAll  } = useAllBugReports(
     { all: 'true' },
-    { enabled: isAdmin }
+    { enabled: canViewAll }
   );
   const { data: rawConfig } = useBugConfig();
 
@@ -864,12 +972,12 @@ export default function BugReportsPage() {
   const isEnabled   = !cfg || cfg.enabled === true || String(cfg.enabled) !== 'false';
   const myReports   = ((rawMine as any)?.reports ?? (Array.isArray(rawMine) ? rawMine : [])) as BugReport[];
   const allReports  = ((rawAll  as any)?.reports ?? (Array.isArray(rawAll)  ? rawAll  : [])) as BugReport[];
-  const activeList  = tab === 'all' && isAdmin ? allReports : myReports;
+  const activeList  = tab === 'all' && canViewAll ? allReports : myReports;
   const selected    = selectedId ? [...myReports, ...allReports].find((r) => r.ROWID === selectedId) ?? null : null;
   const isLoading   = tab === 'all' ? loadingAll : loadingMine;
 
   // Stats
-  const statSource = isAdmin ? allReports : myReports;
+  const statSource = canViewAll ? allReports : myReports;
   const stats = useMemo(() => ({
     total:     statSource.length,
     open:      statSource.filter((r) => r.status === 'OPEN').length,
@@ -901,7 +1009,7 @@ export default function BugReportsPage() {
     <Layout>
       <Header
         title={t('nav.bugReports')}
-        subtitle={isAdmin ? `${stats.total} total reports across your organisation` : "Track issues you've reported"}
+        subtitle={canViewAll ? `${stats.total} total reports across your organisation` : "Track issues you've reported"}
         actions={
           <div className="flex items-center gap-2">
             {canConfig && (
@@ -925,7 +1033,7 @@ export default function BugReportsPage() {
         {!isEnabled && (
           <Alert
             type="warning"
-            message={isAdmin
+            message={canConfig
               ? 'Bug reporting is currently disabled. Enable it in Settings to let your team submit reports.'
               : 'Bug reporting is not available for your organisation at the moment.'}
           />
@@ -942,8 +1050,8 @@ export default function BugReportsPage() {
           <StatCard label={t('bugs.status.resolved')} value={stats.resolved} accent="bg-green-50"   icon={<CheckCircle2 size={18} className="text-green-500" />} />
         </div>
 
-        {/* Tabs (admin only) */}
-        {isAdmin && (
+        {/* Tabs — shown to anyone who can view all reports */}
+        {canViewAll && (
           <div className="flex gap-1 bg-gray-100 dark:bg-gray-700/50 rounded-xl p-1 w-fit">
             {(['mine', 'all'] as const).map((tabKey) => (
               <button key={tabKey} onClick={() => setTab(tabKey)}
@@ -997,6 +1105,24 @@ export default function BugReportsPage() {
               <X size={12} />{t('common.clear')}
             </button>
           )}
+
+          {/* View toggle: Cards / Table */}
+          <div className="ml-auto flex items-center gap-1 bg-gray-100 dark:bg-gray-700/50 rounded-lg p-1">
+            <button
+              onClick={() => setView('card')}
+              title="Card view"
+              className={`p-1.5 rounded-md transition-colors ${viewMode === 'card' ? 'bg-white dark:bg-gray-600 shadow-sm text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
+            >
+              <LayoutGrid size={16} />
+            </button>
+            <button
+              onClick={() => setView('table')}
+              title="Table view"
+              className={`p-1.5 rounded-md transition-colors ${viewMode === 'table' ? 'bg-white dark:bg-gray-600 shadow-sm text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
+            >
+              <List size={16} />
+            </button>
+          </div>
         </div>
 
         {/* List */}
@@ -1015,16 +1141,48 @@ export default function BugReportsPage() {
           />
         ) : (
           <>
-            <div className="space-y-3">
-              {paginatedList.map((r) => (
-                <ReportCard
-                  key={r.ROWID}
-                  report={r}
-                  isAdmin={isAdmin}
-                  onClick={() => setSelectedId(r.ROWID ?? null)}
-                />
-              ))}
-            </div>
+            {viewMode === 'card' ? (
+              <div className="space-y-3">
+                {paginatedList.map((r) => (
+                  <ReportCard
+                    key={r.ROWID}
+                    report={r}
+                    isAdmin={canManage}
+                    showReporter={canViewAll}
+                    onClick={() => setSelectedId(r.ROWID ?? null)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="bg-ds-surface border border-gray-100 dark:border-gray-700 rounded-2xl shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-left">
+                    <thead>
+                      <tr className="text-[11px] uppercase tracking-wide text-gray-400 bg-gray-50/70 dark:bg-gray-700/30">
+                        <th className="px-4 py-2.5 font-semibold">{t('common.title')}</th>
+                        <th className="px-4 py-2.5 font-semibold">{t('common.type')}</th>
+                        <th className="px-4 py-2.5 font-semibold">Severity</th>
+                        <th className="px-4 py-2.5 font-semibold">Status</th>
+                        {canViewAll && <th className="px-4 py-2.5 font-semibold">Reporter</th>}
+                        <th className="px-4 py-2.5 font-semibold">Created</th>
+                        <th className="px-4 py-2.5 font-semibold" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedList.map((r) => (
+                        <ReportRow
+                          key={r.ROWID}
+                          report={r}
+                          isAdmin={canManage}
+                          showReporter={canViewAll}
+                          onClick={() => setSelectedId(r.ROWID ?? null)}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {totalPages > 1 && (
               <div className="flex items-center justify-between pt-4 border-t border-gray-100">
@@ -1067,7 +1225,7 @@ export default function BugReportsPage() {
       <ReportBugWidget open={showSubmit} onOpenChange={setShowSubmit} />
       <DetailModal
         report={selected}
-        isAdmin={isAdmin}
+        isAdmin={canManage}
         open={!!selected}
         onClose={() => setSelectedId(null)}
       />

@@ -194,6 +194,7 @@ class DashboardController {
           id: String(project.ROWID), name: project.name, ragStatus: project.rag_status,
           status: project.status, startDate: project.start_date, endDate: project.end_date,
           description: project.description,
+          ownerUserId: project.owner_user_id,
           standupEnabled: project.standup_enabled !== 'false',
           eodEnabled: project.eod_enabled !== 'false',
         },

@@ -44,6 +44,7 @@ interface Task {
   estimatedHours?: number;
   loggedHours?: number;
   dueDate?: string;
+  createdAt?: string;
   sprintId?: string;
   labels?: string[];
   projectId: string;
@@ -693,6 +694,9 @@ function TaskRow({
           </span>
         ) : (
           <span className="text-xs text-gray-300">—</span>
+        )}
+        {task.createdAt && !isNaN(new Date(task.createdAt).getTime()) && (
+          <span className="block text-[10px] text-gray-400 mt-0.5 whitespace-nowrap">Created {format(new Date(task.createdAt), 'MMM d')}</span>
         )}
       </td>
 

@@ -513,7 +513,7 @@ class OrgRolesController {
       { group: 'Time Tracking', keys: ['TIME_READ', 'TIME_WRITE', 'TIME_APPROVE', 'TIME_ANALYTICS'] },
       { group: 'Attendance', keys: ['ATTENDANCE_READ', 'ATTENDANCE_WRITE', 'ATTENDANCE_TEAM_VIEW', 'ATTENDANCE_ADMIN', 'IP_CONFIG_WRITE'] },
       { group: 'Leave', keys: ['LEAVE_READ', 'LEAVE_WRITE', 'LEAVE_APPROVE', 'LEAVE_ADMIN'] },
-      { group: 'People & Org', keys: ['PROFILE_READ', 'PROFILE_WRITE', 'TEAM_READ', 'TEAM_WRITE', 'ORG_READ', 'ORG_WRITE', 'ORG_ROLE_READ', 'ORG_ROLE_WRITE', 'ANNOUNCEMENT_READ', 'ANNOUNCEMENT_WRITE'] },
+      { group: 'People & Org', keys: ['PROFILE_READ', 'PROFILE_WRITE', 'EMPLOYEE_RECORD_READ', 'EMPLOYEE_RECORD_WRITE', 'TEAM_READ', 'TEAM_WRITE', 'ORG_READ', 'ORG_WRITE', 'ORG_ROLE_READ', 'ORG_ROLE_WRITE', 'ANNOUNCEMENT_READ', 'ANNOUNCEMENT_WRITE'] },
       { group: 'Assets', keys: ['ASSET_READ', 'ASSET_WRITE', 'ASSET_ASSIGN', 'ASSET_APPROVE', 'ASSET_ADMIN', 'ASSET_SCAN_BASIC', 'ASSET_SCAN_FULL'] },
       { group: 'Badges', keys: ['BADGE_READ', 'BADGE_WRITE', 'BADGE_AWARD'] },
       { group: 'Reports & Dashboard', keys: ['REPORT_READ', 'REPORT_WRITE', 'DASHBOARD_READ', 'CEO_DASHBOARD', 'CTO_DASHBOARD'] },

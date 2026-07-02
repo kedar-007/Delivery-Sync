@@ -1,6 +1,7 @@
 'use strict';
 
 const ZCatalyst = require('zcatalyst-sdk-node');
+const JobRunService = require('./src/services/JobRunService');
 
 // ─── Weekend / Holiday helpers ────────────────────────────────────────────────
 
@@ -45,6 +46,15 @@ function isDayOff(dayOfWeek, year, month, date, policy) {
  */
 module.exports = async (jobRequest, context) => {
   const app = ZCatalyst.initialize(context);
+
+  // Record this run in the global job_runs table (Settings -> Background Jobs).
+  // The real close is deferred until the status row is written; call sites
+  // below stay unchanged.
+  const run = await JobRunService.start(app, 'team-reminder', 'team_reminder');
+  const _closeOk   = context.closeWithSuccess.bind(context);
+  const _closeFail = context.closeWithFailure.bind(context);
+  context.closeWithSuccess = () => { run.success().finally(_closeOk); };
+  context.closeWithFailure = () => { run.fail('job closed with failure').finally(_closeFail); };
 
   try {
     const params = jobRequest.getAllJobParams();

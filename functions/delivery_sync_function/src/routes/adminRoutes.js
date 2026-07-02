@@ -16,8 +16,14 @@ const ctrl = (req) => new AdminController(req.adminCatalystApp || req.catalystAp
 const orgCtrl = (req) => new OrgRolesController(req.catalystApp);
 
 router.post('/users/invite', auth, can(PERMISSIONS.INVITE_USER), asyncHandler((req, res) => ctrl(req).inviteUserOrg(req, res)));
-router.get('/users', auth, can(PERMISSIONS.ADMIN_USERS), asyncHandler((req, res) => ctrl(req).listUsers(req, res)));
+// Readable by full admins, delegated user-management perms, OR employee-record perms
+// so ops staff can use People Settings → Employee Records without full ADMIN_USERS.
+router.get('/users', auth, RBACMiddleware.requireAny(PERMISSIONS.USER_READ, PERMISSIONS.USER_WRITE, PERMISSIONS.ADMIN_USERS, PERMISSIONS.EMPLOYEE_RECORD_READ, PERMISSIONS.EMPLOYEE_RECORD_WRITE), asyncHandler((req, res) => ctrl(req).listUsers(req, res)));
 router.put('/users/:userId', auth, can(PERMISSIONS.ADMIN_USERS), asyncHandler((req, res) => ctrl(req).updateUser(req, res)));
+// Employment & personal HR details (People Settings → Employee Records). Writes only
+// user_profiles fields, so it's delegable to ops staff via EMPLOYEE_RECORD_WRITE (role/
+// status changes stay behind ADMIN_USERS above). USER_WRITE/ADMIN_USERS kept for continuity.
+router.put('/users/:userId/details', auth, RBACMiddleware.requireAny(PERMISSIONS.EMPLOYEE_RECORD_WRITE, PERMISSIONS.USER_WRITE, PERMISSIONS.ADMIN_USERS), asyncHandler((req, res) => ctrl(req).updateUserDetails(req, res)));
 router.delete('/users/:userId', auth, admin(), asyncHandler((req, res) => ctrl(req).deactivateUser(req, res)));
 router.patch('/users/:userId/activate', auth, admin(), asyncHandler((req, res) => ctrl(req).activateUser(req, res)));
 
@@ -25,6 +31,8 @@ router.get('/tenant',            auth, can(PERMISSIONS.ADMIN_SETTINGS), asyncHan
 router.patch('/tenant/name',     auth, admin(),                          asyncHandler((req, res) => ctrl(req).updateTenantName(req, res)));
 router.patch('/tenant/settings', auth, admin(),                          asyncHandler((req, res) => ctrl(req).updateTenantSettings(req, res)));
 router.get('/audit-logs', auth, can(PERMISSIONS.ADMIN_SETTINGS), asyncHandler((req, res) => ctrl(req).getAuditLogs(req, res)));
+// Background job / cron run monitor (Settings → System → Background Jobs)
+router.get('/job-runs', auth, RBACMiddleware.requireAny(PERMISSIONS.ADMIN_JOBS_VIEW, PERMISSIONS.ADMIN_USERS), asyncHandler((req, res) => ctrl(req).listJobRuns(req, res)));
 router.get('/modules', auth, asyncHandler((req, res) => ctrl(req).getModulePermissions(req, res)));
 router.put('/modules', auth, admin(), asyncHandler((req, res) => ctrl(req).updateModulePermissions(req, res)));
 

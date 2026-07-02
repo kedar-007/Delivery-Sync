@@ -4,7 +4,7 @@ const DataStoreService = require('../services/DataStoreService');
 const NotificationService = require('../services/NotificationService');
 const ResponseHelper = require('../utils/ResponseHelper');
 const Validator = require('../utils/Validator');
-const { TABLES, NOTIFICATION_TYPE } = require('../utils/Constants');
+const { TABLES, NOTIFICATION_TYPE, PROJECT_MEMBER_ROLES } = require('../utils/Constants');
 
 /**
  * MemberController – manages project membership.
@@ -252,6 +252,32 @@ class MemberController {
 
       await this.db.delete(TABLES.PROJECT_MEMBERS, memberId);
       return ResponseHelper.success(res, null, 'Member removed');
+    } catch (err) {
+      return ResponseHelper.serverError(res, err.message);
+    }
+  }
+
+  /**
+   * PATCH /api/projects/:projectId/members/:memberId
+   * Update a member's project role (e.g. fix a mistakenly-assigned role).
+   */
+  async updateMember(req, res) {
+    try {
+      const { tenantId } = req.currentUser;
+      const { projectId, memberId } = req.params;
+      const role = String(req.body?.role ?? '').trim();
+
+      if (!PROJECT_MEMBER_ROLES.includes(role)) {
+        return ResponseHelper.validationError(res, 'Invalid project role');
+      }
+
+      const member = await this.db.findById(TABLES.PROJECT_MEMBERS, memberId, tenantId);
+      if (!member || String(member.project_id) !== projectId) {
+        return ResponseHelper.notFound(res, 'Member record not found');
+      }
+
+      const updated = await this.db.update(TABLES.PROJECT_MEMBERS, { ROWID: String(memberId), role });
+      return ResponseHelper.success(res, updated, 'Member role updated');
     } catch (err) {
       return ResponseHelper.serverError(res, err.message);
     }

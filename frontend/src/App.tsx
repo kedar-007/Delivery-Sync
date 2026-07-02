@@ -53,6 +53,7 @@ import AccessRevokedPage from "./pages/AccessRevokedPage";
 import BugReportsPage from "./pages/BugReportsPage";
 import AuditLogsPage from "./pages/AuditLogsPage";
 import RecycleBinPage from "./pages/RecycleBinPage";
+import BackgroundJobsPage from "./pages/BackgroundJobsPage";
 import OrgSetupPage from "./pages/OrgSetupPage";
 import PublicSharePage from "./pages/PublicSharePage";
 import { ConfirmProvider } from "./components/ui/ConfirmDialog";
@@ -95,7 +96,7 @@ const AppRoutes = () => {
   if (loading) return <AppLoader />;
   if (isDeactivated) return <AccessRevokedPage />;
 
-  // ✅ Single source of truth — AuthContext decides if user is logged in
+  // Single source of truth — AuthContext decides if user is logged in
   const mustLogin = !user || isLoggedOut;
   // When user is authenticated but tenant slug is missing, send to /org-setup
   // so they can complete their workspace details — no polling, just a real page.
@@ -196,6 +197,7 @@ const AppRoutes = () => {
         <Route path="people-settings" element={<PermRoute permission={['LEAVE_ADMIN', 'LOCATION_ADMIN', 'IP_CONFIG_WRITE']}><PeopleSettingsPage /></PermRoute>} />
         <Route path="audit-logs"   element={<PermRoute permission="ADMIN_USERS"><AuditLogsPage /></PermRoute>} />
         <Route path="recycle-bin"  element={<PermRoute permission={['ADMIN_TRASH_VIEW', 'ADMIN_USERS']}><RecycleBinPage /></PermRoute>} />
+        <Route path="background-jobs" element={<PermRoute permission={['ADMIN_JOBS_VIEW', 'ADMIN_USERS']}><BackgroundJobsPage /></PermRoute>} />
         <Route path="data-seed"    element={<PermRoute permission="DATA_SEED"><DataSeedPage /></PermRoute>} />
         <Route path="ip-config"    element={<PermRoute permission="IP_CONFIG_WRITE"><IpConfigPage /></PermRoute>} />
       </Route>

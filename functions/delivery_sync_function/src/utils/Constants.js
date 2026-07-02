@@ -14,8 +14,8 @@ const ROLES = Object.freeze({
 const PROJECT_MEMBER_ROLES = Object.freeze([
   'DELIVERY_LEAD', 'PROJECT_MANAGER', 'SCRUM_MASTER', 'PRODUCT_OWNER',
   'TECH_LEAD', 'SENIOR_DEVELOPER', 'DEVELOPER', 'DEVOPS_ENGINEER',
-  'TESTER', 'DESIGNER', 'BUSINESS_ANALYST', 'DATA_ANALYST',
-  'STAKEHOLDER', 'OBSERVER', 'LEAD', 'MEMBER',
+  'TESTER', 'DESIGNER', 'BUSINESS_ANALYST', 'MIS_ANALYST', 'DATA_ANALYST',
+  'TRAINEE', 'INTERN', 'STAKEHOLDER', 'OBSERVER', 'LEAD', 'MEMBER',
 ]);
 
 // ─── Permissions ──────────────────────────────────────────────────────────────
@@ -46,6 +46,7 @@ const PERMISSIONS = Object.freeze({
   ADMIN_TRASH_VIEW:    'ADMIN_TRASH_VIEW',    // view soft-deleted records across all modules
   ADMIN_TRASH_RESTORE: 'ADMIN_TRASH_RESTORE', // restore a soft-deleted record
   ADMIN_TRASH_PURGE:   'ADMIN_TRASH_PURGE',   // permanently delete a trashed record
+  ADMIN_JOBS_VIEW:     'ADMIN_JOBS_VIEW',     // view background job / cron run history (job_runs)
   INVITE_USER: 'INVITE_USER',
   NOTIFICATION_READ: 'NOTIFICATION_READ',
   TEAM_READ: 'TEAM_READ',
@@ -137,6 +138,9 @@ const PERMISSIONS = Object.freeze({
   USER_DELETE:        'USER_DELETE',       // deactivate / reactivate user accounts
   ROLE_ASSIGN:        'ROLE_ASSIGN',       // change a user's system role (TEAM_MEMBER → DELIVERY_LEAD etc.)
   PERMISSION_MANAGE:  'PERMISSION_MANAGE', // grant or revoke individual permissions for other users
+  // ── Employee Records (People Settings → Employee Records) ─────────────────
+  EMPLOYEE_RECORD_READ:  'EMPLOYEE_RECORD_READ',  // view employees' HR records (joining date, employee ID, bank, emergency contact)
+  EMPLOYEE_RECORD_WRITE: 'EMPLOYEE_RECORD_WRITE', // edit employees' HR records
   // ── Executive dashboards ──────────────────────────────────────────────────────
   CEO_DASHBOARD: 'CEO_DASHBOARD',
   CTO_DASHBOARD: 'CTO_DASHBOARD',
@@ -487,6 +491,7 @@ const TABLES = Object.freeze({
   DECISIONS: 'decisions',
   REPORTS: 'reports',
   AUDIT_LOGS: 'audit_logs',
+  JOB_RUNS: 'job_runs',
   NOTIFICATION_EVENTS: 'notification_events',
   NOTIFICATIONS: 'notifications',
   TEAMS: 'teams',

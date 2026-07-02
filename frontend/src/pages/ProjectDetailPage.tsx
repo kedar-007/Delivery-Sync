@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Edit2, Users, CheckSquare, AlertTriangle, Milestone, BarChart2, UserPlus, Trash2, ListChecks, Clock, FolderOpen } from 'lucide-react';
+import { ArrowLeft, Edit2, Users, CheckSquare, AlertTriangle, Milestone, BarChart2, UserPlus, Trash2, ListChecks, Clock, FolderOpen, Pencil } from 'lucide-react';
 import UserHoverCard from '../components/ui/UserHoverCard';
 import UserAvatar from '../components/ui/UserAvatar';
 import Layout from '../components/layout/Layout';
@@ -12,7 +12,7 @@ import Modal, { ModalActions } from '../components/ui/Modal';
 import { PageLoader } from '../components/ui/Spinner';
 import Alert from '../components/ui/Alert';
 import { useProjectDashboard } from '../hooks/useDashboard';
-import { useUpdateRAG, useProjectMembers, useAddMember, useRemoveMember, useAddTeamToProject, useUpdateProject } from '../hooks/useProjects';
+import { useUpdateRAG, useProjectMembers, useAddMember, useAddTeamToProject, useUpdateProject } from '../hooks/useProjects';
 import { projectsApi } from '../lib/api';
 import { useUsers } from '../hooks/useUsers';
 import { useTeams } from '../hooks/useTeams';
@@ -22,6 +22,7 @@ import { useConfirm } from '../components/ui/ConfirmDialog';
 import { useAuth } from '../contexts/AuthContext';
 import { hasPermission, PERMISSIONS } from '../utils/permissions';
 import { useI18n } from '../contexts/I18nContext';
+import ManageMembersModal, { RoleOptionGroups } from '../components/projects/ManageMembersModal';
 
 const ProjectDetailPage = () => {
   const { confirm } = useConfirm();
@@ -37,6 +38,7 @@ const ProjectDetailPage = () => {
   const [showEditPM, setShowEditPM] = useState(false);
   const [pmUserId, setPmUserId] = useState('');
   const [pmError, setPmError] = useState('');
+  const [showManageMembers, setShowManageMembers] = useState(false);
 
 
   const { data, isLoading, error } = useProjectDashboard(projectId!);
@@ -46,7 +48,6 @@ const ProjectDetailPage = () => {
   const { data: allTeams = [] } = useTeams();
   const addMember = useAddMember(projectId!);
   const addTeam = useAddTeamToProject(projectId!);
-  const removeMember = useRemoveMember(projectId!);
   const updateProject = useUpdateProject(projectId!);
 
   const onSavePM = async () => {
@@ -98,11 +99,6 @@ const ProjectDetailPage = () => {
     }
   };
 
-  const handleRemoveMember = async (memberId: string) => {
-    const ok = await confirm({ title: t('teams.removeMember'), message: t('teams.removeMemberConfirm'), confirmText: t('common.remove'), variant: 'warning' });
-    if (!ok) return;
-    try { await removeMember.mutateAsync(memberId); } catch { /* handled by query */ }
-  };
 
   if (isLoading) return <Layout><PageLoader /></Layout>;
   if (error) return <Layout><Alert type="error" message={(error as Error).message} className="m-6" /></Layout>;
@@ -220,20 +216,25 @@ const ProjectDetailPage = () => {
 
         {/* Members */}
         <Card>
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-3 gap-2">
             <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2"><Users size={16} /> {t('teams.membersLabel')} ({members.length})</h3>
-            {canManageProject && <Button size="sm" variant="outline" icon={<UserPlus size={14} />} onClick={() => setShowAddMember(true)}>{t('teams.addMember')}</Button>}
+            {canManageProject && (
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" icon={<UserPlus size={14} />} onClick={() => setShowAddMember(true)}>{t('teams.addMember')}</Button>
+                <Button size="sm" icon={<Pencil size={14} />} onClick={() => setShowManageMembers(true)}>Manage</Button>
+              </div>
+            )}
           </div>
           {members.length === 0 ? (
             <p className="text-sm text-gray-400">{t('common.noData')}</p>
           ) : (
-            <div className="divide-y divide-gray-100">
+            <div className="divide-y divide-gray-100 max-h-96 overflow-y-auto pr-1 -mr-1">
               {members.map((m: { id: string; userId: string; name?: string; email?: string; avatarUrl?: string; userRole?: string; projectRole?: string }) => {
                 const enriched = allUsers.find((u) => String(u.id) === String(m.userId));
                 const avatarUrl = m.avatarUrl || enriched?.avatarUrl || '';
                 return (
-                <div key={m.id} className="flex items-center justify-between py-2">
-                  <div className="flex items-center gap-3">
+                <div key={m.id} className="flex items-center justify-between py-2 gap-2">
+                  <div className="flex items-center gap-3 min-w-0">
                     <UserHoverCard
                       name={m.name || enriched?.name || m.email || ''}
                       role={m.userRole}
@@ -242,16 +243,11 @@ const ProjectDetailPage = () => {
                       avatarUrl={avatarUrl}
                       size="sm"
                     />
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{m.name || m.email || m.userId}</p>
-                      <p className="text-xs text-gray-400">{(m.projectRole || m.userRole || '').replace(/_/g, ' ')}</p>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{m.name || m.email || m.userId}</p>
+                      <p className="text-xs text-gray-400 truncate">{(m.projectRole || m.userRole || '').replace(/_/g, ' ') || '—'}</p>
                     </div>
                   </div>
-                  {canManageProject && (
-                    <button onClick={() => handleRemoveMember(m.id)} className="p-1 text-gray-400 hover:text-red-500 transition-colors" title="Remove member">
-                      <Trash2 size={14} />
-                    </button>
-                  )}
                 </div>
                 );
               })}
@@ -321,6 +317,15 @@ const ProjectDetailPage = () => {
         </div>
       </div>
 
+      {/* Manage Members Modal — add / remove / change roles in one place */}
+      <ManageMembersModal
+        open={showManageMembers}
+        onClose={() => setShowManageMembers(false)}
+        projectId={projectId!}
+        members={members}
+        allUsers={allUsers}
+      />
+
       {/* Add Member Modal */}
       <Modal
         open={showAddMember}
@@ -368,35 +373,7 @@ const ProjectDetailPage = () => {
             <div>
               <label className="form-label">{t('teams.role')}</label>
               <select className="form-select" {...addMemberForm.register('role')}>
-                <optgroup label="Leadership">
-                  <option value="DELIVERY_LEAD">Delivery Lead</option>
-                  <option value="PROJECT_MANAGER">Project Manager</option>
-                  <option value="TECH_LEAD">Tech Lead</option>
-                  <option value="SCRUM_MASTER">Scrum Master</option>
-                  <option value="PRODUCT_OWNER">Product Owner</option>
-                </optgroup>
-                <optgroup label="Engineering">
-                  <option value="SENIOR_DEVELOPER">Senior Developer</option>
-                  <option value="DEVELOPER">Developer</option>
-                  <option value="DEVOPS_ENGINEER">DevOps Engineer</option>
-                </optgroup>
-                <optgroup label="Analysis & Reporting">
-                  <option value="BUSINESS_ANALYST">Business Analyst (BA)</option>
-                  <option value="MIS_ANALYST">MIS Analyst</option>
-                  <option value="DATA_ANALYST">Data Analyst</option>
-                </optgroup>
-                <optgroup label="Quality & Design">
-                  <option value="TESTER">QA / Tester</option>
-                  <option value="DESIGNER">UI/UX Designer</option>
-                </optgroup>
-                <optgroup label="Entry Level">
-                  <option value="TRAINEE">Trainee</option>
-                  <option value="INTERN">Intern</option>
-                </optgroup>
-                <optgroup label="Stakeholders">
-                  <option value="STAKEHOLDER">Stakeholder</option>
-                  <option value="OBSERVER">Observer</option>
-                </optgroup>
+                <RoleOptionGroups />
               </select>
             </div>
             <ModalActions>

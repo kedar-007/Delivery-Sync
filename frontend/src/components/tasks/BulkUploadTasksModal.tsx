@@ -15,6 +15,8 @@ import {
   BulkUser,
   RawTaskCells,
   EMPTY_TASK_CELLS,
+  BULK_MIN_TASKS,
+  BULK_MAX_TASKS,
 } from '../../lib/bulkTasks';
 
 interface Props {
@@ -144,6 +146,8 @@ const BulkUploadTasksModal = ({ open, onClose, onImported, projectId, sprintId, 
   );
   const validRows = parsed.filter((r) => r.errors.length === 0);
   const errorRows = parsed.filter((r) => r.errors.length > 0);
+  const overCap = validRows.length > BULK_MAX_TASKS;
+  const canImport = validRows.length >= BULK_MIN_TASKS && !overCap;
 
   const downloadTemplate = () => {
     const blob = new Blob([buildTemplateCsv(statuses)], { type: 'text/csv;charset=utf-8;' });
@@ -197,7 +201,7 @@ const BulkUploadTasksModal = ({ open, onClose, onImported, projectId, sprintId, 
   const close = () => { if (importing) return; reset(); onClose(); };
 
   const handleImport = async () => {
-    if (validRows.length === 0 || importing) return;
+    if (!canImport || importing) return;
 
     // Each row already carries its resolved status (from the Status column,
     // falling back to the board default during validation).
@@ -277,6 +281,7 @@ const BulkUploadTasksModal = ({ open, onClose, onImported, projectId, sprintId, 
             <p>
               Upload a CSV, paste rows, or add them by hand below. Required column: <b className="text-ds-text">Title</b>.
               Due date is optional. Assignees are matched by email. Edit any cell directly before importing.
+              You can import <b className="text-ds-text">{BULK_MIN_TASKS}–{BULK_MAX_TASKS}</b> tasks at a time.
             </p>
             {statuses.length > 0 && (
               <p className="flex flex-wrap items-center gap-1.5">
@@ -330,9 +335,19 @@ const BulkUploadTasksModal = ({ open, onClose, onImported, projectId, sprintId, 
           <>
             <div className="flex items-center gap-4 text-xs">
               <span className="text-ds-text-muted">{editRows.length} row{editRows.length === 1 ? '' : 's'}</span>
-              <span className="inline-flex items-center gap-1 text-green-700"><CheckCircle2 size={13} /> {validRows.length} ready</span>
+              <span className={`inline-flex items-center gap-1 ${overCap ? 'text-red-600' : 'text-green-700'}`}>
+                <CheckCircle2 size={13} /> {validRows.length} ready
+                <span className="text-ds-text-muted">/ {BULK_MAX_TASKS} max</span>
+              </span>
               {errorRows.length > 0 && <span className="inline-flex items-center gap-1 text-red-600"><AlertCircle size={13} /> {errorRows.length} need a title / fix (highlighted)</span>}
             </div>
+
+            {overCap && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700">
+                <AlertCircle size={13} className="shrink-0" />
+                Too many tasks — you can import at most <b>{BULK_MAX_TASKS}</b> at once. Remove {validRows.length - BULK_MAX_TASKS} row{validRows.length - BULK_MAX_TASKS === 1 ? '' : 's'} to continue.
+              </div>
+            )}
 
             {/* Both scrollbars: vertical via max-h, horizontal via overflow-x on the wide table */}
             <div className="max-h-[46vh] overflow-auto rounded-lg border border-ds-border">
@@ -498,7 +513,7 @@ const BulkUploadTasksModal = ({ open, onClose, onImported, projectId, sprintId, 
           variant="primary"
           onClick={handleImport}
           loading={importing}
-          disabled={validRows.length === 0 || importing}
+          disabled={!canImport || importing}
         >
           {importing
             ? `Creating ${progress?.done ?? 0}/${progress?.total ?? validRows.length}…`

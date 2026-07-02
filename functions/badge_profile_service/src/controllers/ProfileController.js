@@ -79,7 +79,11 @@ class ProfileController {
         : '')
     );
 
-    const fields = ['bio', 'date_of_joining', 'department', 'designation', 'employee_id', 'phone', 'timezone', 'is_profile_public', 'birth_date', 'resume_url', 'photo_url', 'work_hours_per_day', 'business_hours_label', 'working_days'];
+    const fields = ['bio', 'date_of_joining', 'department', 'designation', 'employee_id', 'phone', 'timezone', 'is_profile_public', 'birth_date', 'resume_url', 'photo_url', 'work_hours_per_day', 'business_hours_label', 'working_days',
+      // Bank account & emergency contact details — self-service editable by the user,
+      // and by ops staff via People Settings → Employee Records (AdminController.updateUserDetails).
+      'bank_account_name', 'bank_account_number', 'bank_name', 'bank_ifsc_code', 'bank_branch',
+      'emergency_contact_name', 'emergency_contact_relation', 'emergency_contact_phone', 'emergency_contact_email'];
     const arrayFields = ['skills', 'experience', 'certifications'];
     const jsonFields  = ['social_links'];
 

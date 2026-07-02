@@ -2,6 +2,7 @@
 
 const DataStoreService    = require('../services/DataStoreService');
 const NotificationService = require('../services/NotificationService');
+const JobRunService       = require('../services/JobRunService');
 const ResponseHelper      = require('../utils/ResponseHelper');
 const { TABLES, NOTIFICATION_TYPE } = require('../utils/Constants');
 
@@ -9,6 +10,47 @@ const CRON_AUTH = (req) => {
   const isCron     = req.headers['x-zoho-catalyst-is-cron'] === 'true';
   const isInternal = req.headers['x-delivery-sync-internal'] === process.env.INTERNAL_SECRET;
   return isCron || isInternal;
+};
+
+// Catalyst schedules crons in the project timezone (Asia/Kolkata), but the
+// function clock is UTC. At a 1:00 AM IST firing on the 1st, UTC is still
+// 19:30 on the last day of the PREVIOUS month — so month/year must be derived
+// in project time, never from now.getMonth()/getFullYear() directly.
+const PROJECT_TZ = 'Asia/Kolkata';
+const projectYearMonth = (date) => {
+  const [year, month] = new Intl.DateTimeFormat('en-CA', {
+    timeZone: PROJECT_TZ, year: 'numeric', month: '2-digit',
+  }).format(date).split('-').map(Number);
+  return { year, month };
+};
+
+const round2 = (n) => Math.round(n * 100) / 100;
+
+const addMonthsUTC = (date, n) => {
+  const d = new Date(date.getTime());
+  d.setUTCMonth(d.getUTCMonth() + n);
+  return d;
+};
+
+// Months (1–12) of currentYear, up to and including currentMonth, that a user
+// is entitled to accrue for. Mirrors functions/leave_policy/index.js.
+const eligibleAccrualMonths = ({ currentYear, currentMonth, effectiveFrom, skipMonths, probationClearMs }) => {
+  let startMonth = 1;
+  if (effectiveFrom) {
+    const [efY, efM] = String(effectiveFrom).split('-').map(Number);
+    if (efY > currentYear) return [];
+    if (efY === currentYear) startMonth = efM || 1;
+  } else {
+    startMonth = currentMonth; // no anchor — never back-fill before this run
+  }
+  const months = [];
+  for (let m = startMonth; m <= currentMonth; m++) {
+    if (skipMonths.includes(m)) continue;
+    // Entitled to month m only if probation cleared by the 1st of m
+    if (probationClearMs != null && Date.UTC(currentYear, m - 1, 1) < probationClearMs) continue;
+    months.push(m);
+  }
+  return months;
 };
 
 class CronController {
@@ -19,6 +61,7 @@ class CronController {
 
     const db    = new DataStoreService(req.catalystApp);
     const notif = new NotificationService(req.catalystApp, db);
+    const run   = await JobRunService.start(req.catalystApp, 'attendance-anomaly', 'people_service');
     const today = DataStoreService.today();
 
     // Get all active users (paginated — ZCQL hard cap is 300 rows)
@@ -62,6 +105,7 @@ class CronController {
       }
     }
 
+    await run.success({ anomalies_flagged: flagged, date: today });
     return ResponseHelper.success(res, { anomalies_flagged: flagged, date: today });
   }
 
@@ -72,6 +116,7 @@ class CronController {
 
     const db    = new DataStoreService(req.catalystApp);
     const notif = new NotificationService(req.catalystApp, db);
+    const run   = await JobRunService.start(req.catalystApp, 'leave-approval-reminder', 'people_service');
     const cutoff = DataStoreService.daysAgo(1);
 
     const pending = await db.query(`SELECT lr.ROWID, lr.tenant_id, lr.user_id, lr.start_date, lr.end_date FROM ${TABLES.LEAVE_REQUESTS} lr WHERE lr.status = 'PENDING' AND lr.CREATEDTIME < '${cutoff}' LIMIT 200`);
@@ -87,36 +132,66 @@ class CronController {
       }
     }
 
+    await run.success({ reminders_sent: sent });
     return ResponseHelper.success(res, { reminders_sent: sent });
   }
 
   // POST /api/people/cron/monthly-accrual — runs 1st of each month
+  //
+  // RECONCILIATION, not blind increment (mirrors functions/leave_policy/index.js):
+  // computes the months each user was ENTITLED to accrue this year (from the
+  // policy's effectiveFrom anchor, minus skipMonths, gated on probation clear
+  // by the 1st of each month) and tops up the `accrued_days` ledger to match.
+  // Idempotent, and self-healing when a date_of_joining is added/corrected
+  // later — the next run back-fills the missed months automatically.
   static async monthlyAccrual(req, res) {
     if (!CRON_AUTH(req)) return ResponseHelper.forbidden(res, 'Cron only');
     if (!req.catalystApp && !req.adminCatalystApp) return ResponseHelper.serverError(res, 'catalystApp not initialized');
 
-    const db  = new DataStoreService(req.adminCatalystApp || req.catalystApp);
+    const appRef = req.adminCatalystApp || req.catalystApp;
+    const db  = new DataStoreService(appRef);
+    const run = await JobRunService.start(appRef, 'monthly-accrual', 'people_service');
     const now = new Date();
-    const currentMonth = now.getMonth() + 1; // 1–12
-    const currentYear  = now.getFullYear();
-    const yearStr      = String(currentYear);
+    const { year: currentYear, month: currentMonth } = projectYearMonth(now);
+    const yearStr    = String(currentYear);
+    const monthLabel = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
 
     let totalAccrued = 0;
     let totalSkipped = 0;
     const errors = [];
+    const warnings = [];
 
     try {
       // Fetch all tenants
       const tenants = await db.query(`SELECT ROWID, settings FROM ${TABLES.TENANTS} LIMIT 200`);
 
       for (const tenant of tenants) {
-        let policy = {};
-        try { policy = JSON.parse(tenant.settings || '{}').leavePolicy || {}; } catch (_) {}
+        let settings = {};
+        try { settings = JSON.parse(tenant.settings || '{}'); } catch (_) {}
+        const policy = settings.leavePolicy || {};
         if (!policy.accrualEnabled) continue;
 
         const probationMonths  = Number(policy.probationMonths ?? 3);
         const typesPolicies    = policy.leaveTypes || {};
         const tenantId         = String(tenant.ROWID);
+
+        // Anchor effectiveFrom if the policy predates this field — without an
+        // anchor, reconciliation would back-fill everyone to January.
+        let effectiveFrom = policy.effectiveFrom;
+        if (!effectiveFrom) {
+          effectiveFrom = monthLabel;
+          try {
+            settings.leavePolicy = { ...policy, effectiveFrom };
+            await db.update(TABLES.TENANTS, { ROWID: tenantId, settings: JSON.stringify(settings) });
+          } catch (e) {
+            warnings.push(`tenant=${tenantId}: could not persist effectiveFrom: ${e.message}`);
+          }
+        }
+
+        const monthlyTypes = Object.entries(typesPolicies).filter(
+          ([, p]) => p && p.accrualMethod === 'monthly' && parseFloat(p.monthlyAmount ?? 0) > 0
+        );
+        if (monthlyTypes.length === 0) continue;
 
         // Active users for this tenant
         const users = [];
@@ -148,9 +223,9 @@ class CronController {
         for (const user of users) {
           const userId = String(user.ROWID);
 
-          // Probation check — prefer admin-set date_of_joining; fall back to the
-          // account creation time (when the user first joined the app). New joiners
-          // are gated by probation and receive NO accrual until they clear it.
+          // Probation clear date — prefer admin-set date_of_joining; fall back
+          // to account creation time so brand-new joiners are still gated. If
+          // the joining date is filled in later, reconciliation back-fills.
           const joiningDateStr = joiningMap[userId];
           let probationStart   = null;
           if (joiningDateStr) {
@@ -158,62 +233,91 @@ class CronController {
           } else if (user.CREATEDTIME) {
             probationStart = new Date(Number(user.CREATEDTIME));
           }
+          let probationClearMs = null;
           if (probationStart && !isNaN(probationStart.getTime())) {
-            const monthsSinceJoin = (now - probationStart) / (1000 * 60 * 60 * 24 * 30.44);
-            if (monthsSinceJoin < probationMonths) { totalSkipped++; continue; }
+            probationClearMs = addMonthsUTC(probationStart, probationMonths).getTime();
           }
 
-          for (const [leaveTypeId, ltPolicy] of Object.entries(typesPolicies)) {
-            if (!ltPolicy || ltPolicy.accrualMethod !== 'monthly') continue;
+          let userHadEligibleMonth = false;
 
+          for (const [leaveTypeId, ltPolicy] of monthlyTypes) {
             const skipMonths    = Array.isArray(ltPolicy.skipMonths) ? ltPolicy.skipMonths : [];
-            if (skipMonths.includes(currentMonth)) continue;
-
             const monthlyAmount = parseFloat(ltPolicy.monthlyAmount ?? 0);
-            if (monthlyAmount <= 0) continue;
+
+            const months = eligibleAccrualMonths({
+              currentYear, currentMonth, effectiveFrom, skipMonths, probationClearMs,
+            });
+            if (months.length > 0) userHadEligibleMonth = true;
+
+            const expected = round2(monthlyAmount * months.length);
 
             try {
               const balQ = `user_id = '${userId}' AND leave_type_id = '${leaveTypeId}' AND year = '${yearStr}'`;
               const bal  = await db.findWhere(TABLES.LEAVE_BALANCES, tenantId, balQ, { limit: 1 });
 
               if (bal.length === 0) {
+                if (expected <= 0) continue;
                 await db.insert(TABLES.LEAVE_BALANCES, {
                   tenant_id:       tenantId,
                   user_id:         userId,
                   leave_type_id:   leaveTypeId,
                   year:            yearStr,
-                  total_allocated: monthlyAmount,
+                  total_allocated: expected,
                   opening_balance: 0,
-                  remaining_days:  monthlyAmount,
+                  remaining_days:  expected,
                   used_days:       0,
                   pending_days:    0,
+                  accrued_days:    expected,
                 });
+                totalAccrued++;
               } else {
-                const b            = bal[0];
-                const newAllocated = parseFloat(b.total_allocated ?? b.allocated_days ?? 0) + monthlyAmount;
-                const newRemaining = parseFloat(b.remaining_days ?? 0) + monthlyAmount;
-                await db.update(TABLES.LEAVE_BALANCES, {
-                  ROWID:           b.ROWID,
-                  total_allocated: newAllocated,
-                  remaining_days:  newRemaining,
-                });
+                const b       = bal[0];
+                const alloc   = parseFloat(b.total_allocated ?? b.allocated_days ?? 0) || 0;
+                const opening = parseFloat(b.opening_balance ?? 0) || 0;
+                const rem     = parseFloat(b.remaining_days ?? 0) || 0;
+
+                // Rows created before the accrued_days ledger existed: assume
+                // prior allocation minus carry-forward came from accrual.
+                let accrued = parseFloat(b.accrued_days);
+                if (isNaN(accrued)) accrued = Math.max(0, round2(alloc - opening));
+
+                const delta = round2(expected - accrued);
+                if (delta > 0) {
+                  await db.update(TABLES.LEAVE_BALANCES, {
+                    ROWID:           b.ROWID,
+                    accrued_days:    round2(accrued + delta),
+                    total_allocated: round2(alloc + delta),
+                    remaining_days:  round2(rem + delta),
+                  });
+                  totalAccrued++;
+                } else if (delta < 0) {
+                  // Over-accrued vs current policy/joining date — never deduct.
+                  warnings.push(`user=${userId} lt=${leaveTypeId}: accrued ${accrued} exceeds entitlement ${expected} — manual review`);
+                }
               }
-              totalAccrued++;
             } catch (e) {
               errors.push(`user=${userId} lt=${leaveTypeId}: ${e.message}`);
             }
           }
+
+          if (!userHadEligibleMonth) totalSkipped++;
         }
       }
     } catch (outerErr) {
+      await run.fail(outerErr.message, { month: monthLabel, accrued: totalAccrued });
       return ResponseHelper.serverError(res, outerErr.message);
     }
 
-    return ResponseHelper.success(res, {
-      month: currentMonth, year: currentYear,
+    const summary = {
+      month: monthLabel,
       accrued: totalAccrued, skipped: totalSkipped,
+      warnings: warnings.slice(0, 20),
       errors: errors.slice(0, 20),
-    });
+    };
+    if (errors.length > 0) await run.fail(`${errors.length} balance update(s) failed`, summary);
+    else await run.success(summary);
+
+    return ResponseHelper.success(res, summary);
   }
 
   // POST /api/people/cron/year-end-carry-forward — runs 1 Jan each year
@@ -221,10 +325,12 @@ class CronController {
     if (!CRON_AUTH(req)) return ResponseHelper.forbidden(res, 'Cron only');
     if (!req.catalystApp && !req.adminCatalystApp) return ResponseHelper.serverError(res, 'catalystApp not initialized');
 
-    const db       = new DataStoreService(req.adminCatalystApp || req.catalystApp);
+    const appRef   = req.adminCatalystApp || req.catalystApp;
+    const db       = new DataStoreService(appRef);
+    const run      = await JobRunService.start(appRef, 'year-end-carry-forward', 'people_service');
     const now      = new Date();
-    const lastYear = now.getFullYear() - 1;
-    const thisYear = now.getFullYear();
+    const thisYear = projectYearMonth(now).year;
+    const lastYear = thisYear - 1;
     const lastYearStr = String(lastYear);
     const thisYearStr = String(thisYear);
 
@@ -302,14 +408,19 @@ class CronController {
         }
       }
     } catch (outerErr) {
+      await run.fail(outerErr.message, { from_year: lastYear, to_year: thisYear, carried: totalCarried });
       return ResponseHelper.serverError(res, outerErr.message);
     }
 
-    return ResponseHelper.success(res, {
+    const summary = {
       from_year: lastYear, to_year: thisYear,
       carried: totalCarried, skipped: totalSkipped,
       errors: errors.slice(0, 20),
-    });
+    };
+    if (errors.length > 0) await run.fail(`${errors.length} carry-forward update(s) failed`, summary);
+    else await run.success(summary);
+
+    return ResponseHelper.success(res, summary);
   }
 
   // POST /api/people/cron/send-reminders — runs every minute  (Catalyst Cron: * * * * *)

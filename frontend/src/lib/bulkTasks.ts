@@ -12,6 +12,10 @@ export type TaskPriority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 export interface BulkUser { id: string; name?: string; email?: string }
 export interface BulkStatus { key: string; label: string }
 
+// Standard caps for a single bulk import.
+export const BULK_MIN_TASKS = 1;    // need at least one valid row to import
+export const BULK_MAX_TASKS = 200;  // upper cap per import (matches the backend limit)
+
 export interface ParsedTaskRow {
   rowNumber: number;            // 1-based, excludes header
   title: string;

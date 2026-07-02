@@ -12,5 +12,5 @@ router.get('/me/resume',      RBACMiddleware.require(PERMISSIONS.PROFILE_READ), 
 router.post('/upload-file',   RBACMiddleware.require(PERMISSIONS.PROFILE_WRITE), asyncHandler((req, res) => ctrl(req).uploadFile(req, res)));
 router.get('/directory',      RBACMiddleware.require(PERMISSIONS.PROFILE_READ),  asyncHandler((req, res) => ctrl(req).directory(req, res)));
 router.get('/:userId/resume', RBACMiddleware.require(PERMISSIONS.PROFILE_READ),  asyncHandler((req, res) => ctrl(req).serveResume(req, res)));
-router.get('/:userId',        RBACMiddleware.require(PERMISSIONS.PROFILE_READ),  asyncHandler((req, res) => ctrl(req).getById(req, res)));
+router.get('/:userId',        RBACMiddleware.requireAny(PERMISSIONS.PROFILE_READ, PERMISSIONS.EMPLOYEE_RECORD_READ, PERMISSIONS.EMPLOYEE_RECORD_WRITE),  asyncHandler((req, res) => ctrl(req).getById(req, res)));
 module.exports = router;

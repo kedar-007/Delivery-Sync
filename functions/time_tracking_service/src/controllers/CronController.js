@@ -1,6 +1,7 @@
 'use strict';
 
 const DataStoreService    = require('../services/DataStoreService');
+const JobRunService       = require('../services/JobRunService');
 const NotificationService = require('../services/NotificationService');
 const ResponseHelper      = require('../utils/ResponseHelper');
 const { TABLES, NOTIFICATION_TYPE } = require('../utils/Constants');
@@ -12,6 +13,7 @@ class CronController {
     const isInternal = req.headers['x-delivery-sync-internal'] === process.env.INTERNAL_SECRET;
     if (!isCron && !isInternal) return ResponseHelper.forbidden(res, 'Cron only');
     if (!req.catalystApp) return ResponseHelper.serverError(res, 'catalystApp not initialized');
+    const run = await JobRunService.start(req.catalystApp, 'approval-reminder', 'time_tracking_service');
 
     const db    = new DataStoreService(req.catalystApp);
     const notif = new NotificationService(req.catalystApp, db);
@@ -32,6 +34,7 @@ class CronController {
       }
     }
 
+    await run.success({ reminders_sent: sent });
     return ResponseHelper.success(res, { reminders_sent: sent });
   }
 }
